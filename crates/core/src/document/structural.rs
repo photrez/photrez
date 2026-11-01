@@ -28,7 +28,8 @@ fn e_invalid(msg: &str) -> ProtocolError {
 }
 
 /// Read the canonical-shadow document dims, or E_INVALID when no shadow is seeded.
-/// The TS oracle reads model.width/height directly; the native arm reads the
+/// The reference engine read the document's own width/height directly; the
+/// native arm reads the
 /// seeded canonical shadow instead (the engine keeps no doc dims of its own), so a
 /// merge/flatten before the host seeds the shadow rejects rather than guessing.
 fn canonical_dims(engine: &DocumentCore) -> Result<(f64, f64), ProtocolError> {
@@ -62,8 +63,8 @@ impl DocumentCore {
                 new_id
             )));
         }
-        // Unknown source id is a silent no-op (engine no-ops like DeleteLayer; the
-        // host oracle's duplicateLayer throws on unknown id - a documented divergence.
+        // Unknown source id is a silent no-op (same as DeleteLayer). The reference
+        // engine's duplicate threw on an unknown id - a documented divergence.
         // The host owns identity checks before sending, so this is safe).
         let pos = match self.layers.position_by_id(id) {
             Some(p) => p,
@@ -122,7 +123,7 @@ impl DocumentCore {
         };
         let bottom_pos = pos + 1;
         if bottom_pos >= self.layers.0.len() {
-            // Nothing below: cannot merge (mirrors TS mergeDown index guard).
+            // Nothing below: cannot merge (index guard).
             return Ok(Vec::new());
         }
         let top = self.layers.get(pos).expect("layer present").clone();
@@ -199,7 +200,7 @@ impl DocumentCore {
     /// Merge multiple selected layers into one raster node at the highest stack
     /// position (first occurrence index) among them. Blend mode is always Normal;
     /// locked when ANY selected layer is locked. Fewer than two matched ids is a
-    /// silent no-op (mirrors the TS filter: only ids present in the engine count).
+    /// silent no-op (only ids present in the engine count).
     pub(crate) fn apply_merge_selected(
         &mut self,
         ids: &[String],
@@ -349,7 +350,7 @@ impl DocumentCore {
             }),
             layer_type: Some(LayerType::Raster),
             blend_mode: Some(BlendMode::Normal),
-            // oracle flattenLayers:253-266 - locked stays false; the bg flags carry
+            // flatten rule: locked stays false; the bg flags carry
             // the locks.
             locked: Some(false),
             lock_transparency: None,
@@ -399,11 +400,11 @@ impl DocumentCore {
     /// `pixels` carries the host-rendered bitmap that materializes the layer's
     /// canonical buffer (parametric layers are metadata-only — "typed add;
     /// rasterization stays host-side"). With it, the layer's dimensions become
-    /// the bitmap's, matching the oracle where a text layer always carries its
+    /// the bitmap's, matching the rule that a text layer always carries its
     /// bitmap at bitmap-sized dims; the buffer itself is drained by
     /// `DocumentPixelStore` through `pending_rasterize`. Without it the flip is
     /// metadata-only (the historical behaviour that left the layer
-    /// un-compositable — the U11 defect receipt).
+    /// un-compositable — the documented rasterize defect).
     pub(crate) fn apply_rasterize(
         &mut self,
         id: &str,
@@ -465,8 +466,8 @@ impl DocumentCore {
             _ => {}
         }
         if let Some((width, height, rgba)) = &material {
-            // The materialized bitmap defines the layer frame (the oracle's
-            // text layers always carry bitmap-sized dims).
+            // The materialized bitmap defines the layer frame (text layers
+            // always carry bitmap-sized dims).
             nl.width = Some(f64::from(*width));
             nl.height = Some(f64::from(*height));
             self.pending_rasterize = Some(crate::document::rasterize_bake::RasterizePlan {

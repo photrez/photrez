@@ -2,20 +2,16 @@
 // External (host-handoff) metadata undo/redo: what the engine can restore on
 // its own, and where the `after` slot comes from.
 //
-// THE HOST SEQUENCE A metadata commit runs, in this order:
+// THE COMMIT SEQUENCE A metadata handoff runs, in this order:
 //   1. pre-op canonical push   -> seed_ptz(pre-op vector)
 //   2. record                  -> RecordExternalTransition (captures `before`)
 //   3. post-op canonical push  -> seed_ptz(post-op vector) fills `after`
 // then the host's undo drives Command::Undo. Steps 1 and 3 are the two
-// `repushCanonical*` invokes in `recordExternalTransitionFor`
-// (apps/desktop/src/lib/protocol/facadeRegistry.ts:1121 and :1180); step 2 is
-// the `applyCommand` at :1126; the undo is `facade.undo()`.
+// canonical re-pushes that bracket the record step, and step 2 is the
+// applyCommand issued between them; the undo is the host's own undo call.
 //
-// This is the DEFAULT configuration, not a gated one: `installFacadeCommitShim`
-// is called unconditionally from EditorShell, it exits early only when
-// `isFacadeEnabled()` is false, and that predicate is
-// `localStorage["photrez.facade"] !== "0"` - so the mirror runs unless the flag
-// is explicitly set to "0". `isNativeAuthority()` is likewise native by default,
+// This is the DEFAULT configuration, not a gated one: the mirror is armed
+// unless it is explicitly disabled, and native authority is the default too -
 // which is what makes the two canonical pushes reach `seed_ptz`.
 //
 // The claim this file settles: an External undo restores the captured `before`

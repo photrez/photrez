@@ -470,9 +470,8 @@ fn native_authority_command_path_uses_global_registry_and_json_envelope() {
     assert_eq!(missing, "document not open: never_opened");
 
     // Apply-error formatting: a contract-version mismatch yields a ProtocolError
-    // whose code the command formats as the bare "CODE: message" string that
-    // Tauri v2 surfaces as a bare-string rejection. This is the error shape the
-    // frozen client must handle through the raw request boundary.
+    // whose code the command formats as the bare "CODE: message" string - the
+    // shape the raw command boundary returns to the host.
     let code_msg = {
         let mut g = registry();
         let reg = g.get_or_insert_with(Default::default);

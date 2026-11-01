@@ -1,12 +1,11 @@
-//! Rust candidate rasterizer for the pixel-parity harness.
-//! DESIGN scope (2026-08-24): TS remains authoritative; this module produces
-//! CANDIDATE tile patches + digests only. No production pixel ownership,
-//! no ResourceRegistry / TileStore / resource_read_* naming, no zero-copy.
+//! Brush rasterizer for the pixel-parity harness and the live paint path.
+//! It owns no document state: callers keep the pixel store, this module only
+//! turns dabs into tile patches and digests.
 //!
-//! Digest pipeline mirrors apps/desktop/src/lib/benchPixelParity.ts EXACTLY:
+//! Digest pipeline contract, pinned EXACTLY:
 //!   key = "tx,ty"; combined = sorted("key:fnv1a(bytes);"...) ; digest = fnv1a(utf8(combined))
 
-/// FNV-1a (32-bit) — must match the TS implementation bit-for-bit.
+/// FNV-1a (32-bit) — must match the reference digest bit-for-bit.
 pub fn fnv1a(bytes: &[u8]) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     for &b in bytes {
@@ -44,7 +43,7 @@ pub struct ParityDab {
     pub alpha: f64,
 }
 
-/// Straight (non-premultiplied) RGBA tip bitmap — produced by the TS-owned tip cache.
+/// Straight (non-premultiplied) RGBA tip bitmap — produced by the brush-tip cache.
 pub struct ParityTip<'a> {
     pub width: usize,
     pub height: usize,

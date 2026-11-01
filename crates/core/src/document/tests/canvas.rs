@@ -2,8 +2,9 @@
 // Canvas-size command-arm tests: CropCanvas / ApplyCrop / ResizeCanvas. These pin
 // the native-authority contract for the three document-size arms so a regression
 // (silent no-op semantics, locked-layer skip, selection clear, shadow dim sync,
-// non-finite rejection, and doc_size undo/redo restoration) is caught. The TS
-// parity (Side A oracle vs Side B arm) lives in operationParity.matrix.test.ts.
+// non-finite rejection, and doc_size undo/redo restoration) is caught. Each arm is
+// checked against the clean-room recomputation below, so a regression does not
+// depend on the arm's own math.
 use super::commands::{env, layer};
 use crate::document::DocumentCore;
 use crate::ptz::content::{PtzDocumentContent, SelectionShape, SelectionState};
@@ -48,8 +49,8 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < TOL
 }
 
-// Clean-room reference of the TS performApplyCrop non-destructive math, used to
-// assert the Rust arm matches the oracle (independent of the arm's own code).
+// Clean-room recomputation of the non-destructive apply-crop math, used to
+// assert the Rust arm matches it (independent of the arm's own code).
 #[allow(clippy::too_many_arguments)] // test fixture mirrors the apply-crop command struct
 fn ref_apply_crop(
     x: f64,

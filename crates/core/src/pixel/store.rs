@@ -15,7 +15,7 @@
 //!   is written outside the COW path (desync guard).
 
 use std::collections::HashMap;
-#[cfg(any(feature = "legacy-tauri", test))]
+#[cfg(any(feature = "legacy-host", test))]
 use std::sync::{Mutex, MutexGuard};
 
 use super::document_store::DocumentPixelStore;
@@ -46,7 +46,7 @@ const TILE_MAJOR: bool = false;
 /// TS via the `rust_pixels_*` commands: open/close/add/remove/resize manage
 /// entries; a missing document namespace is created lazily on first layer init.
 #[cfg_attr(
-    not(feature = "legacy-tauri"),
+    not(feature = "legacy-host"),
     doc = r#"
 
 The default core build exposes typed store operations but not the legacy global
@@ -91,9 +91,9 @@ fn main() {
 )]
 #[derive(Default)]
 pub struct PixelStoreRegistry {
-    #[cfg(feature = "legacy-tauri")]
+    #[cfg(feature = "legacy-host")]
     pub docs: HashMap<String, DocumentPixelStore>,
-    #[cfg(not(feature = "legacy-tauri"))]
+    #[cfg(not(feature = "legacy-host"))]
     pub(crate) docs: HashMap<String, DocumentPixelStore>,
 }
 
@@ -108,15 +108,15 @@ impl PixelStoreRegistry {
 // Process-lifetime registry. The `static PIXEL_STORE: Option<HashMap<..>>`
 // global is replaced here by a document-namespaced owner; the outer `Option`
 // keeps the lazy-init pattern already used by the Tauri command layer.
-#[cfg(any(feature = "legacy-tauri", test))]
+#[cfg(any(feature = "legacy-host", test))]
 static REGISTRY: Mutex<Option<PixelStoreRegistry>> = Mutex::new(None);
 
-#[cfg(feature = "legacy-tauri")]
+#[cfg(feature = "legacy-host")]
 pub fn registry() -> MutexGuard<'static, Option<PixelStoreRegistry>> {
     REGISTRY.lock().unwrap()
 }
 
-#[cfg(all(not(feature = "legacy-tauri"), test))]
+#[cfg(all(not(feature = "legacy-host"), test))]
 pub(crate) fn registry() -> MutexGuard<'static, Option<PixelStoreRegistry>> {
     REGISTRY.lock().unwrap()
 }

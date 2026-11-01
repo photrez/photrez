@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Brush dab producer: the stroke spacing/carry state
-// machine ported 1:1 from apps/desktop/src/components/editor/brushTipMask.ts
-// (interpolateDabs + getBrushDabSpacing). f64 internals match JS Number
-// semantics so TS and Rust producers produce identical dab sequences.
+// Brush dab producer: the stroke spacing/carry state machine behind the brush
+// tip mask. It implements the reference dab interpolation and spacing rules
+// (interpolateDabs + getBrushDabSpacing): f64 internals match that producer's
+// double-precision arithmetic, so both emit identical dab sequences.
 // Dabs are accumulated into an internal Vec<f64> (x0,y0,x1,y1,...) and cleared
 // on each update() call. update()/update_batch() return the count of x,y
 // pairs produced; the raw buffer is readable in-crate via `dab_slice`.
 
-/// spacing = max(1, round(size * 0.10)) - identical to getBrushDabSpacing.
+/// spacing = max(1, round(size * 0.10)) - the reference dab-spacing rule.
 pub fn brush_dab_spacing(size: f64) -> f64 {
     (size * 0.10).round().max(1.0)
 }
@@ -34,13 +34,13 @@ impl BrushStrokeEngine {
     }
 
     /// Update spacing when brush size changes mid-stroke (carry persists,
-    /// matching the TS session behavior).
+    /// matching the reference paint-session behavior).
     pub fn set_size(&mut self, size: f64) {
         self.spacing = brush_dab_spacing(size);
     }
 
     /// Begin/reposition the stroke anchor. Emits no dab (the first stamp is
-    /// emitted by the caller, matching paintSession behavior).
+    /// emitted by the caller, matching the reference paint session).
     pub fn begin(&mut self, x: f64, y: f64) {
         self.last_x = x;
         self.last_y = y;
@@ -107,7 +107,7 @@ impl BrushStrokeEngine {
     /// Dabs produced by the last `update`/`update_batch`, as flat x,y pairs.
     ///
     /// The native input chain feeds these to `PixelStore::commit_pixels`; the
-    /// buffer is cleared on the next update, matching the TS producer.
+    /// buffer is cleared on the next update, matching the reference producer.
     pub fn dabs(&self) -> &[f64] {
         &self.dabs
     }
@@ -118,7 +118,7 @@ impl BrushStrokeEngine {
         &self.dabs
     }
 
-    /// Test-only: seed carry to reproduce TS reference cases that inject
+    /// Test-only: seed carry to reproduce reference cases that inject
     /// values unreachable via natural chaining (carry > spacing never occurs
     /// in live sessions).
     #[cfg(test)]

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Stroke-engine tests: the dab spacing/carry state machine checked against
-//! the TS reference cases.
+//! the reference dab-interpolation cases.
 
 use crate::brush::engine::*;
 
-// Reference cases mirror apps/desktop/src/components/editor/__tests__/
-// brushTipMask.test.ts "interpolateDabs edge cases" + segment identity.
+// Cases below pin the reference dab-interpolation edge cases (zero distance,
+// sub-spacing moves, carry overflow) plus segment identity.
 
 fn dab(engine: &mut BrushStrokeEngine, x: f64, y: f64) -> Vec<(f64, f64)> {
     let n = engine.update(x, y);
@@ -64,7 +64,7 @@ fn chained_carry_reduces_first_gap() {
 
 #[test]
 fn injected_wrap_carry_matches_ts_case() {
-    // TS reference: (0,0)->(30,0) spacing 10 carry 12 -> next=-2 (behind
+    // Reference case: (0,0)->(30,0) spacing 10 carry 12 -> next=-2 (behind
     // anchor), dabs at t=-2/8.., carry = 30 - (38-10) = 2
     let mut e = BrushStrokeEngine::new(100.0);
     e.begin(0.0, 0.0);
@@ -76,7 +76,7 @@ fn injected_wrap_carry_matches_ts_case() {
 
 #[test]
 fn diagonal_carry_matches_ts_reference() {
-    // TS reference: segment (dx,dy)=(5,5), spacing 10, carry 8 ->
+    // Reference case: segment (dx,dy)=(5,5), spacing 10, carry 8 ->
     // distance=sqrt(50), first dab at t=2/distance, carry = 5.07...
     let mut e = BrushStrokeEngine::new(100.0);
     e.begin(18.0, 0.0); // anchor anywhere; math is segment-relative

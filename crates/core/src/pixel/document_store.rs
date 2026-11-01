@@ -33,8 +33,8 @@ pub struct DocumentPixelStore {
 }
 
 impl DocumentPixelStore {
-    #[cfg(any(feature = "legacy-tauri", test))]
-    #[cfg_attr(not(feature = "legacy-tauri"), allow(dead_code))]
+    #[cfg(any(feature = "legacy-host", test))]
+    #[cfg_attr(not(feature = "legacy-host"), allow(dead_code))]
     pub fn new() -> Self {
         Self {
             layers: HashMap::new(),
@@ -73,14 +73,14 @@ impl DocumentPixelStore {
         self.history.invalidate_layer(layer_id);
     }
 
-    #[cfg(any(feature = "legacy-tauri", test))]
-    #[cfg_attr(not(feature = "legacy-tauri"), allow(dead_code))]
+    #[cfg(any(feature = "legacy-host", test))]
+    #[cfg_attr(not(feature = "legacy-host"), allow(dead_code))]
     pub fn get_layer(&self, layer_id: &str) -> Option<&PixelLayer> {
         self.layers.get(layer_id)
     }
 
-    #[cfg(any(feature = "legacy-tauri", test))]
-    #[cfg_attr(not(feature = "legacy-tauri"), allow(dead_code))]
+    #[cfg(any(feature = "legacy-host", test))]
+    #[cfg_attr(not(feature = "legacy-host"), allow(dead_code))]
     pub fn get_layer_mut(&mut self, layer_id: &str) -> Option<&mut PixelLayer> {
         // Desync guard: any DIRECT write via a `&mut PixelLayer` is unknown
         // to the per-layer StateNode canon, so force the canon to re-seed from
@@ -239,8 +239,8 @@ impl DocumentPixelStore {
         let mut deltas = Vec::new();
         if let Some(fill) = &plan.fill {
             // Bake the colour UNDER the Background and replace its bitmap with
-            // the document-sized result (the oracle's "fill canvas, draw the
-            // cropped Background over it", baked into the Background layer).
+            // the document-sized result of "fill the canvas, then draw the
+            // cropped Background over it", baked into the Background layer.
             let doc_w = plan.doc_width.max(0.0) as u32;
             let doc_h = plan.doc_height.max(0.0) as u32;
             let before = self

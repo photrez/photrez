@@ -52,7 +52,8 @@ pub struct DocumentCore {
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
     // Engine document size (canvas width/height). The native DocumentCore keeps
-    // its own document dims (the TS oracle reads model.width/height directly; the
+    // its own document dims (the reference engine read the document's own
+    // width/height directly; the
     // structural arms instead read the seeded canonical shadow). `None` until a
     // canvas-size command (Crop Canvas / Apply Crop / Resize Canvas) sets it or a
     // canonical shadow is seeded. Unlike the LayerSet, this is undoable state for
@@ -134,16 +135,16 @@ impl DocumentCore {
     /// After the document is opened but before the first real command, the
     /// authoritative native engine starts with an EMPTY layer set and `version =
     /// 0`. This method loads an existing document's layers (so the engine becomes
-    /// the canonical authority whose layer ids match the TS model's ids, letting
-    /// later facade commands and TS bitmaps line up) and aligns `version` to the
-    /// supplied value so the TS client's `expectedVersion` matches on the first
-    /// real command.
+    /// the canonical authority whose layer ids match the opened document's ids,
+    /// letting later commands and their pixel resources line up) and aligns
+    /// `version` to the supplied value so the caller's `expectedVersion` matches
+    /// on the first real command.
     ///
     /// Id-preserved: the supplied `layers` keep their EXACT ids (no uuid minting —
     /// that happens only in the `AddLayer` command arm). Version-aligned: `version`
     /// is set to `version`. Silent: seeding is initialization, NOT a user edit, so
-    /// it creates NO history entry and no undo step (mirrors the facade's
-    /// snapshot-seed semantics, which bypass the monotonic guard rather than
+    /// it creates NO history entry and no undo step (snapshot seeding bypasses
+    /// the monotonic guard rather than
     /// being a transition). Only-when-empty + idempotent: if the engine already
     /// has layers, the call is a silent no-op and never clobbers live state.
     pub fn seed_layers(&mut self, mut layers: Vec<RenderLayer>, version: DocumentVersion) {
@@ -184,8 +185,8 @@ impl DocumentCore {
     }
 
     /// Store a complete `PtzDocumentContent` and up-project its layer VECTOR into
-    /// the native `LayerSet` . The canonical re-push channel carries
-    /// the full TS layer truth at mirrored-commit moments; projecting it here makes
+    /// the native `LayerSet`. The canonical re-push channel carries
+    /// the full layer truth at mirrored-commit moments; projecting it here makes
     /// the native engine authoritative for membership AND order (push order = engine
     /// order), so it is no longer blind to legacy structural mutations.
     ///
@@ -196,7 +197,8 @@ impl DocumentCore {
     ///   * id unknown -> mint a fresh, non-zero `resource_id` from `next_resource`
     ///     (bumped); never 0.
     ///   * engine id absent from the push -> dropped (a re-push missing an id is a
-    ///     TS-originated delete; mirror-legacy-delete legitimacy).
+    ///     a delete made outside the engine, and mirroring it is the legitimate
+    ///     reading).
     ///
     /// `doc_size` rule UNCHANGED: it has exactly three native owners (the baseline
     /// set here ONLY when `doc_size` is `None` at document open, the canvas arms,

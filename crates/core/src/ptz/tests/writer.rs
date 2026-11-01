@@ -125,8 +125,9 @@ fn text() -> PtzLayer {
                 align: None,
             },
             // `Some(false)`, not `None`: reading normalises an absent OR an
-            // explicit `null` to `false`, matching `normalizeTextData` in
-            // textTypes.ts. A `None` here could not survive a round trip.
+            // explicit `null` to `false`, matching the text-data defaults the
+            // document format defines. A `None` here could not survive a
+            // round trip.
             underline: Some(false),
             strikethrough: Some(false),
             uppercase: Some(false),

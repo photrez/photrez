@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Golden file for the `.ptz` `document.json` writer.
 //!
-//! The TypeScript test suite needs to stand in for the Rust writer so it can
-//! assert against a written document (`ptzWriterContract.ts`). That stand-in is
-//! a second implementation, so on its own it would only prove itself. This
-//! module closes that gap from the other direction: it writes the REAL bytes
-//! `PtzDocument::to_json` produces, and the TS suite diffs its projection
-//! against them.
+//! This tracked golden records the input fixtures and the bytes produced by
+//! `PtzDocument::to_json`, pinning the writer's on-disk format.
 //!
-//! NOT PART OF THE NORMAL GATES. The generator is `#[ignore]`d, so
-//! `cargo test -p photrez-core` never rewrites the golden and never fails on it.
+//! The generator is `#[ignore]`d, so normal tests never rewrite the golden.
 //! Regenerate deliberately, and only when the writer's output is INTENTIONALLY
 //! changing:
 //!
@@ -27,14 +22,13 @@
 //! writer change.
 //!
 //! The golden holds each case as `input` (the fixture the Rust writer was
-//! given) plus `expected` (the bytes it wrote), so the TS side can feed the same
-//! input to its projection and compare without duplicating the fixtures.
+//! given) plus `expected` (the bytes it wrote), so changes can be reviewed
+//! against the source fixture.
 
 use crate::ptz::file::PtzDocument;
 
 /// Where the golden is written, relative to the `crates/core` manifest dir.
-const GOLDEN_REL_PATH: &str =
-    "../../apps/desktop/src/components/editor/__tests__/ptzWriterGolden.json";
+const GOLDEN_REL_PATH: &str = "src/ptz/tests/fixtures/ptzWriterGolden.json";
 
 /// Build the golden payload: one entry per fixture.
 fn golden_json() -> String {
@@ -74,7 +68,7 @@ fn ptz_writer_golden_regenerate() {
 
 /// Guards that the tracked golden is current WITHOUT rewriting it: the normal
 /// gates run this, so a writer change that was not regenerated fails here
-/// rather than silently invalidating the TypeScript projection.
+/// rather than silently invalidating the pinned writer format.
 #[test]
 fn ptz_writer_golden_is_up_to_date() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_REL_PATH);
@@ -91,6 +85,6 @@ fn ptz_writer_golden_is_up_to_date() {
         "the .ptz writer output changed but the golden was not regenerated. \
          Review the diff: it IS the on-disk format change. Then run \
          `cargo test -p photrez-core --lib -- --ignored ptz_writer_golden` \
-         and update the TypeScript projection in ptzWriterContract.ts to match."
+         and commit the updated golden."
     );
 }

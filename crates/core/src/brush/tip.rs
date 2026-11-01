@@ -1,13 +1,13 @@
 //! Authoritative brush-tip construction + defined resampler.
 //!
-//! Ports the TS semantics verbatim (brushTipMask.ts / brushHardnessProfile.ts)
-//! into explicit Rust contract code, then defines the previously browser-owned
+//! Implements the reference tip-mask and hardness-profile semantics verbatim as
+//! explicit Rust contract code, then defines the previously scale-operation-owned
 //! upscale step as a deterministic bilinear-premultiplied half-pixel resampler.
-//! No production wiring yet: validated offline against captured golden browser
-//! bytes via the env-gated test in `brush/tests/tip.rs`.
+//! No production wiring yet: validated offline against captured golden
+//! tip rasters via the env-gated test in `brush/tests/tip.rs`.
 
 pub const BRUSH_HARD_EDGE_THRESHOLD: f64 = 0.97;
-/// Alpha contour the paint cursor ring marks (brushHardnessProfile.ts).
+/// Alpha contour the paint cursor ring marks (reference hardness profile).
 pub const BRUSH_CURSOR_ALPHA_CONTOUR: f64 = 0.2;
 pub const MIN_RELIABLE_BRUSH_DIAMETER_PX: f64 = 22.0;
 pub const MIN_VISIBLE_ALPHA_8BIT: f64 = 0.5 / 255.0;
@@ -21,7 +21,8 @@ pub struct ProfileParams {
     pub n: f64,
 }
 
-/// Fritsch-Carlson monotone cubic — mirrors MonotoneCubic.ts operation-for-operation.
+/// Fritsch-Carlson monotone cubic — reproduces the reference interpolator's
+/// operations one-for-one.
 struct MonotoneCubic {
     xs: Vec<f64>,
     ys: Vec<f64>,
@@ -169,7 +170,7 @@ pub struct BrushTip {
     /// Straight-RGBA at diameter² produced by the defined bilinear-premul resampler.
     pub rgba_diameter: Vec<u8>,
     /// Premultiplied-RGBA at diameter² (pre-straight-conversion) — the true
-    /// comparison domain for browser-storage diagnostics (unpremul amplifies).
+    /// comparison domain for golden round-trip diagnostics (unpremul amplifies).
     pub rgba_diameter_premul: Vec<u8>,
 }
 
@@ -266,8 +267,8 @@ fn rasterize_mask(
 
 /// Bilinear resampler operating on PREMULTIPLIED pixels with
 /// half-pixel centers, then emitted back to straight-RGBA (round-half unpremul).
-/// This is the explicitly specified replacement for the previously
-/// browser-owned drawImage upscale.
+/// This is the explicitly specified replacement for the reference build's
+/// filtered image upscale.
 pub fn bilinear_resize_premul(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     let mut out = vec![0u8; (dw * dh) as usize * 4];
     for dy in 0..dh {
@@ -317,9 +318,9 @@ pub(crate) fn premul_to_straight_in_place(buf: &mut [u8]) {
     }
 }
 
-/// Entry point: build the diameter-space tip exactly as the production
-/// TS commit visualizes it, but with every previously browser-owned step
-/// replaced by the documented deterministic operations above.
+/// Entry point: build the diameter-space tip with the same result the
+/// reference brush commit produced, but with every formerly external
+/// scaling step replaced by the documented deterministic operations above.
 pub fn build_brush_tip(spec: &TipSpec) -> BrushTip {
     let (diameter, data_size, mask) =
         rasterize_mask(spec.size, spec.hardness, spec.curve, spec.data_cap);
@@ -348,7 +349,7 @@ pub fn build_brush_tip(spec: &TipSpec) -> BrushTip {
 
 /// Build only the data-resolution tip the native rasterizer reads.
 ///
-/// The diameter-space buffers exist for browser-storage diagnostics; producing
+/// The diameter-space buffers exist for golden round-trip diagnostics; producing
 /// them costs a `diameter²` bilinear resample (an 800 px brush allocates two
 /// 2.6 MB buffers and samples ~640k pixels) that the native pointer path never
 /// reads. Those fields are empty here by contract.

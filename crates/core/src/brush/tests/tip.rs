@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Brush-tip tests: the diameter-space construction, the resampler contract,
-//! and the offline golden comparison against captured browser bytes.
+//! and the offline golden comparison against captured reference tip rasters.
 
 use crate::brush::tip::{
     bilinear_resize_premul, build_brush_tip, get_brush_cursor_radius_scale,
@@ -88,7 +88,7 @@ fn c1_cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
     }
 }
 
-/// Offline golden validation vs captured browser bytes.
+/// Offline golden validation vs a captured reference tip raster.
 /// Run: PHOTREZ_C1_GOLDEN=<bin path> cargo test -p photrez-core brush::tests::tip c1_golden -- --ignored --nocapture
 /// Bin format: u32LE tipW | u32LE tipH | RGBA bytes (274*274*4).
 #[test]
@@ -121,7 +121,7 @@ fn c1_golden_interior_and_rim_tolerance() {
     let mut straight_rim_max = 0u32;
     for i in 0..tip_w * tip_h {
         let ga = golden[i * 4 + 3] as u32;
-        // reconstruct browser premultiplied from golden straight readback
+        // reconstruct premultiplied from the golden's straight-alpha readback
         let gpm = |ch: usize| -> u32 {
             if ga == 0 {
                 0
@@ -163,11 +163,12 @@ fn c1_golden_interior_and_rim_tolerance() {
             }
         }
     }
-    // Review decision: Chrome/Skia resampling is NOT canonical, so rim
-    // divergence vs the browser is the DOCUMENTED LEGACY COMPATIBILITY DELTA and is
-    // REPORT-ONLY. Canonical correctness = interior + alpha bounds below.
+    // Decision: the reference build's resampling is NOT canonical, so rim
+    // divergence against the captured golden is a DOCUMENTED COMPATIBILITY
+    // DELTA and is REPORT-ONLY. Canonical correctness = interior + alpha bounds
+    // below.
     //
-    // Documented legacy-browser rim delta baseline (probe 256/0.8 -> 274):
+    // Documented rim delta baseline vs the captured golden (probe 256/0.8 -> 274):
     //   premultiplied rimMax = 65 LSB | straight rimMax = 32 LSB (unpremul-amplified view).
     println!(
         "C1 golden[px={}]: PM interiorMax={} rimMax={} rimDB={} | STRAIGHT interiorMax={} rimMax={} | alphaMax={} | legacyRimDelta(report-only): pm=65 straight=32",

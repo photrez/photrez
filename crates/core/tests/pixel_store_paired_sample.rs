@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Single-sample companion for `apps/desktop/scripts/benchPixelPaired.ts`.
+//! Single-sample companion for the paired `write_region` benchmark.
 //!
-//! The driver times one `readRect` in-process, then spawns THIS binary to time
-//! the `write_region` half of the same run, so both halves of one run land in
-//! a single paired JSONL record. Selection env vars: `PHOTREZ_BENCH_PAIR_N`
+//! The driver times one read rectangle in-process, then spawns THIS binary to
+//! time the `write_region` half of the same run, so both halves of one run land
+//! in a single paired JSONL record. Selection env vars: `PHOTREZ_BENCH_PAIR_N`
 //! (square layer size) and `PHOTREZ_BENCH_PAIR_RUN` (run index echoed back for
 //! pairing). With `PHOTREZ_BENCH_PAIR_N` unset the test takes no sample, so a
 //! plain `cargo test` run costs nothing beyond one early return.
 //!
-//! Excluded from the timer: payload clone, IPC transport and serde response
+//! Excluded from the timer: payload clone, transport and serde response
 //! serialization (they live outside this crate).
 //!
 //! Falsifiability: `PHOTREZ_BENCH_PAIR_STUB=1` skips the real store call and

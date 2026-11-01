@@ -4,11 +4,11 @@
 //! guard.
 
 // ── Basic adjustment bake  ─────────────────────────────────────────────
-// Mirrors `applyBasicAdjustmentToPixels` in `engine/layerAdjustments.ts` (and the
-// GPU preview in `renderer/shaders.ts::applyAdjustment`): brightness/contrast/
-// saturation in [0,1] straight-alpha space. Alpha passes through unchanged.
-/// Round-to-nearest with ties-to-even, matching the JS `Uint8ClampedArray` setter
-/// that the TS implementation relies on for the final `clampChannel` writeback.
+// Brightness/contrast/saturation bake over an RGBA plane, matching the live
+// adjustment preview: all three channels work in [0,1] straight-alpha space.
+// Alpha passes through unchanged.
+/// Round-to-nearest with ties-to-even, matching the clamped 8-bit channel
+/// writeback the adjustment pipeline relies on for the final `clampChannel` write.
 fn to_u8_clamp(v: f64) -> u8 {
     if !v.is_finite() {
         return 0;
@@ -89,13 +89,13 @@ pub fn apply_basic_adjustment(
     out
 }
 
-// ── Porting candidates ────────────────────────────────────────────────
-// Benchmarked against TS mirrors in apps/desktop/scripts/bench-cpu-pixel-round2.ts
-// Benchmarked against TS mirrors in apps/desktop/scripts/bench-cpu-pixel-round2.ts.
+// ── Selection and mask helpers ────────────────────────────────────────
+// The CPU kernels below back the selection and masking features; their measured
+// timings live in the performance record, not here.
 
 /// Bounding box of non-transparent pixels (alpha > 0).
 /// Returns [min_x, min_y, max_x, max_y] (inclusive), or empty when the image is
-/// fully transparent. Mirrors SelectionOperations.trimTransparent's scan.
+/// fully transparent.
 pub fn trim_bbox(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
     let w = width as usize;
     let total = w.saturating_mul(height as usize);

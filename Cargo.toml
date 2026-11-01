@@ -9,14 +9,14 @@ members = ["crates/*"]
 rust-version = "1.95.0"
 
 # One dependency-free mechanism, one place: members opt in with
-# `[lints] workspace = true`. `crates/core` opts in and carries no unsafe
-# block today; `photrez-desktop` deliberately does not - its 73 pre-existing
-# `unsafe` sites leave with the crate. `unsafe_code` is denied outright for
-# opt-ins, `dead_code` warns; the restriction lints that gate the new crate
-# (unwrap/expect/panic) are allowed at the root with a written reason: the
-# core engine carries 854 unwrap/expect sites, so a blanket deny here would
-# be decoration, not a gate. `crates/photrez` keeps stricter crate-level
-# denies instead.
+# `[lints] workspace = true`. `crates/core` opts in and contains no `unsafe`
+# block. `crates/photrez` and `crates/xtask` wrap operating-system APIs, so
+# they keep the denial at crate level and lift it only in the narrow modules
+# that make the FFI calls, each with the reason written beside it.
+# `unsafe_code` is denied outright for opt-ins, `dead_code` warns; the
+# restriction lints that gate the crates (unwrap/expect/panic) are allowed at
+# the root with a written reason: the core engine carries hundreds of
+# unwrap/expect sites, so a blanket deny here would be decoration, not a gate.
 [workspace.lints.rust]
 unsafe_code = "deny"
 dead_code = "warn"

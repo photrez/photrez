@@ -7,10 +7,9 @@
 // also the ones the save round-trip must prove most carefully.
 //
 // EVERY FIELD HERE HAS A SERDE DEFAULT, and that is load bearing rather than
-// defensive. The loader (`editorOpenImage.ts` `loadProjectFile`) raw-spreads a
-// parsed document into the engine via `restoreSnapshot` and never normalises
-// nested layer params; `normalizeTextData` runs only on the write paths
-// (`document.ts` `updateTextData`, `layerOps.ts`). So a file whose layer
+// defensive. Opening a document feeds the parsed payload straight into the
+// engine without normalising nested layer params, and text data is normalised
+// only on the paths that write it. So a file whose layer
 // predates one of these fields arrives at the save path with the field
 // genuinely absent. Without a default the Rust parse fails, the save returns
 // `E_VALIDATION`, and NOTHING is written - while the file itself loads and
@@ -20,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 // --- Unions used by the nested payloads ---
 
-/// types.ts:38-48 - the shape `kind` union (10 values).
+/// The shape `kind` union (10 values).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShapeKind {
@@ -38,7 +37,7 @@ pub enum ShapeKind {
     Hexagon,
 }
 
-/// types.ts:57 - ShapeFill.kind union ("none" | "solid").
+/// ShapeFill.kind union ("none" | "solid").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShapeFillKind {
@@ -46,7 +45,7 @@ pub enum ShapeFillKind {
     Solid,
 }
 
-/// textTypes.ts:18 - TextData.fontStyle union.
+/// TextData.fontStyle union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextFontStyle {
@@ -54,7 +53,7 @@ pub enum TextFontStyle {
     Italic,
 }
 
-/// textTypes.ts:20 - TextData.align union.
+/// TextData.align union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextAlign {
@@ -63,7 +62,7 @@ pub enum TextAlign {
     Right,
 }
 
-/// textTypes.ts:23 - TextData.boxMode union.
+/// TextData.boxMode union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextBoxMode {
@@ -71,7 +70,7 @@ pub enum TextBoxMode {
     Area,
 }
 
-/// textTypes.ts:5 - TextStroke.align union.
+/// TextStroke.align union.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextStrokeAlign {
@@ -82,7 +81,7 @@ pub enum TextStrokeAlign {
 
 // --- Structs ---
 
-/// layerAdjustments.ts:7-11 - BasicAdjustment (brightness / contrast / saturation).
+/// BasicAdjustment (brightness / contrast / saturation).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct BasicAdjustment {
@@ -101,7 +100,7 @@ impl Default for BasicAdjustment {
     }
 }
 
-/// types.ts:50-54 - ShapeStroke.
+/// ShapeStroke: enabled / color / width.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShapeStroke {
@@ -120,7 +119,7 @@ impl Default for ShapeStroke {
     }
 }
 
-/// types.ts:56-59 - ShapeFill.
+/// ShapeFill: kind + color.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShapeFill {
@@ -137,7 +136,7 @@ impl Default for ShapeFill {
     }
 }
 
-/// types.ts:61-69 - ShapeParams.
+/// ShapeParams: geometry plus fill and stroke.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShapeParams {
@@ -164,7 +163,7 @@ impl Default for ShapeParams {
     }
 }
 
-/// textTypes.ts:7-11 - TextStroke (outline; width 0 = none).
+/// TextStroke: outline; width 0 = none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TextStroke {
@@ -183,9 +182,10 @@ impl Default for TextStroke {
     }
 }
 
-/// textTypes.ts:13-30 - TextData (all fields, incl. nested stroke).
+/// TextData: all persisted text fields, incl. the nested stroke.
 ///
-/// Defaults mirror `DEFAULT_TEXT_DATA` in `textTypes.ts`. See the module header
+/// The defaults below are the document-format text defaults, kept identical to
+/// what saved documents already carry. See the module header
 /// for why that is required rather than merely prudent.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -233,8 +233,8 @@ impl Default for TextData {
 
 impl<'de> Deserialize<'de> for TextData {
     /// Derive the struct, then apply the `boxMode`-conditional box dimensions
-    /// that `normalizeTextData` (textTypes.ts) applies on the TypeScript write
-    /// paths: point mode forces both to 0; area mode floors `boxWidth` at 1.
+    /// that the document format enforces on the write paths: point mode forces
+    /// both to 0; area mode floors `boxWidth` at 1.
     ///
     /// A container `Default` cannot express this, because the rule depends on a
     /// field that may itself come from the file. Without it, a legacy
@@ -295,7 +295,7 @@ impl<'de> Deserialize<'de> for TextData {
         let raw = Raw::deserialize(d)?;
         let base = TextData::default();
         let (box_width, box_height) = match raw.box_mode {
-            // Point mode forces BOTH to 0, exactly as normalizeTextData does.
+            // Point mode forces BOTH to 0, exactly as the write path normalises.
             TextBoxMode::Point => (0.0, 0.0),
             // Area mode floors boxWidth at 1 and clamps boxHeight at 0.
             TextBoxMode::Area => (

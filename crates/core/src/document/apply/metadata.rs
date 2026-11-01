@@ -12,9 +12,9 @@ impl DocumentCore {
     ) -> Result<Vec<RenderLayerChange>, ProtocolError> {
         match command {
             // ── Metadata arms ──
-            // Unknown id mirrors DeleteLayer: no-op (the TS engine's apply ops are
-            // guarded the same way), so the native-authority path stays bug-compatible
-            // with the TS engine until the flip.
+            // Unknown id is a no-op, the same way the reference engine's apply ops
+            // are guarded, so the native-authority path stays bug-compatible
+            // with that engine's observable behaviour.
             Command::SetVisible { id, visible } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Set Visible", std::slice::from_ref(&id));
@@ -76,7 +76,7 @@ impl DocumentCore {
             }
             Command::Reorder { id, to } => {
                 // Reject an out-of-range target before any mutation, history entry,
-                // or DV bump - mirrors the TS graph-mirror reorder_layer guard. The
+                // or DV bump - the contract of this arm's reorder guard. The
                 // index is host-supplied and absolute; only [0, len) is valid.
                 if to >= self.layers.0.len() {
                     return Err(ProtocolError {
@@ -89,7 +89,7 @@ impl DocumentCore {
                     });
                 }
                 if let Some(pos) = self.layers.position_by_id(&id) {
-                    // Mirror TS applyReorderLayer: the Background is pinned to the bottom
+                    // The Background is pinned to the bottom
                     // and is never reordered (a layer beneath it would be unreachable).
                     if self
                         .layers
@@ -102,7 +102,7 @@ impl DocumentCore {
                         let _e = self.begin_forward("Reorder", std::slice::from_ref(&id));
                         let layer = self.layers.get(pos).expect("layer present").clone();
                         // Remove at the current index, then insert at the clamped target
-                        // (LayerSet::insert_at clamps to len, mirroring TS' splice).
+                        // (LayerSet::insert_at clamps the index to len).
                         let removed = self.layers.removed(pos);
                         let clamped = to.min(removed.0.len());
                         self.layers = removed.insert_at(layer.clone(), clamped);
@@ -139,7 +139,7 @@ impl DocumentCore {
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Set Background Flag", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
-                    // Mirror document.ts markLayerAsBackground: flag + lock position/rotation.
+                    // Marking a layer as Background sets the flag and locks position/rotation.
                     layer.is_background = Some(true);
                     layer.lock_position = Some(true);
                     layer.lock_rotation = Some(true);
@@ -179,7 +179,7 @@ impl DocumentCore {
                 shape_params,
                 text_data,
             } => {
-                // Both None is an invalid no-op (mirrors TS: a params update always
+                // Both None is an invalid no-op (a params update always
                 // carries the payload). Reject before any mutation so no history
                 // entry / DV bump is produced for a meaningless command.
                 if shape_params.is_none() && text_data.is_none() {

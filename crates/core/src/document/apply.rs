@@ -136,7 +136,7 @@ impl DocumentCore {
             // that performs the full begin_forward -> mutate -> finish_forward
             // sequence and returns the delta. The helpers reject E_INVALID before
             // mutation and treat unknown / not-mergeable ids as silent no-ops
-            // (empty delta), matching the TS oracle apply ops.
+            // (empty delta), the same contract as the reference engine's apply ops.
             Command::DuplicateLayer { id, new_id } => self.apply_duplicate(&id, &new_id)?,
             Command::MergeDown { id, merged_id } => self.apply_merge_down(&id, &merged_id)?,
             Command::MergeSelected { ids, merged_id } => {
@@ -150,7 +150,7 @@ impl DocumentCore {
             // finish_forward and returns the delta (ordered all-layer Upserts for
             // the crop arms; an empty delta for resize, whose only effect is the
             // document size). Helpers reject E_INVALID before mutation and treat
-            // non-positive dims as a silent no-op (matching the TS oracle).
+            // non-positive dims as a silent no-op (matching the reference engine).
             Command::CropCanvas {
                 x,
                 y,
@@ -214,7 +214,7 @@ impl DocumentCore {
                 ) {
                     // External (host-handoff) entry: restore the captured layer
                     // order natively and emit the ordered restatement, then route
-                    // the host handoff so the TS side steps its own store (the
+                    // the host handoff so the external store steps its own cursor (the
                     // cursor moves on the cursor commit, not here).
                     let (seq, changes) = self.restore_external_layers(self.cursor - 1, "undo");
                     // Document size: both halves are HOST-supplied (the engine's

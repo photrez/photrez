@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Shared `.ptz` `document.json` fixtures, used by both the core writer tests
-// (`ptz/file.rs`) and the Tauri command tests (`save_stream.rs`).
+// (`ptz/file.rs`) and the app's save-stream tests (`services/save_stream.rs`).
 //
 // ONE definition, imported by the core writer tests, the canonical model reader
 // tests, and the desktop command tests, so none of them can drift apart. Every
@@ -26,9 +26,9 @@ pub const MIXED_LAYER_TYPES_MODEL: &str = r##"{"id":"mixed-1","name":"Mixed","wi
 /// added after the first text-layer release (`letterSpacing`, `boxMode`,
 /// `boxWidth`, `boxHeight`, `stroke`, `underline`, `strikethrough`, `uppercase`).
 ///
-/// This is the regression fixture for the strictness hazard: the loader never
-/// normalises `textData` (`editorOpenImage.ts` -> `restoreSnapshot` raw-spreads
-/// it), so such a file loads and renders correctly and then reaches the save
+/// This is the regression fixture for the strictness hazard: opening a document
+/// does not normalise `textData` (the parsed payload is handed to the engine
+/// as-is), so such a file loads and renders correctly and then reaches the save
 /// path with those fields genuinely absent. With no serde defaults on
 /// `TextData` the save returned `E_VALIDATION` and wrote nothing.
 pub const LEGACY_TEXT_LAYER_MODEL: &str = r##"{"id":"legacy-text","name":"Legacy","width":400,"height":300,"activeLayerId":null,"selection":null,"viewport":{"panX":0,"panY":0,"zoom":1,"rotation":0},"dirty":false,"layers":[{"id":"t-old","name":"Old Text","type":"text","visible":true,"opacity":1,"locked":false,"blendMode":"normal","transform":{"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"flipH":false,"flipV":false},"width":200,"height":30,"textData":{"content":"legacy","fontFamily":"Arial","fontSize":36,"fontWeight":400,"fontStyle":"normal","color":"#000000","align":"left","lineHeight":1.2}}],"format":"photrez-ptz","version":3}"##;

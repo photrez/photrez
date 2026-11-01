@@ -66,7 +66,7 @@ impl DocumentCore {
                 text_data,
             } => {
                 // Host owns identity + placement: the active layer is UI state the
-                // engine must not assume, so the id (TS-minted) and insertion
+                // engine must not assume, so the id (minted by the caller) and insertion
                 // index (above the active layer) travel with the command. Reject a
                 // duplicate or empty id so the host's id space stays unambiguous.
                 if id.is_empty() {
@@ -124,9 +124,9 @@ impl DocumentCore {
                     basic_adjustment: None,
                 };
                 // Typed add (metadata only; rasterization stays host-side): when the
-                // envelope carries a layer type, project the true value. Mirrors the
-                // TS createShapeLayerNode / createTextLayerNode defaults — type is
-                // taken from the command, blendMode stays Normal, and the matching
+                // envelope carries a layer type, project the true value. The typed
+                // create defaults: type is taken from the command, blendMode stays
+                // Normal, and the matching
                 // nested payload (shape_params / text_data) is carried verbatim.
                 if let Some(lt) = layer_type {
                     layer.layer_type = Some(lt.clone());

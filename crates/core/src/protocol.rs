@@ -6,10 +6,10 @@
 //! use photrez_core::protocol::protocol_reset;
 //! fn main() { protocol_reset("doc"); }
 //! ```
-// Re-export surface for the protocol engine. The implementations now live in
+// Re-export surface for the protocol engine. The implementations live in
 // the `document/` bounded context (engine, history, snapshot) and in `wire/`
-// (command envelopes, projections). The frozen host consumes the DTO types;
-// its legacy process-global engine registry is not part of this facade.
+// (command envelopes, projections). The `photrez` host consumes these DTO
+// types; no process-global engine registry is part of this facade.
 
 pub use crate::document::layer_set::LayerMeta;
 pub use crate::document::DocumentCore;

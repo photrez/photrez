@@ -22,10 +22,9 @@ fn e_invalid(msg: &str) -> ProtocolError {
     }
 }
 
-/// Normalize a rotation angle in degrees to the canonical (-180, 180] range,
-/// mirroring the TS `normalizeRotation` (apps/desktop/src/viewport/transformGeometry.ts):
-/// `angle % 360`, then `> 180 -> -360`, then `< -180 -> +360`. Verified against the
-/// TS semantics (e.g. -270 -> 90, 360 -> 0, 181 -> -179).
+/// Normalize a rotation angle in degrees to the canonical (-180, 180] range:
+/// `angle % 360`, then `> 180 -> -360`, then `< -180 -> +360`. Verified against
+/// the reference viewport geometry (e.g. -270 -> 90, 360 -> 0, 181 -> -179).
 fn normalize_rotation(angle_deg: f64) -> f64 {
     let mut a = angle_deg % 360.0;
     if a > 180.0 {
@@ -39,17 +38,17 @@ fn normalize_rotation(angle_deg: f64) -> f64 {
 
 impl DocumentCore {
     /// Crop the canvas: shift every unlocked layer's position by (-x, -y) and set
-    /// the document size to (width, height). Mirrors the TS `DocumentEngine.cropCanvas`
-    /// / `performCropCanvas` non-destructive math, which offsets unlocked layers and
-    /// resizes the document. Locked layers are untouched (oracle: `if (!layer.locked)`);
+    /// the document size to (width, height). Follows the reference non-destructive
+    /// crop-canvas math, which offsets unlocked layers and
+    /// resizes the document. Locked layers are untouched (the guard is `!layer.locked`);
     /// `RenderLayer.locked` is `Option<bool>`, so `Some(true)` is locked and
     /// `None`/`false` is not.
     ///
     /// Trust boundary: reject non-finite inputs with E_INVALID before any mutation
-    /// (the TS oracle lets NaN/Inf silently slip through its `<= 0` comparisons and
-    /// would proceed (a stricter-than-host divergence). Non-positive width/height
+    /// (the reference engine lets NaN/Inf silently slip through its `<= 0` comparisons and
+    /// would proceed (a stricter-than-reference divergence). Non-positive width/height
     /// is a SILENT no-op (no history entry; the apply() tail still bumps DV),
-    /// mirroring the oracle's `if (width <= 0 || height <= 0) return;`. x/y may be
+    /// mirroring the reference guard `if (width <= 0 || height <= 0) return;`. x/y may be
     /// any sign (negative offsets are legal).
     pub(crate) fn apply_crop_canvas(
         &mut self,
@@ -92,7 +91,7 @@ impl DocumentCore {
             sh.doc.width = width;
             sh.doc.height = height;
         }
-        // The oracle resets selection on crop; mirror it onto the shadow too.
+        // A crop clears the selection; mirror that onto the shadow too.
         self.set_engine_selection(None);
         self.finish_forward(_e);
         // Delta: ordered Upserts of ALL layers in final engine order.
@@ -107,19 +106,19 @@ impl DocumentCore {
     }
 
     /// Apply a (non-destructive) crop with optional rotation and target size.
-    /// Mirrors the TS `DocumentEngine.applyCrop` / `performApplyCrop` non-destructive
-    /// branch exclusively, the pixel-baking `deleteCroppedPixels` and
-    /// `fillBackgroundColor` variants remain host-side and are NOT represented on
-    /// this command. For each unlocked layer, recenters it into the crop region,
+    /// Implements the non-destructive apply-crop branch exclusively; the
+    /// pixel-baking cropped-pixel-delete and fill-background-color variants remain
+    /// outside this command and are NOT represented here.
+    /// For each unlocked layer, recenters it into the crop region,
     /// rotates it around the crop center, scales it to the (optional) target
     /// dimensions, and re-derives its final transform. Locked layers are skipped;
     /// `flips` are preserved unchanged.
     ///
     /// Trust boundary: reject non-finite x/y/width/height/rotation with E_INVALID
-    /// before any mutation (the TS oracle would proceed with NaN). A target size
+    /// before any mutation (the reference engine would proceed with NaN). A target size
     /// given as a half-pair (one of targetWidth/targetHeight without the other) is
-    /// invalid (the oracle takes targetSize as a complete {w,h} pair). Non-positive
-    /// width/height is a SILENT no-op (the oracle's first guard, before reading the
+    /// invalid (the target size is taken as a complete {w,h} pair). Non-positive
+    /// width/height is a SILENT no-op (the first guard, checked before reading the
     /// target size); a target size that resolves to <= 0 is also a SILENT no-op so
     /// the document size can never collapse to 0x0.
     #[allow(clippy::too_many_arguments)] // flat args mirror the apply-crop command struct
@@ -147,7 +146,7 @@ impl DocumentCore {
                 "applyCrop target size requires both targetWidth and targetHeight",
             ));
         }
-        // Silent no-op on non-positive crop rect (oracle's first guard).
+        // Silent no-op on non-positive crop rect (the first guard).
         if width <= 0.0 || height <= 0.0 {
             return Ok(Vec::new());
         }
@@ -229,7 +228,7 @@ impl DocumentCore {
                 changed.scale_x = final_scale_x;
                 changed.scale_y = final_scale_y;
                 changed.rotation = final_rotation;
-                // flips stay unchanged (oracle non-destructive branch)
+                // flips stay unchanged (non-destructive branch)
                 changed.dirty_rect = Some(Rect {
                     x: 0,
                     y: 0,
@@ -316,11 +315,11 @@ impl DocumentCore {
             .collect())
     }
 
-    /// Resize the canvas to (width, height). Mirrors the TS `DocumentEngine.resizeCanvas`
-    /// non-layer effect: only the document size changes, no layer is touched.
+    /// Resize the canvas to (width, height). The non-layer effect of the reference
+    /// resize: only the document size changes, no layer is touched.
     ///
-    /// Trust boundary: reject non-finite dims with E_INVALID before mutation (the TS
-    /// oracle would proceed with NaN). Non-positive dims are a SILENT no-op (no
+    /// Trust boundary: reject non-finite dims with E_INVALID before mutation (the
+    /// reference engine would proceed with NaN). Non-positive dims are a SILENT no-op (no
     /// entry; DV still bumps at the tail). The arm emits an EMPTY layer delta; its
     /// real effect (the document size) is not expressible as a layer delta, so
     /// consumers must re-read the snapshot (which now carries the dims). The entry

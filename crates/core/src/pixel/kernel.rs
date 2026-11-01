@@ -4,8 +4,8 @@
 // (`&[u8]` / `&mut [u8]`), buffer-out (`Vec<u8>` or in-place). The flood-fill,
 // gradient-fill and adjustments-bake kernels all follow it.
 
-/// Flood-fill mask (rect or ellipse, optionally inverted). Mirrors the TS
-/// `FillMask` contract used by the Paint Bucket tool. plain struct.
+/// Flood-fill mask (rect or ellipse, optionally inverted) - the fill
+/// contract used by the Paint Bucket tool. plain struct.
 pub(crate) struct FillMaskRust {
     pub(crate) x: i32,
     pub(crate) y: i32,
@@ -58,11 +58,11 @@ fn matches_source(
     dr * dr + dg * dg + db * db + da * da <= tol_sq
 }
 
-/// Pure flood-fill over an RGBA byte buffer. Mirrors `floodFill` in
-/// `features/fill/fillOperations.ts` exactly (tolerance = squared RGBA distance,
-/// optional rect/ellipse mask, contiguous queue BFS vs global replace).
+/// Pure flood-fill over an RGBA byte buffer: tolerance is the squared RGBA
+/// distance, with an optional rect/ellipse mask and a contiguous queue BFS vs
+/// global replace.
 /// Returns true if any pixel changed. private — tests live in-module.
-#[allow(clippy::too_many_arguments)] // FFI boundary keeps flat args for the JS call site
+#[allow(clippy::too_many_arguments)] // flat args keep the fill command surface simple
 pub(crate) fn flood_fill_impl(
     data: &mut [u8],
     width: usize,
@@ -209,8 +209,8 @@ pub fn flood_fill(
 }
 
 // ── Gradient fill  ─────────────────────────────────────────────────────
-// Mirrors `gradientFill` in `features/fill/fillOperations.ts`: linear/radial
-// gradient over RGBA, masked, with color stops interpolated by offset.
+// Linear/radial gradient fill over RGBA, masked, with color stops interpolated
+// by offset.
 fn lerp_stops(stops: &[(f64, u8, u8, u8, u8)], t: f64) -> (u8, u8, u8, u8) {
     if stops.is_empty() {
         return (0, 0, 0, 255);
@@ -272,7 +272,7 @@ fn radial_gradient_coord(
 
 /// Pure gradient fill. `stops` are (offset, r, g, b, a), sorted by offset here.
 /// private — tests live in-module.
-#[allow(clippy::too_many_arguments)] // FFI boundary keeps flat args for the JS call site
+#[allow(clippy::too_many_arguments)] // flat args keep the fill command surface simple
 pub(crate) fn gradient_fill_impl(
     data: &mut [u8],
     width: usize,

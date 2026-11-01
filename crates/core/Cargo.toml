@@ -15,14 +15,15 @@ workspace = true
 crate-type = ["rlib"]
 
 [features]
-# Compatibility surface for the frozen Tauri host. The standalone GPUI app
-# intentionally leaves this off so raw registry access is unavailable there.
-legacy-tauri = []
+# Compatibility surface for an external host that drives the engine through the
+# raw process-global registry. No crate in this workspace enables it: the
+# native application deliberately leaves it off so raw registry access is
+# unavailable there, and the gated arms are exercised by the test build.
+legacy-host = []
 # Test-only fixtures for the `.ptz` writer round-trip. Off by default so the
-# fixture JSON is not compiled into the shipped library. `photrez-desktop`
-# enables it from its dev-dependencies only, which (workspace resolver "2")
-# keeps it out of the app build while still letting `save_stream.rs`'s tests
-# import the same fixtures the core tests use.
+# fixture JSON is not compiled into the shipped library; the core test build
+# gets the same module through `cfg(any(test, feature = ...))`, so a host that
+# wants to reuse the fixtures enables this explicitly.
 ptz-test-fixtures = []
 
 [dependencies]

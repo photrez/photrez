@@ -6,8 +6,9 @@ pub mod brush;
 // document replica, the seed-payload validation, and the shared test fixtures.
 pub mod ptz;
 // Runtime document bounded context: the `DocumentCore` engine, its history
-// stream, and the document snapshot DTO. Public because `src-tauri` reads
-// `photrez_core::document::{DocumentSnapshot, LayerSnapshot}`.
+// stream, and the document snapshot DTO. Public so its engine types —
+// `DocumentCore` and `LayerMeta`, re-exported by the `protocol` facade — and
+// the snapshot DTO stay reachable from outside the crate.
 pub mod document;
 pub mod geometry;
 // The paint parity candidate rasterizer (the reference the host's paint path

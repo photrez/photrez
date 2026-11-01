@@ -11,9 +11,9 @@
 //! edge between the two subsystems stays one-way.
 
 pub mod byte_accounting;
-#[cfg(feature = "legacy-tauri")]
+#[cfg(feature = "legacy-host")]
 pub mod document_store;
-#[cfg(not(feature = "legacy-tauri"))]
+#[cfg(not(feature = "legacy-host"))]
 pub(crate) mod document_store;
 pub mod engine;
 pub mod export;
@@ -35,15 +35,15 @@ pub(crate) mod tile_store;
 pub(crate) mod parity_oracle;
 
 pub use byte_accounting::{PixelStoreBytes, TileByteReport};
-#[cfg(feature = "legacy-tauri")]
+#[cfg(feature = "legacy-host")]
 pub use document_store::DocumentPixelStore;
-#[cfg(not(feature = "legacy-tauri"))]
+#[cfg(not(feature = "legacy-host"))]
 pub(crate) use document_store::DocumentPixelStore;
 pub use history::{HistoryDepth, HistoryTip, PayloadKind};
 pub use layer::PixelLayer;
-#[cfg(feature = "legacy-tauri")]
+#[cfg(feature = "legacy-host")]
 pub use store::registry;
-#[cfg(all(not(feature = "legacy-tauri"), test))]
+#[cfg(all(not(feature = "legacy-host"), test))]
 pub(crate) use store::registry;
 pub use store::CommitPhases;
 pub use store::PixelStoreRegistry;

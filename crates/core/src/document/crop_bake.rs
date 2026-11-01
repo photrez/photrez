@@ -4,9 +4,9 @@
 //! The crop arm's metadata math lives in `canvas.rs` and stays there. This
 //! module answers the pixel question that math cannot: given a layer's
 //! post-crop transform, which of its own pixels still fall inside the new
-//! document rectangle? Everything else is discarded, exactly like the oracle's
-//! pixel-baking crop, and the discarded bytes are captured as a pixel delta so
-//! one undo step restores them.
+//! document rectangle? Everything else is discarded, the same way a
+//! pixel-baking crop discards it, and the discarded bytes are captured as a
+//! pixel delta so one undo step restores them.
 //!
 //! The engine owns no pixel buffer: the plan produced here is drained by
 //! `DocumentPixelStore` right after the command is applied.
@@ -140,7 +140,7 @@ fn sample_bilinear(source: &[u8], width: usize, height: usize, u: f64, v: f64) -
 /// Composite `fill` UNDER one layer's content for the whole cropped document,
 /// returning a `doc_width x doc_height` RGBA buffer.
 ///
-/// Mirrors the oracle's "fill canvas, then draw the cropped Background over it"
+/// Composites "fill the canvas, then draw the cropped Background over it"
 /// with straight-alpha `src over fill`, using the compositor's inverse map so
 /// the sampled content lines up with what the painter shows.
 pub(crate) fn composite_layer_over_fill(

@@ -11,30 +11,30 @@
 // The v4 writer `to_ptz_document_json` below is fenced to `#[cfg(test)]`: the
 // production writer is `PtzDocument::to_json`. See the note on that function.
 //
-// Every field/enum is mirrored from the ACTUAL TypeScript source of truth:
-//   - apps/desktop/src/engine/types.ts        (LayerNode, Transform2D, BlendMode,
-//                                              ShapeKind, ShapeParams, SelectionState,
-//                                              DocumentModel, ViewportState, LayerId)
-//   - apps/desktop/src/engine/layerAdjustments.ts (BasicAdjustment)
-//   - apps/desktop/src/engine/textTypes.ts    (TextData, TextStroke, unions)
+// Every field/enum here is part of the persisted `.ptz` document schema:
+//   - the layer node, Transform2D, BlendMode, ShapeKind, ShapeParams,
+//     SelectionState, the document model, ViewportState and LayerId
+//   - BasicAdjustment
+//   - TextData, TextStroke and their unions
 //
 // Wire format: camelCase (matches the existing Rust protocol convention used by
-// wire/command.rs / render/layer.rs / document/engine.rs, and matches types.ts field names
-// verbatim so .ptz stays compatible). Enum string values are the EXACT TS strings.
+// wire/command.rs / render/layer.rs / document/engine.rs, and the `.ptz` field
+// names verbatim so saved documents stay readable). Enum string values are the
+// exact strings already written into saved documents; changing one breaks them.
 //
 // EXCLUDED FIELDS (deliberate, with reason):
-//   - LayerNode.bitmapEpoch (types.ts:105): transient in-memory freshness epoch,
-//     explicitly "not persisted to .ptz" per the source comment. Not document content.
-//   - LayerNode.imageBitmap / baseImageBitmap (types.ts:85,92): live pixel
-//     references (ImageBitmap | null). Pixels are NEVER stored in the model.
+//   - LayerNode.bitmapEpoch: transient in-memory freshness epoch,
+//     explicitly "not persisted to .ptz". Not document content.
+//   - LayerNode.imageBitmap / baseImageBitmap: live pixel
+//     references. Pixels are NEVER stored in the model.
 //     Replaced by `resource_id: Option<ResourceId>` (a token handle mirroring
-//     RenderLayer.resource_id in render/layer.rs:23).
-//   - DocumentModel.activeLayerId (types.ts:136): editor session state, not
+//     RenderLayer.resource_id in render/layer.rs).
+//   - DocumentModel.activeLayerId: editor session state, not
 //     document CONTENT. It IS persisted -- `PtzDocument` in `ptz/file.rs`
 //     carries it on the file envelope, and the loader restores it.
-//   - DocumentModel.viewport (types.ts:138): same split. Persisted on the
+//   - DocumentModel.viewport: same split. Persisted on the
 //     envelope, not on the content model.
-//   - DocumentModel.dirty (types.ts:140): save-state flag, likewise persisted on
+//   - DocumentModel.dirty: save-state flag, likewise persisted on
 //     the envelope and cleared by the loader after restore.
 // So these three are excluded from the CONTENT model and included in the FILE;
 // which is why the exclusion list and the `.ptz` payload are not the same set.
@@ -53,7 +53,7 @@ pub use crate::ptz::layer_params::{
 mod layers;
 pub use layers::{BlendMode, LayerType, PtzLayer};
 
-/// types.ts:116 - SelectionState.shape union.
+/// SelectionState.shape union.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SelectionShape {
@@ -61,7 +61,7 @@ pub enum SelectionShape {
     Ellipse,
 }
 
-/// types.ts:27-35 - Transform2D (includes flipH / flipV).
+/// Transform2D (includes flipH / flipV).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transform2D {
@@ -74,7 +74,7 @@ pub struct Transform2D {
     pub flip_v: bool,
 }
 
-/// types.ts:109-119 - SelectionState.
+/// The persisted selection rectangle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectionState {
@@ -87,7 +87,7 @@ pub struct SelectionState {
     pub inverted: Option<bool>,
 }
 
-/// types.ts:130-140 - PtzDocumentContent.
+/// The persisted document content: id, name, size, layers and selection.
 /// EXCLUDES activeLayerId + viewport (UI/session state) and dirty
 /// (save-state flag). Includes selection per the brief.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,8 +119,8 @@ impl PtzDocumentContent {
     ///
     /// NOT THE PRODUCTION WRITER. The production writer is `PtzDocument::to_json`
     /// in `ptz/file.rs`. This one is fenced to `#[cfg(test)]` on purpose: it
-    /// emits `version: 4`, and the loader in `editorOpenImage.ts` shows a
-    /// "saved by a newer Photrez version" toast for any `version > 3`. It also
+    /// emits `version: 4`, above the `version: 3` this build writes and reads
+    /// back. It also
     /// cannot carry `viewport` or `activeLayerId`, which `PtzDocumentContent`
     /// deliberately excludes as editor state, so a file written by it would
     /// silently reset the viewport and active layer on open. Wiring this into a

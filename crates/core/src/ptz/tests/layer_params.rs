@@ -94,8 +94,8 @@ fn an_empty_shape_params_is_accepted_as_all_defaults() {
     assert_eq!(sp.kind, ShapeKind::Rect);
 }
 
-/// `boxWidth`/`boxHeight` follow `boxMode`, matching `normalizeTextData` in
-/// `textTypes.ts`: point mode forces both to 0, area mode floors `boxWidth`
+/// `boxWidth`/`boxHeight` follow `boxMode`, matching the document format's text
+/// normalisation: point mode forces both to 0, area mode floors `boxWidth`
 /// at 1. Without this a legacy area-mode text layer with no `boxWidth` would
 /// be written as 0 and then mutated to 1 on the next load, so the value would
 /// change across one save/reload cycle for no user action.

@@ -500,8 +500,8 @@ fn bitmap_keys_are_always_null_even_when_the_host_sends_live_values() {
 // ── Backward compatibility: older files still load ──
 
 /// A text layer written before most `TextData` fields existed must still
-/// SAVE, not just load. `normalizeTextData` never runs on load
-/// (`editorOpenImage.ts` -> `restoreSnapshot` raw-spreads `textData`), so
+/// SAVE, not just load. Text data is never normalised on load
+/// (the parsed payload reaches the engine as-is), so
 /// without serde defaults this file would load, render, and then fail its
 /// next save with `E_VALIDATION` — writing nothing.
 #[test]
@@ -753,8 +753,8 @@ fn writes_the_v3_header_the_loader_expects() {
         serde_json::Value::String("photrez-ptz".to_string())
     );
     assert_eq!(v["version"], serde_json::Value::Number(3.into()));
-    // The loader warns on `version > 3`, so a raise must not land here
-    // without teaching editorOpenImage.ts the new version first.
+    // A version raise is a document-format change, so it must not land here
+    // before the loader and the tracked fixtures understand the new version.
     assert!(v["version"].as_u64().unwrap() <= 3);
 }
 

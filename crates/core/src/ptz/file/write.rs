@@ -8,14 +8,15 @@ use super::PtzDocument;
 const PTZ_FORMAT: &str = "photrez-ptz";
 
 /// The `document.json` schema version this build writes. v3 carries text and
-/// shape layer metadata (they ride the layer spread). This is the version the
-/// loader in `editorOpenImage.ts` reads without a "saved by a newer version"
-/// warning, so it must NOT be raised without teaching that loader first.
+/// shape layer metadata (they ride the layer spread). Raising it is a document
+/// format change: the loader and the tracked `.ptz` fixtures have to move with
+/// it in the same step, never silently.
 ///
 /// There is a second `.ptz` writer in this crate:
 /// `PtzDocumentContent::to_ptz_document_json` in `ptz/content.rs` emits
 /// `version: 4` and carries neither `viewport` nor `activeLayerId`, so a file
-/// it wrote would toast on every open and reset the view. It is fenced to
+/// it wrote would open with the view and active layer reset and outside the
+/// version this build writes. It is fenced to
 /// `#[cfg(test)]`. Deleting it is a PENDING DECISION, deliberately not taken
 /// in the change that added this module. Do not wire it into a save path.
 const PTZ_VERSION: u32 = 3;

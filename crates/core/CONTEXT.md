@@ -16,7 +16,7 @@ external facade.
 | `render` | `RenderLayer`, `Rect`, `RenderLayerChange`; render-owned projection leaves. |
 | `pixel` | Pixel layers, tile patches, the pixel store, state nodes, tile store, byte accounting, kernel adjustments, export. |
 | `paint`, `brush` | Paint parity and brush evaluation; leaves above `pixel`/`ptz`. |
-| `protocol` | The public typed protocol facade consumed by `src-tauri`; the callerless process-global engine registry was removed during the native port. |
+| `protocol` | The public typed protocol facade the `photrez` app consumes; it re-exports the command and projection DTOs the app drives. The callerless process-global engine registry has been removed. |
 | `geometry`, `parallel` | Shared leaf helpers. |
 
 ## Actual tree (2026-10-21)
@@ -101,9 +101,9 @@ before continuing.
   the destination for every core test.
 - No `#[path]` test indirection. No root-level `*_tests.rs`; the two Cargo integration tests under `crates/core/tests/` are deliberate benchmark-style targets permitted at the crate root.
 - Local policy: non-baseline production and test files stay at or under the
-  1,000-line hard cap; warnings begin at 900 lines. Existing entries in
-  `scripts/rust-file-size-baseline.txt` are frozen `apps/desktop` reference files
-  and receive ratchet-only enforcement: growth fails, but the new cap and warning
+  1,000-line hard cap; warnings begin at 900 lines. Entries recorded in
+  `scripts/rust-file-size-baseline.txt` are grandfathered above those caps and
+  receive ratchet-only enforcement: growth fails, but the new cap and warning
   do not apply. No new baseline entries are allowed.
 
 ## Invariants
@@ -117,12 +117,12 @@ before continuing.
 
 ## Known debt
 
-The frozen Tauri adapter retains `pixel::store::registry()` under the
-non-default `legacy-tauri` feature while it remains a build/test reference.
-The standalone GPUI app uses a private typed `PixelStoreRegistry` instance; it
-cannot access the process-global registry, raw document map, or direct mutable
-layer accessor. The callerless `protocol::registry::ENGINES` and its exports
-were removed. Do not re-export new functions from that registry.
+The raw/global `pixel::store::registry()` accessor remains gated behind the
+non-default `legacy-host` feature. The standalone GPUI app uses a private typed
+`PixelStoreRegistry` instance; it cannot access the process-global registry,
+raw document map, or direct mutable layer accessor. The callerless
+`protocol::registry::ENGINES` and its exports were removed. Do not re-export new
+functions from that registry.
 
 `geometry` and `parallel` are public leaf helpers with no in-repo caller; do
 not add behavior there without a consumer. `pixel::store` -> `paint::parity`

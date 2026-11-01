@@ -159,13 +159,13 @@ impl PixelStoreRegistry {
         self.docs.get(doc_id).and_then(|d| d.layers.get(layer_id))
     }
 
-    #[cfg(any(feature = "legacy-tauri", test))]
-    #[cfg_attr(not(feature = "legacy-tauri"), allow(dead_code))]
+    #[cfg(any(feature = "legacy-host", test))]
+    #[cfg_attr(not(feature = "legacy-host"), allow(dead_code))]
     pub fn get_layer_mut(&mut self, doc_id: &str, layer_id: &str) -> Option<&mut PixelLayer> {
         self.get_layer_mut_inner(doc_id, layer_id)
     }
 
-    #[cfg(any(feature = "legacy-tauri", test))]
+    #[cfg(any(feature = "legacy-host", test))]
     fn get_layer_mut_inner(&mut self, doc_id: &str, layer_id: &str) -> Option<&mut PixelLayer> {
         self.docs.get_mut(doc_id).and_then(|d| {
             // Desync guard: see `DocumentPixelStore::get_layer_mut`.

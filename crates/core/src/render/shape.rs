@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shape rasterizer: `ShapeParams` -> RGBA bitmap.
 //!
-//! The reference is the frozen engine's `shapeRaster.ts`: a Canvas2D path
-//! rasterizer for ten shape kinds with solid fill, centered stroke, round caps
-//! and joins, and anti-aliasing. `tiny-skia` is the approved backend so the
-//! fill/stroke pipeline stays Skia-compatible with the reference.
+//! Draws ten shape kinds with a solid fill, a centered stroke, round caps and
+//! joins, and anti-aliasing. `tiny-skia` is the backend, so the fill/stroke
+//! pipeline produces Skia-compatible geometry.
 
 #![cfg_attr(not(test), allow(dead_code))] // the production document render caller lands with the open workflow.
 

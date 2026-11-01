@@ -305,10 +305,11 @@ fn size_neutral_host_mutation_with_equal_halves_emits_no_size() {
 
 // ── Cursor advance: the 6th-press refusal's input ─────────────────────────
 
-/// Every entry kind must still advance the shared cursor, because the host
-/// refusal reads it (`facadeHistoryHandoff.ts` -> `getHistoryQuery`) and the undo
-/// button is enabled unconditionally under facade ownership: a frozen cursor
-/// would not surface as a dead button, it would silently undo the wrong thing.
+/// Every entry kind must still advance the shared cursor, because the host reads
+/// it through the history query (`history_query().cursor`) to decide undo
+/// enablement, and the undo button is enabled unconditionally under facade
+/// ownership: a cursor that failed to advance would not surface as a dead
+/// button, it would silently undo the wrong thing.
 ///
 /// The engine has NO baseline-floor guard of its own - it will happily undo the
 /// document-open entry - so the refusal has to be a host-side read of this
@@ -362,7 +363,7 @@ fn every_entry_kind_still_advances_the_shared_cursor() {
 }
 
 /// Snapshot entries move through `undo_snapshot`/`redo_snapshot`, NOT the
-/// walker's Snapshot arm. Asserted so Phase 1 cannot have shifted it.
+/// walker's Snapshot arm. Asserted so the cursor contract cannot have shifted it.
 #[test]
 fn snapshot_entry_cursor_contract_unchanged() {
     let mut eng = DocumentCore::new();

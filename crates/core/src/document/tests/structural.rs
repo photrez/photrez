@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-command-arm parity tests: Duplicate / MergeDown / MergeSelected /
-// Flatten / RasterizeLayer. These mirror the TS oracle (layerOps) and the document
-// graph mirror (document.rs). Each arm is a native undoable graph transition
+// Flatten / RasterizeLayer. These pin the reference layer-operation contract
+// and the document graph mirror (document.rs). Each arm is a native undoable graph transition
 // (begin_forward / finish_forward) that emits Removes for vanished ids followed by
 // an Upsert of every surviving / new layer in final engine order. The implementation
 // lives in document/structural.rs; this file is the ratchet that pins the
@@ -191,7 +191,7 @@ fn duplicate_layer_rejects_present_new_id_e_invalid() {
 
 #[test]
 fn duplicate_layer_unknown_source_is_noop() {
-    // Divergence: the host oracle throws on an unknown source id; the native arm
+    // Divergence: the reference engine threw on an unknown source id; the native arm
     // no-ops (the host owns identity checks). Recorded, not asserted equal.
     let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
@@ -687,7 +687,7 @@ fn rasterize_noop_for_non_parametric_layer() {
     assert!(result.delta.changes.is_empty());
 }
 
-// -- U10/U11 resolving check: rasterize through the production registry path
+// -- Resolving check: rasterize through the production registry path
 // and composite the result ---------------------------------------------------
 
 /// Seed the production registry the way the app's documents start (one
@@ -800,14 +800,14 @@ fn rasterize_check_registry() -> crate::pixel::PixelStoreRegistry {
     registry
 }
 
-/// U10: the content snapshot must drop the parametric payloads on the flip.
+/// Rasterize flip: the content snapshot must drop the parametric payloads on
+/// the flip.
 /// Pre-fix the replica projection merged optional payloads with
 /// `r.text_data.clone().or_else(|| base.text_data.clone())`
-/// (`ptz/projection.rs:219`), which cannot express "cleared", so the snapshot
+/// (`ptz/projection.rs`), which cannot express "cleared", so the snapshot
 /// kept the payload of a rasterized layer forever while the layer_type flip
 /// itself did reach the snapshot. The projection now drops the payloads once
-/// the type is Raster. RED receipt:
-/// The pre-fix RED receipts live in the internal parity ledger.
+/// the type is Raster.
 #[test]
 fn rasterized_layers_drop_their_payload_in_the_snapshot() {
     let registry = rasterize_check_registry();
@@ -824,12 +824,11 @@ fn rasterized_layers_drop_their_payload_in_the_snapshot() {
     }
 }
 
-/// U11: a rasterized parametric layer must composite from the canonical
-/// store. The host-rendered bitmap rides the command and the store
+/// A rasterized parametric layer must composite from the canonical
+/// store. The caller-rendered bitmap rides the command and the store
 /// materializes it with the bitmap-sized dims the layer now carries.
 /// Pre-fix the layer stayed metadata-only and the composite failed with
-/// `MissingPixels`. RED receipt:
-/// The pre-fix RED receipts live in the internal parity ledger.
+/// `MissingPixels`.
 #[test]
 fn rasterized_layers_composite_from_the_store() {
     use crate::render::compositor::{composite_layers, CompositeError};

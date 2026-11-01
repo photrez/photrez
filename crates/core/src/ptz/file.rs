@@ -6,24 +6,25 @@
 // that: the `photrez-ptz` / version header, the session fields the loader
 // restores, and the two per-layer bitmap keys that must stay null.
 //
-// PRODUCTION PATH: `apps/desktop/src-tauri/src/save_stream.rs`
-// (`save_project_streaming_begin`) parses the host's document into
-// `PtzDocument`, serializes it HERE, and writes the bytes into the ZIP. The
-// host no longer builds the save payload itself.
+// PRODUCTION PATH: the app's document service (`crates/photrez/src/services/
+// document.rs`) builds a `PtzDocument` from the engine content, serializes it
+// HERE, and hands the bytes to the save stream
+// (`crates/photrez/src/services/save_stream.rs`), which writes them into the
+// ZIP. Nothing else assembles the save payload.
 //
 // WHY THE SESSION FIELDS LIVE HERE AND NOT IN `ptz/content.rs`:
 // `activeLayerId` / `viewport` / `dirty` are editor state, not document
 // content, so they are deliberately not part of `PtzDocumentContent`. They are
-// still part of the FILE, because `editorOpenImage.ts` `loadProjectFile`
-// restores the viewport from the saved document. Keeping them in a
+// still part of the FILE, because opening a document restores the viewport
+// from the saved file. Keeping them in a
 // file-payload type (not the content model) is what lets the content model
 // stay free of view state without the file losing it.
 //
 // BITMAP KEYS: `imageBitmap` and `baseImageBitmap` are always written as
 // `null`. Pixels live in the ZIP as `layers/<id>.png`, never in the JSON.
 // They are emitted by the `write` half rather than modelled as fields because
-// the host holds live `ImageBitmap` objects there, which are not JSON and must
-// not survive the IPC boundary.
+// the engine holds live pixel resources in those slots, which are not JSON and
+// must not be written into the document.
 
 use crate::ptz::content::{PtzLayer, SelectionState};
 use serde::{Deserialize, Serialize};
@@ -35,10 +36,10 @@ mod write;
 #[cfg(test)]
 use crate::ptz::content::PtzDocumentContent;
 
-/// types.ts:122-127 - ViewportState (camelCase on the wire).
+/// Viewport state as persisted in `document.json` (camelCase on the wire).
 ///
 /// Defaults to identity at 100% zoom so a hand-edited or pre-viewport file
-/// loads at a usable zoom instead of an all-`undefined` viewport, which the
+/// loads at a usable zoom instead of an empty viewport, which the
 /// renderer would turn into NaN geometry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

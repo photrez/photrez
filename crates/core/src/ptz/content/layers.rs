@@ -10,7 +10,7 @@ use crate::ptz::layer_params::{BasicAdjustment, ShapeParams, TextData};
 use crate::wire::command::ResourceId;
 use serde::{Deserialize, Serialize};
 
-/// types.ts:75 - the layer `type` union (5 values).
+/// The layer `type` union (5 values).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LayerType {
@@ -21,7 +21,7 @@ pub enum LayerType {
     Text,
 }
 
-/// types.ts:12-24 - the 12 blend modes, exact TS string values.
+/// The 12 blend modes, with the exact strings saved documents carry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BlendMode {
@@ -43,7 +43,7 @@ pub enum BlendMode {
     Exclusion,
 }
 
-/// types.ts:72-106 - PtzLayer. Every LayerNode field, TYPED.
+/// PtzLayer: every persisted layer field, TYPED.
 /// Pixels are NOT stored: raster pixel references (imageBitmap /
 /// baseImageBitmap) are represented by `resource_id` (a token handle, mirroring
 /// RenderLayer.resource_id). `bitmapEpoch` is intentionally excluded (transient).

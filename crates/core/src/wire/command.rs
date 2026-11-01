@@ -100,9 +100,9 @@ pub enum Command {
         text_data: Option<TextData>,
     },
     // Create a layer with the full initial state a cross-document copy carries:
-    // full transform, opacity, blend mode, visibility, and lock. Mirrors the
-    // oracle's drag-drop path, which adds the layer and then assigns those
-    // properties inside ONE history entry. Pixel seeding stays host-side, like
+    // full transform, opacity, blend mode, visibility, and lock. The host's
+    // cross-document copy path uses it: the layer is added and those properties
+    // assigned inside ONE history entry. Pixel seeding stays host-side, like
     // DuplicateLayer: the host writes the copied bitmap before sending this.
     AddLayerWithState {
         id: String,
@@ -217,8 +217,8 @@ pub enum Command {
     // layer is a silent no-op (mirrors shapeLayerToRaster/textLayerToRaster guard).
     // `pixels` carries the host-rendered bitmap that materializes the layer's
     // canonical buffer (parametric layers are metadata-only), and the layer's
-    // dimensions become the bitmap's — the oracle keeps a text layer's bitmap
-    // and bitmap-sized dims at all times, so its rasterize works. serde-defaulted
+    // dimensions become the bitmap's — a rasterize target always carries a bitmap
+    // and bitmap-sized dims, so the rasterize step reproduces them. serde-defaulted
     // so a v2 envelope without it still parses (and reproduces the metadata-only
     // historical behaviour).
     RasterizeLayer {
@@ -233,15 +233,14 @@ pub enum Command {
     // reject with E_INVALID (stricter than the host, which would let NaN slip
     // through its comparisons).
     //
-    // Divergence (host-side guard must survive at routing time): the host oracle also
-    // silently rejects dimensions above its device-adaptive effective maximum
-    // (document.ts cropCanvas/applyCrop/resizeCanvas max-dim checks), whereas this arm
-    // accepts any finite size. The host guard must remain in place before this command
-    // reaches the arm. JSON-wire nuance: a non-finite value inside an OPTIONAL field
-    // (rotation / target dims) arrives on the wire as null -> absent, so the arm treats
-    // it as no rotation / no target; the arm's non-finite E_INVALID gate therefore
-    // applies to the REQUIRED numeric fields (x/y/width/height). The host oracle would
-    // instead perform NaN math on the optional field.
+    // Divergence (the host-side guard must survive at routing time): the host
+    // silently rejects dimensions above its own maximum-dimension limit, whereas
+    // this arm accepts any finite size. The host guard must remain in place before
+    // this command reaches the arm. JSON-wire nuance: a non-finite value inside an
+    // OPTIONAL field (rotation / target dims) arrives on the wire as null -> absent,
+    // so the arm treats it as no rotation / no target; the arm's non-finite E_INVALID
+    // gate therefore applies to the REQUIRED numeric fields (x/y/width/height). A
+    // direct caller would instead perform NaN math on the optional field.
     CropCanvas {
         x: f64,
         y: f64,
@@ -257,14 +256,14 @@ pub enum Command {
     // size that resolves to <= 0 is also a silent no-op; non-finite inputs reject
     // with E_INVALID.
     //
-    // Divergence (host-side guard must survive at routing time): the host oracle also
-    // silently rejects final dimensions above its device-adaptive effective maximum
-    // (document.ts applyCrop max-dim check), whereas this arm accepts any finite size.
-    // JSON-wire nuance: `rotation` and `target_width`/`target_height` are OPTIONAL; a
-    // non-finite value inside either arrives on the wire as null -> absent, so the arm
-    // treats it as no rotation / no target. The arm's non-finite E_INVALID gate
-    // therefore applies to the REQUIRED fields (x/y/width/height/rotation when present);
-    // the host oracle would perform NaN math on the absent-but-parsed optional field.
+    // Divergence (the host-side guard must survive at routing time): the host
+    // silently rejects final dimensions above its own maximum-dimension limit,
+    // whereas this arm accepts any finite size. JSON-wire nuance: `rotation` and
+    // `target_width`/`target_height` are OPTIONAL; a non-finite value inside either
+    // arrives on the wire as null -> absent, so the arm treats it as no rotation / no
+    // target. The arm's non-finite E_INVALID gate therefore applies to the REQUIRED
+    // fields (x/y/width/height/rotation when present); a direct caller would perform
+    // NaN math on the absent-but-parsed optional field.
     ApplyCrop {
         x: f64,
         y: f64,

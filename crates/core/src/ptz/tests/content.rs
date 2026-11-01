@@ -220,7 +220,7 @@ fn document_round_trip_preserves_all_layers() {
     let back: PtzDocumentContent = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(doc, back, "round-trip must be value-identical");
 
-    // Field-name compatibility check: JSON uses camelCase matching types.ts.
+    // Field-name compatibility check: the payload is camelCase, as saved files are.
     let v: Value = serde_json::from_str(&json).unwrap();
     let obj = v.as_object().unwrap();
     assert!(
@@ -236,7 +236,7 @@ fn document_round_trip_preserves_all_layers() {
     assert!(obj.contains_key("selection"));
 }
 
-/// Completeness guard: every LayerNode field from types.ts (lines 73-105)
+/// Completeness guard: every persisted layer field
 /// has a counterpart in PtzLayer. We fully populate one layer and
 /// assert the exact serialized key set, so no field is silently dropped.
 #[test]
@@ -306,7 +306,7 @@ fn canonical_layer_is_superset_of_ts_layernode() {
     let v: Value = serde_json::to_value(&layer).unwrap();
     let got: std::collections::BTreeSet<String> = v.as_object().unwrap().keys().cloned().collect();
 
-    // Expected keys = every LayerNode field (types.ts:73-105) except the
+    // Expected keys = every persisted layer field except the
     // excluded bitmapEpoch/imageBitmap/baseImageBitmap (those collapse into
     // `resourceId`). camelCase per the wire convention.
     let expected: std::collections::BTreeSet<String> = [
