@@ -1,8 +1,9 @@
 # UI_GUIDE.md — Photrez UI Design Reference
 
-> Consolidated UI rules for Photrez MVP.
-> Covers style, components, layout, copy, native behavior, user flows, and review checklist.
-> All design tokens referenced here are defined in `docs/reference/design-tokens.md`.
+> Consolidated visual and interaction guidance for the native GPUI application.
+> Interface values are defined in `crates/photrez/src/tokens.rs`; the web
+> interface sheet that preceded them is not the native styling source and is not
+> published with this repository.
 
 ---
 
@@ -85,7 +86,7 @@
 ### Input / Select Fields
 
 - Height: `26px` (`h-[26px]`)
-- Style: recessed box — `bg: --editor-field`, `border: 1px solid --editor-field-border`
+- Style: recessed box — `bg: --editor-field`, `1px border` using `--editor-field-border`
 - Focus: border → `--editor-accent`
 - **FORBIDDEN: `font-mono` or `font-bold` in numeric inputs.** Tabular nums handles alignment.
 
@@ -99,7 +100,7 @@
 ### Panels (Docked Precision)
 
 - Panels anchor to window edges (no outer margin)
-- Separation: `1px solid --editor-divider` (not margin)
+- Separation: `1px divider` using `--editor-divider` (not margin)
 - Rounding: inner corners → `--radius-lg/md`, outer corners → `0px`
 - Header: panel bg, `46px` height, `14px font-semibold`
 
@@ -126,37 +127,19 @@
 
 ---
 
-## 5. Native Desktop Behavior (Anti-Webapp)
-
-### Global CSS Resets
-
-```css
-* { user-select: none; -webkit-user-select: none; }
-input, textarea { user-select: text; -webkit-user-select: text; }
-body { cursor: default; }
-img, svg, a { -webkit-user-drag: none; user-drag: none; }
-html, body { overscroll-behavior: none; }
-body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-```
-
-### Tauri Integration
-
-- Frameless window: `"decorations": false` in tauri.conf.json
-- Title bar drag: `data-tauri-drag-region` on AppTitleBar container
-- Context menu: disable browser default, use Tauri API or custom dropdown
-- File drop: prevent default, handle via Tauri File Drop events
+## 5. Scrollbar and Motion Guidance
 
 ### Overlay Scrollbars
 
 - Thin overlay scrollbars (don't push layout)
 - Default transparent, opaque on hover
-- Use `--scrollbar-width` and `--color-scrollbar-thumb` tokens
+- Keep scrollbar tracks unobtrusive; make the thumb visible on hover without changing layout.
 
 ### Motion Rules
 
-- Micro-interactions (hover, focus): **max `100ms`** (`--motion-normal`)
+- Micro-interactions (hover, focus): **max `100ms`**
 - Panel/modal open: **max `150ms`**
-- **FORBIDDEN: elastic/bounce animations.** Use `cubic-bezier(0.2, 0, 0, 1)` (sharp ease-out)
+- **FORBIDDEN: elastic/bounce animations.** Prefer a short ease-out transition.
 
 ---
 
@@ -234,8 +217,8 @@ Error: write fail → `E_IO`. Invalid settings → `E_VALIDATION`.
 ### Components
 
 - [ ] All interactive elements have 5 states (default/hover/active/focus/disabled)
-- [ ] Using Tailwind v4 utilities + OKLCH CSS variables
-- [ ] Numeric text secured with `tabular-nums`
+- [ ] Shared native styling conventions are used consistently
+- [ ] Numeric values align without shifting as digits change
 - [ ] No outer padding/margin causing window edge gaps
 - [ ] Corner radius follows docking rules
 
@@ -255,4 +238,4 @@ Error: write fail → `E_IO`. Invalid settings → `E_VALIDATION`.
 
 - [ ] No heavy unnecessary animations
 - [ ] UI transitions lightweight, don't block canvas
-- [ ] Panel structure doesn't cause excessive rerenders
+- [ ] Panel updates don't block canvas rendering

@@ -1,16 +1,18 @@
 # Security Policy
 
-Photrez is pre-release desktop software. Security reports are welcome, especially for file handling, desktop shell boundaries, dependency risk, and unsafe native integration.
+Photrez is a native Rust desktop application using GPUI. Its security boundary is the native window and event loop, local file I/O, and platform integrations. The product has no network listener or embedded browser.
 
 ## Supported Scope
 
 Security reports are accepted for:
 
-- Tauri command bridge and desktop shell boundaries.
-- Import, export, decode, encode, and file I/O paths.
+- The native window, event loop, dialogs, and OS integrations.
+- File I/O and path handling for open, save, and export operations.
+- Parsing untrusted `.ptz` project files.
+- Decoding untrusted image files.
 - Dependency and supply-chain concerns.
 - Denial-of-service issues caused by crafted image files or project inputs.
-- Unsafe behavior around native dialogs, drag and drop, or filesystem access.
+- Violations of the native Rust `unsafe` policy. `unsafe_code = "deny"` is set for `crates/photrez`.
 
 ## Reporting a Vulnerability
 
@@ -31,7 +33,7 @@ Response targets:
 
 ## Handling Guidelines
 
-- Treat imported files as untrusted input.
-- Prefer fail-closed behavior for parser, decode, and shell boundary errors.
+- Treat imported project and image files as untrusted input.
+- Prefer fail-closed behavior for parser, decoder, and filesystem errors.
 - Do not include exploit details in public issues before a fix or mitigation is available.
 - Keep reports scoped and reproducible.

@@ -60,7 +60,7 @@ PLAN_SRC='Phase [A-H]([ -]?(pilot|slice|migration|increment|bundle|bridge|transf
 # not contain. The reference web app and the internal evidence directories are
 # both outside this repository, so naming them in a public artifact is a broken
 # promise, not a citation.
-DANGLING_SRC='\.slim/|deepwork|78-evidence|parity-frozen|test-disposition\.csv|apps/desktop|\.tsx\b'
+DANGLING_SRC='\.slim/|deepwork|-evidence/|frozen-[a-z0-9._-]*\.sha256|test-disposition\.csv|apps/desktop|\.tsx\b|docs/archive/|\]\(archive/'
 # Milestone vocabulary that is internal-only when it appears in PUBLIC markdown:
 # workstream codenames, named-review labels and phase-numbered work labels are
 # internal bookkeeping. Public docs describe what the product does instead.

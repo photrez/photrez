@@ -1,4 +1,4 @@
-# docs/INDEX.md — Photrez Documentation Guide
+# Photrez Documentation Guide
 
 > Use this index to find the relevant project documentation. Load focused references rather than every file.
 
@@ -8,28 +8,29 @@
 
 | File | Purpose |
 |---|---|
-| `INDEX.md` | This file - the documentation map |
-| `DESIGN.md` | Design system — how the product should look and behave |
-| `UI_GUIDE.md` | How to use the UI — interaction and visual guidance |
-| `ARCHITECTURE.md` | How it is built — runtime architecture |
-| `CONVENTIONS.md` | How to contribute — code patterns and domain behavior |
-| `FEATURES.md` | Feature implementation status |
-| `TRANSLATION.md` | en/id translation guide (describes the current Tauri-era layout; rewritten when the native app lands) |
-| `ptz-migration.md` | `.ptz` format versions and the compatibility contract |
-| `frame-pacing-baseline.md` | Dated runtime measurements — an append-only record |
+| [`INDEX.md`](INDEX.md) | This documentation map |
+| [`DESIGN.md`](DESIGN.md) | Product design principles |
+| [`UI_GUIDE.md`](UI_GUIDE.md) | Current UI interaction and visual guidance |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Native runtime architecture |
+| [`CONVENTIONS.md`](CONVENTIONS.md) | Native Rust and GPUI conventions |
+| [`FEATURES.md`](FEATURES.md) | Current feature matrix for the native app |
+| [`TRANSLATION.md`](TRANSLATION.md) | English and Indonesian catalog translation guide |
 
-## Runtime references (`reference/`)
+## Build reference
 
-These describe the **shipped** Tauri + WebGL2 runtime and the Tailwind-era UI. They stay until the native UI replaces what they document; check their status before relying on them.
-
-| File | Read when... |
+| File | Purpose |
 |---|---|
-| `reference/command-contract-spec.md` | Working on the Tauri shell IPC contract |
-| `reference/design-tokens.md` | Working on the current UI's styling and token values |
-| `reference/render-export-parity-matrix.md` | Checking WebGL preview / Canvas2D export parity |
+| [`reference/cargo-storage.md`](reference/cargo-storage.md) | Cargo build storage and cache behavior |
+| [`reference/command-contract-spec.md`](reference/command-contract-spec.md) | Where the command contract lives now |
+| [`reference/design-tokens.md`](reference/design-tokens.md) | Where interface values live now |
+| [`reference/render-export-parity-matrix.md`](reference/render-export-parity-matrix.md) | Where render and export coverage is pinned |
 
 ---
 
-> Internal material — plans, decisions, specifications, research, and archive — is intentionally **not** published here. It is gitignored by design; `CONTRIBUTING.md` describes the public rules.
+> Internal material — plans, decisions, specifications and research notes — is
+> intentionally **not** published here. It is gitignored by design;
+> `CONTRIBUTING.md` describes the public rules.
 
-Historical Tauri-era documents and the pre-migration source are preserved in the frozen archive at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+The application that preceded this native runtime, and the dated records that
+describe it, are preserved in the separate archived repository
+[photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).

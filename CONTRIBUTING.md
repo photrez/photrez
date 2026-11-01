@@ -4,7 +4,7 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Ground Rules
 
-- **Scope:** The MVP feature set is frozen; new features ship as post-MVP minor releases. Align proposals with the release roadmap in `README.md`.
+- **Scope:** Align proposals with the current product and keep changes focused.
 - **Layout Stability:** Preserve existing desktop UI structures unless a change explicitly requires UI redesign.
 - **Architecture:** Respect runtime ownership boundaries described in `docs/ARCHITECTURE.md`.
 - **Focused Changes:** Prefer small, well-tested pull requests over large, unannounced refactors.
@@ -12,23 +12,21 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Development Setup
 
-This project uses **Bun** (`v1.4.0`) as its primary package manager and runtime.
-
-> **2026-10-17:** this source tree no longer builds the v0.1.0 desktop app — the
-> browser-side runtime was removed ahead of the native rewrite. The v0.1.0
-> sources and dev instructions live in the frozen archive at
-> [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+Install the Rust toolchain specified by [`rust-toolchain.toml`](rust-toolchain.toml), then use the workspace commands below from the repository root.
 
 ```bash
-bun install          # Install dependencies
+cargo build
+cargo dev       # Run the app with the dev profile
+cargo ui        # UI iteration profile
+bacon           # Save-triggered cargo check -p photrez
 ```
 
-### Focused Test Commands
+Before opening a pull request, run the workspace gates:
 
 ```bash
-bun run --filter photrez-desktop test:unit    # Frontend unit tests (node project)
-cargo test -p photrez-core                    # Rust core unit tests
-cargo test --workspace                       # All Rust crate tests
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 ## Pull Request Guidelines
@@ -40,7 +38,7 @@ cargo test --workspace                       # All Rust crate tests
 
 ## Commit Messages
 
-Photrez follows the [Conventional Commits](https://www.conventionalcommits.org) spec. The subject line must be a single line in the form:
+Use [Conventional Commits](https://www.conventionalcommits.org) for pull request titles. `.github/workflows/lint-pr.yml` enforces the convention; there is no local commitlint hook.
 
 ```
 <type>(<scope>): <subject>
@@ -58,12 +56,12 @@ Examples:
 
 ### Public terminology
 
-Internal planning and milestone terminology that lives in gitignored project docs must **never** appear in public artifacts — source code, commit messages, PR titles, or committed documentation. Describe the change using product/technical terms instead. This rule is enforced by a shared check (`scripts/check-public-terminology.sh`) in both the local `commit-msg` hook and CI, so it cannot be bypassed.
+Describe changes with product and technical terms rather than internal planning terminology. The public-surface staleness check is `sh scripts/check-public-terminology.sh --staleness`.
 
 ## Code Standards
 
-- **Frontend:** SolidJS with strict TypeScript (TSX). Avoid `any`.
+- **Application:** Native Rust with GPUI; `photrez-core` owns canonical document state, pixels, and history.
 - **History Safety:** Always commit document state to history before executing destructive mutations.
-- **Design Token System:** Follow `@theme` design tokens in `docs/DESIGN.md`.
+- **Design:** Follow the product guidance in `docs/DESIGN.md` and `docs/UI_GUIDE.md`.
 
 Thank you for contributing to Photrez!

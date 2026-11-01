@@ -16,8 +16,8 @@ A clear and concise description of what you want to happen.
 A clear and concise description of any alternative solutions or features you've considered.
 
 **Scope check**
-Does this feature fit within the current [release roadmap](https://github.com/photrez/photrez/blob/main/README.md#-release-roadmap)?
-- [ ] Yes, it aligns with the MVP or documented roadmap
+Does this feature fit within the documented scope — the [README](https://github.com/photrez/photrez/blob/main/README.md) and the [feature matrix](https://github.com/photrez/photrez/blob/main/docs/FEATURES.md)?
+- [ ] Yes, it aligns with the documented scope
 - [ ] It may require a scope discussion first
 
 **Additional context**

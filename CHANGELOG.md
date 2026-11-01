@@ -4,29 +4,40 @@ All notable changes to Photrez will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once stable releases begin.
 
-## [Unreleased]
+## [0.2.0] - unreleased
 
-Post-`0.1.0` work toward **0.2.0 — The Native Update**.
+**0.2.0 - The Native Update.** The editor now runs on a native Rust UI instead of an embedded web view.
 
-### Added (complete in `main`; planned for 0.2.0)
+### Added
 
-- **Text layers** — live, re-editable text with styles and alignment, persisted as non-destructive metadata.
-- **Shape layers** — parametric rectangle, ellipse, line, arrow, and star with fill/stroke controls.
-- **All 12 blend modes** — preview and export parity verified.
+- **Text layers** - live, re-editable text with styles and alignment, persisted as non-destructive metadata.
+- **Shape layers** - parametric rectangle, ellipse, line, arrow, and star with fill/stroke controls.
+- **All 12 blend modes** - identical preview and export output.
+- **Per-OS release archives** - Windows `.zip`, macOS and Linux `.tar.gz`, each containing the executable plus `LICENSE`, `NOTICE` and `THIRD_PARTY.md`, with `SHA256SUMS` attached to the release.
 
-### Changed (complete in `main`)
+### Changed
 
-- Rust `photrez-core` is the canonical document, pixel, and history authority; the TypeScript UI keeps a derived view.
+- **Native application shell.** The window, menus, dialogs, canvas, panels and tool bars are Rust (GPUI) code; there is no embedded browser engine, no JavaScript runtime and no IPC bridge in the product path.
+- Rust `photrez-core` is the canonical document, pixel, and history authority.
 - `.ptz` files are written by the Rust core; current format version is v3 and remains backward-compatible from v0.1.0.
+- **Fewer Linux runtime dependencies.** The WebKitGTK, appindicator and CUPS packages that the web-view shell required are no longer needed. A Linux build now needs an X11 or Wayland session, fontconfig/freetype, and a Vulkan or GL driver.
+- Version numbers are derived from the crate manifest only.
+
+### Removed
+
+- The bundled WebView2 bootstrapper and its installer sections.
+- The NSIS installer. This release ships archives rather than installers, so there is no in-place upgrade path or "delete app data" prompt yet; unpacking over an existing installation replaces it. Signed installers, if they return, will be announced in a later entry.
+
+### Known limitations
+
+- **Print is Windows-only.** On macOS and Linux the print dialog reports an unsupported-platform error instead of printing. PNG/JPEG/WebP export works on all three platforms.
+- Release archives are **unsigned**: the operating system may warn on first launch, and `SHA256SUMS` is the only integrity check. There is no auto-updater.
+- Windows archives contain a bare executable rather than an installed application, so the OS does not register file associations or a Start Menu entry automatically.
 
 ### Performance and quality
 
 - Paint pipeline improvements include raw-byte region transport and frame-level commit slicing.
-- Latest recorded frontend validation (2026-10-14): 393 files, 4,465 passed, 2 expected failures, 1 skipped; type-check and build passed.
-
-### Planned for 0.2.0
-
-- **The Native Update:** replace the shipped Tauri web-view shell with a native Rust UI. This is planned, not yet implemented or released. Installer-size and performance claims will be updated after native-build measurements.
+- Frame pacing is measured per interaction on the release build; the recorded numbers are in the project's performance baseline.
 
 ---
 
