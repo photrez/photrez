@@ -26,7 +26,7 @@ impl PtzDocument {
     /// Appends the `photrez-ptz` / version header and the two per-layer
     /// bitmap keys. Both bitmap keys are written as a constant `null` and any
     /// value the host sent for them is discarded: the host holds live
-    /// `ImageBitmap` objects there, and pixels belong in the ZIP
+    /// raster buffers there, and pixels belong in the ZIP
     /// (`layers/<id>.png`), never in the JSON. Writing the constant also stops
     /// a live bitmap from reaching `JSON.stringify`, which would serialize it
     /// to `{}` and make the loader treat it as a usable base image.

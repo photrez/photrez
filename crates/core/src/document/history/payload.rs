@@ -120,7 +120,7 @@ pub(crate) enum EntryPayload {
     },
     /// Atomic metadata+pixel snapshot entry. Carries the document metadata
     /// snapshot with per-layer opaque `bitmap_token` references. Rust stores NO
-    /// ImageBitmap and NO pixel bytes here — TS owns the ImageBitmap and restores
+    /// raster and NO pixel bytes here — the host owns each layer's raster and restores
     /// it by the token on undo/redo, so ONE entry restores BOTH metadata and
     /// pixel state atomically. Matches the `Pixel` pattern: BOTH `before` (the
     /// state being left, returned by `undo_snapshot`) and `after` (the new

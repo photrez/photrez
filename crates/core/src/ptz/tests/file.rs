@@ -577,7 +577,7 @@ fn partial_shape_params_and_adjustments_still_save() {
     );
 }
 
-/// KNOWN, TESTED on-disk differences from the previous TypeScript writer.
+/// KNOWN, TESTED on-disk differences from the previous host-side writer.
 /// Not a hazard — the loader does `JSON.parse` + `restoreSnapshot`, both of
 /// which ignore unknown keys and treat `null` as absent — but recorded so a
 /// future reader is not surprised.
@@ -616,14 +616,15 @@ fn the_on_disk_delta_from_the_previous_writer_is_as_documented() {
     // file's own decimal literals back unchanged. `serde_json`'s default
     // float parsing is approximate and can be 1 ULP off on some literals;
     // `crates/core/Cargo.toml` enables its `float_roundtrip` feature so
-    // Rust parses exactly as `str::parse::<f64>` and as the TypeScript
-    // loader's `JSON.parse` do. Measured on this fixture: `panY` was
+    // Rust parses exactly as `str::parse::<f64>` does, matching the correctly-
+    // rounded parse the previous host-side loader performed. Measured on this
+    // fixture: `panY` was
     // `63.599995930989564` (0x404fccccaaaaaaa8) and is written back as
     // exactly that, where the default path would have emitted
     // `63.59999593098957` (0x404fccccaaaaaaa9).
     //
     // This means every float in every `.ptz` this build writes can differ
-    // from what the previous TypeScript writer emitted -- by at most 1 ULP
+    // from what the previous host-side writer emitted -- by at most 1 ULP
     // on the literals where the approximate path was inexact, and not at
     // all elsewhere. Recorded here because it is a real on-disk change, not
     // an internal detail.

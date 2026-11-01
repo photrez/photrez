@@ -8,8 +8,7 @@
 pub use crate::wire::history::PayloadKind;
 
 /// Read-only depth report for one document's unified history stream, as returned
-/// by `PixelStoreRegistry::get_history_depth` and the
-/// `rust_pixels_history_depth` Tauri command. Carries no pixel bytes.
+/// by `PixelStoreRegistry::get_history_depth`. Carries no pixel bytes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct HistoryDepth {
     /// Stream length (entries recorded, both branches included).
@@ -23,14 +22,14 @@ pub struct HistoryDepth {
 }
 
 /// Read-only cursor position for one document's history stream, as returned by
-/// `PixelStoreRegistry::get_history_tip` and the `rust_pixels_history_tip`
-/// Tauri command. Carries no pixel bytes and no payload data — only the depth
-/// numbers and WHICH kind of entry each direction would consume.
+/// `PixelStoreRegistry::get_history_tip`. Carries no pixel bytes and no payload
+/// data — only the depth numbers and WHICH kind of entry each direction would
+/// consume.
 ///
-/// This exists to answer one question: is the TypeScript undo stack pointing at
-/// the same history position as this stream? The TS side owns its own depth
-/// counter and the Rust side owns this one, and nothing in production compares
-/// them, so drift between the two is invisible until it is measured.
+/// This exists to answer one question: does the caller's undo bookkeeping point
+/// at the same history position as this stream? The two sides keep separate
+/// depth counters and nothing in production compares them, so drift between
+/// the two is invisible until it is measured.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct HistoryTip {
     /// Stream length (entries recorded, both branches included).

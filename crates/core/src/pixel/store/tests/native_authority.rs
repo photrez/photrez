@@ -17,9 +17,10 @@ fn envelope(cmd: Command) -> CommandEnvelope {
 }
 
 /// Get the per-doc `DocumentCore` exactly as the native command's REAL path
-/// expects: the doc must already be OPEN (the client opens it via
-/// `rust_pixels_open_document` before issuing protocol commands), then `get_mut`
-/// returns it. This mirrors the command (`open_document` precedes `get_mut`) and
+/// expects: the doc must already be OPEN (the host loader opens it via
+/// `PixelStoreRegistry::open_document` before issuing protocol commands), then
+/// `get_mut` returns it. This mirrors the command (`open_document` precedes
+/// `get_mut`) and
 /// does NOT silently create an unopened doc - a missing doc is the command's error
 /// contract, exercised separately below.
 fn engine_for<'a>(reg: &'a mut PixelStoreRegistry, doc_id: &str) -> &'a mut DocumentCore {
@@ -198,7 +199,7 @@ fn pixel_handoff_serializes_to_the_keys_the_host_parses() {
     assert!(p["layerId"].is_string(), "camelCase layerId");
     assert!(p["tiles"].is_array(), "tiles array");
     // TilePatch keeps its Rust field names - the host already parses this
-    // shape from rust_pixels_undo, so the two paths agree.
+    // shape from the host's own undo handoffs, so the two paths agree.
     assert!(p["tiles"][0]["x"].is_i64());
     assert!(p["tiles"][0]["y"].is_i64());
     assert!(p["tiles"][0]["w"].is_u64());
@@ -421,7 +422,7 @@ fn native_authority_command_path_uses_global_registry_and_json_envelope() {
     // missing-doc error contract, and the "CODE: message" apply-error
     // formatting the command returns to the 2b-3 TS client.
 
-    // Open the doc exactly as production does: rust_pixels_open_document
+    // Open the doc exactly as production does: `PixelStoreRegistry::open_document`
     // precedes the protocol command, so the command's get_mut finds an
     // already-open doc (the native authority does NOT implicitly create one).
     {

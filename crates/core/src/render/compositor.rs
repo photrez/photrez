@@ -5,10 +5,11 @@
 //! visibility, opacity, all twelve blend modes, and the existing transforms.
 //! A visible unsupported layer is rejected rather than silently skipped.
 //!
-//! The reference is the frozen engine's `compositeAllLayers`, which draws the
-//! layer array from last to first with Canvas2D `source-over`. The goldens in
-//! the tests were produced by browser Canvas2D with the same draw order, so
-//! they are independent of this implementation.
+//! The reference is the previous host engine's compositor: source-over
+//! compositing, drawing the layer array from last to first. The
+//! goldens in the tests were captured from that reference compositor with the
+//! same draw order before this code existed, so they are independent of this
+//! implementation.
 
 use super::{shape, text};
 use crate::pixel::kernel::apply_basic_adjustment;
@@ -647,7 +648,7 @@ fn coverage(
     sx: f64,
     sy: f64,
 ) -> f64 {
-    // Canvas2D's edge alpha follows the smaller of the two per-axis local
+    // The reference compositor's edge alpha follows the smaller of the two per-axis local
     // coverages, not the 2D overlap area. A destination pixel becomes a rotated
     // parallelogram in layer space; its local extents give the two ratios.
     let mut min_u = f64::INFINITY;
@@ -677,9 +678,9 @@ fn opacity_alpha(opacity: f64) -> u32 {
     ((opacity.clamp(0.0, 1.0) * 255.0).round() as u32).min(255)
 }
 
-/// Straight-alpha source-over with Canvas2D's premultiplied 8-bit rounding.
+/// Straight-alpha source-over with the reference compositor's premultiplied 8-bit rounding.
 ///
-/// The browser oracle returns 127/128 for 50% blue over opaque red; keeping the
+/// The reference oracle returns 127/128 for 50% blue over opaque red; keeping the
 /// premultiplied intermediate and rounding at each step reproduces that split.
 fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) {
     let sa = div255(src[3] as u32 * opacity);
@@ -727,7 +728,7 @@ fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) 
 
 /// W3C compositing blend functions over non-premultiplied channels.
 ///
-/// Canvas2D performs these in a premultiplied 8-bit pipeline, so a blend case
+/// The reference compositor performs these in a premultiplied 8-bit pipeline, so a blend case
 /// that lands on a rounding boundary can differ by one channel unit.
 fn blend_channel(mode: &BlendMode, cb: f64, cs: f64) -> f64 {
     match mode {

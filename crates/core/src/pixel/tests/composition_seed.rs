@@ -110,7 +110,7 @@ fn record_structural_change(reg: &mut PixelStoreRegistry) -> Option<PayloadKind>
 /// The seed's probe plus its ONE canonical whole-layer write.
 fn seed_composite(reg: &mut PixelStoreRegistry, w: usize, h: usize, composite: &[u8]) {
     // The probe RESOLVES for a layer the store already holds, which is the case
-    // that makes the host skip its `rust_pixels_init` seed. Its epoch value is
+    // right after the host seeded the destination's pixels. Its epoch value is
     // not asserted: only the resolve/reject distinction is load-bearing here.
     reg.get_epoch(SEED_DOC, SEED_LAYER)
         .expect("probe resolves: the destination already has a store entry");

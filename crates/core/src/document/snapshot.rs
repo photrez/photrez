@@ -3,9 +3,9 @@
 //!
 //! A snapshot is a METADATA + bitmap-token transport, NOT a pixel store:
 //!   - It carries per-layer pixel metadata (width/height/epoch/pixel_version)
-//!     plus an OPAQUE `bitmap_token` that references the ImageBitmap TS owns.
-//!   - Rust NEVER stores an ImageBitmap or pixel bytes here; the token lets the
-//!     TS adapter restore the correct ImageBitmap after an undo/redo step, so a
+//!     plus an OPAQUE `bitmap_token` referencing the host-owned raster.
+//!   - Rust NEVER stores a raster or pixel bytes here; the token lets the
+//!     host restore the correct raster after an undo/redo step, so a
 //!     single `EntryPayload::Snapshot` entry restores BOTH metadata (this DTO)
 //!     and pixel state (via the token reference) atomically.
 //!
@@ -23,7 +23,7 @@ pub struct LayerSnapshot {
     pub layer_id: String,
     pub width: u32,
     pub height: u32,
-    /// Opaque reference to the ImageBitmap TS owns. `None` when the layer has no
+    /// Opaque reference to the host-owned raster. `None` when the layer has no
     /// pixel store yet (e.g. an empty layer). Rust never dereferences the token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bitmap_token: Option<String>,

@@ -25,7 +25,7 @@
 // EXCLUDED FIELDS (deliberate, with reason):
 //   - LayerNode.bitmapEpoch: transient in-memory freshness epoch,
 //     explicitly "not persisted to .ptz". Not document content.
-//   - LayerNode.imageBitmap / baseImageBitmap: live pixel
+//   - The two bitmap slots the previous host kept on each layer node: live pixel
 //     references. Pixels are NEVER stored in the model.
 //     Replaced by `resource_id: Option<ResourceId>` (a token handle mirroring
 //     RenderLayer.resource_id in render/layer.rs).
@@ -107,8 +107,9 @@ impl PtzDocumentContent {
     ///
     /// Real saved files carry session/transport fields that are not part of the
     /// canonical document content (`format`, `version`, `activeLayerId`,
-    /// `viewport`, `dirty`) and per-layer pixel references (`imageBitmap`,
-    /// `baseImageBitmap`). The deserializer ignores these via its default
+    /// `viewport`, `dirty`) and per-layer bitmap placeholder keys (the two
+    /// null-emitting keys appended by `PtzDocument::to_json`). The deserializer
+    /// ignores these via its default
     /// field behavior. Optional layer/document fields that are absent from the
     /// file deserialize to `None`. Malformed JSON returns `Err` (never panics).
     pub fn from_ptz_document_json(json: &str) -> Result<Self, String> {

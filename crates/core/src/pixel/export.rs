@@ -2,12 +2,12 @@
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
-// ── PNG decode offload (measured 1.8x vs browser) ────
-// Bench (2026-08-21): image-crate png path 145ms @4K vs Chrome
-// createImageBitmap 262ms. Decode-into-pinned-buffer shape: the file bytes
-// cross the boundary once; decoded RGBA stays in memory for zero-copy
-// readout. Two-step (dimensions first) lets TS apply
-// its MAX_CANVAS_DIM guard BEFORE allocating pixel memory.
+// ── PNG decode offload (measured 1.8x over the previous host-side decode) ────
+// Bench (2026-08-21): image-crate png path 145ms @4K vs the previous
+// host-side decode reference at 262ms. Decode-into-pinned-buffer shape: the file
+// bytes cross the host boundary once; decoded RGBA stays in memory for
+// zero-copy readout. Two-step (dimensions first) lets the caller apply its own
+// max-dimension guard BEFORE allocating pixel memory.
 
 /// Header-only dimension probe. Errors on invalid/truncated PNG.
 /// Errors are `String`.

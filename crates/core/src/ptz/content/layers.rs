@@ -44,8 +44,8 @@ pub enum BlendMode {
 }
 
 /// PtzLayer: every persisted layer field, TYPED.
-/// Pixels are NOT stored: raster pixel references (imageBitmap /
-/// baseImageBitmap) are represented by `resource_id` (a token handle, mirroring
+/// Pixels are NOT stored: the two bitmap slots the previous host kept on each
+/// raster layer are represented by `resource_id` (a token handle, mirroring
 /// RenderLayer.resource_id). `bitmapEpoch` is intentionally excluded (transient).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +70,8 @@ pub struct PtzLayer {
     #[serde(default)]
     pub basic_adjustment: Option<BasicAdjustment>,
     /// Token handle to the layer's pixel resource. Mirrors RenderLayer.resource_id.
-    /// None for non-raster layers. Replaces imageBitmap / baseImageBitmap.
+    /// None for non-raster layers. Replaces the two bitmap slots the previous host
+    /// kept on each raster layer.
     /// Absent in v3 saved files (which carry no resource tokens); deserializes to None.
     #[serde(default)]
     pub resource_id: Option<ResourceId>,

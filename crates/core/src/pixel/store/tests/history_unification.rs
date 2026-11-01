@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! History unification proof: the Rust (pixel) and TypeScript (non-pixel)
+//! History unification proof: the engine-side (pixel) and host-side (non-pixel)
 //! operations share EXACTLY ONE logical history cursor.
 
 use super::tile;

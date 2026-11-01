@@ -380,7 +380,7 @@ pub struct CommandResult {
     /// Present iff this step landed on an `External` entry. The host's
     /// `token` for that entry, handed back verbatim.
     ///
-    /// The host owns the pre-op rasters; Rust never sees an `ImageBitmap`, so it
+    /// The host owns the pre-op rasters; Rust never sees a host raster object, so it
     /// cannot store or replay one. But the host minted the token and parked the
     /// pre-op snapshot (rasters included) under it at record time, so returning
     /// the token is what lets the host find and re-apply those rasters. No new

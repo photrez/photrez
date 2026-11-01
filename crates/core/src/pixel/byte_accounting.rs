@@ -26,7 +26,7 @@
 //! - the `TileRef` / `StateNode` / `Arc` headers and the `Vec`s holding them;
 //! - `Vec` over-allocation, so a buffer that grew and was never shrunk reports
 //!   its length, not its capacity;
-//! - the host-side `ImageBitmap` generations and the TypeScript undo stack, which
+//! - the host's own raster generations and the host-side undo bookkeeping, which
 //!   belong to another owner entirely.
 //!
 //!   The header term is small enough not to matter at the sizes this is measured
@@ -113,7 +113,7 @@ pub struct TileByteReport {
 }
 
 /// One document's byte footprint, as read by the read-only
-/// `rust_pixels_store_bytes` Tauri command.
+/// `PixelStoreRegistry::get_store_bytes` diagnostic probe.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PixelStoreBytes {
     /// Layers holding a row-major buffer in this document.
@@ -322,12 +322,12 @@ impl PixelStoreRegistry {
     /// this registry does not hold, so an unknown id can never read as a
     /// zero-byte document.
     ///
-    /// Consumers, and there is exactly one: the dev-only byte-accounting row in
-    /// `perfAuditDev.ts`, which drives the `rust_pixels_store_bytes` command from
-    /// the audit harness. Nothing in the shipping UI, and no production command,
-    /// reads this - the probe is a diagnostic, so its cost never lands on a paint
-    /// or undo path. The sibling `rust_pixels_history_depth` probe still has NO
-    /// consumer at all: it answers a cursor-parity question nothing asks yet.
+    /// Consumers: only this crate's byte-accounting tests, which drive
+    /// `get_store_bytes` directly. Nothing in the shipping UI, and no production
+    /// command, reads this - the probe is a diagnostic, so its cost never lands on
+    /// a paint or undo path. The sibling `get_history_depth` probe has NO
+    /// production consumer either: it answers a cursor-parity question nothing
+    /// asks yet.
     pub fn get_store_bytes(&self, doc_id: &str) -> Option<PixelStoreBytes> {
         let doc = self.docs.get(doc_id)?;
         let row_major_bytes = doc.row_major_bytes();

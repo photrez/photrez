@@ -20,7 +20,8 @@
 // file-payload type (not the content model) is what lets the content model
 // stay free of view state without the file losing it.
 //
-// BITMAP KEYS: `imageBitmap` and `baseImageBitmap` are always written as
+// BITMAP KEYS: the two per-layer bitmap-reference keys that `write.rs` appends
+// are always written as
 // `null`. Pixels live in the ZIP as `layers/<id>.png`, never in the JSON.
 // They are emitted by the `write` half rather than modelled as fields because
 // the engine holds live pixel resources in those slots, which are not JSON and

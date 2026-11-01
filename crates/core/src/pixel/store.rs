@@ -107,7 +107,7 @@ impl PixelStoreRegistry {
 
 // Process-lifetime registry. The `static PIXEL_STORE: Option<HashMap<..>>`
 // global is replaced here by a document-namespaced owner; the outer `Option`
-// keeps the lazy-init pattern already used by the Tauri command layer.
+// keeps the lazy-init pattern: the registry is built on first use, not eagerly.
 #[cfg(any(feature = "legacy-host", test))]
 static REGISTRY: Mutex<Option<PixelStoreRegistry>> = Mutex::new(None);
 

@@ -307,7 +307,7 @@ fn canonical_layer_is_superset_of_ts_layernode() {
     let got: std::collections::BTreeSet<String> = v.as_object().unwrap().keys().cloned().collect();
 
     // Expected keys = every persisted layer field except the
-    // excluded bitmapEpoch/imageBitmap/baseImageBitmap (those collapse into
+    // excluded bitmapEpoch and the two bitmap placeholder keys (those collapse into
     // `resourceId`). camelCase per the wire convention.
     let expected: std::collections::BTreeSet<String> = [
         "id",

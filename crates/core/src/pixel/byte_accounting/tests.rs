@@ -389,7 +389,8 @@ fn bytes_survive_an_arena_reset_while_the_invalidate_barrier_is_set() {
     );
 
     // The barrier the walker sets on an External handoff, left set because
-    // `history_cursor_commit` failed. `rust_pixels_init` has no barrier guard.
+    // `history_cursor_commit` failed. The seed path (`add_layer`) applies no
+    // barrier guard.
     reg.docs
         .get_mut(&doc)
         .expect("doc")
@@ -749,7 +750,7 @@ fn owed_anchor_bytes_counts_only_the_layers_that_owe_one() {
 
 /// A 0x0 layer is DERIVED-owed as zero bytes while still counting as an unbuilt
 /// layer, because `width*height*4` is 0. That combination is a REAL response,
-/// not a malformed one, and it is why the TypeScript guard on these two figures
+/// not a malformed one, and it is why the consumer-side guard on these two figures
 /// has to point the other way: guarding "layers owed but zero bytes" would
 /// reject this document. Pinned here so the reason survives being "tidied up".
 #[test]
@@ -766,7 +767,7 @@ fn a_zero_dimension_unbuilt_layer_owes_no_bytes_but_still_counts() {
     assert_eq!(bytes.total_bytes, 0);
 }
 
-/// The two one-way guards the TypeScript wrapper enforces, pinned from the Rust
+/// The two one-way guards a consumer of these figures must respect, pinned from the Rust
 /// side so they cannot be tightened into rejecting a real response.
 ///
 /// Every unbuilt layer is a SUBSET of the document's layers, and a non-zero

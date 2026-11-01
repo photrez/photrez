@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Engine-level fuzz for DocumentCore: random commands drawn from the full
 // routed set plus undo/redo interleaves. This drives the REAL Rust engine (the
-// exact code the desktop app runs), not a TypeScript emulator, so a green run is
+// exact code the desktop app runs), not a stand-in emulator, so a green run is
 // evidence about the engine's own trust-boundary and history invariants.
 //
 // Test-only: this file does not touch production logic. A divergence found here
@@ -186,7 +186,7 @@ fn state_digest(e: &DocumentCore) -> u64 {
 }
 
 /// (entry count, summed retained byte estimate) from the same history query the
-/// TypeScript facade reads.
+/// host's history surface reads.
 fn history_stats(e: &DocumentCore) -> (usize, u64) {
     let q = e.history_query();
     let bytes: u64 = q.entries.iter().map(|x| x.memory_cost_bytes).sum();
@@ -664,8 +664,9 @@ fn fuzz_seed_sweep_10000_ops_pass() {
 
 /// A pure undo/redo storm must not grow or shrink the retained history: no new
 /// entries, no eviction, and no change to the retained byte estimate. This is
-/// the engine-level memory-stability check; the facade's 512-entry dropped-node
-/// cache lives in the TypeScript layer and is out of scope for a Rust unit test.
+/// the engine-level memory-stability check; host-side bounded (512-entry)
+/// dropped-node caches live outside this crate and are out of scope for a Rust
+/// unit test.
 #[test]
 fn undo_redo_storm_memory_stable() {
     let mut rng = seed_rng(0x5EED);
