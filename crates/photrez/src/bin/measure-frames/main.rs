@@ -11,7 +11,13 @@ measure-frames - product-seam frame pacing for the native canvas
 
 Usage: measure-frames [options]
   --size N        square document edge (default 4096; 1..=16384)
-  --demo          use the real 800x600 demo document (ignores --size)
+  --width N       document width, overriding one --size edge (1..=16384)
+  --height N      document height, overriding one --size edge (1..=16384)
+  --layers N      raster layers in the document (default 1; 1..=4)
+  --content MODE  plain (default) or canonical: distinct patterned layers
+                  composited by photrez-core. canonical is implied by --layers > 1
+  --fixture-png PATH  write the composited fixture PNG to PATH before measuring
+  --demo          use the real 800x600 demo document (ignores size and layers)
   --strokes N     stroke cycles (default 12)
   --moves N       document updates per stroke (default 40)
   --brush N       brush radius in document px (default 32; 1..=256)
@@ -38,6 +44,10 @@ const PATCH_COMMIT_MOVES: usize = 8;
 #[cfg(any(windows, test))]
 struct Config {
     size: usize,
+    width: usize,
+    height: usize,
+    layers: usize,
+    content: String,
     strokes: usize,
     moves: usize,
     brush_px: f32,
@@ -52,6 +62,7 @@ struct Config {
     progressive: bool,
     presentmon_csv: Option<String>,
     presentmon_skip_ms: f64,
+    fixture_png: Option<String>,
     out_path: Option<String>,
 }
 

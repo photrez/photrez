@@ -52,12 +52,23 @@ impl Pacing {
 
 /// 95th percentile (nearest-rank) of a set of durations. `ZERO` when empty.
 pub fn p95(durations: &[Duration]) -> Duration {
+    percentile(durations, 0.95)
+}
+
+/// Median (nearest-rank) of a set of durations. `ZERO` when empty.
+pub fn p50(durations: &[Duration]) -> Duration {
+    percentile(durations, 0.50)
+}
+
+/// Nearest-rank percentile: the smallest sample at or above `fraction` of the
+/// ordered set. Documented because the receipt compares runs across harnesses.
+fn percentile(durations: &[Duration], fraction: f64) -> Duration {
     if durations.is_empty() {
         return Duration::ZERO;
     }
     let mut sorted = durations.to_vec();
     sorted.sort_unstable();
-    let index = ((sorted.len() as f64) * 0.95).ceil() as usize;
+    let index = ((sorted.len() as f64) * fraction).ceil() as usize;
     let index = index.clamp(1, sorted.len()) - 1;
     sorted[index]
 }

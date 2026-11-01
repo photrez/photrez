@@ -283,8 +283,10 @@ impl Runner {
         };
 
         let intervals = stroke_pace.intervals();
+        let frame_p50_ms = timing::p50(&intervals).as_secs_f64() * 1000.0;
         let frame_p95_ms = timing::p95(&intervals).as_secs_f64() * 1000.0;
         let frames_ge_33 = timing::count_at_least(&intervals, Duration::from_millis(33));
+        let update_p50_ms = timing::p50(&latencies).as_secs_f64() * 1000.0;
         let update_p95_ms = timing::p95(&latencies).as_secs_f64() * 1000.0;
         let update_max_ms = latencies
             .iter()
@@ -293,6 +295,7 @@ impl Runner {
             .unwrap_or(Duration::ZERO)
             .as_secs_f64()
             * 1000.0;
+        let commit_p50_ms = timing::p50(&commits).as_secs_f64() * 1000.0;
         let commit_p95_ms = timing::p95(&commits).as_secs_f64() * 1000.0;
         let commit_max_ms = commits
             .iter()
@@ -301,6 +304,15 @@ impl Runner {
             .unwrap_or(Duration::ZERO)
             .as_secs_f64()
             * 1000.0;
+
+        let dense_samples_ms: Vec<f64> = latencies
+            .iter()
+            .map(|sample| round2(sample.as_secs_f64() * 1000.0))
+            .collect();
+        let commit_samples_ms: Vec<f64> = commits
+            .iter()
+            .map(|sample| round2(sample.as_secs_f64() * 1000.0))
+            .collect();
 
         let display = match self.cfg.presentmon_csv.as_deref() {
             Some(path) => {
@@ -365,12 +377,18 @@ impl Runner {
             "requested_size": if self.cfg.demo { None } else { Some(self.cfg.size) },
             "width": self.width,
             "height": self.height,
+            "layers": if self.cfg.demo { 1 } else { self.cfg.layers },
+            "content": if self.cfg.demo { "demo" } else { self.cfg.content.as_str() },
+            "fixture_digest_fnv64": format!("{:016x}", self.fixture_digest),
+            "fixture_png": self.cfg.fixture_png.clone(),
             "demo": self.cfg.demo,
             "control": false,
+            "red": if self.cfg.red.is_empty() { None } else { Some(self.cfg.red.as_str()) },
             "strokes": self.cfg.strokes,
             "moves": self.cfg.moves,
             "warmup_strokes": self.cfg.warmup,
             "brush_px": self.cfg.brush_px,
+            "endpoint_clock": "monotonic Instant; start = document update issued, end = profiler present_end",
             "upload_full_ms": round2(upload_full_ms),
             "upload_full_record_only": true,
             "opening_first_ms": opening_first_ms.map(round2),
@@ -385,21 +403,28 @@ impl Runner {
             "dirty_sample_count": dirty_samples.len(),
             "dirty_samples_ms": dirty_samples_ms,
             "dirty_max_index": dirty_max_index,
+            "frame_p50_ms": round2(frame_p50_ms),
             "frame_p95_ms": round2(frame_p95_ms),
             "frame_p95_scope": "application",
             "frames_ge_33ms": frames_ge_33,
+            "frame_interval_count": intervals.len(),
+            "display_p50_ms": display.as_ref().map(|summary| round2(summary.p50_ms)),
             "display_p95_ms": display.as_ref().map(|summary| round2(summary.p95_ms)),
             "display_frames_ge_33ms": display.as_ref().map(|summary| summary.frames_ge_33),
             "display_sample_count": display.as_ref().map(|summary| summary.sample_count),
             "display_skipped": display.as_ref().map(|summary| summary.skipped),
             "display_skip_ms": round2(self.cfg.presentmon_skip_ms),
             "display_source": display.as_ref().map(|_| "presentmon"),
+            "update_p50_ms": round2(update_p50_ms),
             "update_p95_ms": round2(update_p95_ms),
             "update_max_ms": round2(update_max_ms),
             "update_count": latencies.len(),
+            "update_samples_ms": dense_samples_ms,
             "commit_count": commits.len(),
+            "commit_p50_ms": round2(commit_p50_ms),
             "commit_p95_ms": round2(commit_p95_ms),
             "commit_max_ms": round2(commit_max_ms),
+            "commit_samples_ms": commit_samples_ms,
             "paint_proven": paint_proven,
             "paint_changed_frac": round6(changed_fraction),
             "adapter": probe::adapter_string(),

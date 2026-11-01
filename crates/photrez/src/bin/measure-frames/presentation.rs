@@ -38,8 +38,13 @@ impl Runner {
         };
 
         let intervals = pace.intervals();
+        let frame_p50_ms = timing::p50(&intervals).as_secs_f64() * 1000.0;
         let frame_p95_ms = timing::p95(&intervals).as_secs_f64() * 1000.0;
         let frames_ge_33 = timing::count_at_least(&intervals, Duration::from_millis(33));
+        let control_samples_ms: Vec<f64> = intervals
+            .iter()
+            .map(|sample| round2(sample.as_secs_f64() * 1000.0))
+            .collect();
         let mut verdicts: Vec<String> = Vec::new();
         if !control_unchanged {
             verdicts.push(format!(
@@ -58,14 +63,20 @@ impl Runner {
             "requested_size": if self.cfg.demo { None } else { Some(self.cfg.size) },
             "width": self.width,
             "height": self.height,
+            "layers": if self.cfg.demo { 1 } else { self.cfg.layers },
+            "content": if self.cfg.demo { "demo" } else { self.cfg.content.as_str() },
+            "fixture_digest_fnv64": format!("{:016x}", self.fixture_digest),
             "demo": self.cfg.demo,
             "strokes": self.cfg.strokes,
             "moves": self.cfg.moves,
             "warmup_repaints": self.cfg.warmup,
             "control_repaints": total,
             "present_count": pace.presents.len(),
+            "endpoint_clock": "monotonic Instant; present intervals between consecutive profiler present_end",
+            "frame_p50_ms": round2(frame_p50_ms),
             "frame_p95_ms": round2(frame_p95_ms),
             "frames_ge_33ms": frames_ge_33,
+            "frame_interval_samples_ms": control_samples_ms,
             "paint_proven": false,
             "control_unchanged": control_unchanged,
             "paint_changed_frac": round6(changed_fraction),

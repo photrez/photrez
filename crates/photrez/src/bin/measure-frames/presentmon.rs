@@ -15,6 +15,7 @@ use std::path::Path;
 /// The displayed-interval distribution from one PresentMon capture.
 #[derive(Debug, PartialEq)]
 pub struct DisplaySummary {
+    pub p50_ms: f64,
     pub p95_ms: f64,
     pub frames_ge_33: usize,
     pub sample_count: usize,
@@ -120,13 +121,14 @@ pub fn summarize_csv_str(csv: &str, skip_ms: f64) -> Result<DisplaySummary, Pres
         return Err(PresentmonError::NoRows);
     }
     values.sort_by(f64::total_cmp);
-    let index = ((values.len() as f64) * 0.95).ceil() as usize;
-    let index = index.clamp(1, values.len()) - 1;
-    let p95_ms = values[index];
-    let frames_ge_33 = values.iter().filter(|&&value| value >= 33.0).count();
+    let nearest = |fraction: f64| -> f64 {
+        let index = ((values.len() as f64) * fraction).ceil() as usize;
+        values[index.clamp(1, values.len()) - 1]
+    };
     Ok(DisplaySummary {
-        p95_ms,
-        frames_ge_33,
+        p50_ms: nearest(0.50),
+        p95_ms: nearest(0.95),
+        frames_ge_33: values.iter().filter(|&&value| value >= 33.0).count(),
         sample_count: values.len(),
         skipped,
     })
@@ -151,6 +153,7 @@ measure-frames.exe,1,3500.0,17.6,150.0\n";
         assert_eq!(summary.sample_count, 3); // 16.9, 16.8, 33.4
         assert_eq!(summary.frames_ge_33, 1);
         assert_eq!(summary.skipped, 3); // opening row + NA + 150
+        assert!((summary.p50_ms - 16.9).abs() < 0.001);
         assert!((summary.p95_ms - 33.4).abs() < 0.001);
     }
 
