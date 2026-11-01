@@ -62,6 +62,11 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The input-latency driver compiles only behind this feature, so the
+      # plain clippy step above never lints it on any OS. Lint it explicitly.
+      - name: Clippy (measurement driver feature)
+        run: cargo clippy -p photrez --all-targets --features input-measurement -- -D warnings
+
       - name: Format check
         run: cargo fmt --check
 
@@ -69,6 +74,10 @@ jobs:
         run: cargo test --workspace
 
       - name: Docs (deny warnings)
+        # `VAR=value command` is shell syntax; the Windows runner's default
+        # shell is PowerShell, where it reads as a command name and the gate
+        # dies before cargo runs.
+        shell: bash
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
 
       - name: Install cargo-deny
