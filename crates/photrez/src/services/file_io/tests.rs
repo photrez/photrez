@@ -35,6 +35,11 @@ fn assert_code(error: super::super::error::ServiceError, expected: &str) {
     assert_eq!(error.code(), expected, "{error}");
 }
 
+/// The handle-bound open behind `read_approved` is implemented only for Windows
+/// and Linux x86_64; other targets fail closed, so the tests that observe an
+/// approval snapshot are gated to those targets and these helpers must follow
+/// them. Ungated, they are dead code everywhere else, which this crate denies.
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
 fn approval_snapshot(io: &LocalFileIo, persistence: &Path) -> (Vec<PathBuf>, Option<Vec<u8>>) {
     let approved = io
         .approved_paths
@@ -49,6 +54,7 @@ fn approval_snapshot(io: &LocalFileIo, persistence: &Path) -> (Vec<PathBuf>, Opt
     (approved, persisted)
 }
 
+#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
 fn assert_approval_snapshot_unchanged(
     io: &LocalFileIo,
     persistence: &Path,
