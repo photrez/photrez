@@ -317,6 +317,12 @@ fn mount_app_with_settings(
 #[path = "tests/color_picker.rs"]
 mod color_picker;
 
+#[path = "tests/layers_footer.rs"]
+mod layers_footer;
+
+#[path = "tests/option_bar.rs"]
+mod option_bar;
+
 #[path = "tests/commands.rs"]
 mod commands;
 
