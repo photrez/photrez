@@ -291,8 +291,7 @@ pub fn crop_params() -> CropParams {
 /// `Cancel` ⟵ `Apply`.
 ///
 /// The `<Divider/>` between `MoreDropdown` (…) and `Cancel` is present in the
-/// reference markup and therefore in the baseline shot - it is not compressed
-/// out.
+/// reference markup and therefore in the baseline shot - not compressed out.
 pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
