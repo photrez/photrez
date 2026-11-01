@@ -495,6 +495,9 @@ fn source_over(dst: &mut [u8], red: u8, green: u8, blue: u8, mask: u8, opacity: 
 mod tests {
     use super::*;
 
+    /// The single-line reference PNG, read only by the Windows-scoped pixel
+    /// comparison below.
+    #[cfg(windows)]
     const GOLDEN: &[u8] = include_bytes!("text/goldens/ag-inter-16.png");
     const TEXT_GOLDENS: &[(&str, &[u8])] = &[
         (

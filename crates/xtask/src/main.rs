@@ -312,28 +312,42 @@ fn cmd_parity_diff(args: &[String]) -> i32 {
     }
 }
 
+/// Attach to an already-running window and capture its client area.
+#[cfg(windows)]
+fn capture_window_mode(target: &str, out: Option<&str>, maximize: bool) -> i32 {
+    let Some(out) = out else {
+        eprintln!("xtask capture --window: --out <png> is required");
+        return 2;
+    };
+    let spec = capture::window::WindowSpec {
+        target: target.to_string(),
+        maximize,
+        wait_ms: 10_000,
+        out: PathBuf::from(out),
+    };
+    match capture::window::capture_window(&spec) {
+        Ok(p) => {
+            println!("captured -> {}", p.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("window capture failed: {e}");
+            1
+        }
+    }
+}
+
+/// The window-attach path reads the desktop through the Windows graphics API,
+/// so on other systems the option is refused instead of silently doing nothing.
+#[cfg(not(windows))]
+fn capture_window_mode(_target: &str, _out: Option<&str>, _maximize: bool) -> i32 {
+    eprintln!("xtask capture --window attaches to a desktop window through the Windows graphics API; it is only supported on Windows");
+    2
+}
+
 fn cmd_capture(args: &[String]) -> i32 {
     if let Some(target) = flag(args, "--window") {
-        let Some(out) = flag(args, "--out") else {
-            eprintln!("xtask capture --window: --out <png> is required");
-            return 2;
-        };
-        let spec = capture::window::WindowSpec {
-            target: target.to_string(),
-            maximize: has_flag(args, "--maximize"),
-            wait_ms: 10_000,
-            out: PathBuf::from(out),
-        };
-        return match capture::window::capture_window(&spec) {
-            Ok(p) => {
-                println!("captured -> {}", p.display());
-                0
-            }
-            Err(e) => {
-                eprintln!("window capture failed: {e}");
-                1
-            }
-        };
+        return capture_window_mode(target, flag(args, "--out"), has_flag(args, "--maximize"));
     }
     let Some(out) = flag(args, "--out") else {
         eprintln!("xtask capture: --out <png> is required");

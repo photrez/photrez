@@ -27,15 +27,23 @@
 //! calls, which are `unsafe` by nature. Everything else in the crate stays
 //! deny.
 
-#![allow(unsafe_code)] // reason: thin windows-sys screen-capture wrapper; the rest of the crate stays deny.
+#![allow(unsafe_code)]
+// reason: thin windows-sys screen-capture wrapper; the rest of the crate stays deny.
+// The capture wiring drives the Windows graphics API. Off Windows the entry
+// point refuses the mode, so the wired-up helpers are compiled and tested for
+// their pixel maths but have no caller.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 use std::path::PathBuf;
 
 mod executable;
 #[cfg(test)]
 mod tests;
+/// Attaches to a live desktop window through the Windows graphics API.
+#[cfg(windows)]
 pub mod window;
 
+#[cfg(windows)]
 pub use executable::resolve_exe;
 
 #[cfg(windows)]
@@ -426,7 +434,7 @@ pub fn capture(spec: &CaptureSpec) -> Result<PathBuf, String> {
 }
 
 #[cfg(not(windows))]
-pub fn capture(spec: &CaptureSpec) -> Result<PathBuf, String> {
+pub fn capture(_spec: &CaptureSpec) -> Result<PathBuf, String> {
     Err("capture is Windows-only; this platform cannot screen-capture the Photrez window".into())
 }
 
