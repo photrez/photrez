@@ -1,4 +1,4 @@
-//! The frozen `TransformHud`: a small dark readout floating up-right of the
+//! The transform HUD: a small dark readout floating up-right of the
 //! pointer during a Move/resize/rotate drag, or during the Alt+Right brush
 //! size/hardness adjustment.
 //!
@@ -6,7 +6,7 @@
 //! translated up by its own height, border `neutral-700/80`, fill `#18181B`,
 //! radius 6, padding 10x6, a 2 px row gap inside a `gap-0.5` column, 11px text.
 //!
-//! Row layout is per mode, exactly as `TransformHud.tsx` splits it:
+//! Row layout is per mode:
 //!
 //! ```text
 //! move    X +12 px        (no badge)
@@ -25,7 +25,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, TestSupportExt};
 
-/// `#18181B` — the frozen HUD fill (a raw neutral, not an editor token).
+/// `#18181B` — the HUD fill (a raw neutral, not an editor token).
 const HUD_BG: Hsla = Hsla {
     h: 0.6667,
     s: 0.0588,
@@ -130,8 +130,8 @@ struct RowSpec {
 }
 
 fn row_specs(hud: HudInfo) -> Vec<RowSpec> {
-    // The HUD's axis/size labels mirror the source HUD's own literals
-    // (TransformHud.tsx), measured against it in the S063 verification.
+    // The HUD's axis/size labels are fixed, non-translated literals (X, Y,
+    // W, H, R, px, %), verified against the baseline capture.
     match hud.mode {
         HudMode::Move => vec![
             RowSpec {
@@ -284,9 +284,8 @@ mod tests {
         }
     }
 
-    /// `TransformHud.tsx` puts the badge on the second row only (move/resize),
-    /// reads the scale percent on the resize W row, and gives the brush labels
-    /// their wider `w-7` column.
+    /// The badge sits on the second row only (move/resize), the scale percent
+    /// reads on the resize W row, and the brush labels get their wider column.
     #[test]
     fn hud_rows_follow_the_oracle_per_mode() {
         let move_rows = row_specs(hud(HudMode::Move, 12.4, -34.2, true));

@@ -10,14 +10,14 @@
 //! 774 = 820 - 46, so the overlay covers everything *below* the title bar and
 //! the title bar keeps drawing normally on top of nothing.
 //! `loading-status` is the last 24 rows, which is exactly `shell-status-bar`'s
-//! rect - so the two overlap by construction, and the port renders the overlay
+//! rect - so the two overlap by construction, and this view renders the overlay
 //! over the content while `status_bar::render()` keeps its own 24px rather than
 //! treating them as a separate surface.
 //!
 //! # There *is* a scrim here, unlike the dialogs
 //!
-//! `dialogs.rs` measured a fully transparent backdrop (`DesktopDialog.tsx:78`
-//! is `bg-transparent`). This overlay is the opposite, and the measurement is
+//! `dialogs.rs` measured a fully transparent backdrop on its dialog surface.
+//! This overlay is the opposite, and the measurement is
 //! unambiguous on every *resting* surface: the rail's `#1b1b1b` (27) reads
 //! `#101010` (16, = 27 * 0.6), the dock's `#1e1e1e` (30) reads 18, and the
 //! white canvas (255) reads 153 - a flat 40%, so the scrim is `bg-black/40`.
@@ -31,11 +31,11 @@
 //! fully resolved: scanning the overlay's ink finds a 527px-tall band
 //! (y=151..677) whose cross-section at y=410 is 31 vertical stripes from x=100
 //! to x=596, each 8px wide on a 16px pitch, with denser text-like ink from 636
-//! to 720. A 16px pitch of 8px bars is not a pattern this port can attribute
+//! to 720. A 16px pitch of 8px bars is not a pattern this view can attribute
 //! confidently - it is consistent with a segmented progress indicator, and also
 //! with a checkerboard or a thumbnail grid at that spacing.
 //!
-//! Rather than pick one, the port draws the scrim plus a centred spinner of the
+//! Rather than pick one, this view draws the scrim plus a centred spinner of the
 //! size the ink band's *centre* implies and records the stripe run in this doc.
 //! That is a deliberate gap: a guessed progress bar would score well against a
 //! baseline it happened to match and mislead the next reader about what the
@@ -43,9 +43,9 @@
 //!
 //! # The defining gap
 //!
-//! **No rotation and no animation.** The source's spinner is a CSS
-//! `animate-spin` element, so any single frame is an arbitrary rotation of it -
-//! there is no correct static pose. The capture caught one, and the port
+//! **No rotation and no animation.** A spinner is a continuously rotating
+//! element, so any single frame is an arbitrary rotation of it - there is no
+//! correct static pose. The capture caught one pose and this view draws
 //! another, and neither is wrong; only the geometry can be compared.
 
 use gpui_kit::base::v_flex;
@@ -91,13 +91,13 @@ const STRIPE_PITCH: f32 = 16.0;
 const STRIPE_W: f32 = 8.0;
 
 /// A spinner of the size the band's centre implies - drawn as a ring, because
-/// the source's real spinner is a rotating arc and any single frame of it is an
-/// arbitrary rotation.
+/// a real spinner is a rotating arc and any single frame of it is an arbitrary
+/// rotation.
 const SPINNER: f32 = 32.0;
 
-/// The label the source's spinner is captioned with; static, because the
-/// captured frame shows it at rest.
-const LABEL: &str = "Loading"; // i18n-exempt: not in catalog <"Loading" differs from common.loading's "Loading…"; frozen LoadingOverlay renders engine status messages, not this caption>
+/// The caption beneath the spinner; static, because the captured frame shows
+/// it at rest.
+const LABEL: &str = "Loading"; // i18n-exempt: not in catalog <"Loading" differs from common.loading's "Loading…"; the loading overlay renders engine status messages, not this caption>
 
 pub fn render() -> impl IntoElement {
     // `loading-status` is only the bottom 24 rows, and that rectangle is
@@ -129,8 +129,8 @@ fn centred_spinner() -> Div {
         .justify_center()
         .gap(px(12.0))
         .child(
-            // A ring, not an arc: an arc would claim a rotation the source
-            // never has at rest.
+            // A ring, not an arc: an arc would claim a rotation a resting
+            // overlay never has.
             div()
                 .w(px(SPINNER))
                 .h(px(SPINNER))

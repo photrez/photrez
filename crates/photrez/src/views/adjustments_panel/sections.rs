@@ -1,6 +1,6 @@
 use super::*;
 
-/// `SectionHeader` row (`layers/SectionHeader.tsx`): 16px icon box,
+/// Section-header row: 16px icon box,
 /// 15px icon, 8px gap, 12.5px medium label, and optional trailing item.
 /// Call sites use stroke width 1.75; `icons::with_stroke` adjusts icons
 /// pinned to a different width.
@@ -39,12 +39,12 @@ fn section_header(icon: &'static [u8], label: &str, trailing: Option<gpui_kit::A
     row
 }
 
-/// `LayerThumb` frame: 34x34, 1px border, `rounded-[3px]`. This static
-/// port has no preview bitmap, and the captured layer has no
+/// Layer thumbnail frame: 34x34, 1px border, 3px corners. This static
+/// view has no preview bitmap, and the captured layer has no
 /// `imageBitmap`, so the empty chrome is the resting content.
 ///
-/// Source requests `border-editor-accent` (`AdjustmentsPanel.tsx:431`),
-/// but the unlayered `*` rule resets it to `#333333` (see module docs).
+/// The design asks for an accent border here,
+/// but the global border colour resets it to `#333333` (see module docs).
 fn layer_thumb() -> Div {
     div()
         .w(px(THUMB))
@@ -56,7 +56,7 @@ fn layer_thumb() -> Div {
         .flex_shrink_0()
 }
 
-/// Selected Layer section (`AdjustmentsPanel.tsx:386-401`).
+/// The Selected Layer section.
 pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, height: u32) -> Div {
     v_flex()
         .w_full()
@@ -106,7 +106,7 @@ pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, h
                                 .text_color(color::TEXT_DIM)
                                 // Raster layers read "Image layer"
                                 // here, unlike the properties panel's
-                                // "Raster layer" (`AdjustmentsPanel.tsx:399`).
+                                // "Raster layer" in the properties panel.
                                 .child(format!(
                                     "{layer_type} layer \u{00b7} {width} \u{00d7} {height} px"
                                 )),
@@ -115,8 +115,7 @@ pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, h
         )
 }
 
-/// Basic section: reset, three sliders, hint and no-pixels status
-/// (`AdjustmentsPanel.tsx:403-456`).
+/// Basic section: reset, three sliders, hint and no-pixels status.
 pub(super) fn basic_section(
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
@@ -216,7 +215,7 @@ pub(super) fn basic_section(
         )
 }
 
-/// `AdjustmentSliderRow` (`AdjustmentsPanel.tsx:490-533`): 58px label,
+/// Slider row: 58px label,
 /// slider, and 40px value box.
 ///
 /// Not [`ui::prop_row`]: this label is 58px, `text-[12px] font-medium`
@@ -275,10 +274,8 @@ fn slider_row(
         )
 }
 
-/// Slider readout: `flex h-[22px] w-[40px] items-center justify-end
-/// rounded-[3px] border border-editor-field-border bg-editor-field
-/// px-1.5 text-right text-[11px] tabular-nums text-editor-text`
-/// (`AdjustmentsPanel.tsx:527`).
+/// Slider readout: a 22x40px box, right-aligned, 11px tabular numerals,
+/// 3px corners, a field-border edge on the field fill, 6px inset.
 ///
 /// Not [`ui::num_field`]: this is 22px, caption-free, Inter, radius 3,
 /// and right-aligned; that field is 24px, with a 10px caption and
@@ -307,9 +304,8 @@ fn value_box(value: &str) -> Div {
         )
 }
 
-/// Basic reset button classes (`AdjustmentsPanel.tsx:409-417`): `flex
-/// size-5 items-center justify-center rounded-[3px] text-editor-text-dim
-/// disabled:pointer-events-none disabled:opacity-40`.
+/// Basic reset button: a centred 20px square, 3px corners, dim text,
+/// 40% opacity and no pointer events once disabled.
 fn reset_button() -> Div {
     div()
         .w(px(RESET))
@@ -329,9 +325,9 @@ fn reset_button() -> Div {
         )
 }
 
-/// No-pixels `StatusHint` (`AdjustmentsPanel.tsx:477-488`); the message
-/// wraps to two lines, so `items-start` keeps the icon on the first
-/// (`mt-0.5` = 2px).
+/// The no-pixels status hint; the message
+/// wraps to two lines, so the icon aligns to the first
+/// (2px top margin).
 fn status_hint(message: &str) -> Div {
     h_flex()
         .items_start()
@@ -365,7 +361,7 @@ fn status_hint(message: &str) -> Div {
         )
 }
 
-/// Collapsed `CollapsibleSection` (`AdjustmentsPanel.tsx:535-581`):
+/// A collapsed section row:
 /// 42px row, 16px icon box, 15px icon, 8px gap, 12.5px regular label,
 /// and 16px chevron. Closed sections omit descriptions and use
 /// `chevron-right` rather than the expanded `chevron-up`.

@@ -1,9 +1,9 @@
-//! Visual-only port of `editor/PropertiesPanel.tsx` (1026 lines — the largest
-//! panel in the app).
+//! The Properties (inspector) panel: its appearance, for the largest panel in
+//! the app.
 //!
 //! # Geometry: 272 wide, x 833..1104, y 84..795
 //!
-//! `RightDock.tsx:80` gives the InspectorDock column `lg:w-[272px]`, and the
+//! The InspectorDock column is 272px wide, and the
 //! dock itself is 533x750 at (833,46) in `manifest.json`, so this panel is the
 //! leftmost 272px of `dock-properties.png` below its 38px tab bar — i.e. crop
 //! x 0..271, crop y 38..749.
@@ -35,7 +35,7 @@
 //!   and it is the first clue that this capture is *not* the
 //!   "single layer selected" branch the source's default implies. See
 //!   "What state the baseline caught" below.
-//! * **The panel's content stops at crop y=470 of a 712px column.** The port
+//! * **The panel's content stops at crop y=470 of a 712px column.** This view
 //!   therefore does not need to fill the height, and `flex-1` on the scroll
 //!   column is enough; there is nothing to scroll.
 //!
@@ -53,22 +53,20 @@
 //!
 //! # Known gaps, specific to this panel
 //!
-//! * `LayerThumb` is canvas-drawn (`createEffect` + `drawImage`), so the
-//!   *pixels* of the layer preview are not reproducible from a static port.
+//! * The layer thumbnail is canvas-drawn, so the
+//!   *pixels* of the layer preview are not reproducible from a static view.
 //!   Its box, border, size and checkerboard are; the image inside it is not.
 //! * The checkerboard itself alternates `rgba(255,255,255,0.05)` and
-//!   `rgba(255,255,255,0.1)` in 6px cells (`LayerThumb.tsx:22-28`). GPUI's
-//!   `checkerboard()` takes one colour, so the port paints the 7.5% mean rather
+//!   `rgba(255,255,255,0.1)` in 6px cells. GPUI's
+//!   `checkerboard()` takes one colour, so this view paints the 7.5% mean rather
 //!   than the two-tone original. Measured base is FIELD (`#252525`): the two
 //!   cell values compute to 41 and 52.5 over it, and the scan reads ~48/59,
 //!   close enough that the base is right and the difference is the canvas's own
 //!   compositing.
-//! * `Tooltip` wrappers, `disabled` (`opacity-40`), `hover` borders and the
-//!   `StatusHint` row are all interaction states — see the module-gap list in
-//!   `PORTING-NOTES.md` §3.
-//! * `styles.css:321` reserves 6px for a `scrollbar-gutter: stable` on every
-//!   `overflow-y-auto`, whether or not the content overflows. The source's
-//!   scroll column is `<div class="flex-1 overflow-y-auto">`, so this panel's
+//! * Tooltips, `disabled` (35% opacity), hover borders and the
+//!   status-hint row are all interaction states, so none is rendered here.
+//! * The scroll column reserves 6px for a scrollbar gutter on every
+//!   scrollable area, whether or not the content overflows. This panel's
 //!   rows are 6px narrower than its 272px column would suggest. Transcribed as
 //!   `.pr(px(6.))`.
 
@@ -82,7 +80,7 @@ use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, relative, Div, FontWeight, TestSupportExt};
 
-/// InspectorDock's width: `lg:w-[272px]` (`RightDock.tsx:80`).
+/// The inspector dock's width at the wide breakpoint: 272 px.
 ///
 /// Unused in `render()` — the parent dock sets size via `.w_full().h_full()` —
 /// so it documents the baseline geometry rather than driving layout.
@@ -106,30 +104,29 @@ const PAD_X: f32 = 14.0;
 /// `py-2.5` — the inset around each section's content.
 const PAD_Y: f32 = 10.0;
 
-/// `gap-2.5` between the thumbnail and its text (`PropertiesPanel.tsx:418`).
+/// 10px between the thumbnail and its text.
 const THUMB_GAP: f32 = 10.0;
 
-/// `mt-2` between a `SectionHeader` and the block under it.
+/// 8px between a `SectionHeader` and the block under it.
 const HEADER_GAP: f32 = 8.0;
 
-/// `p-2` inside the "Selected Layer" box.
+/// 8px inside the "Selected Layer" box.
 const BOX_PAD: f32 = 8.0;
 
-/// `LayerThumb`'s canvas is 34x34 (`LayerThumb.tsx:20`).
+/// The layer thumbnail's canvas is 34x34.
 const THUMB: f32 = 34.0;
 
-/// `gap-1.5` — the slot's internal gap (`primitives.tsx:62`).
+/// 6px — the slot's internal gap.
 const SLOT_GAP: f32 = 6.0;
 
-/// `size-[26px]` — the Actions and Quick rows' buttons.
+/// 26px — the Actions and Quick rows' buttons.
 const BTN: f32 = 26.0;
 
-/// `rounded-[4px]` / `rounded-[3px]`.
+/// 4px / 3px corner radii.
 const R4: f32 = 4.0;
 const R3: f32 = 3.0;
 
-/// `size-4` / `size-[15px]` — `SectionHeader`'s icon box and icon
-/// (`SectionHeader.tsx:15-20`).
+/// 16px / 15px — a section header's icon box and icon.
 const HDR_ICON_BOX: f32 = 16.0;
 const HDR_ICON: f32 = 15.0;
 
@@ -139,7 +136,7 @@ const HDR_TEXT: f32 = 12.5;
 // --- Static "Selected Layer" literals (single-selected-layer branch) ---
 // ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact text the
 // baseline capture shows; change them only if a capture disagrees.
-pub const LAYER_NAME: &str = "Background"; // i18n-exempt: the frozen new-document layer name
+pub const LAYER_NAME: &str = "Background"; // i18n-exempt: new-document layer name
 pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
 
 /// The wired Actions row: (test id, handler) paired with the [ACTIONS] table
@@ -152,8 +149,8 @@ const ACTION_HANDLERS: &[(&str, ActionHandler)] = &[
 ];
 
 // --- Static Transform field values (pinned to the baseline) ---
-// The frozen new-document "Background" layer sits at 0,0 and spans the whole
-// 800x600 canvas; its position and rotation are locked (the oracle shows the
+// The new-document "Background" layer sits at 0,0 and spans the whole
+// 800x600 canvas; its position and rotation are locked (the panel shows the
 // lock notice), so Position shows 0/0 and Size the canvas extent.
 pub const POS_X: &str = "0";
 pub const POS_Y: &str = "0";
@@ -206,12 +203,11 @@ pub fn render(
         .h_full()
         .overflow_hidden()
         .bg(color::PANEL)
-        // `scrollbar-gutter: stable` reserves 6px on the trailing edge of
-        // every `overflow-y-auto`, even with nothing to scroll — `styles.css:321`
-        // and `:326`. The reference's module docs prescribe `.pr(px(6.))`
-        // here, but its render omits it, and its own box scan (x 12..259)
-        // matches the no-`pr` code within crop slop — so the port follows
-        // the code, not the sentence.
+        // The scroll gutter reserves 6px on the trailing edge of
+        // every scrollable area, even with nothing to scroll. The design's
+        // own box scan (x 12..259)
+        // matches the no-padding code within crop slop — so this view follows
+        // the measurement, not the sentence.
         .child(v_flex().flex_1().overflow_hidden().child(body))
 }
 
@@ -503,7 +499,7 @@ fn canvas_action_button(
         .child(label.to_string())
 }
 
-/// `SectionHeader` (`layers/SectionHeader.tsx`) — a 16px icon box holding a
+/// A section header — a 16px icon box holding a
 /// 15px icon, an 8px gap, then a 12.5px medium label.
 ///
 /// `trailing` is dropped: none of the captured panels use it, and it exists so
@@ -539,8 +535,8 @@ fn section_header(icon: &'static [u8], label: &str) -> Div {
     )
 }
 
-/// `LayerThumb`'s frame: 34x34, 1px divider border, `rounded-[3px]`, checker
-/// inside. The seeded Background layer is the port's only single-layer branch
+/// The layer thumbnail's frame: 34x34, 1px divider border, 3px corners, checker
+/// inside. The seeded Background layer is this view's only single-layer branch
 /// and its image is the white 800x600 document, so the frame paints that
 /// swatch; checkerboard stays the fallback for a layer without pixels.
 fn layer_thumb() -> Div {
@@ -606,7 +602,7 @@ fn selected_layer_section() -> Div {
 }
 
 /// One labelled row: 50px caption, then the slot beside it.
-/// `<StatusHint>` (`PropertiesPanel.tsx:1116-1123`): the dim lock hint above
+/// The status hint: the dim lock hint above
 /// the transform rows.
 fn status_hint(id: &'static str, message: String) -> impl IntoElement {
     h_flex()
@@ -640,8 +636,8 @@ fn status_hint(id: &'static str, message: String) -> impl IntoElement {
 }
 
 /// The typography branch of the single-layer inspector: font, size/weight,
-/// style/align, box mode, spacing and colour/stroke, in the frozen order
-/// (`PropertiesPanel.tsx:468-690`). Values come from the projected text layer;
+/// style/align, box mode, spacing and colour/stroke, in the panel's order.
+/// Values come from the projected text layer;
 /// the inline actions edit that layer through the same app handlers the option
 /// bar uses.
 fn typography_section(
@@ -941,7 +937,7 @@ fn transform_section(
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> Div {
-    // `transformStatusText()` in `PropertiesPanel.tsx:414-421`: the layer's
+    // The layer's
     // lock flags decide which hint, if any, sits above the rows.
     let status = {
         let s = state.read(cx);
@@ -973,9 +969,9 @@ fn transform_section(
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
         .child(section_header(icons::MOVE, &t("properties.transform")))
-        .when(status.is_some(), |el| {
-            let (id, message) = status.unwrap();
-            el.child(status_hint(id, message))
+        .when(status.is_some(), move |el| match status {
+            Some((id, message)) => el.child(status_hint(id, message)),
+            None => el,
         })
         .child(
             v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
@@ -1060,8 +1056,8 @@ fn transform_section(
                 .into_any_element(),
                 // Actions — three labelled buttons, wired to the transform
                 // handlers (the additive strip that used to carry them is
-                // gone; the frozen panel puts these here). Labels are catalog
-                // keys, resolved per the web build: properties.flipH /
+                // gone; the inspector puts these here). Labels are catalog
+                // keys, resolved from the `properties.*` entries: properties.flipH /
                 // properties.flipV / common.reset.
                 ui::prop_row(
                     &t("properties.actions"),
@@ -1076,7 +1072,7 @@ fn transform_section(
                 )
                 .into_any_element(),
                 // Quick — icon-only buttons, so the labels live in `Tooltip`
-                // wrappers that a static port cannot show.
+                // wrappers that a static view cannot show.
                 ui::prop_row(
                     "Quick", // i18n-exempt: not in catalog (web t resolves canvasProps.quickActions = "Quick Actions", not byte-identical)
                     h_flex()
@@ -1097,7 +1093,7 @@ fn transform_section(
 /// as its whole string, so a heavier chrome makes the buttons sit at their
 /// intrinsic widths and pushes the last one past the row's edge ("Reset" used
 /// to clip to "Res").
-/// The Actions-row button: the frozen chrome with the wired handler and the
+/// The Actions-row button: the captured chrome with the wired handler and the
 /// test id the mounted tests click (`prop-flip-h` etc.).
 fn wired_action_button(
     icon: &'static [u8],

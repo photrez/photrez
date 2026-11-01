@@ -1,4 +1,4 @@
-//! `GradientOverlay.tsx`'s floating DIST/ANGLE card while a gradient drag is
+//! The gradient tool's floating DIST/ANGLE card while a gradient drag is
 //! live. Geometry: `left = max(12, endX + 16)`, `top = max(50, endY - 14)`
 //! translated up by the card height, border `neutral-700/80`, fill `#18181B`,
 //! radius 6, padding 10x6, a 2 px row gap and 11px text.

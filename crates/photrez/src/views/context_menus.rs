@@ -1,16 +1,13 @@
-//! Visual-only port of the right-click context menus.
+//! The right-click context menus: appearance only.
 //!
-//! Sources, in the order they were read: `editor/ContextMenu.tsx` (the shared
-//! shell every menu below except the brush one renders through it),
-//! `editor/BrushContextMenu.tsx` (-> `ctx-brush`),
-//! `editor/canvas/CanvasContextMenu.tsx` (-> `ctx-canvas`), and `ExportButton`'s
-//! `menuItems` in `editor/shell/DocumentTabsBar.tsx` (-> `ctx-export`).
-//! `ctx-layer`'s entries are `layerContextItems` in
-//! `editor/layers/LayersPanel.tsx`.
+//! Five surfaces live here: the shared shell every menu except the brush one
+//! renders through, the brush panel (`ctx-brush`), the canvas menu
+//! (`ctx-canvas`), the export button's item list (`ctx-export`) and the
+//! layer row's item list (`ctx-layer`).
 //!
 //! # Geometry: pointer-anchored, so only the size is fixed
 //!
-//! These open wherever the pointer is (`ContextMenu.tsx` clamps the anchor
+//! These open wherever the pointer is (the shell clamps the anchor
 //! into the viewport with a 4px margin), so the captured origins are click
 //! points, not layout constants — only the sizes have to be reproduced:
 //!
@@ -21,48 +18,50 @@
 //! ctx-brush        200x245 @  420,323   (panel; the shot itself is 1366x820)
 //! ```
 //!
-//! Every figure was read back out of `baseline/shots/ctx-*.png` with the
-//! throwaway `baseline/zz-probe-ctx.ts` (crop-relative coordinates — the three
+//! Every figure was read back out of `baseline/shots/ctx-*.png` with a
+//! throwaway crop-analysis script (crop-relative coordinates — the three
 //! small PNGs are element crops, so crop 0,0 is the menu's own top-left; only
 //! `ctx-brush` is a viewport shot). The row arithmetic then checks itself:
-//! `py-1` (4) + N rows x 28px + S seps x (`my-1` 8 + 1px separator) + `py-1` (4),
+//! 4px vertical padding + N rows x 28px + S separators x (8px margin + 1px
+//! rule) + 4px vertical padding,
 //! plus the 2px border, lands exactly on each manifest height — 280 for canvas
 //! (9 rows, 2 separators), 131 for export (4 rows, 1 separator), 345 for layer
 //! (11 rows, 3 separators).
 //!
 //! The canvas origin in the capture (`ctx-canvas`) is (442,462), read from
-//! `manifest.json`; the frozen reference recorded the same crop with a
-//! (420,320) probe, and this port uses the manifest coordinates so the
+//! `manifest.json`; an earlier probe recorded the same crop at
+//! (420,320), and this file uses the manifest coordinates so the
 //! overlay aligns to the baseline box.
 //!
 //! # Why 210px and not `menus.rs`'s 224px
 //!
-//! Different components, different constants. The title-bar popups are
-//! `AppMenuBar`'s own markup at `w-56` (224px); these three are
-//! `ContextMenu.tsx` at `min-w-[210px]`. Both were measured rather than
+//! Different surfaces, different constants. The title-bar popups are 224px
+//! wide; these three are 210px.
+//! Both were measured rather than
 //! derived, and they disagree — so this file keeps its own `CTX_W` and shares
 //! nothing width-like with `menus.rs`, which another agent owns. If a shared
 //! menu-chrome helper ever emerges, `menu_shell` / `menu_row` /
 //! `menu_separator` below are the three functions to compare against it: the
-//! item styling is *not* known to match `menus.rs` (different source
-//! component), so consolidation needs a pixel check first, not just a
+//! item styling is *not* known to match `menus.rs` (a different surface), so
+//! consolidation needs a pixel check first, not just a
 //! signature match.
 //!
-//! # What `ContextMenu.tsx` contributes as shared chrome
+//! # What the shared shell contributes
 //!
-//! One shell (`min-w-[210px] overflow-hidden rounded-[6px] border
-//! border-editor-divider bg-editor-panel py-1` + the
-//! `0 8px 24px rgba(0,0,0,0.45)` shadow), one row shape (`flex min-h-7 w-full
-//! items-center justify-between gap-6 px-3 text-[12px]`, label left in
-//! `text-editor-text`, optional shortcut right in 10px `text-editor-text-dim`,
-//! disabled rows at `opacity-35`), one separator (`my-1 border-t
-//! border-editor-divider`, full-bleed — the probe reads it edge to edge).
+//! One shell (210px minimum width, clipped, 6px corners, a 1px divider edge,
+//! panel fill, 4px vertical padding, plus the
+//! `0 8px 24px rgba(0,0,0,0.45)` shadow), one row shape (at least 28px tall,
+//! full width, label left, optional shortcut right at 10px in the dim text
+//! colour, 24px horizontal padding, 12px labels, 24px gap between label and
+//! shortcut, disabled rows at 35% opacity), one separator (1px rule with 4px
+//! margins above and below, full-bleed — it reads edge to edge).
 //! Factored once here as `menu_shell`, `menu_row`, `menu_separator`;
-//! each menu below is just an entry list through them. `z-[79]/z-[80]`,
-//! `hover:`, `focus-visible:` navigation, `FadeIn` and `onSelect` are
+//! each menu below is just an entry list through them. Stacking order,
+//! hover and focus-visible styling, open animation and the selection callback
+//! are
 //! interaction and are not rendered — with one measured exception, below.
 //!
-//! The `hover:` tints are omitted, matching the reference's static-only
+//! Hover tints are omitted, matching the capture's static-only
 //! decision: none of the `ctx-*` baselines captures a hover. A real hover
 //! would be `hover(|s| s.bg(hsla(0., 0., 1., 0.06)))` on a
 //! non-danger row and `hsla(0.072, 0.8713, 0.6039, 0.15)` on a danger row;
@@ -85,7 +84,7 @@
 //!   `#cacaca`. Labels assume the fresh-layer defaults the pixels cannot
 //!   distinguish: "Hide Layer" (visible) and "Lock Layer" (unlocked).
 //!   Separators at crop y=93, 158, 307. `danger` needs no branch: a danger
-//!   entry is `text-editor-text` at rest (accent only arrives on
+//!   entry is full-brightness text at rest (accent only arrives on
 //!   hover/focus-visible), so Delete Layer renders as a normal disabled row.
 //! * **ctx-brush** — brush tool at its defaults (Size 20px -> slider 3,
 //!   Hardness 80%, Strength 100%), no preset selected (all four `tool: "both"`
@@ -98,7 +97,7 @@
 //!
 //! # The one interaction trace that stays
 //!
-//! `ContextMenu.tsx` focuses the first enabled entry on open, and Chromium
+//! The shell focuses the first enabled entry on open, and the capture's
 //! applies its `focus-visible:bg-editor-accent/15` there: crop rows 98..125
 //! of `ctx-canvas` ("Select All") and 5..32 of `ctx-layer` ("New Layer") read
 //! `#3d2e23` edge to edge — accent at 15% over panel, to the pixel. The label
@@ -115,7 +114,8 @@
 //! 1366x820 frame with the requested menu absolutely positioned inside it —
 //! the frame is `absolute` so appending it late in the shell tree disturbs no
 //! layout, and late means it paints over the shell, which is what stands in
-//! for the `z-[80]` this port cannot express (no `z_index` in GPUI). Unknown
+//! for the stacking order this view cannot express (no `z_index` in GPUI).
+//! Unknown
 //! ids (including unset) render `ctx-canvas`.
 //!
 //! # Known gaps, specific to this file
@@ -136,7 +136,7 @@
 //!   faithfully (`p-3`, `gap-3`, `gap-1`, `py-1`); if a later capture
 //!   disagrees by a pixel per block, line height is the first suspect.
 //! * `shadow-xl` on the brush panel is two `BoxShadow`s transcribed stop for
-//!   stop; whether GPUI blurs them exactly as Chromium does is unmeasured.
+//!   stop; whether the blur matches the capture's rasteriser is unmeasured.
 //! * `ctx-export`'s `y=82.5` is kept fractional as measured; subpixel top
 //!   edges rasterise differently per engine, so its top/bottom border rows
 //!   are the likeliest single-pixel misses in this file.
@@ -151,7 +151,7 @@ use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
 
-/// `min-w-[210px]` (`ContextMenu.tsx`) — every pointer menu, measured, not
+/// The minimum width of every pointer-anchored menu, measured, not
 /// shared with `menus.rs`'s 224px. See the module docs on why the two widths
 /// are different constants from different components.
 pub const CTX_W: f32 = 210.0;
@@ -185,7 +185,7 @@ const FOCUS_BG: Hsla = Hsla {
     a: 0.15,
 };
 
-/// Capture origins. The small menus open at the pointer (`ContextMenu.tsx`
+/// Capture origins. The small menus open at the pointer (the shell
 /// clamps with a 4px margin); export opens under its button
 /// (`rect.right - 210`, `rect.bottom + 4`); the brush panel clamps with a
 /// 220/260px keep-out. All four are measurements from `manifest.json`, kept
@@ -246,9 +246,10 @@ fn positioned(x: f32, y: f32, menu: Div) -> Div {
     menu.absolute().left(px(x)).top(px(y))
 }
 
-/// `ContextMenu.tsx`'s shell: 210px, 6px corners, 1px [`color::BORDER`] edge
-/// (every `border-*` paints `#333333` — see `tokens.rs`), [`color::PANEL`]
-/// fill, `py-1`, clipped, under the `0 8px 24px rgba(0,0,0,0.45)` shadow.
+/// The menu shell: 210px, 6px corners, 1px [`color::BORDER`] edge
+/// (every border paints `#333333` — see `tokens.rs`), [`color::PANEL`]
+/// fill, 4px vertical padding, clipped, under the `0 8px 24px rgba(0,0,0,0.45)`
+/// shadow.
 /// One helper for all three small menus — the entries differ, the chrome
 /// does not.
 fn menu_shell(entries: Vec<Div>) -> Div {
@@ -261,7 +262,8 @@ fn menu_shell(entries: Vec<Div>) -> Div {
 }
 
 /// The live context menus share this shell: 210 px, 6 px corners, 1 px border,
-/// `py-1`, clipped and shadowed. One geometry source for the frozen specimen
+/// 4px vertical padding, clipped and shadowed. One geometry source for the
+/// captured specimen
 /// and the production menu.
 pub(crate) fn shell(entries: Vec<gpui_kit::AnyElement>) -> Div {
     v_flex()
@@ -276,14 +278,14 @@ pub(crate) fn shell(entries: Vec<gpui_kit::AnyElement>) -> Div {
         .children(entries)
 }
 
-/// `shadow-[0_8px_24px_rgba(0,0,0,0.45)]` (`ContextMenu.tsx`). Local: no
+/// The shell's `0 8px 24px rgba(0,0,0,0.45)` drop shadow. Local: no
 /// token carries this shadow and `menus.rs` is another agent's file, so it
 /// is spelled out here; consolidate if the two menus ever share a helper.
 fn menu_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.45)).blur_radius(px(24.0))]
 }
 
-/// `CanvasContextMenu.tsx`: 9 entries, 2 separators, 210x280. Disabled rows
+/// The canvas menu: 9 entries, 2 separators, 210x280. Disabled rows
 /// (no selection, empty clipboard) are Cut / Copy / Paste / Deselect /
 /// Zoom to Selection; "Select All" carries the captured focus tint as the
 /// first enabled entry.
@@ -318,7 +320,7 @@ fn canvas_menu() -> Div {
     ])
 }
 
-/// `ExportButton`'s `menuItems` (`DocumentTabsBar.tsx`): 4 entries,
+/// The export button's items: 4 entries,
 /// 1 separator, 210x131, nothing disabled, no focus tint in the capture.
 fn export_menu() -> Div {
     menu_shell(vec![
@@ -330,19 +332,19 @@ fn export_menu() -> Div {
     ])
 }
 
-/// `layerContextItems` (`LayersPanel.tsx:207-308`), single-layer branch:
+/// The layer row's items, single-layer branch:
 /// 11 entries, 3 separators, 210x345. "New Layer" carries the captured focus
 /// tint. Hide/Lock assume the fresh-layer defaults (visible, unlocked) —
 /// the pixels read the same either way, only the words differ.
 ///
-/// # Deviation from the frozen reference
+/// # Deviation from the capture
 ///
-/// The frozen reference's `layer_menu` listed 10 rows + 2 separators and
-/// omitted the `Delete Layer` row that `layerContextItems` in the TSX source
-/// produces as the last entry (danger, `Delete` shortcut, disabled for a
+/// The captured `ctx-layer` specimen listed 10 rows + 2 separators and
+/// omitted the `Delete Layer` row the layer menu produces as its last entry
+/// (danger, `Delete` shortcut, disabled for a
 /// fresh background-only layer). That 10-row list does not square against
 /// the `ctx-layer` manifest box height of 345 (which requires 11 rows +
-/// 3 separators), so this port restores the full 14-entry list at the
+/// 3 separators), so this view restores the full 14-entry list at the
 /// 11-row / 3-separator layout, matching the TSX order and state. The
 /// `FocusBg` trace and the two top-group row orders follow the TSX.
 fn layer_menu() -> Div {
@@ -374,7 +376,7 @@ fn layer_menu() -> Div {
     ])
 }
 
-/// `BrushContextMenu.tsx` at brush defaults: 200px panel, `rounded-md`
+/// The brush panel at brush defaults: 200px panel, 6px corners,
 /// corners, `p-3`, `gap-3`, `shadow-xl`. Three slider sections, the 2x2
 /// preset grid (all four `tool: "both"` presets, none selected), Reset.
 /// Slider percentages are the capture state's: size 20px maps to
@@ -493,8 +495,9 @@ fn reset_button() -> Div {
 }
 
 /// `shadow-xl`: `0 20px 25px -5px rgb(0 0 0 / 0.1),
-/// 0 8px 10px -6px rgb(0 0 0 / 0.1)` (`BrushContextMenu.tsx`). Transcribed
-/// stop for stop; whether GPUI blurs them exactly as Chromium is unmeasured —
+/// 0 8px 10px -6px rgb(0 0 0 / 0.1)`. Transcribed
+/// stop for stop; whether the blur matches the capture's rasteriser is
+/// unmeasured —
 /// see module docs.
 fn brush_shadow() -> Vec<BoxShadow> {
     vec![

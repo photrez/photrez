@@ -7,8 +7,8 @@ pub(super) use text::*;
 
 // ── Move-variant parts ────────────────────────────────────────────────────────
 
-/// `<div class="flex shrink-0 items-center gap-1">` around the X and Y
-/// fields (`MoveOptionBar.tsx:271`).
+/// A non-shrinking, centred row (the shared inner gap) around the X and Y
+/// fields.
 ///
 /// Both are identity-transform zeros in the capture: X=0, Y=0.
 pub(super) fn position_group() -> impl IntoElement {
@@ -20,10 +20,10 @@ pub(super) fn position_group() -> impl IntoElement {
         .child(editable_field("num-y", "Y", FIELD_W_XY, "0", "px")) // i18n-exempt: technical token (field label glyph)
 }
 
-/// `<div class="flex shrink-0 items-center gap-1">` around the W and H
-/// fields (`MoveOptionBar.tsx:292`).
+/// A non-shrinking, centred row (the shared inner gap) around the W and H
+/// fields.
 ///
-/// `capture-baseline.ts` builds an 800x600 document, so the background
+/// The capture fixture builds an 800x600 document, so the background
 /// layer's scaled size reads 800 and 600 — the two values in the baseline.
 pub(super) fn size_group() -> impl IntoElement {
     h_flex()
@@ -34,7 +34,7 @@ pub(super) fn size_group() -> impl IntoElement {
         .child(num_field("H", FIELD_W_WH, "600", "px")) // i18n-exempt: technical token (field label glyph)
 }
 
-/// The brush size slider (`BrushOptionBar.tsx`), gated behind `PAINT_SIZE_SLIDER`.
+/// The brush size slider, gated behind `PAINT_SIZE_SLIDER`.
 pub(super) fn brush_size_slider(percent: f32) -> Div {
     h_flex()
         .relative()
@@ -178,7 +178,7 @@ pub(super) fn tolerance_num_field(
     field
 }
 
-/// The tolerance slider wrapper (`PaintBucketOptionBar.tsx`): a live track —
+/// The tolerance slider wrapper: a live track —
 /// click or drag maps the pointer's x position over the laid-out track.
 pub(super) fn tolerance_slider(
     state: &gpui_kit::Entity<AppState>,
@@ -220,7 +220,7 @@ pub(super) fn tolerance_slider(
 
 // ── Gradient ───────────────────────────────────────────────────────────────────
 
-/// The gradient preview strip (`GradientOptionBar.tsx`).
+/// The gradient preview strip.
 pub(super) fn gradient_strip() -> Div {
     let mut shadows = vec![BoxShadow::new(px(0.), px(0.), color::WHITE_10).spread_radius(px(1.))];
     shadows.extend(shadow_sm_layers());
@@ -290,7 +290,7 @@ pub(super) fn reverse_button(cx: &gpui_kit::Context<crate::app::App>) -> impl In
 
 // ── Shape ──────────────────────────────────────────────────────────────────────
 
-/// The shape bar's Fill toggle (`ShapeOptionBar.tsx:setFill`), accent while
+/// The shape bar's Fill toggle, accent while
 /// filled and field-coloured while off.
 pub(super) fn fill_toggle(enabled: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
@@ -352,7 +352,7 @@ pub(super) fn stroke_dot() -> Div {
 }
 
 /// The shape bar's stroke pill; clicking toggles the stroke popover, not the
-/// outline (`ShapeOptionBar.tsx:strokePopoverOpen`).
+/// outline (stroke popover open state).
 pub(super) fn shape_stroke_pill(
     enabled: bool,
     width: f64,
@@ -413,11 +413,13 @@ pub(super) fn shape_stroke_pill(
         .child(ui::pin(div().child(chevron_175())))
 }
 
-/// The stroke pill plus, when open, its popover (`ShapeOptionBar.tsx`).
+/// The stroke pill plus, when open, its popover.
 ///
 /// The popover is 224px (`w-56`) with a header checkbox, a colour row and a
 /// width row; when the outline is off the body is dimmed and a click on it
-/// enables the outline just like the oracle's wrapper.
+/// enables the outline as the dimmed wrapper itself does.
+// Explicit stroke state and hit-test bounds keep popover construction readable.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn stroke_control(
     state: &gpui_kit::Entity<AppState>,
     enabled: bool,
@@ -528,7 +530,7 @@ fn stroke_popover(
 
 /// The popover's colour button: swatch plus uppercase hex, opening the picker
 /// on [`crate::state::ColorTarget::ShapeStroke`]. While the outline is off a
-/// click enables it, matching the oracle's pointer-events-none body wrapper.
+/// click enables it, since the dimmed body wrapper ignores pointer events.
 fn stroke_color_button(
     state: &gpui_kit::Entity<AppState>,
     color_value: [u8; 4],
@@ -641,7 +643,7 @@ fn stroke_width_field(
     field
 }
 
-/// The text bar's stroke pill (`TextOptionBar.tsx`); clicking toggles the
+/// The text bar's stroke pill; clicking toggles the
 /// stroke popover, not the outline.
 pub(super) fn text_stroke_pill(
     width: f64,
@@ -715,8 +717,9 @@ pub(super) fn text_stroke_pill(
         .child(ui::pin(div().child(chevron_175())))
 }
 
-/// The text bar's stroke pill plus, when open, its popover
-/// (`TextOptionBar.tsx:853-1008`).
+/// The text bar's stroke pill plus, when open, its popover.
+// Field/slider focus and bounds remain distinct for their separate interactions.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn text_stroke_control(
     width: f64,
     color_value: [u8; 4],
@@ -756,6 +759,8 @@ pub(super) fn text_stroke_control(
     wrapper
 }
 
+// The popover consumes each text-stroke control's state and interaction target directly.
+#[allow(clippy::too_many_arguments)]
 fn text_stroke_popover(
     width: f64,
     color_value: [u8; 4],
@@ -1187,9 +1192,11 @@ pub(super) fn radius_field(
     field
 }
 
-/// The selection bar's X/Y/W/H/R field (`SelectionOptionBar.tsx`). Enabled
+/// The selection bar's X/Y/W/H/R field. Enabled
 /// only while a pixel selection is committed; clicking starts an inline edit
 /// whose commit rewrites that one dimension through core history.
+// Display and edit inputs stay explicit to preserve per-field selection behavior.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn selection_field(
     id: &'static str,
     label: &str,
@@ -1280,7 +1287,7 @@ pub(super) fn caps_label(text: &str) -> Div {
 
 // ── Crop ───────────────────────────────────────────────────────────────────────
 
-/// `CropFillControls.tsx` (lines 528-552) — the white colour swatch + "Use BG"
+/// The crop fill controls: the white colour swatch + "Use BG"
 /// button, shown when `fillEnabled()` is true. At the capture's rest state the
 /// fill source resolves to the white background default (see
 /// `resolvedCropFillColor`), so the swatch paints [`color::WHITE`].
@@ -1320,7 +1327,7 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
         )
 }
 
-/// `t("common.apply", "Apply")` (`CropOptionBar.tsx:649-666`) — accent action:
+/// `t("common.apply", "Apply")` — accent action:
 /// `h-6 px-2.5 rounded-[4px] font-bold text-white shadow-xs`, with the fill at
 /// 15%. Live via the Crop bar, so [`ACTION_PX`] is consumed (the dead-code
 /// allow on it was dropped in mod.rs).
@@ -1360,7 +1367,7 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
         .child(t("common.apply"))
 }
 
-/// `t("common.cancel", "Cancel")` (`CropOptionBar.tsx:642-657`) — secondary
+/// `t("common.cancel", "Cancel")` — secondary
 /// action. The class string reads `bg-editor-field text-[#A1A1AA]`, but the
 /// resting `option-crop` baseline paints the border-only ghost: the interior
 /// stays the bar's `#1b1b1b` (27) where `bg-editor-field` would read 37. The

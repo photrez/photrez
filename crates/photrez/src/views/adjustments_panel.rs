@@ -1,4 +1,4 @@
-//! Visual-only port of `editor/AdjustmentsPanel.tsx` (549 lines).
+//! The Adjustments panel: its appearance.
 //!
 //! # Geometry: 272 wide, x 833..1104, y 84..795
 //!
@@ -38,7 +38,7 @@
 //!
 //! # Captured state
 //!
-//! `RightDock.tsx:46-49` selects this view unless the inspector tab is "presets";
+//! The dock selects this view unless the inspector tab is "presets";
 //! the capture has Adjustments active (underline at crop y35..36, x79..168).
 //!
 //! "Background" is selected: a 100×100 raster without `imageBitmap`; thumb
@@ -64,15 +64,14 @@
 //!   `ui::gradient_segments`); padding rounds to whole px; odd-height
 //!   centring can differ by ±1px (22px value boxes in 28px rows).
 //!
-//! # CSS cascade
+//! # Border and gutter resolution
 //!
-//! * Every `border-*` utility loses to unlayered
-//!   `* { border-color: var(--color-border) }` in `styles.css`, which
-//!   outranks `border-editor-divider`, `border-editor-field-border`, and
-//!   `border-editor-accent`. Borders paint `#333333` ([`color::BORDER`]);
+//! * A global border colour outranks every per-element border the panel asks
+//!   for — the divider, field-border and accent borders included.
+//!   Borders paint `#333333` ([`color::BORDER`]);
 //!   all seven divider rows and every box border scan as `#333333`.
-//! * Every `overflow-y-auto` reserves 6px for `scrollbar-gutter: stable`,
-//!   with or without overflow (`styles.css:321`); the scroll column's
+//! * Every scrollable area reserves 6px for its scrollbar gutter,
+//!   with or without overflow; the scroll column's
 //!   `.pr(px(6.))` leaves content at crop x=254, not x=259.
 
 use crate::components::ui;
@@ -85,7 +84,7 @@ use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, relative, Div, FontWeight, Hsla, TestSupportExt};
 
-/// InspectorDock's width: `lg:w-[272px]` (`RightDock.tsx:80`).
+/// InspectorDock's width: 272px.
 #[expect(
     dead_code,
     reason = "documents baseline geometry; parent dock sets size via w_full()/h_full()"
@@ -109,51 +108,47 @@ const PAD_Y: f32 = 10.0;
 /// `mt-2` between a `SectionHeader` and the block under it.
 const HEADER_GAP: f32 = 8.0;
 
-/// `gap-2.5` between the thumbnail and its text, and between the
-/// slider and the value box (`AdjustmentsPanel.tsx:44,506`).
+/// 10px between the thumbnail and its text, and between the
+/// slider and the value box.
 const ROW_GAP: f32 = 10.0;
 
-/// `p-2` inside the "Selected Layer" box.
+/// 8px inside the "Selected Layer" box.
 const BOX_PAD: f32 = 8.0;
 
-/// `LayerThumb`'s canvas is 34x34 (`LayerThumb.tsx:20`).
+/// The layer thumbnail's canvas is 34x34.
 const THUMB: f32 = 34.0;
 
-/// `gap-2` between the layer name and its type line — the source has
-/// no gap and puts `mt-0.5` (2px) on the second `<p>` instead
-/// (`AdjustmentsPanel.tsx:397`).
+/// 2px between the layer name and its type line — the type line carries a
+/// 2px top margin rather than a flex gap.
 const TYPE_MT: f32 = 2.0;
 
-/// `rounded-[4px]` / `rounded-[3px]`.
+/// 4px / 3px corner radii.
 const R4: f32 = 4.0;
 const R3: f32 = 3.0;
 
-/// `size-4` / `size-[15px]` — `SectionHeader`'s icon box and icon
-/// (`SectionHeader.tsx:15-20`).
+/// 16px / 15px — a section header's icon box and icon.
 const HDR_ICON_BOX: f32 = 16.0;
 const HDR_ICON: f32 = 15.0;
 
 /// `text-[12.5px] font-medium` — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
-/// `text-[11.5px]` / `text-[10.5px]` — the layer name and type
-/// (`AdjustmentsPanel.tsx:394,397`).
+/// 11.5px / 10.5px — the layer name and its type line.
 const NAME_TEXT: f32 = 11.5;
 const TYPE_TEXT: f32 = 10.5;
 
-/// `w-[58px]` — an `AdjustmentSliderRow`'s label.
+/// 58px — a slider row's label.
 const SLIDER_LABEL_W: f32 = 58.0;
 
 /// `text-[12px]` — the slider row's label.
 const SLIDER_LABEL: f32 = 12.0;
 
-/// `min-h-[28px]` — the slider row, and `h-[18px]` — the slider's
-/// wrapper (`AdjustmentsPanel.tsx:502,507`).
+/// 28px minimum height — the slider row, and 18px — the slider's
+/// wrapper.
 const SLIDER_ROW_H: f32 = 28.0;
 const SLIDER_WRAP_H: f32 = 18.0;
 
-/// `h-[22px] w-[40px]` and `px-1.5` — the slider's value box
-/// (`AdjustmentsPanel.tsx:527`).
+/// 40x22px and 6px inset — the slider's value box.
 const VALUE_W: f32 = 40.0;
 const VALUE_H: f32 = 22.0;
 const VALUE_PAD_X: f32 = 6.0;
@@ -166,19 +161,19 @@ const VALUE_TEXT: f32 = 11.0;
 const DESC_MT: f32 = 4.0;
 const DESC_TEXT: f32 = 11.0;
 
-/// `gap-2` / `px-2.5` / `py-2` / `size-3.5` — the `StatusHint`
-/// box, its icon and its inset (`AdjustmentsPanel.tsx:479-484`).
+/// 8px gap, 10px horizontal and 8px vertical padding, 14px icon — the status
+/// hint box, its icon and its inset.
 const HINT_GAP: f32 = 8.0;
 const HINT_PAD_X: f32 = 10.0;
 const HINT_PAD_Y: f32 = 8.0;
 const HINT_ICON: f32 = 14.0;
 
-/// `text-[11px]` — the `StatusHint`'s message.
+/// 11px — the status hint's message.
 const HINT_TEXT: f32 = 11.0;
 
-/// `h-[42px]` / `px-4` / `gap-2.5` / `size-4` / `size-[15px]` /
-/// `text-[12.5px]` / `size-4` — a `CollapsibleSection`'s header row
-/// and its parts (`AdjustmentsPanel.tsx:548-564`).
+/// 42px header row, 16px inset, 10px gap, 16px icon box, 15px icon,
+/// 12.5px label, 16px chevron — a collapsible section's header row
+/// and its parts.
 const COLLAPSE_H: f32 = 42.0;
 const COLLAPSE_PX: f32 = 16.0;
 const COLLAPSE_GAP: f32 = 10.0;
@@ -187,8 +182,8 @@ const COLLAPSE_ICON: f32 = 15.0;
 const COLLAPSE_TEXT: f32 = 12.5;
 const CHEVRON: f32 = 16.0;
 
-/// `size-5` / `size-3.5` — the Basic header's reset button and its
-/// icon (`AdjustmentsPanel.tsx:414,416`).
+/// 20px / 14px — the Basic header's reset button and its
+/// icon.
 const RESET: f32 = 20.0;
 const RESET_ICON: f32 = 14.0;
 
@@ -235,7 +230,7 @@ const EMERALD_400: Hsla = Hsla {
     a: 1.0,
 };
 
-/// Mirrors `displayValue` (`AdjustmentsPanel.tsx:530`).
+/// Formats an adjustment the way the value box shows it.
 pub fn format_display_value(value: i32) -> String {
     if value > 0 {
         format!("+{}", value)
@@ -270,8 +265,8 @@ pub fn render(
             v_flex()
                 .flex_1()
                 .overflow_hidden()
-                // `scrollbar-gutter: stable` reserves 6px on every
-                // `overflow-y-auto` (`styles.css:321,326`); GPUI has no
+                // The scrollbar gutter reserves 6px on every
+                // scrollable area; GPUI has no
                 // scrollbars, so reserve that space explicitly.
                 .child(selected_layer_section(
                     &layer_name,

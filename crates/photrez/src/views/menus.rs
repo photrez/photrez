@@ -1,4 +1,4 @@
-//! Visual-only port of `shell/AppMenuBar.tsx`'s menu popups.
+//! The menu bar's popup menus: their appearance.
 //!
 //! # Where they sit, and the frame convention
 //!
@@ -36,28 +36,29 @@
 //! ```
 //!
 //! The separator/border split is worth stating because both are "a border" in
-//! the source: `border-editor-divider` is a real class and resolves to
+//! the design: separators resolve to
 //! `color::DIVIDER`, whereas the shell's edge is `color::BORDER`. Scanning for
-//! `#333333` alone reports zero separators, which reads as "the port forgot
+//! `#333333` alone reports zero separators, which reads as "this view forgot
 //! them" when it is only the wrong constant.
 //!
 //! The spacing arithmetic cross-checks the row height: the gaps between
 //! successive text bands are 29.5, 35.5, 28, 38.5 and 35.5px, and 28 = one
 //! row while 37 = row + separator. So rows are 28px and a separator block is
 //! 9px — the same figures `context_menus.rs` measured independently for
-//! `ContextMenu.tsx`, which is reassuring given the two chrome sources differ.
+//! the pointer-anchored menus, which is reassuring given the two chrome
+//! sources differ.
 //!
-//! # What the measurements added that the source does not say
+//! # What the measurements added that the entry lists do not say
 //!
 //! * `MENU_DEFINITIONS` lists **6 items and 3 separators** for File, but
 //!   the scan finds **four** full-bleed separator rows (y=66, 131, 168,
 //!   205) and a dim text band at y=219..226 that no entry in the list
-//!   accounts for. Both belong to `RecentFilesMenu`, which
-//!   `AppMenuBar.tsx` renders inside the File popup alone
-//!   (`<Show when={m() === "File"}>`): a `my-1 h-px bg-editor-divider`
-//!   divider, then — because the capture has no recent files — the
-//!   empty-state placeholder, a `h-7` row of `text-[11px]
-//!   text-editor-text-dim/60` reading "No Recent Files". That row is
+//!   accounts for. Both belong to the recent-files section, which the
+//!   File popup alone
+//!   renders: a 1px divider with 4px margins,
+//!   then — because the capture has no recent files — the
+//!   empty-state placeholder, a 28px row of 11px text in dim text at
+//!   60% reading "No Recent Files". That row is
 //!   the 28px the entry-list arithmetic misses: 5 + 6x28 + 4x9 + 28 +
 //!   5 = 242, the measured box height (the 243rd pixel row is the
 //!   half-pixel crop origin at y=35.5). The placeholder's ink reads
@@ -65,9 +66,9 @@
 //!   hard-ink scan walks past it, which is why the first probes filed
 //!   the 28px as "unexplained panel".
 //! * **`Image`, `Help` and `Settings` are 38px tall** — a header and one item,
-//!   not a full menu. Their popups are a single row, so the port renders them
+//!   not a full menu. Their popups are a single row, so this view renders them
 //!   from the same builder rather than special-casing an "empty" menu.
-//! * `probe-menus.ts` already proved the trigger-to-ink padding is exactly
+//! The trigger-to-ink padding was measured at exactly
 //!   10px, matching `title::MENU_PX`, so the popup's y=36 origin is the same
 //!   constant rather than a coincidence.
 //!
@@ -83,14 +84,13 @@
 //!   use for their `focus-visible` row. A live hover still cannot tint a row
 //!   without a per-variant `.id` + `Stateful` wrapper that breaks the
 //!   `Vec<Div>` shell builder, so only the seeded captures paint it.
-//! * `border-white/*` classes would lose to the unlayered `*` rule; these
-//!   menus use `border-editor-divider`, which is a real class and does resolve,
+//! * A global border colour would beat any per-element white border; these
+//!   menus ask for the divider value, which does resolve,
 //!   so `color::DIVIDER` is correct here rather than a fallback.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce (it tints an
 //!   alpha mask), and `-webkit-font-smoothing: antialiased` covers type only,
 //!   not SVG. Position will be right, colour will differ.
 //! * No letter-spacing: GPUI's shaper runs +/-0.2px per glyph off Chromium, as
-//!   `probe-menus.ts` measured, so a label's right edge drifts by a pixel or
 //!   two. Shortcuts are right-aligned, which hides this at the label end.
 
 use gpui_kit::base::{h_flex, v_flex};
@@ -124,24 +124,24 @@ const X_WINDOW: f32 = 303.0;
 const X_HELP: f32 = 372.0;
 const X_SETTINGS: f32 = 421.0;
 
-/// `py-1` — the shell's vertical inset.
+/// 4px — the shell's vertical inset.
 const SHELL_PY: f32 = 4.0;
 
 /// A row: 28px tall, measured from the gap between text bands.
 const ROW_H: f32 = 28.0;
 
-/// `px-3` — a row's horizontal inset (consumed by `recent_files_row`, which is
+/// 12px — a row's horizontal inset (consumed by `recent_files_row`, which is
 /// the only row built here instead of via `ui::menu_row`).
 const ROW_PX: f32 = 12.0;
 
-// The label is 12px regular in `text-editor-text`; the shortcut is 10px dim —
+// The label is 12px regular in the full text colour; the shortcut is 10px dim —
 // both sizes live in `ui::menu_row`, so they are not redeclared here. The
-// separator block is `my-1` (4px) + 1px line = 9px; that 4px is inlined in the
+// separator block is a 4px margin plus a 1px line = 9px; that 4px is inlined in
 // height test below rather than named, since `menu_separator` owns the real
 // constant in `ui.rs`.
 
-/// `text-[11px]` — the recent-files placeholder, one step below the
-/// label and in `text-editor-text-dim/60`.
+/// 11px — the recent-files placeholder, one step below the
+/// label and in dim text at 60%.
 const RECENT_TEXT: f32 = 11.0;
 
 /// `rounded-[6px]` on the shell.
@@ -214,8 +214,10 @@ fn positioned(x: f32, id: &'static str, menu: Div) -> impl IntoElement {
 /// Render the open production menu over the live shell.
 ///
 /// The overlay covers the window so a click anywhere closes it, mirroring the
-/// frozen app's outside-click dismissal. The popup inherits the measured
+/// captured app's outside-click dismissal. The popup inherits the measured
 /// trigger origin and 224px width from the shot builders.
+// Separate availability flags map directly to the edit-menu actions.
+#[allow(clippy::too_many_arguments)]
 pub fn render_open(
     state: &Entity<AppState>,
     menu: MenuId,
@@ -331,11 +333,11 @@ fn recent_files_row(
 }
 
 /// The shared chrome: 224px, 6px corners, a 1px `color::BORDER` edge,
-/// `color::PANEL` fill, `py-1`, clipped.
+/// `color::PANEL` fill, 4px vertical padding, clipped.
 ///
-/// `border-white/*` is *not* what the shell's edge is: `AppMenuBar.tsx` puts
-/// the popup in a `rounded-[6px] border border-editor-divider bg-editor-panel`
-/// wrapper, and the measurement says that edge reads `#333333` (`BORDER`)
+/// A white border is *not* what the shell's edge is: the menu bar wraps the
+/// popup in a 6px-cornered, divider-bordered panel shell, and the measurement
+/// says that edge reads `#333333` (`BORDER`)
 /// while the separators inside read `#2e2e2e` (`DIVIDER`). Two different
 /// constants for two different things in the same menu.
 fn menu_shell(entries: Vec<gpui_kit::AnyElement>) -> Div {
@@ -805,7 +807,7 @@ pub fn render_context(
         PasteSelectionAction, SelectAllAction,
     };
     let close_state = state.clone();
-    // The oracle's canvas menu is 210 px wide with the context-menu shadow;
+    // The canvas menu is 210 px wide with the context-menu shadow;
     // the menubar shell is 224 px, so the live menu uses the specimen shell.
     let popup = crate::views::context_menus::shell(menu_entries(vec![
         command_row_enabled(
@@ -909,7 +911,7 @@ pub fn render_context(
 mod tests {
     use super::*;
 
-    /// The eight top-level menu origins are frozen by `manifest.json`; a
+    /// The eight top-level menu origins are pinned by `manifest.json`; a
     /// reordering would shift a popup's box and fail the diff.
     #[test]
     fn trigger_origins_match_manifest() {

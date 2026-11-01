@@ -1,4 +1,4 @@
-//! Visual-only port of `shell/RightDock.tsx`.
+//! The right dock: its appearance and its two tab strips.
 //!
 //! # Geometry: 533x750 at (833,46)
 //!
@@ -9,7 +9,7 @@
 //!
 //! Two columns measured in `dock-properties.png`:
 //! ```text
-//!   InspectorDock   x 833..1104   (272)   lg:w-[272px]  RightDock.tsx:80
+//!   InspectorDock   x 833..1104   (272)   272px wide
 //!   +---------------------------+------------------+  y=46
 //!   | tab bar  38px  Properties | tab bar  38px    |  border-b #333333
 //!   |                           | Layers | History  |
@@ -20,10 +20,10 @@
 //!   | Navigator (260x185 @1106,611)                 |
 //!   +-----------------------------------------------+  y=795
 //! ```
-//! 833 + 272 = 1105; InspectorDock's `border-r` takes 1px, placing
-//! `shell-navigator` at 1106, not 1105. LayerDock is `lg:w-[260px]`
-//! (`RightDock.tsx:204`) to the window edge; 272 + 1 + 260 = 533.
-//! Tab bars are 38px (`h-[38px]`, `RightDock.tsx:83`, `:207`). The active
+//! 833 + 272 = 1105; InspectorDock's 1px right border takes 1px, placing
+//! `shell-navigator` at 1106, not 1105. LayerDock is 260px
+//! wide to the window edge; 272 + 1 + 260 = 533.
+//! Tab bars are 38px in both columns. The active
 //! **2px** ACCENT underline is 78px under "Properties" and 57px under "Layers",
 //! the labels' advance widths at 11.5px medium; buttons are **content-width,
 //! not equal-width**.
@@ -31,24 +31,25 @@
 //! `shell-navigator` is 260x185 at (1106,611): 611 = 46 + 38 + 527. Its 185
 //! includes `border-t`; canvas below the 38px header is 185 - 38 - 1 = 146.
 //!
-//! Reference tab choice uses `state::is_seeded` / `state::active` / `shot::is`;
-//! each frame the port copies the two `Copy` fields `inspector_tab` and
+//! The dock reads its tab choice from [`AppState`]
+//! (`state::is_seeded` / `state::active` / `shot::is`
+//! are the same question asked of the shot id):
+//! each frame this view copies the two `Copy` fields `inspector_tab` and
 //! `layer_tab` from [`AppState`], matching the shell's selection.
-//! Reference `tab_button` calls `state::select` / `state::refresh`; port
-//! `.on_click()` writes the clicked tab to [`AppState`] and notifies the root,
+//! A tab click writes the clicked tab to [`AppState`] and notifies the root,
 //! lighting it and swapping the panel next frame.
-//! Inactive tabs use `hover:bg-white/[0.02] hover:text-editor-text`; both emit
-//! CSS and are ported through `.hover(...)` with `hsla(0.0, 0.0, 1.0, 0.02)`.
+//! Inactive tabs brighten their text and gain a 2%-white background on hover,
+//! reproduced through `.hover(...)` with `hsla(0.0, 0.0, 1.0, 0.02)`.
 //! No [`crate::tokens::color`] token represents 2% white.
-//! Unlayered `* { border-color }` outranks every `border-*`: #333333
-//! ([`color::BORDER`]), not #2e2e2e (`border-editor-divider`, [`color::DIVIDER`]).
-//! `tokens.rs` sampled `shell-right-dock` `border-l`: 750/750 pixels #333333;
-//! the reference's `DIVIDER` is corrected here.
+//! Every border here resolves to #333333
+//! ([`color::BORDER`]), not the #2e2e2e divider token ([`color::DIVIDER`]).
+//! `tokens.rs` sampled `shell-right-dock`'s left border: 750/750 pixels
+//! #333333; the divider value is corrected here.
 //! Four dock panels: `inspector_body` / `layer_body` call `properties_panel`,
 //! `adjustments_panel`, `layers`, and `history`; each owns its body and pixels,
 //! while this module frames and switches them.
-//! Navigator content is canvas-drawn (`Navigator.tsx`'s `drawNavigatorPreview`
-//! -> `createEffect` -> `drawImage`), not reproducible statically; frame, header,
+//! The Navigator's preview is canvas-drawn,
+//! not reproducible statically; frame, header,
 //! and label are drawn.
 //!
 //! # Gaps
@@ -56,8 +57,8 @@
 //! * No `z_index`; everything renders last in `workspace.rs`'s tree.
 //! * `Tooltip`, `FadeIn`, `transition-colors`, and per-row hover on active tabs
 //!   are interaction-only. Active-tab hover is omitted; inactive-tab hover is
-//!   ported.
-//! * Known deviation: the Presets TSX `opacity-50` is omitted; re-add
+//!   reproduced.
+//! * Known deviation: the Presets tab's 50% opacity is omitted; re-add
 //!   `.opacity(0.5)` if the baseline flags it as too bright.
 //! * Navigator header's zoom controls, collapsible chevron button, and
 //!   `Fit Screen` button are omitted; its simplified reference is a label and
@@ -84,9 +85,8 @@ use std::rc::Rc;
 /// The dock's measured width: 533px.
 const DOCK_W: f32 = 533.0;
 
-/// The dock at the `2xl` breakpoint (viewport >= 1536 CSS px): the source
-/// widens both columns (`2xl:w-[300px]` + `2xl:w-[298px]`, `RightDock.tsx:80`
-/// and `:204`).
+/// The dock at the `2xl` breakpoint (viewport >= 1536 px): the layout
+/// widens both columns to 300px and 298px.
 const DOCK_W_2XL: f32 = 598.0;
 
 /// The whole `<main>` row: 820 - 46 - 24.
@@ -97,22 +97,22 @@ const DOCK_W_2XL: f32 = 598.0;
 #[allow(dead_code)]
 const DOCK_H: f32 = 750.0;
 
-/// InspectorDock's width: `lg:w-[272px]` (`RightDock.tsx:80`).
+/// InspectorDock's width: 272px.
 const INSPECTOR_W: f32 = 272.0;
 
-/// InspectorDock at `2xl`: `2xl:w-[300px]`.
+/// InspectorDock at `2xl`: 300px.
 const INSPECTOR_W_2XL: f32 = 300.0;
 
-/// LayerDock's width: `lg:w-[260px]` (`RightDock.tsx:204`).
+/// LayerDock's width: 260px.
 const LAYER_W: f32 = 260.0;
 
-/// LayerDock at `2xl`: `2xl:w-[298px]`.
+/// LayerDock at `2xl`: 298px.
 const LAYER_W_2XL: f32 = 298.0;
 
-/// Both tab bars: `h-[38px]` (`RightDock.tsx:83`, `:207`).
+/// Both tab bars: 38px.
 const TAB_BAR_H: f32 = 38.0;
 
-/// `border-r` between the two columns.
+/// The border between the two columns.
 const SPLIT_BORDER: f32 = 1.0;
 
 /// The Navigator block: 185px tall. The 185 counts the block's own `border-t`,
@@ -345,7 +345,7 @@ fn layer_body(
     }
 }
 
-/// The Presets tab's placeholder, transcribed from `RightDock.tsx:132-138`.
+/// The Presets tab's placeholder, transcribed from the capture.
 ///
 /// The only one of the three inspector bodies with no separate component: a
 /// centred icon and two lines, and the source itself says "Coming soon".
@@ -389,10 +389,10 @@ fn presets_stub() -> Div {
         )
 }
 
-/// `shrink-0 border-t` with a 38px header (`RightDock.tsx:244-250`) and the
+/// A top-bordered, non-growing section with a 38px header and the
 /// canvas below it.
 ///
-/// The preview itself is canvas-drawn (`Navigator.tsx`'s `drawNavigatorPreview`),
+/// The preview itself is canvas-drawn,
 /// so this is the frame only. Its height is what is left of [`NAV_H`] after the
 /// `border-t` and the header: `NAV_H - NAV_HEADER_H - SPLIT_BORDER` = 146.
 fn navigator(
@@ -439,7 +439,7 @@ fn navigator(
                 .w_full()
                 .h(px(NAV_H - NAV_HEADER_H - SPLIT_BORDER))
                 .overflow_hidden()
-                // With no canvas the frozen navigator shows its empty branch:
+                // With no canvas the navigator shows its empty branch:
                 // the localized "No image open" line centred in the body.
                 .when(canvas.is_none(), |el| {
                     el.child(

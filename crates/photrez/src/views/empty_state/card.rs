@@ -29,7 +29,7 @@ pub(super) fn card() -> Div {
 }
 
 /// The production card: same shell, with each control wired to the action the
-/// oracle's `EmptyWorkspace.tsx` attaches to it.
+/// the card attaches to it.
 pub(super) fn card_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
     card_shell(actions_live(cx), presets_live(cx))
 }
@@ -64,7 +64,8 @@ fn card_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.8)).blur_radius(px(32.0))]
 }
 
-/// The header block: `border-b border-editor-divider px-5 py-4`.
+/// The header block: a bottom border, 20px horizontal and 16px vertical
+/// padding.
 ///
 /// 74px = 16 + 41 + 16 + 1. The border is [`color::BORDER`], not
 /// [`color::DIVIDER`] - every rule in the card is, and `tokens.rs` says why.
@@ -158,7 +159,7 @@ fn actions() -> Div {
 
 /// The two action buttons, wired: Open Image runs the production open action
 /// (the same one `Ctrl+O` and the File menu run) and New Document raises the
-/// dialog. `EmptyWorkspace.tsx` binds them to `openImage` and
+/// dialog. The card binds them to opening an image and
 /// `handleNewCanvas`.
 fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
     h_flex()
@@ -213,7 +214,7 @@ fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
 ///
 /// The first is `bg-editor-accent text-white` with no border; the second is
 /// `border border-editor-field-border bg-editor-field text-editor-text`, and
-/// that `border-editor-field-border` resolves to [`color::BORDER`] like every
+/// that the field-border token resolves to [`color::BORDER`] like every
 /// other border in the app rather than to [`color::FIELD_BORDER`].
 ///
 /// Both are `h-9 ... justify-center gap-2 px-3`, so the icon and the label
@@ -255,12 +256,13 @@ fn action_button(icon: &'static [u8], label: &str, fill: Hsla, ink: Hsla, border
         )
 }
 
-/// The Quick Presets block: `border-t border-editor-divider px-5 py-3.5`.
+/// The Quick Presets block: a top border, 20px horizontal and 14px vertical
+/// padding.
 ///
 /// 166px = 1 + 14 + 17 + 10 + 51 + 8 + 51 + 14. Two things are worth keeping
 /// in mind when this block is read again: the heading's line box is 17 rather
 /// than the 16.5 that `11 x 1.5` gives, and the tiles are 51 rather than the
-/// 49 that `p-2` plus two default line heights suggest. Both are what the
+/// 49 that 8px padding plus two default line heights suggest. Both are what the
 /// capture measures, and both are load-bearing for the rows landing on crop
 /// 181 and 240.
 fn presets() -> Div {
@@ -292,7 +294,7 @@ fn presets() -> Div {
 }
 
 /// The Quick Presets block, wired: each tile creates its blank white document
-/// (`EmptyWorkspace.tsx` `handleCreatePreset`).
+/// the tile advertises.
 fn presets_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
     v_flex()
         .w_full()
@@ -344,7 +346,7 @@ fn preset_row_live(first: usize, second: usize, cx: &gpui_kit::Context<crate::ap
         .child(preset_tile_live(second, cx))
 }
 
-/// One preset: `flex items-center gap-2.5 rounded-[4px] border
+/// One preset tile: a 10px-gap row, 4px corners, a border, 8px padding,
 /// border-editor-field-border bg-editor-field p-2`.
 ///
 /// 51px = 2 borders + 16 padding + 33 of content, and the 33 is an 18px label
@@ -421,7 +423,7 @@ fn preset_tile_shell(index: usize) -> Div {
         )
 }
 
-/// The footer: `flex items-center justify-between border-t
+/// The footer: a space-between row above a top border,
 /// border-editor-divider px-5 py-3 text-[11px] text-editor-text-dim`.
 ///
 /// 46px = 1 + 12 + 21 + 12. The 21 is the `<kbd>`'s own height (2 border +
@@ -488,7 +490,7 @@ fn kbd() -> Div {
 
 /// A text run pinned to an explicit line-box height.
 ///
-/// **Worth consolidating.** Tailwind's `text-[Npx]` here resolves to a line
+/// **Worth consolidating.** An explicit `Npx` font size here resolves to a line
 /// box of 1.5N, and this card depends on those heights for four of its block
 /// sizes, so each run is given the height it was measured at and centred in
 /// it. Centring is enough rather than a computed baseline offset: a glyph's

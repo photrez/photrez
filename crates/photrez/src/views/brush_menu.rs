@@ -1,4 +1,4 @@
-//! The live brush/eraser right-click menu (`BrushContextMenu.tsx`).
+//! The live brush/eraser right-click menu.
 //!
 //! The static shot of this panel (`ctx-brush`) lives in `context_menus.rs`;
 //! this module is the production overlay: a 200 px panel at the pointer,

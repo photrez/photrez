@@ -1,4 +1,4 @@
-//! Visual-only port of `shell/DocumentTabsBar.tsx`.
+//! The document tab strip: its appearance.
 //!
 //! The 38px strip that caps the editor column, directly under the title bar:
 //! `manifest.json` records the active tab at `x52,y46,89.86x37`, and the
@@ -14,12 +14,13 @@
 //! writing this: strip #141414, tab #171717, every border column #333333,
 //! underline #F28E42 across y=81..82, export button 725..816).
 //!
-//! The original is mostly behaviour, none of which can appear in a static
-//! screenshot and none of which is ported: drag-to-reorder with drop
+//! The tab strip's behaviour cannot appear in a static
+//! screenshot and is not reproduced here: drag-to-reorder with drop
 //! indicators, cross-document drag dimming, the hover-to-switch timer, the
 //! dirty marker, the close- and new-document dialogs, the toasts, the export
-//! `ContextMenu`, the `Tooltip` on the layout toggle, and the wheel/keyboard
-//! navigation. Hover *styling* is ported where it is pure CSS, as in
+//! menu, the tooltip on the layout toggle, and the wheel/keyboard
+//! navigation. Hover *styling* is reproduced where it is a plain colour
+//! change, as in
 //! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
 //!
 //! With **zero** documents the original still paints this strip — `<For>`
@@ -30,40 +31,39 @@
 //!
 //! # Transcription notes
 //!
-//! * **Every `border-*` paints `#333333`**, class name notwithstanding: the
-//!   unlayered `* { border-color }` in `styles.css` outranks
-//!   `@layer utilities`, so `border-editor-divider` (root, tab,
-//!   new-document button, utility cluster) and `border-editor-field-border`
-//!   (export button) all resolve to [`color::BORDER`]. Confirmed against
+//! * **Every border paints `#333333`**, whatever colour the element asks
+//!   for: a global border colour outranks the per-element
+//!   divider and field-border values, so the root, tab,
+//!   new-document button and utility cluster, and the
+//!   export button all resolve to [`color::BORDER`]. Confirmed against
 //!   `shell-full-page.png`: (141,60), (400,83), (636,60), (680,60), (725,64)
 //!   and (816,64) are unanimous. `color::DIVIDER` (#2e2e2e) appears nowhere in
-//!   this component — there is no `bg-editor-divider` on it either.
-//! * **Two class names name colours that do not exist.** Nothing under
-//!   `apps/desktop/src` declares `--editor-topbar-hover` or
-//!   `--editor-app-hover`, so Tailwind emits no CSS for
-//!   `hover:bg-editor-topbar-hover` (inactive tab) or
-//!   `hover:bg-editor-app-hover` (tab close button): both hovers are no-ops in
-//!   the original and are recorded as such below rather than invented.
+//!   this component — there is no divider fill on it either.
+//! * **Two hover names refer to colours that do not exist.** No shipped
+//!   token declares a topbar-hover or app-hover value, so those
+//!   hovers paint nothing: both hovers are no-ops in the original and are
+//!   recorded as such below rather than invented.
 //! * **`Export…` is the resolved translation**, not the `"Export"` fallback
-//!   in the JSX: `i18n/locales/en/translation.json:51` is `"Export…"` (one
+//!   in the catalogue key: `assets/i18n/en.json:51` is `"Export…"` (one
 //!   U+2026), which is what the baseline paints.
-//! * **`CloseDockButton` is `lg:hidden`** (`DocumentTabsBar.tsx:128`): `lg` is
-//!   1024px and the baseline window is 1366px, so it is `display:none` and
+//! * **The dock-close button is hidden at this width**: the breakpoint is
+//!   1024px and the baseline window is 1366px, so it is not shown and
 //!   takes no space. The arithmetic agrees with leaving it out: the utility
-//!   cluster measures 153px (1 border + 8 pl + 28 toggle + 8 gap + 92 export +
-//!   16 pr), which puts its `border-l` at exactly x=680, where
+//!   cluster measures 153px (1 border + 8 left padding + 28 toggle + 8 gap +
+//!   92 export +
+//!   16 right padding), which puts its left border at exactly x=680, where
 //!   `shell-full-page.png` has #333333.
-//! * **The layout toggle is not accent-coloured**: `text-editor-accent` only
-//!   applies when `rightDockLayout() === "stacked"`, and
-//!   `EditorContext.tsx:113-118` defaults it to `"side-by-side"` — which is
+//! * **The layout toggle is not accent-coloured**: the accent only
+//!   applies when the dock layout is `"stacked"`, and the
+//!   default is `"side-by-side"` — which is
 //!   what the baseline shows (the dock panels sit side by side).
-//! * **Box model**: GPUI/taffy defaults to `box-sizing: border-box`, so the
-//!   38px strip spends its 1px `border-b` inside the 38 and leaves the 37px
+//! * **Box model**: GPUI/taffy defaults to border-box sizing, so the
+//!   38px strip spends its 1px bottom border inside the 38 and leaves the 37px
 //!   content height `manifest.json` measures for the tab. The tab's width is
-//!   12 + 10 padding + 1 `border-r` + 8 gap + 16 close button + the advance
+//!   12 + 10 padding + 1 right border + 8 gap + 16 close button + the advance
 //!   width of "Baseline" at 11.5px/500 ≈ 42.86 = 89.86.
 //! * **No letter-spacing compensation** (unlike `title_bar::pad_x`): this
-//!   component carries no `tracking-*` class, so GPUI's lack of tracking
+//!   strip asks for no tracking, so GPUI's lack of tracking
 //!   costs nothing here.
 //!
 //! # Known fidelity gaps
@@ -99,75 +99,75 @@ use gpui_kit::Div;
 // pixels, and each const names the class (with its JSX line) it comes from.
 // ---------------------------------------------------------------------------
 
-/// `h-[38px]` — strip height (`DocumentTabsBar.tsx:462`). `manifest.json`
-/// gives the active tab as 37px at y=46 and `OptionBar` starts at y=84, so
-/// the 38px is border-box: 37 content + 1 `border-b`.
+/// 38px — strip height. `manifest.json`
+/// gives the active tab as 37px at y=46 and the option bar starts at y=84, so
+/// the 38px is border-box: 37 content + a 1px bottom border.
 const BAR_H: f32 = 38.0;
 
-/// `gap-2` = 0.5rem. Three separate uses in this component: between a tab's
-/// label and its close button (`:521`), between the utility cluster's
-/// children (`:567`), and inside the export button (`:80`).
+/// 8px. Three separate uses in this strip: between a tab's
+/// label and its close button, between the utility cluster's
+/// children, and inside the export button.
 const GAP_2: f32 = 8.0;
 
-/// `pl-3` = 0.75rem — active tab's left padding (`:521`).
+/// 12px — active tab's left padding.
 const TAB_PAD_L: f32 = 12.0;
 
-/// `pr-2.5` = 0.625rem — active tab's right padding (`:521`).
+/// 10px — active tab's right padding.
 const TAB_PAD_R: f32 = 10.0;
 
-/// `text-[11.5px]` — tab label (`:532`).
+/// 11.5px — tab label.
 const TAB_TEXT: f32 = 11.5;
 
-/// `size-4` = 1rem — the tab's close button (`:545`).
+/// 16px — the tab's close button.
 const CLOSE_BTN: f32 = 16.0;
 
-/// `size-3.5` = 0.875rem — the `x` glyph inside it (`:548`).
+/// 14px — the `x` glyph inside it.
 const CLOSE_ICON: f32 = 14.0;
 
-/// `rounded` (bare) on the close button (`:545`) — 0.25rem in the scale this
-/// class list uses. Irrelevant to any pixel: the button's only background is
-/// `hover:bg-editor-app-hover`, which generates no CSS at all (see the module
+/// 4px corners on the close button. Irrelevant to any pixel: the button's
+/// only background is
+/// the hover fill that paints nothing at all (see the module
 /// docs), so no corner is ever painted.
 const CLOSE_RADIUS: f32 = 4.0;
 
-/// `h-[2px]` — active-tab underline (`:551`).
+/// 2px — active-tab underline.
 const UNDERLINE_H: f32 = 2.0;
 
-/// `w-11` = 2.75rem — new-document button (`:561`).
+/// 44px — new-document button width.
 const NEW_TAB_W: f32 = 44.0;
 
-/// `size-[18px]` — its `plus` glyph (`:564`).
+/// 18px — its `plus` glyph.
 const NEW_TAB_ICON: f32 = 18.0;
 
-/// `pl-2` = 0.5rem — utility cluster's left padding (`:567`).
+/// 8px — utility cluster's left padding.
 const CLUSTER_PAD_L: f32 = 8.0;
 
-/// `pr-4` = 1rem — utility cluster's right padding (`:567`).
+/// 16px — utility cluster's right padding.
 const CLUSTER_PAD_R: f32 = 16.0;
 
-/// `size-7` = 1.75rem — layout toggle button (`:109`).
+/// 28px — layout toggle button.
 const TOGGLE_BTN: f32 = 28.0;
 
-/// `rounded-[4px]` — layout toggle (`:109`) and export button (`:80`).
+/// 4px corners — layout toggle and export button.
 const RADIUS_4: f32 = 4.0;
 
-/// `size-4` = 1rem — the `columns` glyph (`:113-117`).
+/// 16px — the layout-toggle glyph.
 const TOGGLE_ICON: f32 = 16.0;
 
-/// `h-[28px]` — export button (`:80`).
+/// 28px — export button height.
 const EXPORT_H: f32 = 28.0;
 
-/// `px-3` = 0.75rem — export button horizontal padding (`:80`).
+/// 12px — export button horizontal padding.
 const EXPORT_PX: f32 = 12.0;
 
-/// `text-[12.5px]` — export button label (`:80`).
+/// 12.5px — export button label.
 const EXPORT_TEXT: f32 = 12.5;
 
-/// `size-3.5` = 0.875rem — the `chevron-down` glyph (`:83-87`).
+/// 14px — the export button's chevron glyph.
 const EXPORT_ICON: f32 = 14.0;
 
-/// `t("menus.items.export", "Export")` — the *resolved* string, not the JSX
-/// fallback: `i18n/locales/en/translation.json:51` is `"Export…"`.
+/// The export label's *resolved* string, not the key's
+/// fallback: `assets/i18n/en.json:51` is `"Export…"`.
 const EXPORT_LABEL_KEY: &str = "menus.items.export";
 
 /// `<div class="flex h-[38px] shrink-0 items-center border-b
@@ -192,8 +192,8 @@ pub fn render(
         .items_center()
         .justify_between()
         .border_b_1()
-        // `border-editor-divider` names #2e2e2e, but the unlayered `*` in
-        // styles.css outranks it and paints #333333 — see `color::BORDER`.
+        // The divider token names #2e2e2e, but the global border colour
+        // outranks it and paints #333333 — see `color::BORDER`.
         .border_color(color::BORDER)
         .bg(color::TOPBAR)
         // The whole shell is Inter. GPUI's theme default resolves to Segoe UI
@@ -242,16 +242,16 @@ fn tab_list(
 /// Only the **active** tab is rendered: the baseline captured the
 /// one-document state, and with one open document the `<For>` yields exactly
 /// one row. The `group` marker is dropped because nothing inside the tab
-/// consumes a `group-hover:` rule (the close button uses a plain `hover:`,
+/// consumes a group-hover rule (the close button uses a plain hover,
 /// which is independent of the ancestor).
 ///
 /// The inactive branch would be `bg-editor-topbar` — the strip colour, i.e.
-/// invisible against it — plus `hover:bg-editor-topbar-hover`, which is a
+/// invisible against it — plus the topbar hover fill, which is a
 /// class with no backing token and therefore paints nothing at all.
 ///
-/// Not ported, because a resting screenshot cannot show them:
-/// `isDragOver` (`outline-2 outline-editor-accent`), `isDimmed`
-/// (`opacity-30`), `isBeingReordered` (`opacity-60 scale-[0.98] ring-1`)
+/// Not reproduced, because a resting screenshot cannot show them:
+/// the drag-over outline, the dimmed
+/// (30% opacity), and reordering states (60% opacity, a 0.98 scale and a ring)
 /// and the two `before:`/`after:` drop indicators.
 fn tab(
     tab_row: &crate::state::TabRow,
@@ -265,7 +265,7 @@ fn tab(
     let ghost_name = tab_row.name.clone();
     h_flex()
         // `relative` — the containing block for the active underline, whose
-        // `inset-x-0` resolves against this tab's *padding* box.
+        // The underline anchors to this tab's *padding* box.
         .relative()
         .id(format!("document-tab-{}", tab_row.doc_id))
         .test_support()
@@ -325,7 +325,7 @@ fn tab(
 
 /// `<span class="whitespace-nowrap text-[11.5px] ... text-editor-text
 ///  font-medium">` — the active, non-dirty branch of the clsx chain
-/// (`:533-537`). The dirty branch (`text-editor-accent` plus a `•`) is not
+/// The dirty branch (accent text plus a `•`) is not
 /// rendered: a freshly captured blank document is clean.
 fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
     div()
@@ -345,7 +345,7 @@ fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
 ///  text-editor-text-dim hover:text-editor-text hover:bg-editor-app-hover">`
 /// with `<Icon name="x" class="size-3.5" strokeWidth={1.75} />`.
 ///
-/// `hover:bg-editor-app-hover` is omitted deliberately: there is no
+/// The close button's hover fill is omitted deliberately: there is no
 /// `--editor-app-hover` token anywhere in the app, so Tailwind generates no
 /// rule for it and the original's hover background is transparent too.
 fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoElement {
@@ -370,7 +370,7 @@ fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoE
             Icon::default()
                 .data(icons::X)
                 .size(px(CLOSE_ICON))
-                // Baked at 1.75 by `strokeWidth={1.75}`, matching icons.rs.
+                // Baked at a 1.75 stroke width, matching icons.rs.
                 // The tint is fixed here rather than inherited, so the glyph
                 // does not follow the button's hover colour — see the module
                 // docs.
@@ -380,8 +380,8 @@ fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoE
 
 /// `<span class="absolute inset-x-0 bottom-0 h-[2px] bg-editor-accent" />`
 ///
-/// `inset-x-0` anchors to the padding box, so the orange stops at x=141 and
-/// the tab's 1px `border-r` column stays #333333 — which is what
+/// The underline spans the padding box, so the orange stops at x=141 and
+/// the tab's 1px right border column stays #333333 — which is what
 /// `shell-full-page.png` shows: (52..140, 81) is #F28E42, (141, 81) is
 /// #333333. Taffy offsets absolute children by the containing block's border
 /// (`flexbox.rs:2409`), so left/right:0 land on the padding edge here too.
@@ -450,7 +450,7 @@ fn cluster() -> Div {
 ///
 /// Not accent-coloured because the dock is in its default `side-by-side`
 /// layout — see the module docs. The `Tooltip` around it is hover-only and
-/// not ported.
+/// not reproduced.
 fn layout_toggle() -> impl IntoElement {
     h_flex()
         .id("layout-toggle")
@@ -473,16 +473,16 @@ fn layout_toggle() -> impl IntoElement {
 /// `<Icon name="chevron-down" class="size-3.5 text-editor-text-dim"
 ///  strokeWidth={1.75} />`.
 ///
-/// `border-editor-field-border` paints #333333 like every other border, and
-/// `hover:text-editor-text` is a no-op (the label is already
-/// `text-editor-text`), so only the background changes on hover — and the
-/// chevron keeps `text-editor-text-dim` in the original too, because it has
+/// The export button's border paints #333333 like every other border, and
+/// its hover text colour is a no-op (the label is already
+/// full-brightness text), so only the background changes on hover — and the
+/// chevron keeps the dim colour in the original too, because it has
 /// its own colour class rather than inheriting one.
 ///
 /// Its width is content-driven: 2*12 padding + 2 border + 8 gap + 14 icon +
 /// a ~44px advance for "Export…" = 92px, i.e. x=725..816 where
 /// `shell-full-page.png` has its two border columns. The `ContextMenu` it
-/// opens is not ported.
+/// opens is not reproduced.
 fn export_button() -> impl IntoElement {
     h_flex()
         .id("export-button")

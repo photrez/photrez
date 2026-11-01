@@ -1,4 +1,4 @@
-//! Visual port of `AppTitleBar.tsx`, including its closed-state `AppMenuBar.tsx`.
+//! The window title bar, including its closed-state menu bar.
 //!
 //! # Scope: resting state only
 //!
@@ -118,7 +118,7 @@ static LOGO_IMAGE: OnceLock<Arc<RenderImage>> = OnceLock::new();
 ///
 /// Panics with the underlying `usvg` error rather than rendering nothing: a
 /// silently missing logo would show up as a confusing diff, and if usvg cannot
-/// handle this SVG the port needs a different strategy for it.
+/// handle this SVG the project needs a different strategy for it.
 #[expect(
     clippy::panic,
     reason = "logo raster failure is startup-fatal; a silently missing logo is a defect"
@@ -355,7 +355,7 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
 
 /// `<div class="flex min-w-0 items-center">` — undo/redo plus window controls.
 ///
-/// The side-panel toggle is `lg:hidden` in the frozen source: it exists below
+/// The side-panel toggle is hidden at large widths: it exists below
 /// 1024px and is absent from the 1366px baseline. The branch is decided from
 /// the live window width so the 74-shot parity is unchanged.
 fn right_group(

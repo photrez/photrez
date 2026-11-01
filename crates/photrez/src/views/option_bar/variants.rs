@@ -39,7 +39,7 @@ pub(super) fn fade_in_row(
 }
 // ── Move ──────────────────────────────────────────────────────────────────────
 
-/// The `Move` variant (`MoveOptionBar.tsx:214-451`).
+/// The `Move` variant.
 ///
 /// State assumptions: `selectedLayerId()` is true (the fields show identity
 /// transform on the 800x600 background), `hoveredLayer()` is false, and
@@ -122,9 +122,9 @@ fn selection_field_value(value: f64) -> String {
     trimmed.to_string()
 }
 
-/// The `Selection` variant (`SelectionOptionBar.tsx`).
+/// The `Selection` variant.
 ///
-/// Without a committed selection every numeric field is the oracle's disabled
+/// Without a committed selection every numeric field is in its disabled
 /// state (opacity 40 %, inert, reading "0"). With one, the fields read the
 /// selection and their commits rewrite that dimension through core history.
 fn selection_items(
@@ -279,7 +279,7 @@ pub fn crop_params() -> CropParams {
     }
 }
 
-/// The `Crop` variant — the resting 781px capture of `CropOptionBar.tsx:432-668`.
+/// The `Crop` variant — the resting 781px capture.
 ///
 /// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fillEnabled()`
 /// is true, and the `@min-[880px]` inline advanced group (straighten / rotate /
@@ -403,7 +403,7 @@ pub(super) fn crop_items(
 
 // ── Brush / Eraser ────────────────────────────────────────────────────────────
 
-/// The `Brush` variant (`BrushOptionBar.tsx`), also serving `Eraser`.
+/// The `Brush` variant, also serving `Eraser`.
 ///
 /// `eraser` selects the pill label, size string, slider percent and hardness.
 const BRUSH_PRESET_LABELS: [&str; 4] = ["Hard Round", "Soft Round", "Detail", "Large Soft"]; // i18n-exempt: not in catalog
@@ -571,9 +571,11 @@ fn brush_items(
     })
 }
 
-/// `MoreDropdown` (`OptionBarShared.tsx`): the narrow bar folds the overflow
+/// The more-dropdown: the narrow bar folds the overflow
 /// group into this button. The panel keeps Flow, Smoothing, the preset list
 /// and the eraser's full-strength helper reachable below 880 px.
+// Explicit option-bar values keep the dropdown builder aligned with its controls.
+#[allow(clippy::too_many_arguments)]
 fn brush_more_dropdown(
     state: &gpui_kit::Entity<AppState>,
     eraser: bool,
@@ -679,7 +681,7 @@ fn brush_more_dropdown(
 
 // ── Eyedropper ─────────────────────────────────────────────────────────────────
 
-/// The `Eyedropper` variant (`EyedropperOptionBar.tsx`).
+/// The `Eyedropper` variant.
 fn eyedropper_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
@@ -719,7 +721,7 @@ fn eyedropper_items(
 
 // ── Paint Bucket ─�─────────────────────────────────────────────────────────────
 
-/// The `PaintBucket` variant (`PaintBucketOptionBar.tsx`).
+/// The `PaintBucket` variant.
 fn paint_bucket_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
@@ -790,7 +792,7 @@ fn paint_bucket_items(
 
 // ── Gradient ───────────────────────────────────────────────────────────────────
 
-/// The `Gradient` variant (`GradientOptionBar.tsx`).
+/// The `Gradient` variant.
 fn gradient_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
@@ -911,7 +913,7 @@ fn shape_kind_index(kind: ShapeTool) -> usize {
     }
 }
 
-/// The `Shape` variant (`ShapeOptionBar.tsx`): draw mode writes the next-shape
+/// The `Shape` variant: draw mode writes the next-shape
 /// defaults, edit mode reads the selected shape layer's live parameters.
 fn shape_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::app::App>) -> Div {
     use photrez_core::ptz::layer_params::ShapeFillKind;
@@ -975,7 +977,7 @@ fn shape_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate:
     .child(tooltip(
         state,
         "opt-shape-kind",
-        "Select shape", // i18n-exempt: not in catalog (oracle aria-label)
+        "Select shape", // i18n-exempt: not in catalog (accessibility label only)
         None,
         cx,
         live_select(
@@ -1046,7 +1048,7 @@ fn shape_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate:
 
 // ── Text ───────────────────────────────────────────────────────────────────────
 
-/// The `Text` variant (`TextOptionBar.tsx`), draw mode.
+/// The `Text` variant, draw mode.
 const TEXT_WEIGHT_LABELS: [&str; 7] = [
     "Thin", "Light", "Regular", "Medium", "SemiBold", "Bold", "Black",
 ]; // i18n-exempt: not in catalog
@@ -1366,7 +1368,7 @@ fn text_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::
     })
 }
 
-/// The oracle's `Aspect Ratio` button plus its inline list: lock the current
+/// The `Aspect Ratio` button plus its inline list: lock the current
 /// shape, the three recents, Free / Custom / Size, then the preset list.
 fn crop_ratio_control(
     prefix: &str,
@@ -1517,7 +1519,7 @@ pub(super) fn crop_ratio_list(
             }),
         ))
         .child(crop_ratio_divider())
-        .child(crop_ratio_caption("Presets")); // i18n-exempt: source literal (CropOptionBarSections.tsx:355)
+        .child(crop_ratio_caption("Presets")); // i18n-exempt: fixed section caption, not in catalog
     for (index, (preset, label)) in CROP_PRESETS.iter().enumerate() {
         let value = *preset;
         panel = panel.child(crop_ratio_preset_row(
@@ -1664,6 +1666,8 @@ fn crop_custom_fields(
 
 /// The Size fields: W/H with the unit as suffix, a swap button and the unit
 /// list (expanded inline, like the language list in Settings).
+// Separate field and geometry inputs mirror the two rendered size fields.
+#[allow(clippy::too_many_arguments)]
 fn crop_size_fields(
     w: &str,
     h: &str,

@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn static_layer_values_pinned() {
-    // The pins carry the frozen NEW-DOCUMENT data model, measured from the
-    // 2026-08-16 oracle's created 800x600 document (one full-canvas
+    // The pins carry the new-document data model as measured from a created
+    // 800x600 document (one full-canvas
     // "Background" image layer at 0,0 with locked position/rotation) — not
     // the older "Layer 1 · 100x100" seed.
     // ASCII escapes must render to the expected characters.

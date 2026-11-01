@@ -1,19 +1,18 @@
-//! Visual-only port of `shell/OptionBar.tsx`, its shared controls in
-//! `shell/OptionBarShared.tsx`, and the per-tool variant bars — at the captured
-//! 781px width.
+//! The per-tool option bar — the main bar, its shared controls, and the
+//! variant bars — at the captured 781px width.
 //!
-//! # Container queries are frozen, not evaluated
+//! # Container queries are pinned, not evaluated
 //!
-//! The JSX wraps everything in `@container` and branches on it. The captured bar
+//! The bar is laid out against container-width breakpoints. The captured bar
 //! is 781px wide, so the three gates resolve to constants here:
 //! [`MAIN_CONTROLS`], [`MORE_DROPDOWN`] and [`FIELD_LABELS`].
 //!
 //! # Dispatch
 //!
-//! The reference's `state::active("tool", "move")` string dispatch becomes a
-//! `match` on [`crate::state::ToolId`] — see [`render`].
+//! Tool selection is a `match` on [`crate::state::ToolId`] rather than a
+//! `state::active("tool", "move")` string lookup — see [`render`].
 
-// Reference's `#![allow(dead_code)]` removed: all helpers are reachable from a
+// No module-level `#![allow(dead_code)]`: all helpers are reachable from a
 // `match` arm, and `brush_params` carries its own test.
 // lean-ctx: dead_code lint re-enabled; every fn below is called.
 
@@ -299,11 +298,15 @@ const BRUSH_SLIDER_PCT: f32 = 3.0;
 /// Resting eraser size → `paintSizeToSizeSlider(32)` = `((32-1)/(500-1))*75`.
 const ERASER_SLIDER_PCT: f32 = 5.0;
 
-// ── Container queries (oracle `@container` on the bar) ────────────────────────
+// ── Container queries on the bar ─────────────────────────────────────────────
 
 thread_local! {
-    /// Width of the option bar for the frame being built (`@container` never
-    /// existed in the frozen bar; the value was pinned at `CONTAINER_W`).
+    /// Width of the option bar for the frame being built. The resting bar is
+    /// captured at a fixed width, so this starts pinned at 781.0.
+    #[allow(
+        clippy::missing_const_for_thread_local,
+        reason = "the initializer already uses a const block",
+    )]
     static BAR_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(781.0) };
 }
 
@@ -316,12 +319,12 @@ fn bar_width() -> f32 {
     BAR_WIDTH.with(std::cell::Cell::get)
 }
 
-/// Horizontal padding of the bar (`px-3` on the oracle's `@container`).
+/// Horizontal padding of the bar, 12px on each side.
 const BAR_PAD_X: f32 = 12.0;
 
-/// CSS container queries test the container's content box, not its border box.
-/// The oracle bar is 885 px wide with 12 px padding at a 1536 px viewport, so
-/// its content box is 861 px and the `@min-[880px]` group stays hidden.
+/// A container query tests the container's content box, not its border box.
+/// The captured bar is 885 px wide with 12 px padding at a 1536 px viewport, so
+/// its content box is 861 px and the ≥880 px group stays hidden.
 fn bar_content_width() -> f32 {
     (bar_width() - 2.0 * BAR_PAD_X).max(0.0)
 }
@@ -483,7 +486,7 @@ mod tests {
         assert_ne!(p.slider_pct, b.slider_pct);
     }
 
-    /// Pins the resting data of the Crop bar (`CropOptionBar.tsx`). These
+    /// Pins the resting data of the Crop bar. These
     /// constants are the source of truth that [`variants::crop_items`] composes, so every
     /// label, checkbox default and dropdown value the baseline shot encodes is
     /// asserted here.
@@ -546,7 +549,7 @@ mod bar_width_tests {
         assert!(!show_field_labels(), "exactly 900 keeps labels hidden");
         assert!(show_paint_size_slider(), "exactly 900 shows the slider");
 
-        // The oracle's 1536 px viewport: 885 px outer bar, 861 px content box.
+        // The captured 1536 px viewport: 885 px outer bar, 861 px content box.
         set_bar_width(885.0);
         assert!(
             !show_main_controls(),

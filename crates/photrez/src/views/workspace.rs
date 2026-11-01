@@ -1,8 +1,8 @@
 //! Screen-level composition of the native shell.
 //!
-//! Mirrors `EditorShell.tsx` from the web build (`apps/desktop/src/components/editor/shell/`),
-//! adapted for the gpui-kit port. Every nested region is a function call so
-//! each can be `cargo check`ed in isolation during the port.
+//! The editor shell: title bar, menu bar, tool rail, option bar, canvas,
+//! right dock and status bar. Every nested region is a function call so
+//! each can be `cargo check`ed in isolation.
 
 #![allow(dead_code)]
 
@@ -35,12 +35,12 @@ const DOCK_W_2XL: f32 = 598.0;
 const TABBAR_H: f32 = 38.0;
 /// Option bar height: 44px.
 const OPTIONBAR_H: f32 = 44.0;
-/// Text overlay hint strip width (the frozen badge is 270 physical px).
+/// Text overlay hint strip width (the captured badge is 270 physical px).
 const HINT_W: f32 = 216.0;
 
 /// Render the full shell for one frame.
 ///
-/// Geometry mirrors `EditorShell.tsx`:
+/// Geometry of the shell regions:
 ///
 /// ```text
 /// <photrez-app>           BG (#171717)
@@ -128,7 +128,7 @@ pub(crate) fn render(
             s.gradient_badge,
         )
     };
-    // The frozen shell is responsive at the same breakpoints as the source:
+    // The shell is responsive at the same breakpoints as the captured layout:
     // `2xl` (viewport >= 1536 CSS px) widens both dock columns.
     let two_xl = window.viewport_size().width >= px(1536.0);
     let dock_w = if two_xl { DOCK_W_2XL } else { DOCK_W };
@@ -386,7 +386,7 @@ pub(crate) fn render(
             el.child(context_menus::render())
         })
         .when(shot::starts_with("empty-"), |el| {
-            // The frozen empty card is centred in the canvas column, which
+            // The empty card is centred in the canvas column, which
             // moves with the viewport (and with the `2xl` dock widths). The
             // card is positioned in window coordinates, so the column's left
             // edge (the rail width) is part of the answer.
@@ -422,7 +422,7 @@ pub(crate) fn render(
 /// handler maps through the exact fit placement that was painted.
 /// The in-place text editor: a panel anchored at the layer's document origin.
 /// The overlay draws the live buffer on the layer's own metrics so typing is
-/// WYSIWYG, and the hint strip mirrors `TextEditOverlay.tsx`'s key legend.
+/// WYSIWYG, and the hint strip is the text editor's key legend.
 fn text_editor_overlay(
     session: &crate::state::TextEditSession,
     canvas: &CanvasImage,
@@ -498,9 +498,9 @@ fn text_editor_overlay(
                             div()
                                 .font_weight(gpui_kit::FontWeight(600.))
                                 .text_color(color::TEXT)
-                                .child("\u{21b5}"), // i18n-exempt: keyboard glyph in the frozen overlay legend
+                                .child("\u{21b5}"), // i18n-exempt: keyboard glyph in the overlay legend
                         )
-                        .child("Newline"), // i18n-exempt: frozen overlay legend
+                        .child("Newline"), // i18n-exempt: overlay legend
                 )
                 .child(div().text_color(color::TEXT_DIM).child("\u{00b7}")) // i18n-exempt: legend separator glyph
                 .child(
@@ -510,9 +510,9 @@ fn text_editor_overlay(
                             div()
                                 .font_weight(gpui_kit::FontWeight(600.))
                                 .text_color(color::ACCENT)
-                                .child("Ctrl+Enter"), // i18n-exempt: keyboard token in the frozen overlay legend
+                                .child("Ctrl+Enter"), // i18n-exempt: keyboard token in the overlay legend
                         )
-                        .child("Commit"), // i18n-exempt: frozen overlay legend
+                        .child("Commit"), // i18n-exempt: overlay legend
                 )
                 // i18n-exempt: legend separator glyph
                 .child(div().text_color(color::TEXT_DIM).child("\u{00b7}")) // i18n-exempt: legend separator glyph
@@ -523,9 +523,9 @@ fn text_editor_overlay(
                             div()
                                 .font_weight(gpui_kit::FontWeight(600.))
                                 .text_color(color::TEXT)
-                                .child("Esc"), // i18n-exempt: keyboard token in the frozen overlay legend
+                                .child("Esc"), // i18n-exempt: keyboard token in the overlay legend
                         )
-                        .child("Cancel"), // i18n-exempt: frozen overlay legend
+                        .child("Cancel"), // i18n-exempt: overlay legend
                 ),
         )
 }

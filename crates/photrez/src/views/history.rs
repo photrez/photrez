@@ -1,11 +1,11 @@
-//! Visual-only port of `editor/HistoryPanel.tsx`.
+//! The History panel: its appearance.
 //!
 //! # Where it sits: 260x527 at (1106, 84)
 //!
-//! Exactly `layers_panel`'s slot — the *other* tab of the same LayerDock pane
-//! (`RightDock.tsx:240`), so only one of the two is ever on screen and they
+//! Exactly `layers_panel`'s slot — the *other* tab of the same LayerDock pane,
+//! so only one of the two is ever on screen and they
 //! share bounds. The height, 527, is `611 - 84`: the panel column is `flex-1`
-//! between the dock's 38px tab bar (y 46..83, `border-b` painted at 83) and
+//! between the dock's 38px tab bar (y 46..83, its bottom border painted at 83)
 //! the Navigator (`shell-navigator` manifest box, y=611, drawn by whoever
 //! owns the dock chrome — not here). See `layers_panel.rs` for how those
 //! anchors were derived from `manifest.json`. The panel root is `flex_1` (its
@@ -31,21 +31,21 @@
 //! y 98..564   nothing but #1e1e1e
 //! ```
 //!
-//! Every coordinate falls out of the JSX arithmetic: `px-4` (16) puts the
-//! 16px icon box at x=289, `gap-2.5` (10) puts the label at x=315, and the
+//! Every coordinate falls out of the row arithmetic: 16px horizontal padding
+//! puts the
+//! 16px icon box at x=289, a 10px gap puts the label at x=315, and the
 //! 38px row's `items-center` centres both glyph runs exactly where the ink
 //! lands (icon box y 49..64 with 1px AA inset; 12px Inter line box 14.5px
 //! centred → cap top at 52.6, descender to 64.3 — measured 52..63). The hint's
-//! brightest pixel (78) sits just under the 80 that `text-editor-text-dim/55`
+//! brightest pixel (78) sits just under the 80 that dim text at 55%
 //! composites to, as expected for antialiased 11px text.
 //!
-//! # The 260-wide column's rows are 254 wide: scrollbar-gutter: stable
+//! # The 260-wide column's rows are 254 wide: the scrollbar gutter
 //!
 //! The row stops at x=526, six pixels short of the panel's right edge, even
-//! though `HistoryPanel.tsx` gives the list no padding. The cause is global:
-//! `styles.css:316-328` applies `scrollbar-gutter: stable` to every
-//! `overflow-y-auto` and re-declares `::-webkit-scrollbar { width: 6px }`
-//! (overriding the 10px rule at `:178`). Chromium therefore reserves a 6px
+//! though the list is given no padding. The cause is global:
+//! every scrollable area reserves a 6px scrollbar gutter
+//! (overriding the wider 10px default). The capture therefore shows a 6px
 //! strip on the right of the scroll container whether or not it overflows; the
 //! track is transparent so the panel background shows through. It is
 //! transcribed as `.pr(px(SCROLLBAR_GUTTER))` on the scroll column, which
@@ -56,14 +56,14 @@
 //! # What the captured state contains
 //!
 //! Exactly one history item and the hint line. Both facts come from the
-//! engine rather than being invented: `workspaceSync.ts:69` feeds
-//! `history.getHistoryStack()` into the panel, every stack starts with an
-//! `Open` entry (`engine/__tests__/historyImperative.test.ts:97` — "Open + 3"),
+//! engine rather than being invented: the panel reads the document's
+//! history stack, every stack starts with an
+//! `Open` entry,
 //! and the captured document has no edits on top of it, so the list holds one
-//! item; `HistoryPanel.tsx:90` shows "Edits appear here" when
-//! `historyItems().length === 1`. The single item is the *current* step
-//! (index 0 === `activeHistoryIndex`), which is why it carries the
-//! `white/[0.12]` fill, the accent icon and the full-strength label.
+//! item; the panel shows "Edits appear here" when
+//! the stack holds exactly one entry. The single item is the *current* step
+//! (index 0 === the active history index), which is why it carries the
+//! 12%-white fill, the accent icon and the full-strength label.
 //!
 //! The per-label icon map (`getActionIcon`) is transcribed in full even
 //! though only its first arm (`"open"` → `image`) is reachable here: it is
@@ -98,7 +98,7 @@
 //!   rounds up (the project-wide known gap), so the label may sit 1px above
 //!   the baseline's cap-top row.
 //! * Icon tint is static (decided at tree-build time), matching the resting
-//!   state; the hover tint is not ported with the rest of the hover state.
+//!   state; the hover tint is left out with the rest of the hover state.
 
 use crate::components::ui;
 use crate::i18n::t;
@@ -129,37 +129,37 @@ const PANEL_W: f32 = 260.0;
 )]
 const PANEL_H: f32 = 527.0;
 
-/// The `scrollbar-gutter: stable` reservation of the `overflow-y-auto` list
-/// (`styles.css:316-328`, `::-webkit-scrollbar { width: 6px }`). See the
-/// module docs; this is why rows are 254 wide inside a 260 panel.
+/// The 6px scrollbar-gutter reservation of the scrollable list.
+/// See the module docs; this is why rows are 254 wide inside a 260 panel.
 const SCROLLBAR_GUTTER: f32 = 6.0;
 
-/// `h-[38px]` on a history row.
+/// 38px tall — a history row.
 const ROW_H: f32 = 38.0;
 
-/// `px-4` on a row and on the hint line.
+/// 16px horizontal padding, on a row and on the hint line.
 const PAD_X: f32 = 16.0;
 
-/// `py-1` on a row — no visual effect under `items-center` in a fixed-height
+/// 4px vertical padding on a row — no visual effect under centred alignment
+/// in a fixed-height
 /// row, transcribed for completeness.
 const ROW_PY: f32 = 4.0;
 
-/// `gap-2.5` between a row's icon and label.
+/// 10px between a row's icon and label.
 const ROW_GAP: f32 = 10.0;
 
-/// `py-2` above and below the hint text.
+/// 8px above and below the hint text.
 const HINT_PY: f32 = 8.0;
 
-/// `size-4` — the row icon.
+/// 16px — the row icon.
 const ICON_ROW: f32 = 16.0;
 
-/// `text-[12px]` on a row label.
+/// 12px — a row label.
 const TEXT_ROW: f32 = 12.0;
 
-/// `text-[11px]` on the hint.
+/// 11px — the hint.
 const TEXT_HINT: f32 = 11.0;
 
-/// `strokeWidth={2.0}` on the *current* row's icon (`HistoryPanel.tsx:72`).
+/// A 2.0 stroke width on the *current* row's icon.
 /// Every `icons::` constant is baked at 1.5 or 1.6, so both branches ask
 /// `with_stroke` rather than editing the constants.
 const STROKE_ACTIVE: f32 = 2.0;
@@ -204,8 +204,8 @@ const TEXT_30: Hsla = Hsla {
 // ── Copy ────────────────────────────────────────────────────────────────────
 
 /// The catalog key for the single-item hint: `t("history.editsAppearHere")`
-/// renders `"Edits appear here"` in `en` (`i18n/locales/en/translation.json`).
-/// `HistoryPanel.tsx:90` calls `t(...)` on it; the const holds the key, and
+/// renders `"Edits appear here"` in `en` (`assets/i18n/en.json`).
+/// The panel asks for that key through [`t`]; the const holds the key, and
 /// every call site wraps it with [`t`].
 const HINT_TEXT_KEY: &str = "history.editsAppearHere";
 
@@ -324,10 +324,10 @@ fn history_row(
         .child(label)
 }
 
-/// `<p class="px-4 py-2 text-[11px] text-editor-text-dim/55">` — shown by
-/// `HistoryPanel.tsx:90` when the stack holds a single entry, i.e. an
-/// untouched document. Default (400) weight: the class list asks for no
-/// `font-*`.
+/// The hint line: 16px horizontal and 8px vertical padding, 11px text in dim
+/// text at 55%. Shown when the stack holds a single entry, i.e. an
+/// untouched document. Default (400) weight: the design asks for no
+/// explicit weight.
 fn hint() -> Div {
     div()
         .px(px(PAD_X))
@@ -339,7 +339,7 @@ fn hint() -> Div {
         .child(t(HINT_TEXT_KEY))
 }
 
-/// `getActionIcon` (`HistoryPanel.tsx:19-30`): keyword match on the lowercased
+/// Picks a row's icon: keyword match on the lowercased
 /// label, `history` as the fallback.
 fn action_icon(label: &str) -> &'static [u8] {
     let l = label.to_lowercase();

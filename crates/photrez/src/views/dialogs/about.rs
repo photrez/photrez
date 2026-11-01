@@ -10,9 +10,9 @@ use crate::tokens::color;
 
 use super::title_bar;
 use super::{GAP_2, R4, R6};
-/// The About dialog's own measurements, from `AboutDialog.tsx:44-128`:
-/// `size-8` mark inside the `size-12 p-2` tile, and `gap-4 px` between the
-/// three blocks with the source's `py-1` body padding.
+/// The About dialog's own measurements: a 32px mark inside the 48px tile
+/// with 8px padding, and 16px between the
+/// three blocks with 4px body padding.
 const ABOUT_MARK: f32 = 32.0;
 
 /// `size-12 rounded-[8px] border border-editor-divider bg-[#151516] p-2`.
@@ -41,7 +41,7 @@ const ABOUT_ICON: f32 = 14.0;
 const ABOUT_PILL_PX: f32 = 6.0;
 const ABOUT_PILL_PY: f32 = 2.0;
 
-/// `bg-[#151516]` \u{2014} the spec panel's fill (`AboutDialog.tsx:47,87`), a
+/// `#151516` \u{2014} the spec panel's fill, a
 /// component literal two steps darker than PANEL, so it is pinned here rather
 /// than joining `tokens.rs`.
 const ABOUT_PANEL_BG: Hsla = Hsla {
@@ -51,7 +51,7 @@ const ABOUT_PANEL_BG: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-editor-accent/10` \u{2014} the version pill's fill (`AboutDialog.tsx:76`),
+/// The version pill's fill: accent at 10%,
 /// alongside the crop bar's `ACCENT_15` in `tokens.rs`.
 const ABOUT_PILL_FILL: Hsla = Hsla {
     h: color::ACCENT.h,
@@ -60,8 +60,8 @@ const ABOUT_PILL_FILL: Hsla = Hsla {
     a: 0.10,
 };
 
-/// `border-editor-accent/40` \u{2014} the version pill's edge (`AboutDialog.tsx:76`)
-/// and the link buttons' hover border (`:109,119`).
+/// The version pill's edge: accent at 40%,
+/// and the link buttons' hover border.
 const ABOUT_ACCENT_40: Hsla = Hsla {
     h: color::ACCENT.h,
     s: color::ACCENT.s,
@@ -69,7 +69,7 @@ const ABOUT_ACCENT_40: Hsla = Hsla {
     a: 0.40,
 };
 
-/// The four spec rows' labels, catalogue-routed like the web dialog's.
+/// The four spec rows' labels, catalogue-routed like the rest of the dialog.
 pub(super) const ABOUT_SPEC_LABELS: [&str; 4] = [
     "dialogs.about.coreEngine",
     "dialogs.about.rasterizer",
@@ -78,41 +78,40 @@ pub(super) const ABOUT_SPEC_LABELS: [&str; 4] = [
 ];
 
 /// The spec values stay literals: the embedded catalogues are byte-locked to
-/// the reference (see the i18n module), so a native-only string cannot join
-/// them. The two rows the web dialog fills with "WebGL 2D" and "Tauri v2 +
-/// SolidJS" name the shell this port replaces; these name what actually runs.
+/// the shipped translations (see the i18n module), so a native-only string
+/// cannot join them. The rasterizer and shell rows name what actually runs
+/// here, not what an earlier shell reported.
 pub(super) const ABOUT_SPEC_VALUES: [&str; 4] = [
-    "Rust (photrez-core)", // i18n-exempt: tech value, literal in the reference
+    "Rust (photrez-core)", // i18n-exempt: tech value, not in catalog
     "CPU tile renderer",   // i18n-exempt: tech value, not in catalog
     "Rust + GPUI",         // i18n-exempt: tech value, not in catalog
-    "AGPLv3 Open-Source",  // i18n-exempt: tech value, literal in the reference
+    "AGPLv3 Open-Source",  // i18n-exempt: tech value, not in catalog
 ];
 
-/// The two shipped catalogues' names for themselves, so the line reads the
-/// same under either locale. Comma-separated rather than a middle dot: the
-/// embedded face has no U+00B7, and the coverage gate reviews catalogue text,
-/// not native literals.
+// The two shipped catalogues' names for themselves, so the line reads the
+// same under either locale. Comma-separated rather than a middle dot: the
+// embedded face has no U+00B7, and the coverage gate reviews catalogue text,
+// not native literals.
 
-/// The link row's labels \u{2014} literals in the web dialog
-/// (`AboutDialog.tsx:114,126`), not catalogue keys.
+/// The link row's labels \u{2014} literals in the dialog,
+/// not catalogue keys.
 pub(super) const ABOUT_LINK_GITHUB: &str = "GitHub Repository"; // i18n-exempt: not in catalog
 pub(super) const ABOUT_LINK_WEBSITE: &str = "Official Website"; // i18n-exempt: not in catalog
 
-/// Where the two link buttons lead (`AboutDialog.tsx:108,118`).
+/// Where the two link buttons lead.
 const ABOUT_LINK_GITHUB_URL: &str = "https://github.com/photrez/photrez"; // i18n-exempt: URL, not text
 const ABOUT_LINK_WEBSITE_URL: &str = "https://photrez.github.io"; // i18n-exempt: URL, not text
 
-/// `v{version}` \u{2014} the web dialog asks Tauri's `getVersion()` at mount and
-/// falls back to a hardcoded "0.1.0"; here the crate's own version is the only
+/// `v{version}` \u{2014} the crate's own version is the only
 /// source, so there is no fallback string to go stale.
 pub(super) fn about_version() -> String {
     format!("v{}", env!("CARGO_PKG_VERSION"))
 }
 
-/// `AboutDialog`, rebuilt for the native shell rather than transcribed from
-/// `dialog-about.png`: the web dialog's hero, spec grid and link row survive
+/// The About dialog, built for the native shell rather than transcribed from
+/// `dialog-about.png`: the hero, spec grid and link row survive
 /// as the structure and geometry, and three things change with the shell. The
-/// mark is the real brand raster rather than the web tile's inline SVG; the
+/// mark is the real brand raster rather than a placeholder tile; the
 /// version comes from `CARGO_PKG_VERSION` instead of a runtime round-trip;
 /// and the locale line plus two stack rows state what ships here rather than
 /// what the replaced shell ran. The chrome above and below is shared and
@@ -185,8 +184,8 @@ fn about_hero() -> Div {
         )
 }
 
-/// `rounded-[4px] border border-editor-accent/40 bg-editor-accent/10 px-1.5
-/// py-0.5 text-[10px] font-semibold text-editor-accent` (`AboutDialog.tsx:76`).
+/// The version pill: 4px corners, a 40% accent edge, a 10% accent fill,
+/// 6px horizontal and 2px vertical padding, 10px semibold accent text.
 fn about_version_pill() -> Div {
     div()
         .rounded(px(R4))
@@ -206,8 +205,8 @@ fn about_version_pill() -> Div {
         )
 }
 
-/// `rounded-[6px] border border-editor-field-border bg-[#151516] p-2.5` with a
-/// two-column `gap-y-1.5` grid inside (`AboutDialog.tsx:87-101`).
+/// The spec panel: 6px corners, a field-border edge, the `#151516` fill and
+/// 10px padding, with a two-column grid inside at a 6px row gap.
 fn about_specs() -> Div {
     v_flex()
         .w_full()
@@ -221,8 +220,7 @@ fn about_specs() -> Div {
         .child(about_spec_row(2, 3))
 }
 
-/// One `grid-cols-2` row: two equal cells with no column gap \u{2014} the split
-/// the web dialog renders.
+/// One two-column row: two equal cells with no column gap.
 fn about_spec_row(left: usize, right: usize) -> Div {
     h_flex()
         .w_full()
@@ -254,8 +252,8 @@ fn about_spec_cell(i: usize) -> Div {
         )
 }
 
-/// `flex items-center gap-2` \u{2014} the two `h-7 flex-1` link buttons
-/// (`AboutDialog.tsx:105-128`).
+/// The link row: two 28px-tall buttons sharing the width equally with an
+/// 8px gap.
 fn about_links() -> Div {
     h_flex()
         .w_full()
@@ -272,12 +270,12 @@ fn about_links() -> Div {
         ))
 }
 
-/// `h-7 flex-1 rounded-[4px] border border-editor-field-border bg-editor-field
-/// text-[11px] font-medium` with a `size-3.5` icon at `gap-1.5`.
+/// A 28px-tall link button: equal share of the row, 4px corners, a field-border
+/// edge, the field fill, 11px medium text, and a 14px icon at a 6px gap.
 ///
-/// The dialog's one wired control: `cursor-pointer`, `hover:bg-white/[0.08]`,
-/// `hover:border-editor-accent/40` and the web button's open-in-browser click
-/// (`AboutDialog.tsx:106-115`). `url` is both the hit-test id and the target,
+/// The dialog's one wired control: a pointer cursor, an 8%-white hover fill, a
+/// 40% accent hover border, and a click that opens the URL in the user's
+/// browser. `url` is both the hit-test id and the target,
 /// so a button cannot drift from where it leads. Returns `Stateful<Div>` for
 /// `.id(..)`, like the dock's tab button.
 fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Stateful<Div> {

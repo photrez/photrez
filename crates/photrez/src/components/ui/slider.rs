@@ -8,16 +8,16 @@ use crate::tokens::color;
 
 use super::{SliderKind, ICON_SM};
 
-/// `primitives.tsx:79-206`.
+/// The track fill and thumb for a slider, painted per [`SliderKind`].
 ///
 /// `percent` is the 0..100 fill; `value` is the raw value used by the
 /// centre-origin kinds, which sit at 50% when it is 0 and reach the ends only
-/// at ±100. Both are passed because the source does the same — `percent`
+/// at ±100. Both are passed because they play different roles: `percent`
 /// positions the thumb for every kind, while `value` decides *where* the fill
 /// starts for the four centre-origin ones.
 ///
 /// `accent: false` swaps the left-aligned fill from the accent to
-/// [`color::TEXT_55`], the `bg-editor-text/55` branch (`primitives.tsx:189`).
+/// [`color::TEXT_55`], the 55%-alpha text fill.
 pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) -> Div {
     let is_wedge = kind == SliderKind::BrushSize;
     let track_h = if is_wedge { 8.0 } else { 4.0 };
@@ -29,7 +29,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
     }
 
     // Track background: a gradient/checkerboard for the kinds that specify
-    // one, and `bg-editor-field-border` otherwise (`primitives.tsx:158`).
+    // one, and the field-border colour otherwise.
     match kind {
         SliderKind::Alpha => {
             // `linear-gradient(to right, transparent, accent)` over a
@@ -180,7 +180,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
 
 impl SliderKind {
     /// `brightness`, `contrast`, `saturation` and `straighten` grow from the
-    /// centre rather than the left (`primitives.tsx:142-144`).
+    /// centre rather than the left.
     ///
     /// For those, `left: 50%` at rest and `width: |value| / 2 %` — so ±100
     /// reaches an end and 0 sits at the tick.
@@ -196,8 +196,7 @@ impl SliderKind {
 
     /// The gradient stops of the track, as `(colour, 0..1 position)` pairs.
     ///
-    /// Read straight off the `background-image` the source returns for this
-    /// kind (`primitives.tsx:104-140`), in order.
+    /// The measured gradient stops for this kind, in order.
     fn track_stops(self) -> Vec<(Hsla, f32)> {
         match self {
             SliderKind::Brightness => vec![
@@ -224,11 +223,10 @@ impl SliderKind {
 
 /// `left` / `width` of the centre-origin fill, in percent, for a raw value.
 ///
-/// Lifted verbatim from `getCenterFillStyle` (`primitives.tsx:88-102`), which
-/// is piecewise: at or above zero the fill runs from the centre to the right
-/// by `value / 2`; below zero it starts at `(value + 100) / 2` and stops at
-/// the centre, so the bar is always `|value| / 2` wide and its free end moves
-/// with the sign.
+/// The rule is piecewise: at or above zero the fill runs from the centre to
+/// the right by `value / 2`; below zero it starts at `(value + 100) / 2` and
+/// stops at the centre, so the bar is always `|value| / 2` wide and its free
+/// end moves with the sign.
 pub fn centre_fill(raw: f32) -> (f32, f32) {
     if raw >= 0.0 {
         (50.0, raw / 2.0)

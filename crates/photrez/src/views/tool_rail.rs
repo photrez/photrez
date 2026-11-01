@@ -1,9 +1,8 @@
-//! Native port of `apps/desktop/src/components/editor/shell/LeftToolRail.tsx`.
+//! The left tool rail.
 //!
-//! Ported from the frozen appearance reference
-//! `reference/gpui-appearance-reference/src/tool_rail.rs` with the
-//! hardcoded resting state replaced by a per-tool `active_tool` input, so the
-//! per-tool `option-*` shots highlight the correct button.
+//! The rail draws the per-tool active state from a per-tool `active_tool`
+//! input rather than a hardcoded resting state, so the per-tool `option-*`
+//! shots highlight the correct button.
 //!
 //! # Omitted (interaction only - cannot affect a static screenshot)
 //!
@@ -16,16 +15,15 @@
 //! # Transcription notes
 //!
 //! * `z-10` / `z-20` need no equivalent: GPUI paints siblings in tree order,
-//!   and the JSX already lists bg-swatch -> fg-swatch -> swap button, so the
-//!   stacking comes out identical.
+//!   and the element order already lists bg-swatch -> fg-swatch -> swap
+//!   button, so the stacking comes out identical.
 //! * `mt-auto` on the divider pins the swatch stack to the bottom.
 //!
 //! # `ToolId -> icon/active` mapping
 //!
-//! The reference keyed every button by a string `tool.id` and compared it
-//! against a module-level active tool; the port instead carries the typed
-//! `ToolId` on the `Tool` struct and compares it against the `active_tool`
-//! argument so the correct button is lit per shot.
+//! The button-to-icon/active mapping keys every button by the typed `ToolId`
+//! on the `Tool` struct and compares it against the `active_tool` argument,
+//! so the correct button is lit per shot.
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -114,9 +112,9 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
-/// `editorState.ts:37-38` defaults (`#E15A17` foreground, `#FFFFFF`
-/// background). `AppState::default` carries the same pair and is the live
-/// source the swatches paint from, so no constant is needed here.
+// `editorState.ts:37-38` defaults (`#E15A17` foreground, `#FFFFFF`
+// background). `AppState::default` carries the same pair and is the live
+// source the swatches paint from, so no constant is needed here.
 
 /// The sub-variant triangle, from the inline `<svg>` in the JSX. It is not a
 /// lucide icon - it's a raw `<polygon points="6,6 0,6 6,0">` on a 6x6 viewBox.
@@ -138,21 +136,21 @@ fn shadow_md_layers() -> Vec<BoxShadow> {
     ]
 }
 
-/// `<aside class="flex w-[52px] shrink-0 flex-col items-center gap-0.5
-///  bg-editor-toolbar py-2">`
+/// The rail is a 52px-wide flex column with centred items, a 2px gap between
+/// rows and 8px of vertical padding.
 ///
 /// `state` is the live app-state entity the rail writes its selection back
 /// into; the active tool is read once here (it is `Copy`) and passed down so
-/// each button can light itself. No arguments otherwise: the reference's
-/// hardcoded resting state has been replaced by this parameter.
+/// each button can light itself. No arguments otherwise: the fixed resting
+/// state this first shipped with is now read through this parameter.
 pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     // `Copy` the fields we branch on; the borrow of the state ends here.
     let (active_tool, fg_color, bg_color) = {
         let s = state.read(cx);
         (s.active_tool, s.fg_color, s.bg_color)
     };
-    // `flex_none()` so the rail keeps its 52px at any window width; the port's
-    // shells were all captured at 1366 and a shrunken rail misplaces every
+    // `flex_none()` so the rail keeps its 52px at any window width; the shell
+    // baselines were all captured at 1366 and a shrunken rail misplaces every
     // button by a different amount.
     v_flex()
         .w(px(dim::RAIL_W))
@@ -249,8 +247,8 @@ fn tool_button(
 /// It is an overlay appended after the shell (GPUI has no z-index): the
 /// measured origin is the selection row's right edge, 50px from the rail's
 /// left, 92px below the window top (46 title + 8 rail inset + one 36px row +
-/// 2 gap). Width and row metrics come from the frozen `LeftToolRail.tsx`
-/// popover (`min-w-[140px]`, `px-3 py-1.5 text-[11px]`).
+/// 2 gap). Its measured layout is a 140px minimum width, 12px horizontal and
+/// 6px vertical padding, and 11px text.
 pub fn render_flyout(
     state: &Entity<AppState>,
     active_shape: SelectionShape,
@@ -482,11 +480,10 @@ fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
             app.swap_colors(cx);
         }))
         .child(
-            // LeftToolRail.tsx:282 renders `<Icon name="rotate" />` with no
-            // `strokeWidth`, i.e. lucide's default 2. `rotate` and `rotate-cw`
-            // both map to RotateCw - the same glyph - but the `rotate-cw` key
-            // is drawn at 1.5 by the option bars, so it is a different
-            // constant and not the one this micro-button uses.
+            // This micro-button's rotate icon uses the default stroke width
+            // (2). `rotate` and `rotate-cw` both map to RotateCw - the same
+            // glyph - but the `rotate-cw` key is drawn at 1.5 by the option
+            // bars, so it is a different constant and not the one used here.
             Icon::default()
                 .data(icons::ROTATE)
                 .size(px(dim::SWAP_ICON))

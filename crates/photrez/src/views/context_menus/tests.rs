@@ -44,7 +44,7 @@ fn focus_bg_is_accent_alpha_15() {
 }
 
 /// Capture anchors are manifest-derived; the small menus pin to their
-/// manifest box origin, not the stale (420,320) probe the frozen reference
+/// manifest box origin, not the stale (420,320) probe an earlier
 /// recorded for `ctx-canvas`.
 #[test]
 fn ctx_canvas_anchor_is_from_manifest() {

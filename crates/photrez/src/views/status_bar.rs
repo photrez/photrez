@@ -1,4 +1,4 @@
-//! Native port of `apps/desktop/src/components/editor/shell/BottomStatusBar.tsx`.
+//! Native status bar (the window footer).
 //!
 //! Geometry: `manifest.json` gives `shell-status-bar` as 1366x24 at (0,796) —
 //! the full client width, below `<main>`, and the last 24px that take the
@@ -10,15 +10,15 @@
 //! active tool, the tool hint, the selected layer — plus five conditional
 //! indicators that only mount while something is happening:
 //!
-//! * the tiling-progress hairline (`statusLoadingMessage`),
-//! * the heavy-op spinner and its cancel button (`statusLoadingMessage`),
+//! * the tiling-progress hairline, shown while a loading message is set,
+//! * the heavy-op spinner and its cancel button, on the same condition,
 //! * the dev-mode frame timings, which mount whenever `frames > 0`,
-//! * the autosave dot (`autosaveStatus() !== "idle"`),
-//! * the manual-save progress row (`saveProgress().phase !== "idle"`).
+//! * the autosave dot, shown whenever the autosave status is not idle,
+//! * the manual-save progress row, shown whenever the save phase is not idle.
 //!
 //! Of those five, the dev-mode Frame cell IS captured in the resting state:
-//! `BottomStatusBar.tsx:170` gates it only on `devFrameStats() &&
-//! devFrameStats()!.frames > 0`, and the dev-mode capture has a live scheduler
+//! it is gated only on dev frame stats being on with `frames > 0`, and the
+//! dev-mode capture has a live scheduler
 //! ticking, so `frames` is always > 0 and the cell is always present in the
 //! golden master. `baseline/README.md` records run-to-run variance inside the
 //! metrics segment (x 764-912, y 801-815 in viewport coords, affecting both
@@ -30,21 +30,21 @@
 //! that does not exist in the golden master.
 //!
 //! The six cells visible in the PNG are rendered as the literals it shows; each
-//! `const` below names the state it stands in for, because this port has no
+//! `const` below names the state it stands in for, because this view has no
 //! engine to read from.
 //!
-//! Labels are the `en` locale strings (`locales/en/translation.json`,
+//! Labels are the `en` locale strings (`tests/fixtures/i18n/en/translation.json`,
 //! `status.*`), the locale the baseline was captured in.
 //!
 //! # Transcription notes
 //!
-//! * Every `border-*` paints [`color::BORDER`] (#333333) — the `border-t` and
-//!   the four `border-l` rules included, `border-editor-divider` naming #2e2e2e
-//!   notwithstanding. `probe-borders.ts` sampled this very shot's `border-t`:
-//!   #333333 x 1366/1366. [`color::DIVIDER`] stays out of it; it is a `bg-`
-//!   token.
-//! * **Line height.** Tailwind's preflight leaves `line-height: 1.5` inherited,
-//!   i.e. 15.75px at the footer's `text-[10.5px]`. Measured, each `border-l`
+//! * Every border in the bar paints [`color::BORDER`] (#333333) — the top
+//!   rule and the four cell separators included, even where the divider token
+//!   names #2e2e2e. Sampling this very shot's top rule gives
+//!   #333333 x 1366/1366 pixels. [`color::DIVIDER`] stays out of it; it is a
+//!   fill token.
+//! * **Line height.** The captured line box is 1.5 x the footer's 10.5px,
+//!   i.e. 15.75px. Measured, each cell separator
 //!   paints exactly 15 rows (y=5..19 of the 24px bar) — a 15px box centred in
 //!   the border-box content area `y=1..24` lands on precisely those rows, with
 //!   no dependence on how either renderer snaps a fractional edge. GPUI's own
@@ -75,44 +75,42 @@ use crate::tokens::color;
 
 use gpui_kit::Div;
 
-// ── Dimensions (Tailwind, 16px root) ──
+// ── Dimensions (root font size 16px) ──
 
-/// `h-[24px]` — BottomStatusBar.tsx:122. Same number as the manifest box
+/// 24 px bar height. Same number as the manifest box
 /// height (24), which is where this constant was first pinned.
 const BAR_H: f32 = 24.0;
 
-/// `px-3` = 0.75rem — footer inset, BottomStatusBar.tsx:122. The PNG's first
+/// 0.75rem (12px) footer inset. The PNG's first
 /// content pixel sits at x=12 and its last at x=1354, i.e. 12px both ends.
 const BAR_PX: f32 = 12.0;
 
-/// `text-[10.5px]` — footer font size, BottomStatusBar.tsx:122.
+/// 10.5px footer font size.
 const TEXT_SIZE: f32 = 10.5;
 
 /// Line box height for every run in the bar; see the module docs for why it is
 /// 15 rather than the browser's 15.75 or GPUI's default.
 const LINE_H: f32 = 15.0;
 
-/// `gap-3` = 0.75rem between the cells of the left group,
-/// BottomStatusBar.tsx:126.
+/// 0.75rem (12px) between the cells of the left group.
 const GROUP_GAP: f32 = 12.0;
 
-/// `pl-3` = 0.75rem inside each bordered cell — BottomStatusBar.tsx:131, 134,
-/// 137, 161 and 170 (the cells carrying `border-l border-editor-divider pl-3`).
+/// 0.75rem (12px) inside each bordered cell — the cells that carry a
+/// separator and a left inset.
 const CELL_PAD: f32 = 12.0;
 
-/// `gap-5` = 1.25rem in the right group, BottomStatusBar.tsx:224. The bar only
+/// 1.25rem (20px) in the right group. The bar only
 /// ever renders the one History button there, so nothing spaces out today; the
 /// gap is kept because it is part of the component's contract.
 const RIGHT_GAP: f32 = 20.0;
 
-/// `gap-1` = 0.25rem between the History icon and its label,
-/// BottomStatusBar.tsx:235.
+/// 0.25rem (4px) between the History icon and its label.
 const BTN_GAP: f32 = 4.0;
 
-/// `size-3.5` = 0.875rem — the history icon, BottomStatusBar.tsx:239.
+/// 0.875rem (14px) — the history icon size.
 const HISTORY_ICON: f32 = 14.0;
 
-/// `strokeWidth={1.75}` — BottomStatusBar.tsx:239. Deliberately *not*
+/// 1.75 icon stroke width. Deliberately *not*
 /// `tokens::dim::ICON_STROKE` (1.6, the tool rail's) and not
 /// `tokens::title::ICON_STROKE` (1.75, but title-bar scoped): `icons::HISTORY`
 /// bakes 1.5, so this call site asks [`crate::icons::with_stroke`] for
@@ -131,39 +129,38 @@ const SAVE_ERROR_MAX_W: f32 = 420.0;
 
 // ── State stand-ins ──
 //
-// The captured values. In the real component these are `docWidth()` x
-// `docHeight()`, `Math.round(zoom() * 100)`, `getToolDisplayName()`,
-// `statusText()` for the active tool, `activeLayerName()`, and the dev-mode
-// frame metrics from `scheduler.getFrameMetrics()`. The port renders what the
-// baseline PNG shows because there is no engine behind it.
+// The captured values. In the live app these are the document width x height,
+// the rounded zoom percent, the active tool's display name, that tool's status
+// sentence, the selected layer's name, and the dev-mode frame metrics read from
+// the frame scheduler. This view renders what the baseline PNG shows because
+// there is no engine behind it.
 
-/// `{docWidth()} x {docHeight()} px` — BottomStatusBar.tsx:129. The document is
-/// `createBlankDocument("capture-baseline", "Baseline", 800, 600)`,
-/// `capture-baseline.ts:183`. The baseline renders the multiplication sign as
-/// the Unicode x-cross (`\u{d7}`); the port matches that glyph.
+/// Document size as `{width} x {height} px`. The document is
+/// the blank 800x600 "Baseline" capture recipe. The baseline renders the
+/// multiplication sign as
+/// the Unicode x-cross (`\u{d7}`); this string matches that glyph.
 const DOC_SIZE: &str = "800 \u{d7} 600 px"; // i18n-exempt: numeric value
 
-/// `Math.round(zoom() * 100)}%` — BottomStatusBar.tsx:132, as captured (88%).
+/// The rounded zoom percent, as captured (88%).
 const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 
-/// `getToolDisplayName()` for `activeTool() === "move"` — BottomStatusBar.tsx:135,
-/// via `tools.move` in `locales/en/translation.json:110`.
-/// `statusText()` for the `move` tool — BottomStatusBar.tsx:107 resolving
-/// `status.toolTips.move`, `locales/en/translation.json:396`. This is the
-/// tooltip sentence, not a status: the real component shows the same string
-/// whenever nothing else (gradient drag, transform session, paint block) is
-/// in flight.
+// The active tool is Move, whose display name is `tools.move` in
+// `tests/fixtures/i18n/en/translation.json:110`.
+// The status sentence is the `move` tool's tooltip, `status.toolTips.move`
+// at `tests/fixtures/i18n/en/translation.json:396`. This is the
+// tooltip sentence, not a status: the footer shows the same string
+// whenever nothing else (gradient drag, transform session, paint block) is
+// in flight.
 
-/// `activeLayerName()` — BottomStatusBar.tsx:164. The status bar shows the same
+/// The selected layer's name. The status bar shows the same
 /// selected layer the Layers and Properties panels draw, so it must not keep a
-/// stale seed name: the seeded document's layer is the frozen new-document
+/// stale seed name: the seeded document's layer is the new-document
 /// "Background" layer.
-const LAYER: &str = "Background"; // i18n-exempt: the frozen new-document layer name
+const LAYER: &str = "Background"; // i18n-exempt: new-document layer name
 
-/// `text-editor-text/60` — the tool-tip sentence, BottomStatusBar.tsx:138.
+/// The tool-tip sentence colour: `--editor-text` (#CACACA) at 60% alpha.
 ///
-/// Not `color::TEXT_DIM_60`, which is text-**dim** at 60%; this is
-/// `--editor-text` (#CACACA) at 60%, per the class on that span. Over the
+/// Not `color::TEXT_DIM_60`, which is text-**dim** at 60%. Over the
 /// #1E1E1E panel it lands on ~#858585, and the PNG's status sentence peaks at
 /// 132 where a full #CACACA peaks at 202 — consistent with 0.6 alpha.
 const STATUS_COLOR: Hsla = Hsla {
@@ -173,8 +170,8 @@ const STATUS_COLOR: Hsla = Hsla {
     a: 0.6,
 };
 
-/// `text-editor-text/40` — the ` max {max}ms` tail span inside the Frame cell
-/// (BottomStatusBar.tsx:172). Same base as [`STATUS_COLOR`] at 40%: the golden
+/// The ` max {max}ms` tail span inside the Frame cell. Same base as
+/// [`STATUS_COLOR`] at 40%: the golden
 /// master measures one flat ~94 peak across that whole span, where the 60%
 /// labels peak at ~122 and the full-alpha value at 202.
 const FRAME_TAIL_COLOR: Hsla = Hsla {
@@ -184,12 +181,10 @@ const FRAME_TAIL_COLOR: Hsla = Hsla {
     a: 0.4,
 };
 
-/// The dev-mode frame metrics the cell reads, from the web build's
-/// `FrameMetrics` (`apps/desktop/src/renderer/scheduler`).
+/// The dev-mode frame metrics the Frame cell reads from the frame scheduler.
 ///
-/// The golden master captured with `avgMs = 1.1`, `maxMs = 1.9` — the values
-/// `BottomStatusBar.tsx:172-173` format as `{avgMs.toFixed(1)}` and
-/// `{maxMs.toFixed(1)}`. Both are rendered to one decimal place.
+/// The golden master captured `avg_ms = 1.1`, `max_ms = 1.9`;
+/// both are rendered to one decimal place.
 struct FrameMetrics {
     avg_ms: f64,
     max_ms: f64,
@@ -236,8 +231,8 @@ pub fn render(
         .flex_shrink_0()
         .justify_between()
         .border_t_1()
-        // `border-editor-divider` names #2e2e2e, but the unlayered `*` in
-        // styles.css outranks it and paints #333333 — see `color::BORDER`.
+        // The divider token names #2e2e2e, but the captured bar paints
+        // #333333 on every border — see `color::BORDER`.
         .border_color(color::BORDER)
         .bg(color::PANEL)
         .px(px(BAR_PX))
@@ -247,11 +242,11 @@ pub fn render(
         .text_size(px(TEXT_SIZE))
         .line_height(px(LINE_H))
         .text_color(color::TEXT_DIM)
-        // With no document open the frozen bar shows no readout cells at all -
+        // With no document open the bar shows no readout cells at all -
         // the Canvas/Zoom/Active/Selected segment describes a document that
         // does not exist. The left child must still exist: `justify_between`
-        // with a single child would park the History hint on the left, and the
-        // frozen bar keeps it on the right.
+        // with a single child would park the History hint on the left, and
+        // the baseline keeps it on the right.
         .child(if doc_size.is_some() {
             ui::clip(left_group(zoom_percent, doc_size, tool, layer_name)).into_any_element()
         } else {
@@ -318,28 +313,25 @@ fn field(label: &str, value: &str) -> impl IntoElement {
     div().child(labeled(label, value))
 }
 
-/// The same cell behind `<span class="border-l border-editor-divider pl-3">`.
+/// The same cell behind a left-separated, 12px-inset field.
 fn divided_field(label: &str, value: &str) -> impl IntoElement {
     ruled(labeled(label, value))
 }
 
-/// The dev-mode Frame timing cell behind `<span class="border-l border-editor-divider
-///  pl-3">`.
+/// The dev-mode Frame timing cell, in the same left-separated, 12px-inset
+/// field as the other readouts.
 ///
-/// `BottomStatusBar.tsx:170`:
+/// Its content is one line with three runs:
 ///
-/// ```jsx
-/// <span class="border-l border-editor-divider pl-3">
-///   Frame: <strong class="text-editor-text">{avgMs.toFixed(1)}ms avg</strong>
-///   <span class="text-editor-text/40"> max {maxMs.toFixed(1)}ms</span>
-/// </span>
+/// ```text
+/// Frame: 1.1ms avg max 1.9ms
 /// ```
 ///
 /// Per the golden master's measured pixel levels: `Frame:` at [`STATUS_COLOR`]
 /// (60%, peaks ~122), `{avg}ms avg` bold in `color::TEXT` (peaks 202), and the
 /// ` max {max}ms` tail at [`FRAME_TAIL_COLOR`] (one flat ~94 level - the
 /// number is not bold). The captured values come from the golden master:
-/// avgMs=1.1, maxMs=1.9.
+/// `avg_ms = 1.1`, `max_ms = 1.9`.
 fn divided_frame() -> impl IntoElement {
     ruled(frame_text(&FRAME, STATUS_COLOR))
 }
@@ -527,7 +519,7 @@ fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatu
 /// PNG shows dim, not `text-editor-accent`, so it is not.
 ///
 /// The `data-status-history-trigger` hook, `aria-pressed` and the dock wiring
-/// are state, not chrome; only the appearance is ported.
+/// are state, not chrome; only the appearance is reproduced here.
 ///
 /// [`HIT_PY`] pads the button's 15px content box out to the 24px minimum
 /// target size; symmetric, so the icon and label do not move.
@@ -590,7 +582,7 @@ mod tests {
     }
 
     /// The source values `FrameMetrics` formats must match the golden master:
-    /// `avgMs = 1.1`, `maxMs = 1.9`.
+    /// `avg_ms = 1.1`, `max_ms = 1.9`.
     #[test]
     fn frame_metrics_source_values() {
         assert_eq!(FRAME.avg_ms_str(), "1.1");

@@ -1,4 +1,4 @@
-//! Visual-only port of `dialogs/` via the shared `DesktopDialog` chrome.
+//! The dialogs, rendered through the shared dialog chrome.
 //!
 //! # The frame convention, and what it is replacing
 //!
@@ -9,19 +9,19 @@
 //! draw over the shell is to cover the viewport and be appended late.
 //! `workspace.rs` gates this on `shot::starts_with("dialog-")`.
 //!
-//! The source centres with `fixed left-1/2 top-1/2 -translate-x-1/2
-//! -translate-y-1/2` (`DesktopDialog.tsx:95`). GPUI has no `translate`, so the
+//! The design centres a dialog at the viewport midpoint. GPUI has no
+//! `translate`, so the
 //! centring is not recomputed here: the manifest already records the *result*
 //! of that transform, and each dialog is pinned at its measured origin. That
-//! also sidesteps the whole class of error where a port re-derives a centre
+//! also sidesteps the whole class of error where this view re-derives a centre
 //! from a size and lands half a pixel off.
 //!
 //! # There is no scrim
 //!
 //! This is the most surprising measurement in the module, and it contradicts
 //! what a dialog is assumed to have: the backdrop is
-//! `fixed inset-0 z-[89] bg-transparent` (`DesktopDialog.tsx:78`). The shell
-//! behind a dialog is drawn at full brightness. So the port does not dim
+//! The design makes the backdrop a full-viewport transparent layer. The shell
+//! behind a dialog is drawn at full brightness. So this view does not dim
 //! anything, and `dialog-resize-full.png` \u{2014} the same dialog with the shell
 //! behind it \u{2014} is the baseline that proves it.
 //!
@@ -70,7 +70,7 @@
 //!   About link row are live: `chrome::dialog_close_button` runs each dialog's
 //!   own dismissal, and `dismiss_chrome_dialog` owns the managed-focus Escape.
 //! * `modal: false` (the colour picker) makes the backdrop click-through so
-//!   the canvas behind stays live. A static port cannot express "this overlay
+//!   the canvas behind stays live. A static view cannot express "this overlay
 //!   does not block the thing under it", because it has no pointer routing.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce: it tints an
 //!   alpha mask, and `-webkit-font-smoothing: antialiased` covers type only,
@@ -95,7 +95,7 @@ use crate::units::DimensionUnit;
 const FRAME_W: f32 = 1366.0;
 const FRAME_H: f32 = 820.0;
 
-/// `h-9` \u{2014} the titlebar's height (`DesktopDialog.tsx:102`).
+/// 36px \u{2014} the titlebar's height.
 const TITLEBAR_H: f32 = 36.0;
 
 /// `min-h-11` plus the 1px `border-t` \u{2014} the footer's measured height in
@@ -164,7 +164,7 @@ const SWATCH_W: f32 = 154.0;
 const SWATCH_H: f32 = 144.0;
 
 /// `#191919` - the canvas preview. `empty-new-document` shows `#272727`
-/// instead, and the port picks that up through `render()`, which already routes
+/// instead, and this view picks that up through `render()`, which already routes
 /// `empty-new-document` here.
 const SWATCH_CANVAS: Hsla = Hsla {
     h: 0.0,
@@ -208,7 +208,7 @@ const FIELD_PAD_DIALOG: f32 = 10.0;
 /// The seven dialogs, with their measured origins.
 ///
 /// The second field is the dialog title: a catalog key, resolved with [`t`] at
-/// the render site, or the literal where the frozen catalog has no match.
+/// the render site, or the literal where the shipped catalogue has no match.
 ///
 /// A capture is the authority for each of these: the origins are the manifest's
 /// boxes, not arithmetic on the source's centring transform, because
@@ -315,7 +315,7 @@ pub fn render() -> impl IntoElement {
         .child(body)
 }
 
-/// Live Settings body (`SettingsDialog.tsx`): the Interface section with the
+/// The live Settings body: the Interface section with the
 /// language dropdown. The list expands inline because a popup deferred inside
 /// a dialog overlay never receives hits (measured during the units work).
 fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
@@ -404,7 +404,7 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
         .when(open, |el| el.child(v_flex().pl(px(8.0)).child(list)))
 }
 
-/// Resize Canvas body (`ResizeCanvasModal.tsx:147-217`): the description, the
+/// Resize Canvas body: the description, the
 /// two unit-aware fields with their own unit select, and the aspect lock
 /// between them.
 fn resize_canvas_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
@@ -462,7 +462,7 @@ fn resize_canvas_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
         ))
 }
 
-#[allow(clippy::too_many_arguments)] // flat args mirror the oracle's field props
+#[allow(clippy::too_many_arguments)] // flat args mirror the field's props
 fn resize_field(
     id: &'static str,
     label: &str,
@@ -595,7 +595,7 @@ fn resize_field(
         .child(h_flex().justify_end().child(list))
 }
 
-/// `Keep proportions` (`ResizeCanvasModal.tsx:176-192`): an accent pill while
+/// `Keep proportions`: an accent pill while
 /// the aspect lock is on, a dim row while it is off.
 fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> Div {
     h_flex().h(px(24.0)).pl(px(24.0)).child(
@@ -668,7 +668,7 @@ fn rename_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>
             div()
                 .text_size(px(10.0))
                 .text_color(color::TEXT_DIM)
-                .child("Enter to rename, Escape to cancel.".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+                .child("Enter to rename, Escape to cancel.".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
         )
         .child(
             div()
@@ -721,7 +721,7 @@ fn rename_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>
                                 }
                             }
                         }))
-                        .child("Rename".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+                        .child("Rename".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
                 ),
         )
 }
@@ -735,7 +735,7 @@ fn recovery_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::Ap
         div()
             .text_size(px(11.5))
             .text_color(color::TEXT_DIM)
-            .child("Unsaved documents found in the autosave store:".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+            .child("Unsaved documents found in the autosave store:".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
     );
     for entry in entries {
         body = body.child(
@@ -792,7 +792,7 @@ fn recovery_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::Ap
                         cx.stop_propagation();
                         app.restore_autosaves(cx);
                     }))
-                    .child("Restore".to_string()), // i18n-exempt: native-only copy; no frozen-catalog equivalent
+                    .child("Restore".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
             ),
     )
 }
@@ -1152,7 +1152,7 @@ fn new_doc_preview_size(width: u32, height: u32) -> (f32, f32) {
     )
 }
 
-/// The oracle's preset card: a white page preview over the name, an
+/// The preset card: a white page preview over the name, an
 /// orientation badge and the pixel dimensions.
 fn new_doc_preset_card(
     index: usize,
@@ -1279,6 +1279,8 @@ enum NewDocSelectKind {
 
 /// A select-style control: the field chrome plus the current label and a
 /// chevron, opening a small option list below it.
+// Explicit state, display, and control-kind inputs keep the select call site clear.
+#[allow(clippy::too_many_arguments)]
 fn new_doc_select(
     state: &Entity<AppState>,
     id: &'static str,
@@ -1410,7 +1412,7 @@ fn new_doc_select(
     wrapper
 }
 
-/// The live New Document dialog (`NewDocumentDialog.tsx`): a tabbed preset
+/// The live New Document dialog: a tabbed preset
 /// grid on the left and the name/size/unit/background form on the right,
 /// with the dialog's own 56 px footer.
 fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
@@ -1465,7 +1467,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
     }
 
     // The 3-column grid is laid out in rows so every card keeps its measured
-    // size; a wrapping flex would re-flow the oracle's fixed 3 columns.
+    // size; a wrapping flex would re-flow the fixed 3 columns.
     let presets = session.category.presets();
     let mut grid = v_flex().w_full().gap(px(NEW_DOC_CARD_GAP));
     let mut card_index = 0;
@@ -1741,9 +1743,11 @@ fn new_document_shell(
 
 /// Render a production dialog over the live shell.
 ///
-/// The overlay is transparent (the frozen dialog has no scrim) and closes on a
+/// The overlay is transparent (the dialog has no scrim) and closes on a
 /// click anywhere; the framed shell is centred in the window at its measured
 /// size.
+// Distinct focus handles keep each dialog's keyboard target explicit.
+#[allow(clippy::too_many_arguments)]
 pub fn render_dialog(
     state: &Entity<AppState>,
     dialog: DialogId,
@@ -2020,7 +2024,7 @@ pub fn render_dialog(
 
 /// The dirty-close prompt: Save, Discard, or Cancel.
 ///
-/// The frozen app's document-close confirm offers Discard/Cancel only; the
+/// The document-close confirm offers Discard/Cancel only; the
 /// native prompt adds Save because G17 requires the save path to be reachable
 /// from the close decision. Geometry follows the settings dialog's measured
 /// frame (420x171 at 473,324).

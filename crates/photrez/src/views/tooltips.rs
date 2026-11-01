@@ -1,4 +1,4 @@
-//! Visual-only port of `editor/Tooltip.tsx`, as captured on the tool rail.
+//! The resting tooltip overlay, as captured on the tool rail.
 //!
 //! # One component, three labels — proven by the crops
 //!
@@ -19,7 +19,7 @@
 //! and every number below was read out of `baseline/shots/tooltip-*.png` with
 //! the throwaway `baseline/probe-tooltips.ts` / `probe-tooltips2.ts` (crops —
 //! crop 0,0 is the tooltip's own top-left corner, offset by the manifest
-//! `box`, which is fractional: `y=58.75` etc.; the port renders the rounded
+//! `box`, which is fractional: `y=58.75` etc.; this view renders the rounded
 //! origins from the table above and GPUI cannot place a border on a half
 //! pixel anyway).
 //!
@@ -57,8 +57,8 @@
 //! trigger; the project-wide gap list calls that out as inexpressible in
 //! GPUI. This one does not need it: the probe's corner ramp is a plain 4px
 //! `rounded-[4px]` arc on all four corners of all three crops, with no
-//! protrusion on the placement side (or any side). `Tooltip.tsx` renders a
-//! bare div; the gap does not apply here.
+//! protrusion on the placement side (or any side). The tooltip is a bare box;
+//! the gap does not apply here.
 //!
 //! # Positioning: `fixed` + portal has no GPUI mapping
 //!

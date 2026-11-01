@@ -14,7 +14,7 @@ fn card_x_formula_reproduces_the_1366_pin() {
     assert_eq!(52.0 + (canvas_col_w - CARD_W) / 2.0, 182.5);
     assert_eq!(CARD_X_AT_1366, 183.0);
     // At the comparison viewport (1536 CSS, 2xl dock 598) the same formula
-    // gives the measured oracle position: 52 + (886-520)/2 = 235.
+    // gives the measured centred position: 52 + (886-520)/2 = 235.
     let comparison_col = 1536.0 - 52.0 - 598.0;
     assert_eq!(52.0 + (comparison_col - CARD_W) / 2.0, 235.0);
 }
@@ -50,7 +50,7 @@ fn presets_table_has_four_entries() {
 
 #[test]
 fn preset_document_carries_the_tile_label_and_size() {
-    // The oracle's `handleCreatePreset` names the document after the preset
+    // A preset tile names the document after the preset
     // label and creates it at the preset's pixel size.
     assert_eq!(preset_document(0), Some(("Instagram Post", 1080, 1080)));
     assert_eq!(preset_document(1), Some(("Story / Reels", 1080, 1920)));

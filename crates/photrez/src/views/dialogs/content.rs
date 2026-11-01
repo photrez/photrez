@@ -35,7 +35,7 @@ pub(super) fn dialog_body(id: &str, _w: f32, _h: f32) -> Div {
     }
 }
 
-/// `ResizeCanvasModal.tsx:146-200`. Two dimension rows, a unit picker, and an
+/// The Resize Canvas body. Two dimension rows, a unit picker, and an
 /// aspect-lock button.
 ///
 /// The description is `text-[11px] text-editor-text-dim` with `mb-1`, and the
@@ -107,7 +107,7 @@ fn resize_row(label: &str, value: &str) -> Div {
         .items_center()
         .gap(px(RESIZE_ROW_GAP))
         // The label yields and the picker does not, for the same reason as
-        // everywhere else in this port: min-width defaults to the content's
+        // everywhere else here: min-width defaults to the content's
         // intrinsic width, so a fixed-width column that cannot shrink pushes
         // whatever follows it past the dialog edge.
         .child(ui::clip(
@@ -149,8 +149,8 @@ fn dialog_field(value: &str) -> Div {
 /// The 60px `shrink-0` unit picker: `${desktopDialogFieldClass} text-center`,
 /// so the value is centred rather than right-aligned like the number field.
 ///
-/// The source renders a real `<select>`, which means the browser's own arrow;
-/// the port draws CHEVRON_DOWN beside the value instead, the same stand-in
+/// A native picker has no visible arrow, so this
+/// draws CHEVRON_DOWN beside the value instead, the same stand-in
 /// [`ui::select_field`] documents.
 fn unit_picker(unit: &str) -> Div {
     h_flex()

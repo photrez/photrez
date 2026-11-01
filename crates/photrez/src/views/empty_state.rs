@@ -1,8 +1,7 @@
-//! Visual-only port of `editor/shell/EmptyWorkspace.tsx` - the no-document
+//! The empty workspace: the no-document
 //! state, i.e. the "Start a Photrez document" card.
 //!
-//! Source: `apps/desktop/src/components/editor/shell/EmptyWorkspace.tsx`
-//! (214 lines). Everything that needs an event loop - the two handlers, the
+//! Everything that needs an event loop - the two handlers, the
 //! drag-and-drop seeding, the workspace-full toast - is gone; what is here is
 //! the resting pixels and nothing else.
 //!
@@ -18,11 +17,12 @@
 //! obvious reading of `flex flex-1 items-center justify-center p-6` is "middle
 //! of the client area", and that would put it at `(1366-520)/2 = 423`. The
 //! baseline says `182.5`. The reason is that this component is not the whole
-//! client area: it is one cell of `<main>`, the column between the 52px tool
+//! client area: it is one cell of the main row, the column between the 52px
+//! tool
 //! rail and the 272px inspector, which `manifest.json` pins as
 //! `shell-option-bar` = 781 wide at x=52. With `p-6` (24) on each side that
 //! cell's content box is 733 wide at x=76, and `76 + (733-520)/2 = 182.5`.
-//! Vertically it is the same story against `<main>`'s 750 (46..796): `p-6`
+//! Vertically it is the same story against the main row's 750 (46..796): `p-6`
 //! leaves 702 at y=70, and `70 + (702-351.5)/2 = 245.25`.
 //!
 //! So the CSS box really is `182.5, 245.25, 520 x 351.5`, and the manifest
@@ -38,13 +38,13 @@
 //! capture agrees: in `empty-card.png` the left border column is crop x=1 and
 //! the right is crop x=520, with crop (0,0) = viewport (182,245) - a crop
 //! origin confirmed by cross-correlating the card PNG against `empty-full.png`
-//! (`zz-probe-cardA2.ts`, mean luma delta 0.0000). `shell-diff.ts` crops the
-//! port at `Math.trunc(182.5) = 182` and compares 521 columns, so a card
+//! (mean luma delta 0.0000). The comparison crops the
+//! view at `Math.trunc(182.5) = 182` and compares 521 columns, so a card
 //! placed at 182 would sit one pixel left of the baseline for its whole
 //! width; `CARD_X = 183` lines the borders up.
 //!
-//! **Why the number is stated rather than computed.** Nothing in the port can
-//! re-derive 183 from the layout the way a browser would: the port has no
+//! **Why the number is stated rather than computed.** Nothing here can
+//! re-derive 183 from the layout the way a browser would: this view has no
 //! `p-6` viewport box to centre inside, only a frame. Recomputing
 //! `(781-520)/2 + 52` here would give 182.5 again and lose the snap, which is
 //! exactly the mistake the constant exists to prevent.
@@ -76,7 +76,7 @@
 //!
 //! `dialogs.rs` owns that swatch and every other pixel of the dialog, so
 //! `render()` **delegates** `empty-new-document` rather than drawing a second
-//! copy. Only the card is ported here.
+//! copy. Only the card is reproduced here.
 //!
 //! # What the chrome around the card does
 //!
@@ -135,11 +135,11 @@
 //! | field, buttons, tiles, kbd | `#252525` | [`color::FIELD`] |
 //! | **every** border in the card | `#333333` | [`color::BORDER`] |
 //!
-//! The third is not a translation of the source's `border-editor-divider`.
-//! `tokens.rs` documents why: the unlayered `* { border-color }` rule in
-//! `styles.css` outranks every `border-*` utility, so all nine rules here -
-//! the card, the header's `border-b`, the presets' `border-t`, the footer's
-//! `border-t`, the second action button, four preset tiles and the `kbd` -
+//! The third is not a translation of the divider token.
+//! `tokens.rs` documents why: a global border colour outranks every per-element
+//! border the card asks for, so all nine rules here -
+//! the card, the header's bottom border, the presets' top border, the footer's
+//! top border, the second action button, four preset tiles and the key hint -
 //! paint `#333333`. The scan confirms it: not one `#2e2e2e` row anywhere in
 //! the crop.
 //!
@@ -165,24 +165,24 @@
 //!   `hover:` / `focus-visible:`** - interaction, per the project-wide list.
 //!   Note this cuts the other way too: `hover:border-editor-accent/50` and
 //!   `group-hover:text-editor-accent` on the tiles are *not* painted, rather
-//!   than being frozen into the resting image.
+//!   than being fixed into the resting image.
 //! * **`truncate`** on the preset labels is `overflow:hidden` +
 //!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
-//!   widths, so the port uses `whitespace_nowrap()` and lets GPUI size the run.
+//!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
 //! * **Text rasterisation.** ClearType subpixel fringes and `-webkit-font-
 //!   smoothing: antialiased` are the rasteriser's, not the markup's; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.
 //! * **No `p-6` wrapper.** The source's outer `div` is the drop target and
-//!   supplies the centring; the port pins the card instead, because the frame
+//!   supplies the centring; this view pins the card instead, because the frame
 //!   it would centre inside is the window rather than `<main>`'s content cell.
 //!
 //! # Interaction with other modules
 //!
 //! `empty-new-document` hands off to [`crate::dialogs`]. Nothing else here is
 //! shared: the card has no analogue in [`crate::components::ui`] (those are the five
-//! `primitives.tsx` controls), and `properties_panel.rs` / `layers_panel.rs`
+//! primitive controls), and `properties_panel.rs` / `layers_panel.rs`
 //! own panel chrome rather than overlay chrome, which is `context_menus.rs`'s
 //! territory. The one helper worth hoisting later is [`text_line`] - a text
 //! run pinned to an explicit line-box height - which four other modules
@@ -211,7 +211,7 @@ const FRAME_H: f32 = 820.0;
 const CARD_W: f32 = 520.0;
 
 /// The section's own height. The source sets no height; 351.5 is what the
-/// four blocks below add up to, and the border-box the browser paints is 352.
+/// four blocks below add up to, and the bordered box that is painted is 352.
 const CARD_H: f32 = 352.0;
 
 /// **Painted** top edge. The CSS box is at `245.25`; snapping rounds down here,
@@ -348,7 +348,7 @@ const PROMPT_TEXT: f32 = 11.0;
 /// 1.75 ones go through [`preset_icon`] / the baked `1.75` constants.
 const STROKE_PRESET: f32 = 1.75;
 
-/// `EmptyWorkspace.tsx`'s `PRESETS`, in source order: label, the size tag
+/// The quick presets, in display order: label, the size tag
 /// under it, and the document size the tile creates. The `x` is U+00D7 and is
 /// present in the baseline - the first tile's tag scans as four ink groups at
 /// crop x 69..89, 94..98, 103..123, 128..137, and the second is a 5px glyph.
@@ -416,14 +416,14 @@ fn select(shot: Option<&str>) -> EmptyVariant {
 /// * `empty-card` (and `empty-full`, and any unset id) draw the card.
 /// * `empty-new-document` is **the New Document dialog**, not the card, and
 ///   [`crate::dialogs`] owns it - see the module docs for the measured
-///   comparison of the two baselines. Delegating means the dialog is ported
+///   comparison of the two baselines. Delegating means the dialog is drawn
 ///   once; drawing a second copy here would guarantee the two drift.
 ///
 /// The frame is absolute so it disturbs nothing wherever it is appended, and
 /// the caller must add it late in the tree: GPUI has no `z-index`, so paint
 /// order is the only stacking control available. `canvas_col_w` is the live
 /// canvas column width: the source centres the card inside it, so the painted
-/// left edge moves with the viewport and the `2xl` dock widths (the frozen
+/// left edge moves with the viewport and the `2xl` dock widths (the captured
 /// `CARD_X = 183` is this same formula evaluated at the 1366x820 baseline).
 /// `col_left` is the canvas column's left edge in window coordinates (the
 /// rail width); the card's painted left edge is
@@ -454,9 +454,9 @@ pub fn render(col_left: f32, col_w: f32) -> impl IntoElement {
 /// The production no-document state: the same card, centred in the canvas
 /// slot and wired to the actions it advertises.
 ///
-/// The oracle's wrapper is `flex flex-1 items-center justify-center
-/// bg-editor-canvas p-6`, so the card centres in the space the canvas would
-/// occupy rather than at a captured coordinate. The frozen [`render`] pins the
+/// The card's slot is a centred, padded cell on the canvas fill, so the card
+/// centres in the space the canvas would
+/// occupy rather than at a captured coordinate. The captured [`render`] pins the
 /// card because its frame is the whole 1366x820 window; here the slot is the
 /// live layout and centring is the honest reproduction.
 pub fn render_live(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {

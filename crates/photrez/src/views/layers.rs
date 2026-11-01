@@ -1,4 +1,4 @@
-//! Visual-only port of `layers/LayersPanel.tsx` and `layers/LayerItem.tsx`.
+//! The Layers panel and its rows: their appearance.
 //!
 //! # Geometry: 260 wide, x 1106..1366, y 84..610 (527 tall)
 //!
@@ -6,43 +6,47 @@
 //! `hover-layer-item` at 254x50 at (1106,165). The 260px LayerDock column's
 //! fixed 185px Navigator leaves 527, not 712: 611 - 84 = 527.
 //!
-//! * A layer row is **50px** tall (`h-[50px]`, `LayerItem.tsx:177`).
-//! * A row is **254px**, not 260 — the 6px is `scrollbar-gutter: stable`
-//!   (`styles.css:321`) reserving room for a scrollbar that never appears,
-//!   over a `overflow-y-auto` list (`LayersPanel.tsx:643`). GPUI has no
+//! * A layer row is **50px** tall.
+//! * A row is **254px**, not 260 — the 6px is the scroll gutter reserving room
+//!   for a scrollbar that never appears
+//!   over the scrollable list. GPUI has no
 //!   scrollbars so nothing reserves it; transcribed as `.pr(px(6.))`.
 //!
-//! Header: 84 (panel top) + 12 (`pt-3`) + 26 (`h-[26px]` select) + 12 (`py-3`)
-//!   plus 16 (`size-4` lock buttons) + 12 = 182; list `border-y` makes 183. The
+//! Header: 84 (panel top) + 12 (top padding) + 26 (select height) + 12
+//!   (vertical padding)
+//!   plus 16 (lock buttons) + 12 = 182; the list's top and bottom borders make
+//!   183. The
 //!   baseline row starts at **165 + 46 - 46 = 165**, 81px below top 84.
 //!
 //! # What fills the space below the row: nothing — and a 38px footer
 //!
-//! `flex-1 overflow-y-auto border-y border-editor-divider`
-//! (`LayersPanel.tsx:643`) holds `<For each={layers()}>`. One captured layer
+//! The scrollable list, bordered top and bottom, holds one row per layer.
+//! One captured layer
 //! ends after 50px; y 215..571 is **357px** of `#1e1e1e`, with no content before
 //! the footer.
 //!
 //! ```text
-//!   y 572        #333333   the list's own border-y, bottom edge
-//!   y 573        #333333   the Layer Actions footer's border-t
+//!   y 572        #333333   the list's own bottom border
+//!   y 573        #333333   the Layer Actions footer's top border
 //!   y 574..610   (37px)    the footer, five 17px icons on #1e1e1e
-//!   y 611        #333333   the Navigator's border-t (right_dock.rs)
+//!   y 611        #333333   the Navigator's top border (right_dock.rs)
 //! ```
 //!
-//! The dividers are a touching 1px pair (`border-b`, `border-t`). Footer:
-//! `py-2.5 + size-[17px] + py-2.5` = 37px (`LayersPanel.tsx:746`); icons at
-//! x 1122, 1159, 1196, 1233 (`px-4`, `gap-5` = 17 + 20); Delete at 1333..1349
-//! (`1366 - 16 - 17`, `ml-auto`). Peak ink `#868686` is `text-editor-icon`.
-//! Unlayered `* { border-color }` outranks `border-editor-divider`: both rules
-//! read `#333333`, not `#2e2e2e` (`tokens::color::BORDER`).
+//! The dividers are a touching 1px pair. Footer:
+//! 10px + 17px + 10px = 37px; icons at
+//! x 1122, 1159, 1196, 1233 (16px inset, 20px gap, so 17 + 20 apart); Delete at
+//! 1333..1349 (`1366 - 16 - 17`, pushed to the trailing edge).
+//! Peak ink `#868686` is the icon colour.
+//! Every border here resolves to `#333333`, not the `#2e2e2e` divider value
+//! (`tokens::color::BORDER`).
 //!
-//! `dragGhost`, context menu, and opacity popover are `Show`-gated; the footer
+//! The drag ghost, context menu, and opacity popover only mount while active;
+//! the footer
 //! is the only content below the list in the resting capture.
 //!
 //! # The column stretches
 //!
-//! `RightDock.tsx:415` assigns `flex min-h-0 flex-1 flex-col`; the column is
+//! The dock gives this column a flexible minimum-height cell; the column is
 //! `flex_1().min_h(0())`, not a pinned height. Pinning left a bare band below
 //! the Navigator on taller windows; the list absorbs the difference.
 //!
@@ -50,8 +54,8 @@
 //!
 //! One row per [`AppState::layers`] entry; the baseline's single row leaves
 //! resting geometry unchanged. The row whose `id` equals
-//! [`AppState::selected_layer`] gets `active:bg-editor-row-active ring-1
-//! ring-inset ring-editor-accent/40` (40% alpha, a drawable 1px inset border).
+//! [`AppState::selected_layer`] gets the active-row fill and a 40%-alpha accent
+//! ring drawn as a 1px inset border.
 //!
 //! # Interactions
 //!
@@ -60,26 +64,26 @@
 //! and selects it. Drops and the row's up/down chevrons both go through
 //! `App::reorder_layer_rows`, which records the move in core history.
 //!
-//! The reorder chevrons are `opacity-0 group-hover:opacity-100`
-//! (`LayerItem.tsx:280`): invisible at rest but occupying their row slots,
-//! revealed by hovering the row, carrying the `layers.moveLayerUp/Down`
-//! tooltips and dimmed (`opacity-20`) at the two ends of the stack.
+//! The reorder chevrons are hidden at rest and revealed by hovering the row —
+//! invisible but occupying their row slots,
+//! carrying the `layers.moveLayerUp/Down`
+//! tooltips and dimmed to 20% at the two ends of the stack.
 //!
 //! # Gaps
 //!
-//! * `LayerThumb` is canvas-drawn (`LayerThumb.tsx`: `createEffect` + `drawImage`);
+//! * The layer thumbnail is canvas-drawn;
 //!   pixels are unreproducible, but its 34x34 frame, border, and checkerboard
 //!   are. `properties_panel.rs` uses the same flat-colour `checkerboard()`.
-//! * Native blend-mode `<select>`: resting chrome drawn, popup not captured open.
-//! * The header's four lock toggles carry their oracle tooltips, accent tint
-//!   and disabled states; only `transition-all duration-75` and the hover
+//! * Native blend-mode dropdown: resting chrome drawn, popup not captured open.
+//! * The header's four lock toggles carry their tooltips, accent tint
+//!   and disabled states; only the colour transition and the hover
 //!   text tint are left out. The row eye toggle carries its Hide/Show Layer
-//!   tooltip; the oracle row lock exposes an `aria-label` instead of a
-//!   tooltip, and the oracle has no row rename button at all (renaming starts
+//!   tooltip; the row lock exposes an accessible name instead of a
+//!   tooltip, and there is no row rename button at all (renaming starts
 //!   from the name), so the native pen is an addition.
-//! * `disabled:opacity-50` / `opacity-30` / `opacity-35` are indistinguishable
+//! * The 50% / 30% / 35% disabled opacities are indistinguishable
 //!   from enabled resting pixels.
-//! * The adjustments indicator (`LayerItem.tsx:301`) draws from
+//! * The adjustments indicator draws from
 //!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
 //!   does not derive it from adjustment values itself.
 
@@ -144,8 +148,8 @@ const THUMB: f32 = 34.0;
 
 /// The mean of `LayerThumb`'s two checkerboard tones, as one flat colour.
 ///
-/// The source alternates `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)`
-/// (`LayerThumb.tsx:22-28`); GPUI's `checkerboard()` is not a `Styled` method,
+/// The original alternates `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)`
+/// in 6px cells; GPUI's `checkerboard()` is not a `Styled` method,
 /// and would take one colour anyway. See `properties_panel.rs` for the full
 /// derivation of this value.
 const CHECKER_MEAN: Hsla = Hsla {
@@ -178,7 +182,7 @@ const FOOT_PAD_X: f32 = 16.0;
 /// = 37px plus its `border-t`.
 const FOOT_PAD_Y: f32 = 10.0;
 
-/// `size-[17px]` — each of the footer's five icons (`LayersPanel.tsx:753`).
+/// 17px — each of the footer's five icons.
 const FOOT_ICON: f32 = 17.0;
 
 /// `strokeWidth={1.75}` — explicit on all five footer icons; the `icons::`
@@ -186,10 +190,10 @@ const FOOT_ICON: f32 = 17.0;
 /// first used, so the footer asks for this one by name.
 const STROKE: f32 = 1.75;
 
-// `trailing` marks Delete, the only button the source pushes right with
-// `ml-auto` (`LayersPanel.tsx:790`): measured at x 1333..1349 = 1366 - 16
-// (`px-4`) - 17, with the four on the left at 1122, 1159, 1196, 1233
-// (`gap-5` = 17 + 20 between each).
+// `trailing` marks Delete, the only button pushed to the right edge:
+// measured at x 1333..1349 = 1366 - 16
+// (the footer's inset) - 17, with the four on the left at 1122, 1159, 1196, 1233
+// (20px between each).
 pub struct FooterIcon {
     pub svg: &'static [u8],
     pub trailing: bool,
@@ -218,8 +222,8 @@ pub const FOOTER_ICONS: &[FooterIcon] = &[
     },
 ];
 
-/// `<div id="right-dock-layers-panel" class="flex min-h-0 flex-1 flex-col
-/// overflow-hidden bg-editor-panel">` (`LayersPanel.tsx:415`).
+/// The panel root: a flexible, minimum-height, clipped column on the panel
+/// fill, carrying the `right-dock-layers-panel` id.
 ///
 pub fn render(
     state: &Entity<AppState>,
@@ -374,16 +378,16 @@ fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElemen
 }
 
 /// One header lock toggle: which flag it flips, its glyph, and whether the
-/// oracle disables it (`LayersPanel.tsx:477-531`).
+/// panel disables it.
 struct LockToggle {
     id: &'static str,
     svg: &'static [u8],
     kind: LockKind,
     locked: bool,
-    /// `disabled` on the oracle button: the base toggle is off for a missing
+    /// The disabled flag: the base toggle is off for a missing
     /// or background layer; the three partial locks also need an unlocked base.
     disabled: bool,
-    /// `disabled:opacity-30` — only the three partial toggles carry it.
+    /// The 30% disabled opacity — only the three partial toggles carry it.
     dimmed: bool,
     text: String,
 }
@@ -391,7 +395,7 @@ struct LockToggle {
 /// The four toggles in source order: base, transparency, position, rotation.
 ///
 /// `None` means no active layer, which disables every toggle just as a missing
-/// `activeLayer()` does in the oracle.
+/// active layer does.
 fn lock_toggles(flags: Option<crate::state::LayerFlags>) -> Vec<LockToggle> {
     let background = flags.is_some_and(|flags| flags.is_background);
     let base_locked = flags.is_some_and(|flags| flags.locked);
@@ -554,11 +558,10 @@ fn lock_button(
     )
 }
 
-/// `flex shrink-0 items-center gap-5 border-t border-editor-divider
-/// bg-editor-panel px-4 py-2.5 text-editor-icon` — the Layer Actions footer
-/// (`LayersPanel.tsx:746-796`).
+/// The Layer Actions footer: a top-bordered, non-growing row on the panel fill,
+/// 16px inset, 20px between icons, 10px vertical padding, in the icon colour.
 ///
-/// Each button carries its `Tooltip` and the oracle's `disabled:opacity-30`
+/// Each button carries its tooltip and a 30% disabled
 /// gate: duplicate and merge-down need an active layer, merge-down also needs
 /// one beneath it, flatten needs more than one layer, and delete refuses the
 /// last layer and the Background. Resting captures show all five glyphs at
@@ -653,12 +656,12 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
 }
 
 /// One footer glyph: the source's `<button>` has no dimensions of its own, so
-/// it is exactly the `size-[17px]` of the `Icon` inside it.
+/// it is exactly the 17px of the icon inside it.
 ///
-/// `strokeWidth={1.75}` is explicit on all five (`LayersPanel.tsx:753` etc.),
-/// and the `icons::` constants are baked at whatever the source used where
-/// they were first introduced, so this asks [`icons::with_stroke`] rather than
-/// assuming the constant already agrees — the same call `history_panel` makes.
+/// A 1.75 stroke width is explicit on all five,
+/// and the `icons::` constants are baked at whatever width they were first
+/// introduced with, so this asks [`icons::with_stroke`] rather than
+/// assuming the constant already agrees — the same call `history` makes.
 fn footer_icon(icon: &'static [u8]) -> Div {
     div()
         .w(px(FOOT_ICON))

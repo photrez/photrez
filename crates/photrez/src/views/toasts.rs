@@ -1,6 +1,5 @@
-//! Visual-only port of `apps/desktop/src/components/editor/Toast.tsx` —
-//! `ToastHost`, the bottom-right toast stack, and the three severities it
-//! carries.
+//! The bottom-right toast stack — its host, placement, and the three
+//! severities a toast carries.
 //!
 //! # Geometry: the anchor is the bottom-right corner, not the left edge
 //!
@@ -27,7 +26,7 @@
 //!   (`status_bar.rs`: 1366x24 at 0,796). It is also 820 - 24, i.e.
 //!   `bottom-6`: the toast bottom sitting *on* the status bar is two different
 //!   24s agreeing (the bar is 24 tall, the inset is 24), not a layout
-//!   relationship anyone designed. The port therefore anchors with
+//!   relationship anyone designed. This view therefore anchors with
 //!   [`RIGHT_INSET`] and [`BOTTOM_INSET`] from the window's edges — see [`render`].
 //!
 //! # Width: hugged from the label, never pinned
@@ -35,7 +34,7 @@
 //! `width = 1 (border) + 16 (px-4) + shaped text + 16 + 1`, so the three
 //! severities differ only because their captured labels do: "Layer merged" =
 //! 75.609px of text, "Could not write the file" = 126.766, "Export failed" =
-//! 69.062. The port hugs rather than pinning those four numbers, because the
+//! 69.062. This view hugs rather than pinning those four numbers, because the
 //! same Inter file at 12.5px is what the baseline was shaped with —
 //! `title_bar` measures this pair's advances to 0.005% — and a pinned width
 //! would hide a shaping difference behind a correct-looking border.
@@ -66,7 +65,8 @@
 //!
 //! # The stack gap is 8px, not 4px
 //!
-//! The four-baseline brief states "126 = 3x37 + 2x4" — but 3x37 + 2x4 is 119,
+//! A first reading of the four baselines gave "126 = 3x37 + 2x4" — but
+//! 3x37 + 2x4 is 119,
 //! not 126, and the fourth baseline does not fit a 4px gap under any rounding.
 //! Measured instead, from `toast-stacked.png`'s border rows (the rows whose
 //! pixels are the `#333333` rule, crop coordinates):
@@ -81,7 +81,7 @@
 //!
 //! and arithmetic that closes exactly: 3 x 36.75 + 2 x 8 = **126.25** = the
 //! manifest's stack height, with the last toast's bottom on 796. Independently,
-//! `Toast.tsx:54` writes `gap-2` = 0.5rem = 8px. Two sources, one answer:
+//! the host's own gap is 0.5rem = 8px. Two sources, one answer:
 //! [`TOAST_GAP`] is 8. A 4px gap would put the stack at 118.25 tall and every
 //! border row in the baseline off by 8px per toast.
 //!
@@ -122,11 +122,10 @@
 //!   separating toast from backdrop in three of the four shots.
 //! * radius 4 — the top border row starts at crop x=4 and ramps `#202020`
 //!   `#272727` `#2F2F2F` before it, i.e. an arc of radius 4 (`rounded`).
-//! * **no arrow/notch.** The brief asks for one to be read off the PNGs; the
-//!   read is that there is none: four symmetric 4px corners, nothing pointing
-//!   at anything. `Toast.tsx` agrees — the class list is
-//!   `rounded border px-4 py-2 text-[12.5px] shadow-lg`, with no
-//!   pseudo-element and no caret.
+//! * **no arrow/notch.** Reading the corners straight off the PNGs shows
+//!   none: four symmetric 4px corners, nothing pointing
+//!   at anything. The measured toast box agrees — a rounded border, padding,
+//!   12.5px text and a shadow, with no pseudo-element and no caret.
 //!
 //! # Shadow: `shadow-lg`, and it *is* visible
 //!
@@ -232,8 +231,8 @@ pub const BOTTOM_INSET: f32 = 24.0;
 #[allow(dead_code)]
 pub const TOAST_H: f32 = 36.75;
 
-/// `gap-2` between stacked toasts — see the module docs for why this is 8 and
-/// not the 4 the brief proposes (three border rows and `Toast.tsx:54` agree).
+/// Gap between stacked toasts — see the module docs for why this is 8 and
+/// not 4 (three border rows agree on 8).
 pub const TOAST_GAP: f32 = 8.0;
 
 /// `px-4` — 1rem either side, confirmed at 17px from the box edge to the text

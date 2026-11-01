@@ -11,16 +11,17 @@ use super::{
     ROW_GAP, SELECT_PAD_X, SLOT_GAP, TEXT_SM,
 };
 
-/// The `NumField` / `EditableNumField` box: `h-[24px] items-center gap-1
-/// rounded-[4px] border border-editor-field-border bg-editor-field px-1.5`.
+/// The `NumField` / `EditableNumField` box: 24px tall, vertically centred, a
+/// 4px inner gap, a 4px radius, a 1px field border over the field fill, and
+/// 6px of horizontal padding.
 ///
-/// The border is [`color::BORDER`], not [`color::FIELD_BORDER`], for the
-/// reason `crate::tokens` documents at length: `border-editor-field-border`
-/// loses to the unlayered `* { border-color }` rule, so every `border-*` in the
-/// web build paints `#333333`. Only a `background-*` would reach `#383838`.
+/// The border is [`color::BORDER`] (`#333333`), not [`color::FIELD_BORDER`]
+/// (`#383838`), for the reason `crate::tokens` documents at length: the field
+/// border resolves to the darker grey, and only a background fill reaches the
+/// lighter `#383838`.
 ///
-/// `select-none` is dropped with the rest of the pointer/keyboard affordances
-/// — see the module docs.
+/// The non-selectable-text affordance is dropped with the rest of the
+/// pointer/keyboard states — see the module docs.
 pub fn field_chrome(pad_x: f32) -> impl FnOnce(Div) -> Div {
     move |el| {
         el.h(px(FIELD_H))
@@ -31,14 +32,13 @@ pub fn field_chrome(pad_x: f32) -> impl FnOnce(Div) -> Div {
             .border_color(color::BORDER)
             .bg(color::FIELD)
             .px(px(pad_x))
-            // Clip, not spill. The source's `<input>` clips its own text at
-            // the padding edge; a plain `div` does not, so a field squeezed
-            // narrower than "X 100 px" painted its glyphs straight through the
-            // border and on top of the neighbouring field. `min_w(0)` is the
-            // other half of the fix: flex items default to `min-width: auto`,
-            // which refuses to shrink below the content's intrinsic width, so
-            // without it the box declines to narrow at all and clipping alone
-            // would not help.
+            // Clip, not spill. An editable field clips its own text at the
+            // padding edge; a plain box does not, so a field squeezed narrower
+            // than "X 100 px" painted its glyphs straight through the border
+            // and on top of the neighbouring field. `min_w(0)` is the other
+            // half of the fix: flex items keep their content's intrinsic width
+            // as a floor by default, so without it the box declines to narrow
+            // at all and clipping alone would not help.
             .min_w(px(0.0))
             .overflow_hidden()
     }
@@ -46,19 +46,19 @@ pub fn field_chrome(pad_x: f32) -> impl FnOnce(Div) -> Div {
 
 // ── NumField ─────────────────────────────────────────────────────────────────
 
-/// `primitives.tsx:6-36` — a read-only numeric field.
+/// A read-only numeric field.
 ///
 /// ```text
 /// | label | 800 | px |
 /// ```
 ///
 /// Nothing is interactive: no hover style, no focus ring, no editing. It is
-/// rendered as a plain flex row exactly as the source lays it out.
+/// rendered as a plain flex row.
 ///
-/// `class` and `labelClass` props are not carried over. They only exist in
-/// the source to let a call site widen the box or recolour the caption, and
-/// the call sites that do either pass their own width anyway — so `width` is
-/// a parameter and the caption colour is not.
+/// There are no per-call-site class or label overrides. Those would only let a
+/// caller widen the box or recolour the caption, and callers that widen the
+/// box pass their own width anyway — so `width` is a parameter and the caption
+/// colour is not.
 pub fn num_field(
     label: Option<&str>,
     width: Option<f32>,
@@ -94,23 +94,23 @@ pub fn num_field(
 
 // ── SelectField ──────────────────────────────────────────────────────────────
 
-/// `primitives.tsx:38-54` — a value with a chevron, `justify-between`.
+/// A value with a chevron, justified to both edges.
 ///
 /// ```text
 /// | Move                  v |
 /// ```
 ///
-/// The hover border (`hover:border-[#4B515D]`) is a real difference from
-/// [`NumField`], which has no hover at all, so it is recorded on
-/// [`color::HOVER_BORDER`] rather than applied here: see the module docs on
-/// why hover colours are omitted from a resting render.
+/// The hover border (#4B515D) is a real difference from [`NumField`], which
+/// has no hover at all, so it is recorded on [`color::HOVER_BORDER`] rather
+/// than applied here: see the module docs on why hover colours are omitted
+/// from a resting render.
 ///
-/// The source asks for `strokeWidth={1.75}` at the call site; [`icons::CHEVRON_DOWN`]
-/// already carries 1.75 in its own SVG, because the icon's primary consumer
-/// pins that stroke width at generation time. Nothing to override.
+/// The chevron is drawn at stroke width 1.75; [`icons::CHEVRON_DOWN`] already
+/// carries 1.75 in its own SVG, because the icon's primary consumer pins that
+/// stroke width at generation time. Nothing to override.
 pub fn select_field(value: &str, width: Option<f32>) -> Div {
-    // `None` fills the slot, for the same reason as `num_field`: the source's
-    // `w-full` stretches, it does not collapse.
+    // `None` fills the slot, for the same reason as `num_field`: a full-width
+    // fill stretches, it does not collapse.
     let row = match width {
         Some(w) => h_flex().w(px(w)).flex_none(),
         None => h_flex().flex_1().min_w(px(0.0)),
@@ -130,7 +130,7 @@ pub fn select_field(value: &str, width: Option<f32>) -> Div {
 
 // ── PropRow ──────────────────────────────────────────────────────────────────
 
-/// `primitives.tsx:56-65` — a 50px caption and a content slot beside it.
+/// A 50px caption and a content slot beside it.
 ///
 /// ```text
 /// | Opacity | [====|======] |
@@ -138,12 +138,13 @@ pub fn select_field(value: &str, width: Option<f32>) -> Div {
 ///
 /// This is the only one of the five that does not itself draw a box: it is
 /// the label that every row in a properties panel shares, so its width is
-/// fixed and `shrink-0` — two properties that matter, because the slot is
-/// `flex-1` and would otherwise squeeze the caption out of shape.
+/// fixed and refuses to shrink — two properties that matter, because the slot
+/// takes the remaining space and would otherwise squeeze the caption out of
+/// shape.
 ///
-/// Takes `impl IntoElement` rather than a `JSX.Element` because in the source
-/// the slot is *any* child, and here that is whichever control the caller
-/// wants: a [`Slider`], a [`num_field`], a row of checkboxes.
+/// Takes `impl IntoElement` rather than a concrete child type because the slot
+/// is *any* element — whichever control the caller wants: a [`Slider`], a
+/// [`num_field`], a row of checkboxes.
 pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
     h_flex()
         .items_center()
@@ -153,13 +154,12 @@ pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
                 .w(px(LABEL_W))
                 .flex_none()
                 // `flex_none()` holds the 50px; `overflow_hidden()` clips a
-                // label that does not fit inside it. `shrink_0` alone gave the
-                // right width and the wrong overflow behaviour: the box stayed
-                // 50px while the glyphs kept going, so a label like
-                // "Invert Selection" ran under the field beside it. The source
-                // clips because the label is a `<span>` in a `w-[50px]`
-                // column, and overflow on a block box is visible by default —
-                // `truncate` there, plain clip here.
+                // label that does not fit inside it. `flex_none()` alone gave
+                // the right width and the wrong overflow behaviour: the box
+                // stayed 50px while the glyphs kept going, so a label like
+                // "Invert Selection" ran under the field beside it. Overflow is
+                // visible by default, so the label column clips rather than
+                // letting the text run on.
                 .overflow_hidden()
                 .text_size(px(TEXT_SM))
                 .font_family(FONT_UI)
@@ -172,8 +172,8 @@ pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
                 .items_center()
                 .gap(px(SLOT_GAP))
                 .flex_1()
-                // The slot is `flex-1`, so it inherits the same
-                // `min-width: auto` trap the fields had: without an explicit
+                // The slot takes the remaining space, so it inherits the same
+                // intrinsic-min-width trap the fields had: without an explicit
                 // floor of 0 it refuses to give back the space its children
                 // need, and the row overflows the panel instead of squeezing.
                 .min_w(px(0.0))
@@ -184,17 +184,17 @@ pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
 
 // ── EditableNumField ─────────────────────────────────────────────────────────
 
-/// `primitives.tsx:208-325` — the editable form of [`NumField`].
+/// The editable form of [`NumField`].
 ///
 /// ```text
 /// | label | 800 | px |          <- at rest
 /// ```
 ///
-/// **At rest only.** The source is built around an `<input>` with focus,
-/// commit-on-blur, Enter/Escape and arrow-key stepping; none of that can be
-/// expressed as a function returning `impl IntoElement`, and none of it
-/// appears in any baseline — a field that is not being edited renders exactly
-/// this row of caption, mono value, caption.
+/// **At rest only.** A fully editable field needs focus, commit-on-blur,
+/// Enter/Escape and arrow-key stepping; none of that can be expressed as a
+/// function returning `impl IntoElement`, and none of it appears in any
+/// baseline — a field that is not being edited renders exactly this row of
+/// caption, mono value, caption.
 ///
 /// So the interaction is the *whole* remaining difference, and it is deferred
 /// rather than half-built: a text input that cannot take focus is worse than
@@ -202,9 +202,9 @@ pub fn prop_row(label: &str, slot: impl IntoElement) -> Div {
 /// behaviour was a bug rather than a decision.
 ///
 /// `disabled` is also unrendered for the same reason — it only changes the
-/// appearance *while an interaction is in progress* (`opacity-40
-/// pointer-events-none`), and the resting pixels of a disabled field and an
-/// enabled one are identical until you reach for it.
+/// appearance *while an interaction is in progress* (a dimmed, inert state),
+/// and the resting pixels of a disabled field and an enabled one are identical
+/// until you reach for it.
 pub fn editable_num_field(
     label: Option<&str>,
     value: &str,

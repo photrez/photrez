@@ -2,7 +2,7 @@ use super::*;
 
 // ── Shared parts ─�─────────────────────────────────────────────────────────────
 
-/// `ToolPill` (`OptionBarShared.tsx:56`).
+/// A pill button: an icon plus a label, at the control height.
 pub(super) fn tool_pill(icon: &'static [u8], label: String) -> impl IntoElement {
     h_flex()
         .h(px(CTRL_H))
@@ -26,7 +26,7 @@ pub(super) fn tool_pill(icon: &'static [u8], label: String) -> impl IntoElement 
         .child(div().text_color(color::WHITE).child(label))
 }
 
-/// `Divider` (`OptionBarShared.tsx:53`).
+/// A thin vertical divider between control groups.
 pub(super) fn divider() -> impl IntoElement {
     div()
         .h(px(DIV_H))
@@ -36,7 +36,7 @@ pub(super) fn divider() -> impl IntoElement {
 }
 
 /// `OptionCheckbox` in the checked state — the Move bar's three are all checked.
-/// `OptionCheckbox` (`OptionBarShared.tsx:27`) with an explicit `checked`.
+/// A checkbox drawn from an explicit `checked` flag.
 pub(super) fn option_checkbox_action(
     id: &'static str,
     label: &str,
@@ -120,7 +120,7 @@ pub(super) fn unchecked_box() -> Div {
         .bg(FIELD_80)
 }
 
-/// `EditableNumField` (`primitives.tsx:208`) — an editable field drawn at rest.
+/// An editable numeric field drawn at rest.
 pub(super) fn editable_field(
     id: &'static str,
     label: &str,
@@ -147,7 +147,7 @@ pub(super) fn editable_field(
         .child(suffix_span(suffix))
 }
 
-/// `NumField` (`primitives.tsx:6`) — read-only W/H, value + suffix packed left.
+/// A read-only W/H field: value and suffix packed left.
 pub(super) fn num_field(
     label: &str,
     width: f32,
@@ -192,8 +192,7 @@ pub(super) fn suffix_span(s: &'static str) -> impl IntoElement {
     dim_span(s)
 }
 
-/// The `@min-[880px]:flex` group: divider, align, divider, flip, divider,
-/// reset (`MoveOptionBar.tsx:312-377`).
+/// The group shown at ≥880 px: divider, align, divider, flip, divider, reset.
 pub(super) fn main_controls() -> impl IntoElement {
     h_flex()
         .flex_shrink_0()
@@ -304,7 +303,7 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         )
 }
 
-/// The eraser's full-strength helper (`Hard 100` in `BrushOptionBar.tsx`):
+/// The eraser's full-strength helper (labelled `Hard 100`):
 /// hardness, strength and flow all to 100 % and the preset cleared.
 pub(super) fn hard100_button(id: &'static str, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
@@ -324,7 +323,7 @@ pub(super) fn hard100_button(id: &'static str, cx: &Context<crate::app::App>) ->
         .text_color(ZINC)
         .cursor_pointer()
         .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
-        .child("Hard 100") // i18n-exempt: oracle literal, not in catalog
+        .child("Hard 100") // i18n-exempt: fixed control label, not in catalog
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 app.eraser_full_strength(cx);
@@ -332,7 +331,7 @@ pub(super) fn hard100_button(id: &'static str, cx: &Context<crate::app::App>) ->
         )
 }
 
-/// `SelectDropdown` (`OptionBarShared.tsx:104-146`) — closed state.
+/// A select dropdown in its closed state.
 pub(super) fn select_dropdown(
     icon: Option<&'static [u8]>,
     prefix: Option<&str>,
@@ -384,7 +383,7 @@ pub(super) fn select_dropdown(
     )
 }
 
-/// Hover tooltip (`Tooltip.tsx`): the control publishes its id on hover and a
+/// Hover tooltip: the control publishes its id on hover and a
 /// deferred panel paints above it; leaving clears the id.
 ///
 /// The id is owned rather than `&'static str` so callers whose rows carry a
@@ -447,7 +446,7 @@ pub(crate) fn tooltip(
 }
 
 /// A live dropdown: closed chrome plus a deferred option panel when open.
-#[allow(clippy::too_many_arguments)] // flat args mirror the frozen SelectDropdown props
+#[allow(clippy::too_many_arguments)] // flat args mirror the dropdown's option props
 pub(super) fn live_select(
     id: &'static str,
     icon: Option<&'static [u8]>,
@@ -601,7 +600,7 @@ pub(super) fn ring_white_20() -> BoxShadow {
 
 /// A brush-bar numeric field. Clicking starts an inline edit; valid keystrokes
 /// commit live, Enter ends, Escape restores the value.
-#[allow(clippy::too_many_arguments)] // flat args mirror the frozen paint field props
+#[allow(clippy::too_many_arguments)] // flat args mirror the paint field's many props
 pub(super) fn brush_field(
     id: &'static str,
     label: &str,

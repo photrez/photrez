@@ -1,10 +1,10 @@
-//! The Print Document dialog: a paper preview on the left and the
-//! `PrintInspector` sections on the right, in the oracle's 1040x660 shell.
+//! The Print Document dialog: a paper preview on the left and the print
+//! inspector sections on the right, in the 1040x660 shell the capture shows.
 //!
-//! The oracle renders `PrintPaperViewport` (document card, the white paper with
+//! The layout is a paper viewport (document card, the white paper with
 //! a dashed edge, a dashed document rectangle placed by the offsets) beside
-//! `PrintInspector` (Printer Setup, Color Management, Position and Size) and a
-//! footer with Show Paper White plus Cancel/Print. This port keeps that
+//! the inspector (Printer Setup, Color Management, Position and Size) and a
+//! footer with Show Paper White plus Cancel/Print. This view keeps that
 //! structure and binds the controls to `AppState`; printing itself still goes
 //! through the platform service.
 
@@ -20,7 +20,7 @@ const PAD: f32 = 16.0;
 const LABEL_W: f32 = 72.0;
 const ROW_H: f32 = 26.0;
 const HEADER_H: f32 = 30.0;
-/// The oracle's print resolution (`PrintInspector.tsx` 300 PPI optimum).
+/// The print resolution the dialog treats as optimal: 300 PPI.
 const PRINT_PPI: f64 = 300.0;
 
 fn danger() -> Hsla {

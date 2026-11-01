@@ -110,7 +110,7 @@ fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
                 .min_w(px(0.0))
                 // The brand mark is an inline `<svg>` with two gradients, a
                 // mask and a drop-shadow filter. `assets/icons.rs` is generated
-                // from lucide paths and cannot carry any of that, so the port
+                // from lucide paths and cannot carry any of that, so this view
                 // draws the slot rather than the mark; `title_bar.rs` owns the
                 // importable LOGO for the same reason.
                 .child(
@@ -133,9 +133,8 @@ fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
         .child(close)
 }
 
-/// `<button class="flex size-5 items-center justify-center rounded-[4px]
-/// text-editor-icon hover:bg-white/[0.08] hover:text-editor-text
-/// cursor-pointer">` (`DesktopDialog.tsx:140`). The 20 px box is the whole
+/// The close button: a centred 20px square, 4px corners, icon colour, with an
+/// 8%-white hover fill and full-brightness text. The 20 px box is the whole
 /// hit area, not just the 10 px glyph.
 ///
 /// Inert by itself so a static preview draws the same chrome without a

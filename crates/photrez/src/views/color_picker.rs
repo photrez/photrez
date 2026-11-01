@@ -1,12 +1,11 @@
-//! Paint-colour picker, ported from the frozen `ColorPickerDialogContent`
-//! (`DialogProvider.tsx`, lines 340-620).
+//! Paint-colour picker, reproducing the captured dialog content.
 //!
-//! The layout is the oracle's: a 200x200 saturation/value box, an 18x200 hue
+//! The layout: a 200x200 saturation/value box, an 18x200 hue
 //! strip, then a 180px column holding the new/current swatch, OK/Cancel, and
 //! the HSB/RGB readouts. Two deliberate differences, both recorded in the
 //! ledger:
 //!
-//! * HSB/RGB are readouts. The frozen dialog's six number inputs are a
+//! * HSB/RGB are readouts. The captured dialog's six number inputs are a
 //!   separate primitive job (`NumField` per field); the picker's own inputs
 //!   are the SV/hue surfaces and the hex field.
 //! * Dismissal is Cancel/Escape/outside-click. Both surfaces capture the
@@ -80,10 +79,10 @@ fn panel(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl In
         crate::state::ColorTarget::Foreground => t("tools.foregroundColor"),
         crate::state::ColorTarget::Background => t("tools.backgroundColor"),
         crate::state::ColorTarget::Text => t("tools.options.textColor"),
-        // The oracle passes this dialog title as a literal, not a catalog key.
-        crate::state::ColorTarget::ShapeStroke => "Shape Stroke Color".to_string(), // i18n-exempt: oracle literal title
-        crate::state::ColorTarget::ShapeFill => "Shape Fill Color".to_string(), // i18n-exempt: oracle literal title
-        crate::state::ColorTarget::TextStroke => "Stroke Color".to_string(), // i18n-exempt: oracle literal title
+        // This dialog title is a literal, not a catalogue key.
+        crate::state::ColorTarget::ShapeStroke => "Shape Stroke Color".to_string(), // i18n-exempt: literal dialog title
+        crate::state::ColorTarget::ShapeFill => "Shape Fill Color".to_string(), // i18n-exempt: literal dialog title
+        crate::state::ColorTarget::TextStroke => "Stroke Color".to_string(), // i18n-exempt: literal dialog title
     };
     let content = v_flex()
         .w(px(PANEL_W))

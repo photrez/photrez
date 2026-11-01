@@ -1,20 +1,19 @@
 #![allow(dead_code)]
 // shared control vocabulary for panel ports that land after the shell; nothing imports this module yet
 
-//! The five shared controls of the web build
-//! (`apps/desktop/src/components/editor/primitives.tsx`).
+//! The five shared field controls the panels are built on.
 //!
 //! # Why these are a module
 //!
-//! `primitives.tsx` is the one place in the web build where a control is *defined*
-//! rather than assembled: `NumField`, `SelectField`, `PropRow`, `Slider` and
-//! `EditableNumField` are each a single function that takes props and returns
-//! markup, and every panel imports them instead of writing its own. The option
-//! bar and all four inspector panels are built on them, so porting them once
-//! here is what keeps those five ports from diverging — the same twenty-four
-//! pixel box, the same caption grey, the same Consolas value, in each.
+//! This is the one place a control is *defined* rather than assembled:
+//! `NumField`, `SelectField`, `PropRow`, `Slider` and `EditableNumField` are
+//! each a single function that takes props and returns markup, and every panel
+//! imports them instead of writing its own. The option bar and all four
+//! inspector panels are built on them, so defining them once here is what keeps
+//! those five usages from diverging — the same twenty-four pixel box, the same
+//! caption grey, the same Consolas value, in each.
 //!
-//! The port is **visual only**, matching the project's first pass: everything
+//! These controls are **visual only**, matching the project's first pass: everything
 //! that a resting screenshot can see is reproduced, and everything that needs
 //! an event loop is not yet. Concretely, what is here:
 //!
@@ -92,24 +91,22 @@ const TEXT_SM: f32 = 11.0;
 /// `font-mono`, i.e. Consolas — values in [`NumField`] and
 /// [`EditableNumField`].
 ///
-/// `primitives.tsx:30,318` ask for Tailwind's `font-mono`, whose stack is
-/// `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, ...`; on this
-/// Windows capture the first name that resolves is Consolas. It is a system
-/// font, not the stack literally, which is recorded as a gap in the option
-/// bar's font notes and applies unchanged here.
+/// The numeric field values use a monospace face (`font-mono`). On this
+/// Windows build the face that resolves is Consolas. It stands in for the
+/// reference's monospace stack rather than being that stack literally, a gap
+/// first recorded in the option bar's font notes and unchanged here.
 ///
 /// Public for the same reason as [`FONT_UI`]: view modules that render mono
 /// values read it directly instead of spelling "Consolas" per module.
 pub const FONT_MONO: &str = "Consolas"; // i18n-exempt: technical token
 
 /// `--font-sans` — Inter, on everything that is *not* `font-mono`.
-/// Inter, the font every label in the port uses.
+/// Inter, the font every label uses.
 ///
 /// Public because thirteen modules each declared their own copy before this
 /// existed, and a font that is spelled out per-module is a font that can be
 /// changed in one place and missed in twelve. The default `.SystemUIFont`
-/// (Segoe UI) cannot stand in: every measurement in the web build was taken
-/// against Inter.
+/// (Segoe UI) cannot stand in: every measurement was taken against Inter.
 pub const FONT_UI: &str = "Inter"; // i18n-exempt: technical token
 
 /// A menu row's measured height, and its insets — the same figures both menu
@@ -125,14 +122,13 @@ const MENU_SEP_MY: f32 = 4.0;
 
 // ── Shared runs ──────────────────────────────────────────────────────────────
 
-/// `<span class="text-[10px] font-medium text-[#A1A1AA] select-none">`.
+/// A 10px, medium-weight, `#A1A1AA`, non-selectable caption run.
 ///
-/// One helper because the source has one string: a field's `label`
-/// (`primitives.tsx:23`), its `suffix` (`:32`), `PropRow`'s label (`:59`) and
-/// `EditableNumField`'s suffix (`:321`) are byte-identical class lists, and
-/// they read the same on screen too.
+/// One helper because these are byte-identical everywhere: a field's `label`,
+/// its `suffix`, `PropRow`'s label and `EditableNumField`'s suffix share one
+/// styling run, and they read the same on screen too.
 /// A run of text with its size, weight and colour — the shape that was
-/// hand-rolled ten times across the port as
+/// hand-rolled ten times across the views as
 /// `div().text_size(..).font_family(FONT_UI).font_weight(..).text_color(..)`.
 ///
 /// Four setters in a fixed order is a lot of places to get the order wrong in,
@@ -144,17 +140,17 @@ const MENU_SEP_MY: f32 = 4.0;
 /// a literal `500.` without importing the wrapper type.
 /// One row of a popup menu: label left, shortcut right, 28px tall.
 ///
-/// Shared by the web build's pointer-anchored context menus and its title-bar
-/// popups because the row chrome is identical — only the *shell* differs, which
-/// is why the two shells are not merged but this is. Both measured ROW_H=28,
+/// Shared by the pointer-anchored context menus and the title-bar popups
+/// because the row chrome is identical — only the *shell* differs, which is
+/// why the two shells are not merged but this is. Both measured ROW_H=28,
 /// ROW_GAP=24, ROW_PX=12 independently and arrived at the same numbers.
 ///
 /// `focus_bg` is `Option` rather than a plain colour because the two callers
-/// genuinely differ here: the pointer-anchored context menus capture Chromium's
-/// `focus-visible:bg-editor-accent/15` on the first enabled row (a state the
-/// keyboard produces, not the mouse), while the title-bar popups have no
-/// captured focus tint at all. `None` paints no background, which is what a
-/// static render of those should do.
+/// genuinely differ here: the pointer-anchored context menus capture a
+/// focus-visible accent tint (`bg-editor-accent/15`) on the first enabled row
+/// (a state the keyboard produces, not the mouse), while the title-bar popups
+/// have no captured focus tint at all. `None` paints no background, which is
+/// what a static render of those should do.
 /// Make a box yield instead of overflowing: the flex min-width:auto floor drops
 /// to 0 and the painted content is clipped at the edge.
 ///
@@ -166,9 +162,9 @@ const MENU_SEP_MY: f32 = 4.0;
 /// never narrowed in the first place; the min_w(0) is what lets it narrow, and
 /// the clip is what makes the narrowing look deliberate.
 ///
-/// On the web the source gets this for free -- a div clips nothing, but text
-/// inside an input or a truncated cell does -- so every ported row has to say
-/// it out loud.
+/// GPUI does not clip a text box by default the way a dedicated truncation
+/// widget would, so every row that must yield has to say so out loud with this
+/// helper.
 pub fn clip<T: gpui_kit::Styled>(el: T) -> T {
     el.min_w(px(0.0)).overflow_hidden()
 }
@@ -196,9 +192,9 @@ pub fn menu_row(
     if let Some(bg) = focus_bg {
         row = row.bg(bg);
     }
-    // Whole-row, not label-only: the source's `disabled:opacity-35` sits on the
-    // row, so the shortcut dims with the label. Getting this wrong shows up as
-    // a shortcut that reads brighter than the item it belongs to.
+    // Whole-row, not label-only: the 0.35 disabled opacity is applied to the
+    // whole row, so the shortcut dims with the label. Getting this wrong shows
+    // up as a shortcut that reads brighter than the item it belongs to.
     if disabled {
         row = row.opacity(0.35);
     }
@@ -238,13 +234,13 @@ pub fn menu_row_action(
         .on_click(listener)
 }
 
-/// `my-1 border-t border-editor-divider`, full-bleed — a probe reads separator
-/// rows edge to edge, so there is no horizontal inset.
+/// A 4px vertical margin around a 1px full-bleed divider — a probe reads
+/// separator rows edge to edge, so there is no horizontal inset.
 ///
 /// Shared for the same reason [`menu_row`] is. Note the colour is `DIVIDER`
-/// (#2e2e2e), *not* `BORDER` (#333333): both are "a border" in the source, but
-/// `border-editor-divider` is a real class that resolves, and a scan looking
-/// only for #333333 reports the separators as missing.
+/// (#2e2e2e), *not* `BORDER` (#333333): both read as "a border", but the
+/// separator resolves to the divider grey, and a scan looking only for #333333
+/// reports the separators as missing.
 pub fn menu_separator() -> Div {
     div()
         .w_full()
@@ -279,8 +275,7 @@ pub fn caption(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// `<span class="text-[11px] font-semibold font-mono text-white">` — a field's
-/// value (`primitives.tsx:30`).
+/// A numeric field's value run — 11px, semibold, monospace, white.
 pub fn value_mono(text: &str) -> Div {
     div()
         .font_family(FONT_MONO)
@@ -290,8 +285,8 @@ pub fn value_mono(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// `<span class="text-[11px] font-semibold text-white">` — [`SelectField`]'s
-/// value (`primitives.tsx:46`).
+/// [`SelectField`]'s value run — 11px, semibold, set in Inter (not mono),
+/// white.
 ///
 /// Deliberately *not* [`value_mono`]: this one carries no `font-mono`, so it
 /// is set in Inter even though the two look almost alike at 11px.
@@ -306,12 +301,12 @@ pub fn value_sans(text: &str) -> Div {
 
 // ── Slider ───────────────────────────────────────────────────────────────────
 
-/// `SliderType` (`primitives.tsx:67-77`) — which track treatment to paint.
+/// [`SliderKind`] — which track treatment to paint.
 ///
 /// The variant is not decoration: it selects the background, whether the fill
-/// grows from the centre or the left, and how tall the whole control is. The
-/// source drives all three off `type()` inside one component, which is why
-/// they are one enum here rather than five functions.
+/// grows from the centre or the left, and how tall the whole control is. All
+/// three are driven off the single kind in one place, which is why they are
+/// one enum here rather than five functions.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SliderKind {
     /// `default` — a plain trough and an accent fill from the left.
@@ -359,7 +354,7 @@ mod tests {
     }
 
     /// The shared field box is exactly 24px tall — the one dimension every
-    /// field control in the web build restates, captured here as `FIELD_H`.
+    /// field control restates, captured here as `FIELD_H`.
     /// RED proof: change `FIELD_H` to anything else and this fails.
     #[test]
     fn field_height_is_24px() {

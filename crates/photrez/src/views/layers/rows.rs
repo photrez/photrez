@@ -2,25 +2,26 @@ use super::*;
 
 use crate::views::option_bar::controls::tooltip;
 
-/// `size-[22px]` — one reorder chevron (`LayerItem.tsx:285`).
+/// 22px — one reorder chevron.
 const MOVE_BTN: f32 = 22.0;
 
-/// `size-3.5` — the glyph inside it.
+/// 14px — the glyph inside it.
 const MOVE_ICON: f32 = 14.0;
 
-/// `gap-1` between the chevrons and `pr-1` on the strip.
+/// 4px between the chevrons and on the strip's trailing edge.
 const MOVE_GAP: f32 = 4.0;
 
-/// `size-6` — the adjustments indicator's box (`LayerItem.tsx:304`).
+/// 24px — the adjustments indicator's box.
 const ADJUST_BOX: f32 = 24.0;
-/// `size-3.5` — the sliders glyph inside it.
+/// 14px — the sliders glyph inside it.
 const ADJUST_ICON: f32 = 14.0;
-/// `mr-1` — the indicator's trailing gap before the lock button.
+/// 4px — the indicator's trailing gap before the lock button.
 const ADJUST_GAP: f32 = 4.0;
-/// `strokeWidth={1.75}` on the oracle's icon.
+/// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
-/// `flex-1 overflow-y-auto border-y border-editor-divider` — the layer stack.
+/// The layer stack: a scrollable column with a 6px reserved gutter, bordered
+/// top and bottom.
 ///
 /// The `pr` is the reserved scrollbar gutter; see the module docs on why 254
 /// and 260 are both correct answers here. `border_y` is [`color::BORDER`] and
@@ -37,7 +38,7 @@ pub(super) fn layer_list(
     cx: &Context<crate::app::App>,
 ) -> Div {
     if layers.is_empty() {
-        // The frozen empty state: a centred layers glyph with two localized
+        // The empty state: a centred layers glyph with two localized
         // lines, on the same bordered list box (mirrors the properties
         // panel's no-document branch).
         return v_flex()
@@ -147,7 +148,7 @@ fn layer_row(
               cx: &mut Context<crate::app::App>| {
             let modifiers = event.modifiers();
             let toggle = modifiers.control || modifiers.platform;
-            // Frozen handleSelectLayer: selecting another layer commits an open
+            // Selecting another layer commits an open
             // text session first (click-away), so the overlay never edits a
             // layer the panel has stopped highlighting.
             let clicked_core = state_for_click
@@ -365,9 +366,8 @@ fn layer_row(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
                             if background {
-                                // Background layers never toggle their lock; the
-                                // oracle only unlocks one by renaming it
-                                // (`LayerItem.tsx:312-336`).
+                                // Background layers never toggle their lock; one
+                                // only unlocks by being renamed.
                                 app.show_toast(
                                     "Rename the layer to unlock",
                                     crate::state::ToastSeverity::Warn,
@@ -417,10 +417,11 @@ fn layer_row(
 }
 
 /// One reorder chevron: hover-revealed by the row's group, and disabled with
-/// `opacity-20` when the row already sits at that end of the stack.
+/// The indicator sits at 20% opacity when the row already sits at that end of
+/// the stack.
 ///
 /// The disabled button keeps its paint but gets no handler, which is what
-/// `disabled` does in the source as well (`LayerItem.tsx:283/292`).
+/// disabling does in the row as well.
 fn move_button(
     row_id: u64,
     direction: &'static str,
@@ -503,14 +504,14 @@ impl Render for LayerDragGhost {
     }
 }
 
-/// `LayerThumb`'s frame: 34x34, 1px border, `rounded-[3px]`, checker inside.
+/// The layer thumbnail's frame: 34x34, 1px border, 3px corners, checker inside.
 ///
-/// The canvas bitmap is a *layer preview*, which a static port cannot have —
+/// The canvas bitmap is a *layer preview*, which a static view cannot have —
 /// so this is the empty chrome, exactly as in `properties_panel.rs`.
 fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
     // A row without a core layer is the seeded display-only Background, whose
     // document image is the white 800x600 canvas; that is the swatch the
-    // oracle paints. Anything with pixels keeps the checkerboard frame.
+    // capture paints. Anything with pixels keeps the checkerboard frame.
     let mut frame = div()
         .relative()
         .w(px(THUMB))
