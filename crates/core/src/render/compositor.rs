@@ -99,8 +99,8 @@ impl std::error::Error for CompositeError {}
 
 /// Composite with the host's bundled font registered for text layers.
 ///
-/// The frozen editor rendered text with the app's loaded face; without this
-/// data a layer asking for that family falls back to whatever the machine has.
+/// Text layers name the face the application embeds; without this data the
+/// lookup falls back to whatever the machine has installed.
 pub fn composite_layers_with_font_data(
     content: &PtzDocumentContent,
     pixels: &PixelStoreRegistry,
@@ -322,8 +322,8 @@ fn layer_pixels<'a>(
                 .ok_or_else(|| CompositeError::InvalidText {
                     layer_id: layer.id.clone(),
                 })?;
-            // A fresh text session starts empty (`textTool.ts` creates content
-            // ""); the layer paints nothing until the first glyph arrives.
+            // A fresh text session starts with empty `content`; the layer
+            // paints nothing until the first glyph arrives.
             if data.content.is_empty() {
                 return Ok((1, 1, Cow::Owned(vec![0, 0, 0, 0])));
             }

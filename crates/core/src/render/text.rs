@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Text rasterizer: `TextData` -> RGBA bitmap.
 //!
-//! The reference is the frozen engine's `textRasterizer.ts`. This slice covers
-//! point mode with every alignment, letter spacing, and fill/stroke text.
-//! Area wrapping, underline/strikethrough, and non-normal weights stay
-//! explicit gaps until their golden cases land.
+//! This path covers point mode with every alignment, letter spacing, and
+//! fill/stroke text; the committed PNGs under `src/render/text/goldens/` pin
+//! the measured cases. Area wrapping, underline/strikethrough, and
+//! non-normal weights stay explicit gaps until their golden cases land.
 
 #![cfg_attr(not(test), allow(dead_code))] // the production document render caller lands with the open workflow.
 
@@ -339,8 +339,8 @@ fn draw_buffer(
     );
 }
 
-/// Stroke geometry from `textRasterizer.ts`: the document-space width becomes
-/// `strokePad` in device space, and the bitmap grows by one pad on each side.
+/// Stroke outline geometry: the document-space width becomes `strokePad` in
+/// device space, and the bitmap grows by one pad on each side.
 struct StrokeSpec {
     pad: f32,
     align: TextStrokeAlign,
@@ -571,7 +571,7 @@ mod tests {
     /// and `rasterization_tracks_font_size_and_line_count`, which run everywhere.
     #[cfg(windows)]
     #[test]
-    fn advanced_text_measures_against_canvas2d() {
+    fn advanced_text_measures_against_pinned_goldens() {
         for (name, png) in TEXT_GOLDENS {
             let golden = image::load_from_memory(png)
                 .unwrap_or_else(|error| panic!("{name}.png decodes: {error}"))
@@ -662,10 +662,9 @@ mod tests {
         }
     }
 
-    /// Stroke geometry follows `textRasterizer.ts`: the bitmap grows by one
-    /// `strokePad` per side, the line is doubled for outside/inside so half of
-    /// it hides under the fill, and inside strokes are clipped to the fill
-    /// alpha (`source-atop`).
+    /// Stroke outline geometry: the bitmap grows by one `strokePad` per side,
+    /// the line is doubled for outside/inside so half of it hides under the
+    /// fill, and inside strokes are clipped to the fill alpha (`source-atop`).
     #[test]
     fn stroke_pads_the_bitmap_and_clips_each_alignment() {
         let stroke = |align: Option<TextStrokeAlign>| {
@@ -758,7 +757,7 @@ mod tests {
         }
     }
 
-    /// See `advanced_text_measures_against_canvas2d` for why the pixel
+    /// See `advanced_text_measures_against_pinned_goldens` for why the pixel
     /// comparison is Windows-scoped and what runs everywhere instead.
     #[cfg(windows)]
     #[test]

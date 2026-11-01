@@ -355,14 +355,15 @@ fn one_untouched_tile_of_four_shares_exactly_that_tile() {
 }
 
 /// THE ARENA-RESET CASE. `StateNode` ids are minted per `LayerState` from that
-/// LayerState's own `Arena`, starting at 0 (`cow.rs:30-37`). `init_layer` and
+/// LayerState's own `Arena`, starting at 0 (`pixel/state_node/cow.rs`,
+/// `LayerState::new`). `init_layer` and
 /// `resize_layer` both drop the `LayerState` (`pixel/document_store.rs`),
 /// and both call `history.invalidate_layer`, which EARLY-RETURNS while a
 /// `pending_external` barrier is set (`document/engine/state.rs`). A barrier is set
 /// whenever the Undo/Redo walker lands on an `External` entry
 /// (`document/apply.rs`) and is cleared only by a successful
-/// `history_cursor_commit` (`history.rs:477`) - and production documents that a
-/// FAILED `confirmExternalCursor` leaves it set (`facadeHistoryHandoff.ts`, the
+/// `history_cursor_commit` (`document/history.rs`) - and production documents that a
+/// FAILED cursor confirmation leaves it set (the
 /// `E_EXTERNAL_PENDING` arm).
 ///
 /// So: one commit mints ids 0 and 1, then a barrier is set and the layer is

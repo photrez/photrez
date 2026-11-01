@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Parallel — SharedRing + rayon — 6 aspek, dipaksa semua biar 30 sel real
+// Parallel batch helpers over rayon: hit-test and transform over a whole point
+// buffer in one call, so a large selection pays one dispatch instead of one per
+// point.
 use rayon::prelude::*;
 
 pub fn batch_hit_test_parallel(points: &[[f64; 2]], rects: &[[f64; 4]]) -> Vec<u8> {

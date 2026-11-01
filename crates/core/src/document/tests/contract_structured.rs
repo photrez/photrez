@@ -239,10 +239,9 @@ fn native_entry_memory_cost_does_not_double_count_shared_layers() {
 // -- Wire-format contract -------------------------------------------
 // `#[serde(rename_all = "camelCase", tag = "type")]` on the `Command` enum
 // renames the VARIANT only - NOT the fields of a struct variant. So the
-// `BrushStroke` variant carries `layer_id` (snake_case), not `layerId`. The
-// TS sender in bridge.ts must emit `layer_id` on the wire. This pins that
-// contract so a future `rename_all_fields` or a TS sender regression is
-// caught here.
+// `BrushStroke` variant carries `layer_id` (snake_case), not `layerId`. Every
+// command sender must emit `layer_id` on the wire. This pins that contract so
+// a future `rename_all_fields` or a sender regression is caught here.
 #[test]
 fn brush_stroke_wire_format_expects_snake_case_layer_id() {
     let ok: CommandEnvelope = serde_json::from_str(
@@ -254,7 +253,7 @@ fn brush_stroke_wire_format_expects_snake_case_layer_id() {
         _ => panic!("expected brushStroke"),
     }
 
-    // The camelCase `layerId` sender (pre-fix bridge.ts) must be REJECTED.
+    // A camelCase `layerId` sender must be REJECTED.
     let err = serde_json::from_str::<CommandEnvelope>(
         r#"{"contractVersion":1,"command":{"type":"brushStroke","layerId":"L1","points":[{"x":0,"y":0,"pressure":0.5}],"settings":{"size":20,"hardness":0.5,"opacity":1,"flow":1}}}"#,
     );

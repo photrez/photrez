@@ -55,9 +55,10 @@ pub struct RasterizePixels {
     pub height: f64,
     pub rgba: Vec<u8>,
 }
-/// The four TS layer-lock kinds (document.ts setLayerLocked +
-/// setLayerLock{Transparency,Position,Rotation}). `base` maps to
-/// `RenderLayer.locked`; the other three map to their named lock fields.
+/// The four layer-lock kinds on the wire: `base`, `transparency`, `position`
+/// and `rotation`. `base` maps to `RenderLayer.locked`; the other three map to
+/// their named lock fields (`lock_transparency` / `lock_position` /
+/// `lock_rotation`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum LockKind {
@@ -286,16 +287,16 @@ pub enum Command {
         #[serde(default)]
         fill_background: Option<[u8; 4]>,
     },
-    // Resize the canvas to (width, height). Mirror of DocumentEngine.resizeCanvas:
-    // only the document size changes, no layer is touched. Non-positive dims are a
-    // silent no-op; non-finite inputs reject with E_INVALID. The document size is
-    // undoable and rides the snapshot (no layer delta is emitted).
+    // Resize the canvas to (width, height): only the document size changes, no
+    // layer is touched. Non-positive dims are a silent no-op; non-finite inputs
+    // reject with E_INVALID. The document size is undoable and rides the
+    // snapshot (no layer delta is emitted).
     //
-    // Divergence (host-side guard must survive at routing time): the host
-    // DocumentEngine.resizeCanvas THROWS E_RESOURCE_LIMIT when the new dimensions
-    // exceed its memory-budget projection (document.ts resizeCanvas budget check),
-    // whereas this arm has no notion of a pixel-memory budget and accepts any finite
-    // size. The host guard must remain in place before this command reaches the arm.
+    // Divergence (host-side guard must survive at routing time): a caller that
+    // projects pixel memory must reject the new dimensions with
+    // E_RESOURCE_LIMIT when they exceed its budget, whereas this arm has no
+    // notion of a pixel-memory budget and accepts any finite size. The host
+    // guard must remain in place before this command reaches the arm.
     // JSON-wire nuance: width/height are REQUIRED fields, so a non-finite value on the
     // wire serializes to null and is rejected at envelope parse (E_ENVELOPE_PARSE)
     // before this arm's explicit E_INVALID gate runs.

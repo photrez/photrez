@@ -106,7 +106,7 @@ fn record_host_transition(
 
 /// The host's two-phase undo: dispatch, then confirm the cursor move. Returns
 /// the delta the host projects. Mirrors the shipped handoff sequence
-/// (`facadeHistoryHandoff` -> `history_cursor_commit`), not a reimplementation of
+/// (`Command::Undo` -> `history_cursor_commit`), not a reimplementation of
 /// any production predicate.
 fn host_undo(eng: &mut DocumentCore) -> CommandResult {
     let r = eng.apply(env(Command::Undo)).unwrap();
@@ -143,9 +143,9 @@ fn host_redo(eng: &mut DocumentCore) -> CommandResult {
     r
 }
 
-/// The document size the host would adopt from this delta - the same
-/// `delta.width ?? carry-forward` rule `applyDeltaToSnapshot` uses
-/// (`editorFacade.ts:530-531`).
+/// The document size the host would adopt from this delta: the delta's width
+/// and height when both are present, otherwise carry the previous size
+/// forward (this helper reports that case as `None`).
 fn adopted_size(r: &CommandResult) -> Option<(f64, f64)> {
     match (r.delta.width, r.delta.height) {
         (Some(w), Some(h)) => Some((w, h)),

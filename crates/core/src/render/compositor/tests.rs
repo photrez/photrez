@@ -10,7 +10,7 @@ const GOLDEN_WIDTH: u32 = 4;
 const GOLDEN_HEIGHT: u32 = 4;
 // Reference compositor capture: bottom red 4x4 opaque, top blue 2x2 at (0,0) with
 // opacity 0.5, source-over, read back row-major RGBA.
-const CANVAS2D_GOLDEN: [u8; 64] = [
+const SOURCE_OVER_GOLDEN: [u8; 64] = [
     127, 0, 128, 255, 127, 0, 128, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
     127, 0, 128, 255, 127, 0, 128, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
     255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
@@ -385,7 +385,7 @@ fn move_preview_full_composite_perf_probe() {
 }
 
 #[test]
-fn two_layer_order_opacity_and_visibility_match_canvas2d() {
+fn two_layer_order_opacity_and_visibility_match_the_source_over_golden() {
     let mut registry = PixelStoreRegistry::new();
     registry.open_document("composite-order");
     seed(
@@ -431,13 +431,13 @@ fn two_layer_order_opacity_and_visibility_match_canvas2d() {
     let result = composite_layers(&content, &registry).expect("composite succeeds");
     assert_eq!((result.width, result.height), (GOLDEN_WIDTH, GOLDEN_HEIGHT));
     assert_eq!(
-        result.pixels, CANVAS2D_GOLDEN,
-        "CPU composite must match browser Canvas2D source-over"
+        result.pixels, SOURCE_OVER_GOLDEN,
+        "CPU composite must match the reference source-over capture"
     );
 }
 
 #[test]
-fn all_blend_modes_match_canvas2d_goldens_within_rounding() {
+fn all_blend_modes_match_reference_goldens_within_rounding() {
     let cases = [
         (
             BlendMode::Normal,
@@ -627,7 +627,7 @@ fn all_blend_modes_match_canvas2d_goldens_within_rounding() {
 }
 
 #[test]
-fn integer_translation_and_flips_match_canvas2d() {
+fn integer_translation_and_flips_match_reference_goldens() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];
@@ -665,7 +665,7 @@ fn integer_translation_and_flips_match_canvas2d() {
 }
 
 #[test]
-fn transformed_layers_match_canvas2d_within_one_unit() {
+fn transformed_layers_match_reference_goldens_within_one_unit() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];

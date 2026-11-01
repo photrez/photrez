@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn remaining_shape_goldens_match_canvas2d_within_shape_tolerance() {
+    fn remaining_shape_goldens_match_reference_captures_within_shape_tolerance() {
         for (name, png) in SHAPE_GOLDENS {
             let golden = image::load_from_memory(png)
                 .unwrap_or_else(|error| panic!("{name}.png decodes: {error}"))
@@ -583,7 +583,7 @@ mod tests {
     ];
 
     #[test]
-    fn shape_goldens_match_canvas2d_within_documented_tolerance() {
+    fn shape_goldens_match_reference_captures_within_documented_tolerance() {
         let mut rect = params(ShapeKind::Rect, 4.0, 4.0);
         rect.stroke = ShapeStroke {
             enabled: true,

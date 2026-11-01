@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Geometry batch — consolidated Rust hot math (transform, snap, hit-test)
-// Konsolidasi: semua geometry ops di 1 file biar tidak mencar (v0.2.0).
-// API: batched over whole buffer (one call) — not per-point, per forum gate.
+// Geometry batch — consolidated Rust hot math (transform, snap, hit-test).
+// Every geometry operation lives in this one file since v0.2.0, so the call
+// sites have a single place to look.
+// API: batched over the whole buffer (one call), never per point.
 
 /// Batch transform 2D points: `points = [x0,y0,x1,y1,...]`, `matrix = [a,b,c,d,tx,ty]`
 /// where [x',y'] = [a*x + c*y + tx, b*x + d*y + ty] (Photrez Transform2D).
-/// Returns new `Vec<f64>` with transformed points — caller owns it.
-/// Benchmark gate: must beat TS loop (JIT) at 10k points.
+/// Returns a new `Vec<f64>` with the transformed points — the caller owns it.
+/// One call over the whole buffer is the point of this API; there is no
+/// measured comparison against a per-point loop in this repository.
 pub fn batch_transform_points(
     points: Vec<f64>,
     a: f64,
