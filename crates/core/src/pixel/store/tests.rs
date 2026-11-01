@@ -59,7 +59,7 @@ fn all_tiles_covers_full_layer() {
     assert_eq!(cover, layer.pixels);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Lifecycle Î“Ã¶Ã‡Î“Ã¶Ã‡
+// -- Lifecycle --
 
 fn reg() -> PixelStoreRegistry {
     PixelStoreRegistry::new()
@@ -131,7 +131,7 @@ fn resize_layer_recreates_dimensions() {
     r.open_document("docA");
     r.add_layer("docA", "L1", 64, 64, vec![0; 64 * 64 * 4])
         .unwrap();
-    // Mutate, then "resize" to 32x32 Î“Ã‡Ã¶ old 64x64 index math must no longer apply.
+    // Mutate, then "resize" to 32x32 -- old 64x64 index math must no longer apply.
     r.resize_layer("docA", "L1", 32, 32, vec![1; 32 * 32 * 4])
         .unwrap();
     let layer = r.get_layer("docA", "L1").unwrap();
@@ -160,7 +160,7 @@ fn same_layer_id_in_different_documents_isolated() {
     assert_eq!(a.pixels[0], 42);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Epoch Î“Ã¶Ã‡Î“Ã¶Ã‡
+// -- Epoch --
 
 #[test]
 fn epoch_starts_zero_and_increments_on_mutation() {
@@ -202,7 +202,7 @@ fn registry_epoch_per_layer_independent() {
     assert_eq!(r.get_epoch("docA", "L2").unwrap(), 0);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Unified pixel history (DocumentCore is the sole authoritative cursor) Î“Ã¶Ã‡Î“Ã¶Ã‡
+// -- Unified pixel history (DocumentCore is the sole authoritative cursor) --
 
 #[test]
 fn apply_pixel_patch_moves_cursor_and_bumps_version_once() {
@@ -313,7 +313,7 @@ fn cross_layer_undo_reverts_only_last_entry_layer() {
 fn apply_pixel_patch_missing_layer_does_not_move_cursor() {
     let mut r = reg();
     r.open_document("docA");
-    // No layer seeded Î“Ã‡Ã¶ the command must fail WITHOUT pushing a history entry.
+    // No layer seeded -- the command must fail WITHOUT pushing a history entry.
     let res = r.apply_pixel_patch(
         "docA",
         "L-missing",
@@ -408,13 +408,13 @@ fn deep_history_cursor_unchanged_across_many_entries() {
     assert_eq!(r.get_layer("docA", "L1").unwrap().pixels[0], n);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Bug 1: overlapping strokes must composite onto canonical, not wipe Î“Ã¶Ã‡Î“Ã¶Ã‡
+// -- Bug 1: overlapping strokes must composite onto canonical, not wipe --
 #[test]
 fn commit_pixels_composites_onto_canonical_overlapping() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     let _ = r.add_layer("d", "L", 4, 4, vec![255; 4 * 4 * 4]); // white 4x4
-                                                               // stroke A: 2x2 red opaque dab at (1,1) Î“Ã‡Ã¶ covers (0,0) within tile (0,0).
+                                                               // stroke A: 2x2 red opaque dab at (1,1) -- covers (0,0) within tile (0,0).
     let mut tip_a_data = Vec::new();
     for _ in 0..4 {
         tip_a_data.extend_from_slice(&[255u8, 0, 0, 255]);
@@ -448,7 +448,7 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
     assert_eq!(l.pixels[1], 0); // G (red) at corner (0,0)
     assert_eq!(l.pixels[(3 * 4 + 3) * 4 + 1], 255); // far corner white
 
-    // stroke B: 1x1 blue opaque dab at (1,1) Î“Ã‡Ã¶ overlaps A within the same tile.
+    // stroke B: 1x1 blue opaque dab at (1,1) -- overlaps A within the same tile.
     let tip_b = ParityTip {
         width: 1,
         height: 1,
@@ -681,7 +681,7 @@ fn commit_pixels_doc_namespace_independent() {
     assert_eq!(r.get_layer("A", "L").unwrap().pixels[0], 1);
 }
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ Fill write_region Î“Ã¶Ã‡Î“Ã¶Ã‡
+// -- Fill write_region --
 
 #[test]
 fn c5_4_write_region_writes_canonical_and_advances_history_once() {
@@ -696,8 +696,8 @@ fn c5_4_write_region_writes_canonical_and_advances_history_once() {
     }
     let (b, a, epoch, version) = r.write_region("d", "L", 2, 2, 4, 4, rgba).expect("write");
     let px = r.get_layer("d", "L").unwrap().pixels.clone();
-    assert_eq!(px[108], 255, "inside region Î“Ã¥Ã† filled");
-    assert_eq!(px[0], 0, "outside region Î“Ã¥Ã† untouched");
+    assert_eq!(px[108], 255, "inside region ->† filled");
+    assert_eq!(px[0], 0, "outside region ->† untouched");
     // Exactly ONE history step + ONE epoch bump.
     assert_eq!(version, before_ver + 1, "version +1");
     assert_eq!(epoch, before_epoch + 1, "epoch +1");
@@ -764,7 +764,7 @@ fn c5_4_write_region_new_write_truncates_redo() {
     r.write_region("d", "L", 0, 0, 4, 4, red.clone()).unwrap();
     r.undo_pixel("d");
     assert!(r.redo_pixel("d").is_some(), "redo available after undo");
-    // New write after undo Î“Ã¥Ã† future redo severed.
+    // New write after undo ->† future redo severed.
     r.write_region("d", "L", 4, 4, 4, 4, red.clone()).unwrap();
     assert!(
         r.redo_pixel("d").is_none(),
@@ -981,7 +981,7 @@ fn row_major_default_patches_byte_identical() {
     );
 }
 
-// Malformed input at the registry seam MUST be gracefully skipped â€”
+// Malformed input at the registry seam MUST be gracefully skipped --
 // no panic, no cursor move, no history entry. `cow_batch`'s internal asserts
 // are now a safety net only, because this boundary validates first.
 #[test]

@@ -6,8 +6,8 @@ use super::tile;
 use crate::pixel::store::PixelStoreRegistry;
 use crate::pixel::tile::TilePatch;
 
-// Î“Ã¶Ã‡Î“Ã¶Ã‡ History unification Î“Ã¶Ã‡Î“Ã¶Ã‡
-// Proof target: TS (non-pixel) and Rust (pixel) operations share EXACTLY ONE
+// History unification
+// Proof target: the caller's non-pixel edits and the engine's pixel edits share EXACTLY ONE
 // logical history cursor. The Rust `DocumentCore` already routes both
 // `apply_pixel_patch` (Pixel entry) and `record_external` (External entry)
 // into the same `entries`/`cursor`/`version` stream. These tests assert the
@@ -221,7 +221,7 @@ fn phase1_e_partial_undo_then_new_severs_redo() {
     r.undo_pixel("d"); // undo the TS meta entry -> cursor 1
     let after_undo = r.get_history_cursor("d").unwrap();
     // External redo returns no pixel tiles (TS reverts its own metadata) but the
-    // UNIFIED cursor MUST advance Î“Ã‡Ã¶ that is the real redo signal.
+    // UNIFIED cursor MUST advance -- that is the real redo signal.
     let redone = r.redo_pixel("d");
     assert_eq!(
         r.get_history_cursor("d"),

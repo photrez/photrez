@@ -416,11 +416,11 @@ fn native_engines_are_isolated_per_document() {
 
 #[test]
 fn native_authority_command_path_uses_global_registry_and_json_envelope() {
-    // Mirrors the EXACT production path of `protocol_apply_command_native`:
+    // Mirrors the EXACT production path of the protocol facade's apply command:
     // the REAL global `pixel_store::registry()` (NOT a local
     // `PixelStoreRegistry::new()`), a serde JSON in/out envelope, the
     // missing-doc error contract, and the "CODE: message" apply-error
-    // formatting the command returns to the 2b-3 TS client.
+    // formatting the facade returns to its caller.
 
     // Open the doc exactly as production does: `PixelStoreRegistry::open_document`
     // precedes the protocol command, so the command's get_mut finds an
