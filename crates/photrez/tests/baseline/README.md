@@ -1,16 +1,23 @@
 # Golden-master baselines
 
-Reference screenshots of the original web-rendered UI, captured so the native
-port can be compared against it. `manifest.json` sits beside the PNGs and
-records what each shot shows, how it was captured, and which noise is expected.
+Reference screenshots of the interface this application aims to present: the
+shots were taken from the version that preceded the native one, so a rendering
+or layout change shows up as a diff instead of a surprise.
+`manifest.json` sits beside the PNGs and records what each shot shows, how it
+was captured, and which noise is expected.
 
 ## How this set was produced
 
-- Command: `cd apps/desktop && bun run scripts/capture-baseline.ts --out <dir>`
-- Tooling: `apps/desktop/scripts/capture-baseline.ts` (recipes) plus
-  `apps/desktop/scripts/baseline-shots.json` (the 74 shot definitions). Both
-  hashes and git blobs are recorded in `manifest.scripts`, so the exact capture
-  revisions are recoverable.
+- Origin: the shots were captured from the interface this native application
+  reproduces, using the capture tooling of the version that preceded it. That
+  tooling and its sources are preserved in the separate archived repository
+  [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy); they are
+  not part of this checkout. Their hashes and git blobs are recorded in
+  `manifest.scripts`, so the exact capture revisions stay recoverable.
+- Current captures: `cargo xtask capture --shot <id> --out <png>` launches this
+  application rendering one baseline state, waits for its window and captures
+  the client area, one process per shot with no state carried between shots.
+  Comparisons run through `cargo xtask parity`.
 - Source: `manifest.sourceCommit` names the tree the shots were taken from.
   `manifest.sourceDirty` records whether the worktree differed from it at
   capture time.
@@ -56,10 +63,11 @@ records what each shot shows, how it was captured, and which noise is expected.
 | Block anchoring | top-aligned comparison | anchor per-region, not globally; shells differ in height at the bottom. |
 | Placeholder regions | dock/navigator numbers measured against a flat placeholder count "missing", not "wrong" | re-measure once the real dock exists. |
 
-Producing the numbers above requires the reference tooling (`shape-diff` and
-`measure` semantics: the class map with the 3x3 neighbourhood tolerance, the
-ink integral, the bounding boxes). The port owns the Rust equivalent; two
-tolerance implementations must never both be alive.
+Producing the numbers above requires the comparison semantics — the class map
+with the 3x3 neighbourhood tolerance, the ink integral, the bounding boxes.
+They live in this repository's own tooling (`cargo xtask parity`, with the
+shape-diff and measure steps under `crates/xtask/src/parity/`), so there is one
+tolerance implementation and it is the one CI runs.
 
 ## Known run-to-run variance (measured)
 

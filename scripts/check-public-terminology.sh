@@ -148,7 +148,7 @@ files_check() {
         ;;
       *.md)
         case "$f" in
-          README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|docs/*|.github/*)
+          README.md|CHANGELOG.md|CONTRIBUTING.md|SECURITY.md|docs/*|.github/*|crates/*)
             grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
             grep -niE "$PLAN_MD" "$f" && fail "internal milestone vocabulary in public doc $f"
             # Dated history keeps its original words: the release log and the

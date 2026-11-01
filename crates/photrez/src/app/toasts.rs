@@ -1,4 +1,4 @@
-//! The live toast queue behind `Toast.tsx`'s module-level signal.
+//! The live toast queue: a module-level queue the views read at render time.
 //!
 //! `showToast` appends `{ id, message, severity }`, evicts the oldest entry
 //! once the stack exceeds three, and arms a timer that dismisses that exact
@@ -6,7 +6,7 @@
 //! function of state; this module owns only the queue arithmetic and the
 //! timers.
 //!
-//! Durations are `Toast.tsx`'s `DURATIONS`: 3500 ms for info and warn, 5000 ms
+//! Dismiss timers are fixed per level: 3500 ms for info and warn, 5000 ms
 //! for error.
 
 use std::time::Duration;
@@ -23,7 +23,7 @@ const SHORT_DISMISS: Duration = Duration::from_millis(3_500);
 /// `DURATIONS.error`.
 const ERROR_DISMISS: Duration = Duration::from_millis(5_000);
 
-/// `Toast.tsx`: `next.length > 3 ? next.slice(-3) : next`.
+/// Three rows is the visible cap, so a fourth push drops the oldest.
 const MAX_TOASTS: usize = 3;
 
 impl App {
