@@ -1,4 +1,3 @@
-    "alignCenter": "Align center",
 {
   "settings": {
     "title": "Settings",
@@ -331,6 +330,7 @@
     "spacing": "Spacing",
     "align": "Align",
     "alignLeft": "Align left",
+    "alignCenter": "Align center",
     "alignRight": "Align right",
     "fill": "Fill",
     "stroke": "Stroke",
