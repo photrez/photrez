@@ -82,6 +82,7 @@ fn resize_body() -> Div {
                         .rounded(px(6.0))
                         .px(px(6.0))
                         .bg(color::FIELD)
+                        .shadow(vec![ui::accent_well()])
                         .child(
                             Icon::default()
                                 // icons::LINK, the source's Link icon --
@@ -126,8 +127,8 @@ fn resize_row(label: &str, value: &str) -> Div {
 }
 
 /// The shared dialog field chrome with a value in it: 30px tall, 4px radius, a
-/// FIELD_BORDER edge on a FIELD fill, 10px side padding, right-aligned so the
-/// digits sit where a number input puts them.
+/// FIELD_BORDER edge on a FIELD fill recessed by [`ui::field_well`], 10px side
+/// padding, right-aligned so the digits sit where a number input puts them.
 fn dialog_field(value: &str) -> Div {
     h_flex()
         .h(px(DIALOG_FIELD_H))
@@ -140,6 +141,7 @@ fn dialog_field(value: &str) -> Div {
         .border_1()
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
+        .shadow(vec![ui::field_well()])
         .px(px(FIELD_PAD_DIALOG))
         .text_size(px(DIALOG_FIELD_TEXT))
         .font_family(ui::FONT_UI)
@@ -166,6 +168,7 @@ fn unit_picker(unit: &str) -> Div {
         .border_1()
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
+        .shadow(vec![ui::field_well()])
         .px(px(FIELD_PAD_DIALOG))
         .text_size(px(DIALOG_FIELD_TEXT))
         .font_family(ui::FONT_UI)

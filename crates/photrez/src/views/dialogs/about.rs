@@ -129,7 +129,8 @@ pub(super) fn about_body() -> Div {
 }
 
 /// Centred, never-squeezed 48px tile with an 8px radius, 1px DIVIDER border,
-/// `#151516` fill and 8px padding, around the 32px mark.
+/// `#151516` fill, the standard inset well and 8px padding, around the 32px
+/// mark.
 fn about_brand_tile() -> Div {
     div()
         .w(px(ABOUT_TILE))
@@ -142,6 +143,7 @@ fn about_brand_tile() -> Div {
         .border_1()
         .border_color(color::DIVIDER)
         .bg(ABOUT_PANEL_BG)
+        .shadow(vec![crate::components::ui::inset_well()])
         .p(px(ABOUT_TILE_PAD))
         .child(title_bar::logo(ABOUT_MARK))
 }

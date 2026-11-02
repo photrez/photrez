@@ -109,12 +109,14 @@ struct RowView<'a> {
 }
 
 /// A 50px row with a 10px child gap and 14px side inset; a selected row takes
-/// the `ROW_ACTIVE` fill and the active row a 1px `ACCENT` edge at 40% alpha.
+/// the `ROW_ACTIVE` fill and carries a 1px inset `ACCENT` ring at 40% alpha
+/// while it is the active row, 20% while it is selected but not active.
 ///
-/// The reference paints that edge as a 1px inset ring. GPUI can do the same:
-/// `BoxShadow` has an `inset` flag, and this app already builds spread-only
-/// rings for the option bar (`option_bar/controls.rs`). So the border below is
-/// a chosen reading, not the only available one.
+/// The ring is an inset shadow rather than a border because that is how the
+/// reference builds it (`ring-1 ring-inset`) and the two are not
+/// interchangeable here: a border takes its pixel out of the content box, so a
+/// bordered row paints its thumbnail and name 1px further in than the reference
+/// row does.
 ///
 /// The id is the stable `layer-row-<id>` form: both the drag source and
 /// the drop target are this same element, and the mounted test addresses it by
@@ -230,6 +232,21 @@ fn layer_row(
         },
     );
 
+    // The inner edge, in two tiers: accent at 40% on the active row, at 20% on
+    // a row that is selected without being active, and nothing on the rest.
+    let accent = |alpha: f32| Hsla {
+        h: color::ACCENT.h,
+        s: color::ACCENT.s,
+        l: color::ACCENT.l,
+        a: alpha,
+    };
+    let mut rings = Vec::new();
+    if active {
+        rings.push(ui::inset_ring(accent(0.4)));
+    } else if selected {
+        rings.push(ui::inset_ring(accent(0.2)));
+    }
+
     h_flex()
         .id(format!("layer-row-{id}"))
         .test_support()
@@ -241,14 +258,7 @@ fn layer_row(
         .gap(px(ROW_GAP))
         .px(px(PAD_X))
         .when(selected, |el| el.bg(color::ROW_ACTIVE))
-        .when(active, |el| {
-            el.border(px(1.0)).border_color(Hsla {
-                h: color::ACCENT.h,
-                s: color::ACCENT.s,
-                l: color::ACCENT.l,
-                a: 0.4,
-            })
-        })
+        .shadow(rings)
         .cursor_pointer()
         .on_click(on_click)
         .on_drag(drag_payload, on_drag)

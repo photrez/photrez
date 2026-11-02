@@ -245,7 +245,10 @@ pub(super) fn gradient_preview(
 /// actually fill with. Callers derive `from`/`to` from live state with
 /// [`gradient_preview`].
 pub(super) fn gradient_strip(from: Hsla, to: Hsla) -> Div {
-    let mut shadows = vec![BoxShadow::new(px(0.), px(0.), color::WHITE_10).spread_radius(px(1.))];
+    let mut shadows = vec![
+        crate::components::ui::inset_well(),
+        BoxShadow::new(px(0.), px(0.), color::WHITE_10).spread_radius(px(1.)),
+    ];
     shadows.extend(shadow_sm_layers());
     div()
         .relative()
@@ -845,6 +848,7 @@ fn text_stroke_popover(
                 .border_1()
                 .border_color(color::BORDER)
                 .bg(crate::palette::hsla([0x17, 0x19, 0x1E, 0xFF]))
+                .shadow(vec![crate::components::ui::inset_well()])
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-outside",
                     t("tools.options.strokeOutside"),

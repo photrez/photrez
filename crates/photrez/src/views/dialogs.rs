@@ -498,6 +498,7 @@ fn resize_field(
         .border_1()
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
+        .shadow(vec![ui::field_well()])
         .text_size(px(11.0))
         .text_color(color::TEXT)
         .cursor_pointer()
@@ -541,6 +542,7 @@ fn resize_field(
                     color::FIELD_BORDER
                 })
                 .bg(color::FIELD)
+                .shadow(vec![ui::field_well()])
                 .text_size(px(11.5))
                 .text_color(color::TEXT)
                 .cursor_pointer()
@@ -612,6 +614,7 @@ fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> 
             .rounded(px(6.0))
             .border_1()
             .border_color(if locked { color::ACCENT } else { color::BORDER })
+            .when(locked, |el| el.shadow(vec![ui::accent_well()]))
             .text_size(px(11.0))
             .text_color(if locked {
                 color::ACCENT
@@ -1051,6 +1054,7 @@ fn new_doc_field_box(active: bool) -> Div {
             color::FIELD_BORDER
         })
         .bg(color::FIELD)
+        .shadow(vec![ui::field_well()])
         .px(px(8.0))
         .text_size(px(12.0))
         .text_color(color::TEXT)

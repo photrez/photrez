@@ -176,6 +176,52 @@ pub fn pin<T: gpui_kit::Styled>(el: T) -> T {
     el.flex_none()
 }
 
+/// An inset well: a shadow drawn *inside* the box, over its own background.
+///
+/// This is the recessed-box layer every 24px control in the design carries
+/// (`shadow-inner`): the gradient strip, the stroke-position segmented track,
+/// the unchecked option-bar checkbox and the About logo tile. It costs no
+/// layout — a box with a well has the same content box as a box without one,
+/// which is why it is a shadow layer and not a border.
+pub fn inset_well() -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(2.), gpui_kit::hsla(0.0, 0.0, 0.0, 0.05))
+        .blur_radius(px(4.))
+        .inset()
+}
+
+/// The 28px- tall dialog field well, one step deeper than [`inset_well`]: a
+/// 1px offset with a 2px blur at 35% black.
+///
+/// Applied to the field chrome that the dialogs share — new-document inputs and
+/// selects, the resize dimension inputs and their unit pickers. Not applied to
+/// the print or export dialogs' own rows, whose reference controls carry no
+/// inset layer.
+pub fn field_well() -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(1.), gpui_kit::hsla(0.0, 0.0, 0.0, 0.35))
+        .blur_radius(px(2.))
+        .inset()
+}
+
+/// [`field_well`] tinted with the accent instead of black, for the control that
+/// changes colour when it engages: the locked `Keep proportions` pill.
+pub fn accent_well() -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(1.), color::ACCENT_15)
+        .blur_radius(px(2.))
+        .inset()
+}
+
+/// A 1px ring painted *inside* the edge: the inset form of the spread-only ring
+/// this palette already builds for option-bar swatches.
+///
+/// An inset ring and a 1px border put the same line on the same pixel edge, but
+/// only the ring leaves the content box alone, so children stay exactly where
+/// they would sit in the reference.
+pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(0.), colour)
+        .spread_radius(px(1.))
+        .inset()
+}
+
 pub fn menu_row(
     label: &str,
     shortcut: Option<&str>,
@@ -359,5 +405,56 @@ mod tests {
     #[test]
     fn field_height_is_24px() {
         assert_eq!(super::FIELD_H, 24.0);
+    }
+
+    /// The three inset wells are the reference's shadow layers: inset, at the
+    /// reference offset, blur and alpha, with no spread.
+    ///
+    /// The harness cannot read a painted shadow (gpui-kit's `TestWindowExt`
+    /// snapshot exposes bounds and visibility only), so this pins the values the
+    /// call sites hand to `.shadow(...)`; the per-site wiring is cited in the
+    /// G25 register rows these wells close.
+    ///
+    /// RED proof: drop `.inset()` from any helper and its `inset` assertion
+    /// fails; edit an offset, blur or alpha and that row fails.
+    #[test]
+    fn inset_wells_are_the_reference_shadow_layers() {
+        use gpui_kit::{hsla, px};
+
+        let well = super::inset_well();
+        assert!(well.inset, "the 24px well is drawn inside the box");
+        assert_eq!((well.offset.x, well.offset.y), (px(0.), px(2.)));
+        assert_eq!(well.blur_radius, px(4.));
+        assert_eq!(well.spread_radius, px(0.));
+        assert_eq!(well.color, hsla(0.0, 0.0, 0.0, 0.05));
+
+        let field = super::field_well();
+        assert!(field.inset, "the dialog field well is drawn inside the box");
+        assert_eq!((field.offset.x, field.offset.y), (px(0.), px(1.)));
+        assert_eq!(field.blur_radius, px(2.));
+        assert_eq!(field.color, hsla(0.0, 0.0, 0.0, 0.35));
+
+        let accent = super::accent_well();
+        assert!(accent.inset, "the locked pill's glow is drawn inside it");
+        assert_eq!((accent.offset.x, accent.offset.y), (px(0.), px(1.)));
+        assert_eq!(accent.blur_radius, px(2.));
+        assert_eq!(accent.color, crate::tokens::color::ACCENT_15);
+    }
+
+    /// An inset ring is a 1px spread shadow with no offset or blur, drawn
+    /// inside the edge, in the colour it was given.
+    /// RED proof: drop `.inset()` or change the spread and the ring assertions
+    /// fail; pass a colour through and compare it to prove the argument is used.
+    #[test]
+    fn inset_ring_is_a_one_pixel_inset_spread() {
+        use gpui_kit::{hsla, px};
+
+        let tint = hsla(0.08, 0.9, 0.6, 0.4);
+        let ring = super::inset_ring(tint);
+        assert!(ring.inset);
+        assert_eq!((ring.offset.x, ring.offset.y), (px(0.), px(0.)));
+        assert_eq!(ring.blur_radius, px(0.));
+        assert_eq!(ring.spread_radius, px(1.));
+        assert_eq!(ring.color, tint);
     }
 }

@@ -106,7 +106,8 @@ pub(super) fn checked_box() -> Div {
         )
 }
 
-/// The unchecked square: field fill, no tick.
+/// The unchecked square: field fill, recessed by the same inset well the
+/// reference gives it, no tick.
 pub(super) fn unchecked_box() -> Div {
     div()
         .h_flex()
@@ -118,6 +119,7 @@ pub(super) fn unchecked_box() -> Div {
         .border_1()
         .border_color(color::BORDER)
         .bg(FIELD_80)
+        .shadow(vec![ui::inset_well()])
 }
 
 /// An editable numeric field drawn at rest.
