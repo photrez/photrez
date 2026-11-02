@@ -713,6 +713,47 @@ mod tests {
         );
     }
 
+    /// The row fill has three branches and the middle one is a tier, not a
+    /// second colour: a row selected without being active takes the same
+    /// `ROW_ACTIVE` at 70%, and an unselected row takes no fill at all so its
+    /// hover can. RED proof by mutation: drop the `else if selected` branch and
+    /// the alpha, and this fails at its named middle assertion while the active
+    /// and resting assertions stay green.
+    #[test]
+    fn layer_row_fill_follows_the_three_reference_branches() {
+        assert_eq!(
+            rows::row_fill(true, true),
+            color::ROW_ACTIVE,
+            "the active row keeps the full row fill"
+        );
+        let dimmed = rows::row_fill(false, true);
+        assert_eq!(
+            dimmed.a, 0.7,
+            "a selected-but-inactive row takes the 70% tier"
+        );
+        assert_eq!(
+            dimmed.l,
+            color::ROW_ACTIVE.l,
+            "the tier dims the same colour, it is not a second grey"
+        );
+        assert_eq!(
+            rows::row_fill(false, false).a,
+            0.0,
+            "an unselected row draws no fill of its own"
+        );
+    }
+
+    /// The hover tier is white at 3%, and it is colourless - a hue would show
+    /// through on the panel and the reference asks plain white.
+    /// RED proof by mutation: raise the alpha or give it a saturation and this
+    /// fails at the named assertion.
+    #[test]
+    fn layer_row_hover_is_three_percent_white() {
+        let hover = rows::row_hover_fill();
+        assert_eq!(hover.a, 0.03, "the row's hover fill is white at 3%");
+        assert_eq!((hover.h, hover.s, hover.l), (0.0, 0.0, 1.0));
+    }
+
     fn flags() -> crate::state::LayerFlags {
         crate::state::LayerFlags {
             visible: true,

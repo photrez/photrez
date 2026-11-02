@@ -33,6 +33,44 @@ pub(super) fn row_hairline_colour() -> Hsla {
     color::BORDER
 }
 
+/// The row's own fill, in the reference's three branches: full `ROW_ACTIVE` on
+/// the active row, the same colour at 70% on a row selected without being
+/// active, and nothing on the rest.
+///
+/// The middle tier is a 5/255 step over the panel - the ratified pixel gate
+/// cannot see it, which is exactly why it was never ported. It is still the
+/// state the reference paints, and a multi-selection reads as one bright row
+/// plus a column of dimmed ones rather than a block of identical ones.
+pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
+    if active {
+        color::ROW_ACTIVE
+    } else if selected {
+        Hsla {
+            a: 0.7,
+            ..color::ROW_ACTIVE
+        }
+    } else {
+        Hsla {
+            a: 0.0,
+            ..color::ROW_ACTIVE
+        }
+    }
+}
+
+/// White at 3%, the fill an unselected row takes while the pointer is on it.
+///
+/// The reference only asks for it in its third branch, so a selected row keeps
+/// its own fill tier and never takes this one; the step it makes over the panel
+/// is 7/255.
+pub(super) fn row_hover_fill() -> Hsla {
+    Hsla {
+        h: 0.0,
+        s: 0.0,
+        l: 1.0,
+        a: 0.03,
+    }
+}
+
 /// The layer stack: a scrollable column with a 6px reserved gutter, bordered
 /// top and bottom.
 ///
@@ -121,9 +159,11 @@ struct RowView<'a> {
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
 }
 
-/// A 50px row with a 10px child gap and 14px side inset; a selected row takes
-/// the `ROW_ACTIVE` fill and carries a 1px inset `ACCENT` ring at 40% alpha
-/// while it is the active row, 20% while it is selected but not active.
+/// A 50px row with a 10px child gap and 14px side inset. Its fill and its inner
+/// edge follow the reference's three branches - see [`row_fill`], which is full
+/// `ROW_ACTIVE` and a 1px inset `ACCENT` ring at 40% alpha on the active row,
+/// the same fill at 70% and a 20% ring on a row selected without being active,
+/// and no fill plus white/3% on hover for the rest.
 ///
 /// The ring is an inset shadow rather than a border because that is how the
 /// reference builds it (`ring-1 ring-inset`) and the two are not
@@ -281,7 +321,8 @@ fn layer_row(
         .px(px(PAD_X))
         .border_b_1()
         .border_color(row_hairline_colour())
-        .when(selected, |el| el.bg(color::ROW_ACTIVE))
+        .bg(row_fill(active, selected))
+        .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
         .shadow(rings)
         .cursor_pointer()
         .on_click(on_click)
