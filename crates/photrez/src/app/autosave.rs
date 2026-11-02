@@ -8,7 +8,9 @@ use std::time::Duration;
 use gpui_kit::Context;
 
 use crate::services::autosave::AutosaveStore;
-use crate::services::settings;
+use crate::services::error::ServiceError;
+use crate::services::file_io::FileIo;
+use crate::services::save_stream::SaveStream;
 use crate::state::{AutosaveStatus, TabRow};
 
 use super::App;
@@ -39,14 +41,53 @@ impl App {
         cx.notify();
     }
 
-    /// Start the 60 s autosave loop when a cache directory exists.
-    pub(crate) fn start_autosave_timer(&mut self, cx: &mut Context<Self>) {
-        // Tests mount the app without settings; they must not write the real
-        // user cache or inherit a recovery prompt from another run.
-        if self.settings.is_none() {
-            return;
+    /// Write every dirty session to the app-cache autosave store and return how
+    /// many archives were written.
+    ///
+    /// `cache_root` is injected so a test never writes the real user cache. Each
+    /// session is written on its own: one document whose snapshot fails must not
+    /// stop the other dirty sessions from being snapshotted, and no session's
+    /// dirty flag is cleared here.
+    pub(crate) fn autosave_dirty_sessions(
+        &mut self,
+        cache_root: &Path,
+    ) -> Result<usize, ServiceError> {
+        let file_io = self.ensure_file_io().map_err(ServiceError::Internal)?;
+        let store = AutosaveStore::new(cache_root);
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let mut saved = 0;
+        let mut first_error = None;
+        for session in self.sessions.dirty_sessions() {
+            match store.autosave(
+                session.doc_id(),
+                session,
+                file_io.as_ref(),
+                &SaveStream,
+                now_ms,
+            ) {
+                Ok(true) => saved += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
         }
-        let Some(cache_root) = settings::user_cache_root() else {
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(saved),
+        }
+    }
+
+    /// Start the 60 s autosave loop when an app-cache directory exists.
+    pub(crate) fn start_autosave_timer(&mut self, cx: &mut Context<Self>) {
+        // Tests mount the app without a cache root; they must not write the
+        // real user cache or inherit a recovery prompt from another run.
+        let Some(cache_root) = self.autosave_cache_root.clone() else {
             return;
         };
         // Opportunistic 7-day cleanup for stale autosaves (best effort).
@@ -93,40 +134,89 @@ impl App {
         cx.notify();
     }
 
-    /// Open every recoverable autosave as a new unsaved tab, then clear the
-    /// store. The recovered document has no source path, so a later Ctrl+S
-    /// prompts Save As instead of overwriting the recovery file.
+    /// Open every recoverable autosave as a new unsaved tab and drop the ones
+    /// that opened. The recovered document has no source path, so a later
+    /// Ctrl+S prompts Save As instead of overwriting the recovery file.
+    ///
+    /// Each entry is restored on its own: an archive that cannot be read
+    /// keeps the other archives restorable and keeps its own file in the store
+    /// so the next start offers it again.
     pub(crate) fn restore_autosaves_from(&mut self, cache_root: &Path, cx: &mut Context<Self>) {
-        let result = (|| -> Result<(), String> {
-            let store = AutosaveStore::new(cache_root);
-            let entries = store
-                .list()
-                .map_err(|error| format!("cannot read the autosave manifest: {error}"))?;
-            let file_io = self.ensure_file_io()?;
-            for entry in entries {
-                let path = store
-                    .recovery_path(&entry)
-                    .map_err(|error| format!("cannot resolve the recovery file: {error}"))?;
-                file_io
-                    .approve_path(&path)
-                    .map_err(|error| format!("cannot approve the recovery file: {error}"))?;
-                let (loaded, canvas) = Self::prepare_startup_document(&path, file_io.as_ref())?;
-                self.install_document(loaded, canvas, None, cx)?;
+        let store = AutosaveStore::new(cache_root);
+        let outcome = match (store.list(), self.ensure_file_io()) {
+            (Ok(entries), Ok(file_io)) => {
+                let total = entries.len();
+                let mut restored = 0;
+                let mut failures: Vec<String> = Vec::new();
+                for entry in entries {
+                    let name = entry.display_name().to_owned();
+                    match self.restore_entry(&store, entry, file_io.as_ref(), cx) {
+                        Ok(()) => restored += 1,
+                        Err(reason) => failures.push(format!("{name}: {reason}")),
+                    }
+                }
+                (total, restored, failures)
             }
-            store
-                .clear_all()
-                .map_err(|error| format!("cannot clear the autosave store: {error}"))?;
-            Ok(())
-        })();
+            (Ok(entries), Err(error)) => (entries.len(), 0, vec![error]),
+            (Err(error), _) => (
+                0,
+                0,
+                vec![format!("cannot read the autosave manifest: {error}")],
+            ),
+        };
         self.state.update(cx, |state, _| {
             state.active_dialog = None;
             state.recovery_entries.clear();
         });
-        match result {
-            Ok(()) => self.set_status_error(None, cx),
-            Err(error) => self.set_status_error(Some(format!("Recovery: {error}")), cx),
+        let (total, restored, failures) = outcome;
+        match failures.is_empty() {
+            true => self.set_status_error(None, cx),
+            false => {
+                let summary = if restored == 0 {
+                    format!("Recovery: {}", failures.join("; "))
+                } else {
+                    format!(
+                        "Recovery: {restored} of {total} restored; {}",
+                        failures.join("; ")
+                    )
+                };
+                self.set_status_error(Some(summary), cx);
+            }
         }
         self.project_tabs(cx);
+        cx.notify();
+    }
+
+    /// Restore one entry and remove only that entry's archive once it is open.
+    fn restore_entry(
+        &mut self,
+        store: &AutosaveStore,
+        entry: crate::services::autosave::AutosaveEntry,
+        file_io: &dyn FileIo,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let path = store
+            .recovery_path(&entry)
+            .map_err(|error| format!("cannot resolve the recovery file: {error}"))?;
+        file_io
+            .approve_path(&path)
+            .map_err(|error| format!("cannot approve the recovery file: {error}"))?;
+        let (loaded, canvas) = Self::prepare_startup_document(&path, file_io)?;
+        self.install_document(loaded, canvas, None, cx)
+            .map_err(|error| format!("cannot open the recovered document: {error}"))?;
+        store
+            .clear_one(entry.doc_id())
+            .map(|_| ())
+            .map_err(|error| format!("opened, but its autosave file stayed: {error}"))
+    }
+
+    /// Decline the offer without touching the store: every autosave is still
+    /// there for the next start, and the 7-day cleanup bounds how long.
+    pub(crate) fn decline_autosaves(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.recovery_entries.clear();
+        });
         cx.notify();
     }
 
@@ -143,25 +233,29 @@ impl App {
         cx.notify();
     }
 
-    /// Startup entry point using the real app cache directory.
+    /// Startup entry point using the resolved app cache directory.
     pub(crate) fn prepare_startup_recovery(&mut self, cx: &mut Context<Self>) {
-        if self.settings.is_none() {
-            return;
-        }
-        if let Some(root) = settings::user_cache_root() {
+        if let Some(root) = self.autosave_cache_root.clone() {
             self.prepare_recovery_from(&root, cx);
         }
     }
 
     pub(crate) fn restore_autosaves(&mut self, cx: &mut Context<Self>) {
-        if let Some(root) = settings::user_cache_root() {
+        if let Some(root) = self.autosave_cache_root.clone() {
             self.restore_autosaves_from(&root, cx);
         }
     }
 
     pub(crate) fn discard_autosaves(&mut self, cx: &mut Context<Self>) {
-        if let Some(root) = settings::user_cache_root() {
+        if let Some(root) = self.autosave_cache_root.clone() {
             self.discard_autosaves_from(&root, cx);
         }
+    }
+
+    /// Point the store at a directory the test owns, so a mounted prompt
+    /// exercises the real buttons without touching the user cache.
+    #[cfg(test)]
+    pub(crate) fn use_autosave_cache_root_for_test(&mut self, root: PathBuf) {
+        self.autosave_cache_root = Some(root);
     }
 }

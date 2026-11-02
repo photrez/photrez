@@ -28,12 +28,9 @@ use crate::render::canvas_bridge::{
     TransformFrame,
 };
 use crate::services;
-use crate::services::autosave::AutosaveStore;
 use crate::services::document::LoadedDocument;
-use crate::services::error::ServiceError;
 use crate::services::file_io::{FileIo, LocalFileIo};
 use crate::services::print::{PrintDispatch, PrintService};
-use crate::services::save_stream::SaveStream;
 use crate::services::session::SessionRegistry;
 use crate::services::settings::{FileSettings, SettingsStore};
 use crate::services::window_state::{self, WindowGeometry};
@@ -351,6 +348,9 @@ pub struct App {
     preview_pushes: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
+    /// The app-cache directory holding the autosave store, resolved once so
+    /// the timer, the recovery prompt and the quit flush all use one answer.
+    autosave_cache_root: Option<PathBuf>,
 }
 
 /// Route an action to this window's `App` entity from anywhere in the window.
@@ -902,10 +902,8 @@ impl App {
             // Multi-document quit: dirty sessions that are not the one the
             // close prompt handled are written to the recovery store so the
             // next launch can restore them.
-            if this.settings.is_some() {
-                if let Some(root) = services::settings::user_cache_root() {
-                    let _ = this.autosave_dirty_sessions(&root);
-                }
+            if let Some(root) = this.autosave_cache_root.clone() {
+                let _ = this.autosave_dirty_sessions(&root);
             }
             this.persist_bounds(true);
             async {}
@@ -1000,6 +998,7 @@ impl App {
             #[cfg(test)]
             preview_pushes: Cell::new(0),
             autosave_task: None,
+            autosave_cache_root: None,
         };
         #[cfg(feature = "input-measurement")]
         app.measurement.share_bounds(Rc::clone(&app.canvas_bounds));
@@ -1007,9 +1006,15 @@ impl App {
             this.release_navigation(cx);
         });
         app._window_watch.push(blur);
+        // Only a settings-backed launch owns the real app cache; a test mount
+        // has no settings and injects its own root instead.
+        app.autosave_cache_root = if app.settings.is_some() {
+            services::settings::user_cache_root()
+        } else {
+            None
+        };
         app.apply_startup_locale();
         app.start_autosave_timer(cx);
-        app.prepare_startup_recovery(cx);
         app.load_recent_files(cx);
         // The shortcuts are window-global: they must fire wherever focus sits,
         // so they are registered on the app rather than on a focusable element.
@@ -1093,6 +1098,10 @@ impl App {
         if shot_id.is_some() && app.state.read(cx).has_document && app.active_document.is_none() {
             app.install_shot_document(cx);
         }
+        // The recovery prompt comes after the explicit open: a document the
+        // user asked for by name is on screen before an offer they did not ask
+        // for can cover it.
+        app.prepare_startup_recovery(cx);
         app
     }
 
@@ -1217,37 +1226,6 @@ impl App {
     ) -> Result<(), String> {
         let (loaded, canvas) = Self::prepare_startup_document(path, file_io)?;
         self.install_document(loaded, canvas, Some(path.to_path_buf()), cx)
-    }
-
-    /// Write every dirty session to the app-cache autosave store.
-    ///
-    /// The 40-owned timer/status/prompt calls this; the store, dirty state and
-    /// save stream are the 70 side of recovery. `cache_root` is injected so the
-    /// test never writes the real user cache.
-    #[cfg_attr(not(test), allow(dead_code))] // the 40 timer owns the production call
-    pub(crate) fn autosave_dirty_sessions(
-        &mut self,
-        cache_root: &Path,
-    ) -> Result<usize, ServiceError> {
-        let file_io = self.ensure_file_io().map_err(ServiceError::Internal)?;
-        let store = AutosaveStore::new(cache_root);
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis() as u64)
-            .unwrap_or(0);
-        let mut saved = 0;
-        for session in self.sessions.dirty_sessions() {
-            if store.autosave(
-                session.doc_id(),
-                session,
-                file_io.as_ref(),
-                &SaveStream,
-                now_ms,
-            )? {
-                saved += 1;
-            }
-        }
-        Ok(saved)
     }
 
     /// Put a prepared document on screen, replacing the current one only when

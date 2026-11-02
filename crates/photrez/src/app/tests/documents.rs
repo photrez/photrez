@@ -2,7 +2,11 @@ use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
 
-fn open_second_document(app: &mut App, cx: &mut gpui_kit::Context<App>, directory: &TestDirectory) {
+pub(super) fn open_second_document(
+    app: &mut App,
+    cx: &mut gpui_kit::Context<App>,
+    directory: &TestDirectory,
+) {
     let path = directory.path().join("second.ptz");
     std::fs::write(&path, super::commands::multi_layer_archive_with(false))
         .expect("second fixture is written");
@@ -470,106 +474,6 @@ fn edit_menu_rows_run_real_commands(cx: &mut gpui_kit::TestAppContext) {
         assert_eq!(state.open_menu, None, "the command closes the menu");
     })
     .expect("test window remains open");
-}
-
-#[gpui_kit::test]
-fn autosave_writes_dirty_sessions_and_reports_status(cx: &mut gpui_kit::TestAppContext) {
-    let directory = TestDirectory::new();
-    let (window, content, _source) = mount_fixture_app(cx, &directory);
-    let cache = directory.path().join("autosave-cache");
-    std::fs::create_dir(&cache).expect("autosave cache directory");
-    cx.update_window(window.into(), |_, _window, cx| {
-        content.update(cx, |app, cx| {
-            app.mark_active_document_dirty_for_test()
-                .expect("the session is dirty");
-            app.autosave_now(&cache, cx);
-            assert_eq!(
-                app.state_for_test().read(cx).autosave_status,
-                crate::state::AutosaveStatus::Saved
-            );
-        });
-    })
-    .expect("test window remains open");
-
-    let saved = walk_files(&cache);
-    assert!(
-        saved
-            .iter()
-            .any(|path| path.extension().and_then(|ext| ext.to_str()) == Some("ptz")),
-        "autosave wrote a .ptz: {saved:?}"
-    );
-}
-
-fn walk_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut files = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return files;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            files.extend(walk_files(&path));
-        } else {
-            files.push(path);
-        }
-    }
-    files
-}
-
-#[gpui_kit::test]
-fn startup_recovery_restores_autosaves_as_unsaved_tabs(cx: &mut gpui_kit::TestAppContext) {
-    let directory = TestDirectory::new();
-    let cache = directory.path().join("recovery-cache");
-    let autosave_dir = cache.join("autosave");
-    std::fs::create_dir_all(&autosave_dir).expect("autosave directory");
-    std::fs::write(
-        autosave_dir.join("multi-doc.ptz"),
-        super::commands::multi_layer_archive_with(false),
-    )
-    .expect("recovery archive is written");
-    std::fs::write(
-        autosave_dir.join("manifest.json"),
-        br#"{"multi-doc":"Multi layer|1700000000000"}"#,
-    )
-    .expect("recovery manifest is written");
-
-    let file_io = Arc::new(
-        LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
-            .expect("file boundary opens"),
-    );
-    let (window, content) = mount_app(cx, None, Some(file_io));
-    cx.update_window(window.into(), |_, _window, cx| {
-        content.update(cx, |app, cx| {
-            app.prepare_recovery_from(&cache, cx);
-            {
-                let state = app.state_for_test().read(cx);
-                assert_eq!(state.active_dialog, Some(crate::state::DialogId::Recovery));
-                assert_eq!(state.recovery_entries.len(), 1);
-                assert_eq!(state.recovery_entries[0].name, "Multi layer");
-            }
-
-            app.restore_autosaves_from(&cache, cx);
-            assert_eq!(app.open_tab_ids_for_test(), vec!["multi-doc"]);
-            assert!(app
-                .active_document_id_for_test()
-                .as_deref()
-                .is_some_and(|id| id == "multi-doc"));
-            assert_eq!(app.state_for_test().read(cx).active_dialog, None);
-            assert_eq!(app.active_core_layer_count_for_test(), Some(2));
-        });
-    })
-    .expect("test window remains open");
-    assert!(
-        !autosave_dir.join("multi-doc.ptz").exists(),
-        "restoring removes the recovery archive"
-    );
-    let manifest = std::fs::read_to_string(autosave_dir.join("manifest.json"))
-        .expect("the cleared manifest exists");
-    assert_eq!(
-        manifest.trim(),
-        "{}",
-        "the manifest lists no recoverable docs"
-    );
 }
 
 #[gpui_kit::test]

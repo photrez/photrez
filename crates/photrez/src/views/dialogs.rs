@@ -9,10 +9,10 @@
 //! draw over the shell is to cover the viewport and be appended late.
 //! `workspace.rs` gates this on `shot::starts_with("dialog-")`.
 //!
-//! The design centres a dialog at the viewport midpoint. GPUI has no
-//! `translate`, so the
-//! centring is not recomputed here: the manifest already records the *result*
-//! of that transform, and each dialog is pinned at its measured origin. That
+//! The design centres a dialog at the viewport midpoint. GPUI has no element
+//! offset, so the centring is not recomputed here: the manifest already
+//! records the *result* of that centring, and each dialog is pinned at its
+//! measured origin. That
 //! also sidesteps the whole class of error where this view re-derives a centre
 //! from a size and lands half a pixel off.
 //!
@@ -28,18 +28,20 @@
 //! # The chrome, measured in `dialog-about.png` (400x296)
 //!
 //! ```text
-//!   shell     rounded-[8px], 1px FIELD_BORDER edge, PANEL fill,
+//!   shell     8px radius, 1px FIELD_BORDER edge, PANEL fill,
 //!             shadow 0 18px 50px rgba(0,0,0,0.55)
-//!   titlebar  36px   (h-9)   TOPBAR fill, border-b DIVIDER, px-3
-//!             brand svg 18px + title text-[12px] medium + close size-5
-//!   body      PANEL, px-4 py-4, text-[12px] leading-[18px]
-//!   actions   45px   (min-h-11 + 1px border)  TOPBAR at 65%, border-t, px-3
-//!             buttons h-7 min-w-16 rounded-[6px] px-3 text-[11px] medium
+//!   titlebar  36px   TOPBAR fill, 1px bottom DIVIDER border, 12px side inset
+//!             brand svg 18px + 12px medium title + 20px close button
+//!   body      PANEL, 16px padding, 12px text, 18px line height
+//!   actions   45px   (44px min-height + 1px top border)  TOPBAR at 65%,
+//!             12px side inset
+//!             buttons 28px tall, 64px min-width, 6px radius, 12px side
+//!             inset, 11px medium text
 //! ```
 //!
 //! Reading the colours down a column at x=200 gives 20 (TOPBAR) for the
 //! titlebar, 30 (PANEL) for the body, and 23 for the footer \u{2014} and 23 is
-//! `bg-editor-topbar/65` composited over PANEL, not a token of its own. That
+//! TOPBAR at 65% composited over PANEL, not a token of its own. That
 //! is why the footer is a translucent TOPBAR rather than a constant someone
 //! picked to look right.
 //!
@@ -63,13 +65,13 @@
 //!   and only 19 pixels in the whole image exceed delta 60 \u{2014} so it is one
 //!   swatch, not a second layout. `empty_state.rs` delegates this shot back
 //!   here for exactly that reason.
-//! * `DesktopDialogButton`'s `focus-visible` outline, `transition-colors
-//!   duration-75`, `animate-dialog-fade-in` and focus trapping (Tab cycles
+//! * The dialog buttons' keyboard-focus outline, their 75 ms colour
+//!   transition, the dialog fade-in animation and focus trapping (Tab cycles
 //!   through the dialog's own controls) are still unwired. The titlebar close,
 //!   Escape for Settings/About, the backdrop's outside-click dismiss and the
 //!   About link row are live: `chrome::dialog_close_button` runs each dialog's
 //!   own dismissal, and `dismiss_chrome_dialog` owns the managed-focus Escape.
-//! * `modal: false` (the colour picker) makes the backdrop click-through so
+//! * A non-modal dialog (the colour picker) makes the backdrop click-through so
 //!   the canvas behind stays live. A static view cannot express "this overlay
 //!   does not block the thing under it", because it has no pointer routing.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce: it tints an
@@ -98,14 +100,14 @@ const FRAME_H: f32 = 820.0;
 /// 36px \u{2014} the titlebar's height.
 const TITLEBAR_H: f32 = 36.0;
 
-/// `min-h-11` plus the 1px `border-t` \u{2014} the footer's measured height in
+/// 44px min-height plus the 1px top border \u{2014} the footer's measured height in
 /// `dialog-about.png` (y=249..294).
 const ACTIONS_H: f32 = 45.0;
 
-/// `rounded-[8px]` / `rounded-[6px]` \u{2014} shell and buttons.
+/// 8px / 6px radius \u{2014} shell and buttons.
 const SHELL_R: f32 = 8.0;
 
-/// `rounded-[4px]` / `rounded-[6px]` inside the dialog bodies. Named here
+/// 4px / 6px radius inside the dialog bodies. Named here
 /// rather than imported because `ui.rs` keeps RADIUS private to the panel
 /// primitives, and the two actually differ: the panel field is 4px, this one
 /// is also 4px but the lock button above it is 6px.
@@ -115,23 +117,23 @@ const R4: f32 = 4.0;
 const R6: f32 = 6.0;
 const BTN_R: f32 = 6.0;
 
-/// `px-3` on the titlebar and footer, `px-4 py-4` on the body.
+/// 12px on the titlebar and footer, 16px horizontal and vertical on the body.
 const BAR_PX: f32 = 12.0;
 const BODY_PX: f32 = 16.0;
 const BODY_PY: f32 = 16.0;
 
-/// `h-7 min-w-16` \u{2014} a footer button.
+/// 28px tall, 64px min-width \u{2014} a footer button.
 const BTN_H: f32 = 28.0;
 const BTN_MIN_W: f32 = 64.0;
 
-/// `size-5` / `size-2.5` \u{2014} the close button and its X.
+/// 20px / 10px \u{2014} the close button and its X.
 const CLOSE_BOX: f32 = 20.0;
 const CLOSE_ICON: f32 = 10.0;
 
-/// `size-[18px]` \u{2014} the brand mark in the titlebar.
+/// 18px \u{2014} the brand mark in the titlebar.
 const BRAND: f32 = 18.0;
 
-/// `text-[12px]` title, `text-[11px]` buttons, `text-[12px] leading-[18px]`
+/// 12px title, 11px buttons, 12px text with an 18px line height for the
 /// body.
 const TITLE_TEXT: f32 = 12.0;
 const BTN_TEXT: f32 = 11.0;
@@ -142,10 +144,10 @@ const BODY_TEXT: f32 = 12.0;
 )]
 const BODY_LINE: f32 = 18.0;
 
-/// `gap-2` between the brand mark and the title, and between footer buttons.
+/// 8px between the brand mark and the title, and between footer buttons.
 const GAP_2: f32 = 8.0;
 
-/// `bg-editor-topbar/65` over PANEL \u{2014} the footer's fill, composited by hand
+/// TOPBAR at 65% over PANEL \u{2014} the footer's fill, composited by hand
 /// because no token carries it. TOPBAR is `#141414` (20) and PANEL `#1e1e1e`
 /// (30), so 0.65*20 + 0.35*30 = 23.5, which is what the scan reads.
 const FOOTER_FILL: Hsla = Hsla {
@@ -183,26 +185,26 @@ const SWATCH_PAGE: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `w-[52px]` - the label column in ResizeCanvasModal's dimension rows, and
-/// the pl-[52px] indent of the lock row under them.
+/// 52px - the label column in ResizeCanvasModal's dimension rows, and
+/// the 52px left indent of the lock row under them.
 const RESIZE_LABEL_W: f32 = 52.0;
 
-/// `w-[60px] shrink-0` - the unit picker beside each field.
+/// 60px, never squeezed - the unit picker beside each field.
 const RESIZE_UNIT_W: f32 = 60.0;
 
-/// `h-[30px]` from `desktopDialogFieldClass`. Deliberately NOT
+/// 30px \u{2014} the shared dialog field height in the source. Deliberately NOT
 /// [`ui::FIELD_H`] (24px): the panel's NumField and the dialogs' inputs are
 /// different chrome and measuring one and assuming the other is how the two
 /// got confused in the first place.
 const DIALOG_FIELD_H: f32 = 30.0;
 const DIALOG_FIELD_TEXT: f32 = 12.0;
 
-/// `gap-2.5` between the description, the two dimension rows and the lock row;
-/// `gap-2` inside a dimension row.
+/// 10px between the description, the two dimension rows and the lock row;
+/// 8px inside a dimension row.
 const RESIZE_GAP: f32 = 10.0;
 const RESIZE_ROW_GAP: f32 = 8.0;
 
-/// `px-2.5` on a dialog input.
+/// 10px horizontal on a dialog input.
 const FIELD_PAD_DIALOG: f32 = 10.0;
 
 /// The seven dialogs, with their measured origins.
@@ -212,8 +214,9 @@ const FIELD_PAD_DIALOG: f32 = 10.0;
 ///
 /// A capture is the authority for each of these: the origins are the manifest's
 /// boxes, not arithmetic on the source's centring transform, because
-/// `-translate-x-1/2 -translate-y-1/2` has no GPUI equivalent and re-deriving
-/// it would introduce exactly the half-pixel error the measurement avoids.
+/// shifting a box back by half its own size has no GPUI equivalent and
+/// re-deriving it would introduce exactly the half-pixel error the
+/// measurement avoids.
 const DIALOGS: &[(&str, &str, f32, f32, f32, f32)] = &[
     (
         "dialog-resize",
@@ -726,77 +729,6 @@ fn rename_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>
         )
 }
 
-/// The startup recovery prompt: list every autosave entry and let the user
-/// restore all of them as unsaved tabs or discard the store.
-fn recovery_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
-    let entries = state.read(cx).recovery_entries.clone();
-    let mut body = v_flex().p(px(16.0)).gap(px(6.0)).w_full();
-    body = body.child(
-        div()
-            .text_size(px(11.5))
-            .text_color(color::TEXT_DIM)
-            .child("Unsaved documents found in the autosave store:".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
-    );
-    for entry in entries {
-        body = body.child(
-            div()
-                .h(px(24.0))
-                .flex()
-                .items_center()
-                .text_size(px(11.5))
-                .text_color(color::TEXT)
-                .child(entry.name),
-        );
-    }
-    body.child(
-        div()
-            .mt(px(6.0))
-            .flex()
-            .gap(px(8.0))
-            .child(
-                div()
-                    .id("recovery-discard")
-                    .test_support()
-                    .h(px(28.0))
-                    .px(px(10.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(color::BORDER)
-                    .text_size(px(11.5))
-                    .text_color(color::TEXT_DIM)
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            app.discard_autosaves(cx);
-                        }),
-                    )
-                    .child(t("common.discard").to_string()),
-            )
-            .child(
-                div()
-                    .id("recovery-restore")
-                    .test_support()
-                    .h(px(28.0))
-                    .px(px(10.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(4.0))
-                    .bg(color::ACCENT)
-                    .text_size(px(11.5))
-                    .text_color(color::BG)
-                    .cursor_pointer()
-                    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        app.restore_autosaves(cx);
-                    }))
-                    .child("Restore".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
-            ),
-    )
-}
-
 /// Export dialog: format, quality and the path prompt.
 fn export_body(
     state: &Entity<AppState>,
@@ -1091,7 +1023,7 @@ fn export_body(
     body
 }
 /// The New Document dialog's measured box: 780 CSS wide and 36 (titlebar) +
-/// 460 (body incl. footer) tall, matching `w-[780px]`/`h-[460px]`.
+/// 460 (body incl. footer) tall, matching 780px / 460px.
 const NEW_DOC_W: f32 = 780.0;
 const NEW_DOC_H: f32 = 496.0;
 const NEW_DOC_BODY_H: f32 = 460.0;
@@ -1420,7 +1352,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
 
     let session = state.read(cx).new_document.clone().unwrap_or_default();
 
-    // Category tabs: `h-[44px]`, equal cells, active gets a 2 px underline.
+    // Category tabs: 44px, equal cells, active gets a 2 px underline.
     let mut tabs = h_flex()
         .w_full()
         .h(px(NEW_DOC_TABS_H))
@@ -1675,7 +1607,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         .child(footer)
 }
 
-/// `DesktopDialogButton class="w-24 h-8"`: 96x32, 6 px radius, 11 px medium.
+/// The source's dialog button, 96x32: 6 px radius, 11 px medium.
 fn new_doc_button(label: &str, primary: bool) -> Div {
     div()
         .w(px(96.0))
@@ -1953,7 +1885,7 @@ pub fn render_dialog(
                 .into_any_element()
         }
     };
-    // `fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2`: the live
+    // The source's centring rule: the live
     // dialog is centred in the window, which is what the 1366x820 shot's
     // measured origin (293,161) is the result of.
     div()
@@ -2076,12 +2008,12 @@ fn dirty_close_shell(
 }
 
 /// Pin a dialog at the origin the manifest recorded, rather than re-deriving
-/// the source's `left-1/2 top-1/2` centre.
+/// the source's centre-in-the-viewport placement.
 ///
-/// `-translate-x-1/2 -translate-y-1/2` has no GPUI equivalent, and the manifest
-/// box is already the *result* of that transform, so pinning the measured
-/// origin is both simpler and more accurate than recomputing a centre from a
-/// size.
+/// Shifting a box back by half its own size has no GPUI equivalent, and the
+/// manifest box is already the *result* of that transform, so pinning the
+/// measured origin is both simpler and more accurate than recomputing a centre
+/// from a size.
 fn positioned(x: f32, y: f32, dialog: Div) -> Div {
     dialog.absolute().left(px(x)).top(px(y))
 }
@@ -2090,6 +2022,7 @@ mod about;
 mod chrome;
 mod content;
 mod print;
+mod recovery;
 #[cfg(test)]
 mod tests;
 
@@ -2100,3 +2033,4 @@ use about::{
 };
 use chrome::{dialog_action_button, dialog_shell, dialog_shell_with_actions};
 use content::dialog_body;
+use recovery::recovery_body;
