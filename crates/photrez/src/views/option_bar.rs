@@ -516,6 +516,77 @@ mod tests {
     }
 }
 
+/// The gradient strip paints the live swatch pair, not a fixed illustration.
+///
+/// RED proof: the strip used to call `gradient_strip()` with no arguments and
+/// hardcode `FG -> color::WHITE`, so these tests could not exist against the old
+/// shape. To re-prove the branches on the current code, make `gradient_preview`
+/// return `(FG, color::WHITE)` unconditionally: every assertion below fails.
+#[cfg(test)]
+mod gradient_preview_tests {
+    use super::*;
+
+    fn close(a: Hsla, b: Hsla) -> bool {
+        (a.h - b.h).abs() < 1e-4
+            && (a.s - b.s).abs() < 1e-4
+            && (a.l - b.l).abs() < 1e-4
+            && (a.a - b.a).abs() < 1e-4
+    }
+
+    #[test]
+    fn preview_runs_from_the_live_swatches_not_constants() {
+        let fg = [20, 200, 10, 255];
+        let bg = [10, 20, 200, 255];
+        let (from, to) = gradient_preview(fg, bg, false, false);
+        assert!(close(from, crate::palette::hsla(fg)), "start = live FG");
+        assert!(close(to, crate::palette::hsla(bg)), "end = live BG");
+        // The retired illustration painted the `FG` constant into white, so
+        // neither stop could move.
+        assert!(!close(from, FG), "a picked FG must replace the constant");
+        assert!(!close(to, color::WHITE), "a picked BG must replace white");
+    }
+
+    #[test]
+    fn the_default_swatches_agree_with_the_retired_constant() {
+        // Recorded so the fix cannot be read as a resting-pixel change: at the
+        // shipped defaults the old strip already looked right, which is why no
+        // surface mask ever flagged it.
+        let (from, to) = gradient_preview([225, 90, 23, 255], [255, 255, 255, 255], false, false);
+        assert!(close(from, FG), "the FG constant is the default swatch");
+        assert!(close(to, color::WHITE), "white is the default BG");
+    }
+
+    #[test]
+    fn fg_to_transparent_ends_at_alpha_zero() {
+        let fg = [225, 90, 23, 255];
+        let bg = [10, 20, 200, 255];
+        let (from, to) = gradient_preview(fg, bg, true, false);
+        assert!(close(from, crate::palette::hsla(fg)), "start stays FG");
+        assert_eq!(to.a, 0.0, "FG to transparent ends fully transparent");
+        assert!(
+            close(Hsla { a: to.a, ..from }, to),
+            "the transparent stop keeps the FG hue"
+        );
+        assert!(!close(to, crate::palette::hsla(bg)), "BG must not appear");
+    }
+
+    #[test]
+    fn reverse_swaps_and_the_preset_wins() {
+        let fg = [225, 90, 23, 255];
+        let bg = [10, 20, 200, 255];
+        let (from, to) = gradient_preview(fg, bg, false, true);
+        assert!(close(from, crate::palette::hsla(bg)), "reversed start = BG");
+        assert!(close(to, crate::palette::hsla(fg)), "reversed end = FG");
+        // Same precedence as the fill path: the preset outranks the swap.
+        let (from, to) = gradient_preview(fg, bg, true, true);
+        assert!(
+            close(from, crate::palette::hsla(fg)),
+            "preset keeps FG first"
+        );
+        assert_eq!(to.a, 0.0, "preset still ends transparent");
+    }
+}
+
 #[cfg(test)]
 mod bar_width_tests {
     use super::*;

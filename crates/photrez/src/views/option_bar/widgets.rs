@@ -220,8 +220,31 @@ pub(super) fn tolerance_slider(
 
 // ── Gradient ───────────────────────────────────────────────────────────────────
 
-/// The gradient preview strip.
-pub(super) fn gradient_strip() -> Div {
+/// The two endpoints the preview strip must paint, taken from the live swatch
+/// colours rather than any constant. The order matches the fill path in
+/// `app/input.rs`: the FG-to-transparent preset wins, then `reverse` swaps the
+/// pair; otherwise the strip runs foreground to background.
+pub(super) fn gradient_preview(
+    fg: [u8; 4],
+    bg: [u8; 4],
+    fg_transparent: bool,
+    reverse: bool,
+) -> (Hsla, Hsla) {
+    let fg = crate::palette::hsla(fg);
+    let bg = crate::palette::hsla(bg);
+    if fg_transparent {
+        (fg, Hsla { a: 0.0, ..fg })
+    } else if reverse {
+        (bg, fg)
+    } else {
+        (fg, bg)
+    }
+}
+
+/// The gradient preview strip, painted between the two endpoints the tool will
+/// actually fill with. Callers derive `from`/`to` from live state with
+/// [`gradient_preview`].
+pub(super) fn gradient_strip(from: Hsla, to: Hsla) -> Div {
     let mut shadows = vec![BoxShadow::new(px(0.), px(0.), color::WHITE_10).spread_radius(px(1.))];
     shadows.extend(shadow_sm_layers());
     div()
@@ -243,8 +266,8 @@ pub(super) fn gradient_strip() -> Div {
         )
         .child(div().absolute().inset(px(0.)).bg(linear_gradient(
             90.0,
-            linear_color_stop(FG, 0.0),
-            linear_color_stop(color::WHITE, 1.0),
+            linear_color_stop(from, 0.0),
+            linear_color_stop(to, 1.0),
         )))
 }
 

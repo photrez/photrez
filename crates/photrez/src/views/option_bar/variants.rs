@@ -798,15 +798,21 @@ fn gradient_items(
     row: Div,
     cx: &Context<crate::app::App>,
 ) -> Div {
-    let (radial, fg_transparent, open, cursor) = {
+    let (fg_color, bg_color, radial, fg_transparent, reverse, open, cursor) = {
         let s = state.read(cx);
         (
+            s.fg_color,
+            s.bg_color,
             s.gradient_radial,
             s.gradient_fg_transparent,
+            s.gradient_reverse,
             s.open_select,
             s.select_cursor,
         )
     };
+    let fg = crate::palette::hsla(fg_color);
+    let bg = crate::palette::hsla(bg_color);
+    let (from, to) = gradient_preview(fg_color, bg_color, fg_transparent, reverse);
     let type_active = if open == Some("opt-gradient-type") {
         cursor
     } else if radial {
@@ -869,9 +875,13 @@ fn gradient_items(
                     .flex_shrink_0()
                     .items_center()
                     .gap(px(GAP))
-                    .child(round_swatch(FG))
-                    .child(gradient_strip())
-                    .child(round_swatch(color::WHITE)),
+                    .child(round_swatch(fg))
+                    .child(gradient_strip(from, to))
+                    .child(round_swatch(if fg_transparent {
+                        Hsla { a: 0.0, ..bg }
+                    } else {
+                        bg
+                    })),
             )
             .child(reverse_button(cx)),
     )
