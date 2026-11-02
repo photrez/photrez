@@ -38,16 +38,17 @@ pub(super) fn dialog_body(id: &str, _w: f32, _h: f32) -> Div {
 /// The Resize Canvas body. Two dimension rows, a unit picker, and an
 /// aspect-lock button.
 ///
-/// The description is `text-[11px] text-editor-text-dim` with `mb-1`, and the
-/// whole column is `flex flex-col gap-2.5`. Each row is `flex items-center
-/// gap-2` holding a 52px label, an input that is `flex-1 min-w-0`, and a 60px
-/// `shrink-0` unit picker -- the same label/field/select shape as
+/// The description is 11px dim text with a 4px bottom margin, and the whole
+/// column stacks with 10px gaps. Each row is centred on one row with an
+/// 8px gap, holding a 52px label, an input that stretches and may shrink
+/// below its content, and a never-squeezed 60px unit picker -- the same
+/// label/field/select shape as
 /// [`ui::prop_row`] but with different widths and a 30px field, so it is built
 /// here rather than reused.
 ///
 /// Resting state, so the inputs are painted, not editable: they show the
 /// canvas dimensions the dialog opens with, and the focus/commit/arrow-step
-/// behaviour an `<input type="number">` carries is out of scope exactly as it
+/// behaviour a native number field carries is out of scope exactly as it
 /// is for [`ui::editable_num_field`].
 fn resize_body() -> Div {
     v_flex()
@@ -66,7 +67,7 @@ fn resize_body() -> Div {
         .child(resize_row(&t("dialogs.resizeCanvas.width"), "800"))
         .child(resize_row(&t("dialogs.resizeCanvas.height"), "600"))
         .child(
-            // `flex h-6 items-center pl-[52px]` - indented to line up with the
+            // 24px tall, centred on one row, 52px left padding - indented to line up with the
             // inputs, not the labels.
             h_flex()
                 .w_full()
@@ -100,7 +101,7 @@ fn resize_body() -> Div {
         )
 }
 
-/// One `flex items-center gap-2` dimension row.
+/// One dimension row, centred on one row with an 8px gap.
 fn resize_row(label: &str, value: &str) -> Div {
     h_flex()
         .w_full()
@@ -124,9 +125,9 @@ fn resize_row(label: &str, value: &str) -> Div {
         .child(ui::pin(unit_picker("px")))
 }
 
-/// `desktopDialogFieldClass` with a value in it: h-[30px], rounded-[4px], a
-/// FIELD_BORDER edge on a FIELD fill, px-2.5, right-aligned so the digits sit
-/// where a number input puts them.
+/// The shared dialog field chrome with a value in it: 30px tall, 4px radius, a
+/// FIELD_BORDER edge on a FIELD fill, 10px side padding, right-aligned so the
+/// digits sit where a number input puts them.
 fn dialog_field(value: &str) -> Div {
     h_flex()
         .h(px(DIALOG_FIELD_H))
@@ -146,8 +147,9 @@ fn dialog_field(value: &str) -> Div {
         .child(value.to_string())
 }
 
-/// The 60px `shrink-0` unit picker: `${desktopDialogFieldClass} text-center`,
-/// so the value is centred rather than right-aligned like the number field.
+/// The never-squeezed 60px unit picker: the shared dialog field chrome with
+/// centred text, so the value is centred rather than right-aligned like the
+/// number field.
 ///
 /// A native picker has no visible arrow, so this
 /// draws CHEVRON_DOWN beside the value instead, the same stand-in
@@ -188,7 +190,8 @@ fn unit_picker(unit: &str) -> Div {
 /// previews the *canvas*.
 ///
 /// Drawn at the crop coordinates relative to the dialog's own top-left, which
-/// puts it 66px below the titlebar: the body's `py-4` plus the source's own
+/// puts it 66px below the titlebar: the body's 16px vertical padding plus the
+/// source's own
 /// header row. Both fills are written as `Hsla` rather than borrowed from a
 /// token because neither is PANEL, which is the whole point of measuring them.
 fn new_document_swatch(id: &str) -> Div {

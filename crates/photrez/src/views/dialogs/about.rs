@@ -15,29 +15,29 @@ use super::{GAP_2, R4, R6};
 /// three blocks with 4px body padding.
 const ABOUT_MARK: f32 = 32.0;
 
-/// `size-12 rounded-[8px] border border-editor-divider bg-[#151516] p-2`.
+/// 48px tile, 8px radius, 1px DIVIDER border, `#151516` fill, 8px padding.
 const ABOUT_TILE: f32 = 48.0;
 const ABOUT_TILE_RADIUS: f32 = 8.0;
 const ABOUT_TILE_PAD: f32 = 8.0;
 
 /// The body column's rhythm between hero, spec panel and link row, plus the
-/// source's `py-1`.
+/// source's 4px vertical padding.
 const ABOUT_GAP: f32 = 16.0;
 const ABOUT_BODY_PY: f32 = 4.0;
 
-/// `gap-3.5` \u{2014} mark to identity block.
+/// 14px \u{2014} mark to identity block.
 const ABOUT_HERO_GAP: f32 = 14.0;
 
-/// `p-2.5` and `gap-y-1.5` on the spec panel, whose `rounded-[6px]` is the
+/// 10px padding and 6px row gaps on the spec panel, whose 6px radius is the
 /// shared R6.
 const ABOUT_PANEL_PAD: f32 = 10.0;
 const ABOUT_PANEL_ROW_GAP: f32 = 6.0;
 
-/// `h-7` link buttons with a `size-3.5` icon at `gap-1.5`.
+/// 28px link buttons with a 14px icon at a 6px gap.
 const ABOUT_LINK_H: f32 = 28.0;
 const ABOUT_ICON: f32 = 14.0;
 
-/// `px-1.5 py-0.5 rounded-[4px]` on the version pill.
+/// 6px / 2px padding and a 4px radius on the version pill.
 const ABOUT_PILL_PX: f32 = 6.0;
 const ABOUT_PILL_PY: f32 = 2.0;
 
@@ -128,8 +128,8 @@ pub(super) fn about_body() -> Div {
         .child(about_links())
 }
 
-/// `flex size-12 shrink-0 items-center justify-center rounded-[8px] border
-/// border-editor-divider bg-[#151516] p-2` around the `size-8` mark.
+/// Centred, never-squeezed 48px tile with an 8px radius, 1px DIVIDER border,
+/// `#151516` fill and 8px padding, around the 32px mark.
 fn about_brand_tile() -> Div {
     div()
         .w(px(ABOUT_TILE))
@@ -146,7 +146,8 @@ fn about_brand_tile() -> Div {
         .child(title_bar::logo(ABOUT_MARK))
 }
 
-/// `flex items-center gap-3.5` \u{2014} brand tile beside the identity block.
+/// Centred on one row with a 14px gap \u{2014} brand tile beside the identity
+/// block.
 fn about_hero() -> Div {
     h_flex()
         .w_full()
@@ -229,7 +230,7 @@ fn about_spec_row(left: usize, right: usize) -> Div {
 }
 
 /// `Label: value` on one line: the label in the caption colour, the value
-/// carrying `font-medium text-editor-text`. The label is pinned and the cell
+/// in medium weight and the full text colour. The label is pinned and the cell
 /// clips, so the first cell's longer value cannot paint over the second.
 fn about_spec_cell(i: usize) -> Div {
     ui::clip(h_flex().flex_1().gap(px(4.0)))

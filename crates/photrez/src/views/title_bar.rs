@@ -4,7 +4,7 @@
 //!
 //! Baselines: `shell-titlebar.png` (1366x46) and `shell-menubar.png` (8 triggers).
 //! Static captures omit:
-//! * menu popups (Portal, `z-[100]`, keyboard navigation)
+//! * menu popups (their stacking order of 100, keyboard navigation)
 //! * the system menu on Alt+Space
 //! * the reference shell's drag-region attribute and double-click-to-maximize
 //! * window state (a maximized window swaps the maximize icon)
@@ -15,9 +15,9 @@
 //!
 //! ## 1. Letter-spacing (GPUI gap; measured)
 //!
-//! `AppMenuBar` uses `text-[12px] ... tracking-wide`: `letter-spacing: 0.025em`
-//! = 0.3px after every glyph, including the last. GPUI has no tracking field:
-//! `LineLayout`/`ShapedGlyph` carry none, and `Styled` exposes no `tracking`.
+//! The menu bar's labels are 12px with wide tracking: 0.025em of
+//! letter-spacing = 0.3px after every glyph, including the last. GPUI has no
+//! letter-spacing field: `LineLayout`/`ShapedGlyph` and `Styled` carry none.
 //!
 //! Inline triggers accumulate width deficits. The reference origins are the
 //! `menu-*` boxes in `tests/baseline/manifest.json` (dropdown x equals trigger
@@ -35,17 +35,17 @@
 //! Settings    421.20     415   -6.20       -
 //! ```
 //!
-//! Ink starts 10.0px inside each trigger (`px-2.5`, [`title::MENU_PX`]); File
+//! Ink starts 10.0px inside each trigger ([`title::MENU_PX`]); File
 //! at x=58 with delta 0 rules out an earlier offset.
 //!
-//! Before Settings, 32 glyphs show 0.194px/glyph drift. `tracking-wide` adds
+//! Before Settings, 32 glyphs show 0.194px/glyph drift. Wide tracking adds
 //! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph vs the previous renderer,
 //! character-dependent (Window/Help level; Image/Layer differ). Net drift is
 //! −0.19px, not −0.3px; restoring tracking overshoots by roughly +3px.
 //!
 //! A prior +9px compensation overshot (`HARD 0.127%`; target `−6px / HARD
 //! 0.099%`): fractional `px()` padding rounds 10.6→11, adding ~0.8px per
-//! trigger before tracking. Keep plain `px-2.5`; retries must use the rendered
+//! trigger before tracking. Keep the plain 10px padding; retries must use the rendered
 //! localized label (`t(MENU_LABEL_KEYS[menu])`), not fractional padding.
 //!
 //! The remaining −6px (`HARD 0.099%`, one hard pixel) is cosmetic and local.
@@ -135,8 +135,8 @@ pub fn init(svg: &SvgRenderer) {
     let _ = LOGO_IMAGE.set(image);
 }
 
-/// `<header class="relative flex h-[46px] shrink-0 items-center border-b
-/// border-editor-divider bg-editor-topbar select-none overflow-hidden">`
+/// The bar: a positioned 46px row, never squeezed, children centred; 1px
+/// bottom border, topbar fill, text unselectable, content clipped to its box.
 ///
 /// `window` reaches `right_group` so it can query client-side decorations on
 /// Linux without forking the signature by platform.
@@ -153,7 +153,7 @@ pub fn render(
         // the cross-axis alignment unless a child opts into `.self_stretch()`.
         .items_center()
         .border_b_1()
-        // `border-editor-divider` names #2e2e2e, but the unlayered `*` rule
+        // The divider token names #2e2e2e, but the global border override
         // outranks it and paints #333333 — see `color::BORDER`,
         // which records the four baselines proving it.
         .border_color(color::BORDER)
@@ -168,8 +168,8 @@ pub fn render(
         .child(right_group(window, state, cx))
 }
 
-/// `<div class="flex min-w-0 items-center gap-2 self-stretch">` — logo cell
-/// plus the menu bar.
+/// The logo cell plus the menu bar: one row, centred, 8px apart, stretched to
+/// the bar's height, allowed to shrink below its content.
 fn left_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .min_w(px(0.))
@@ -180,13 +180,13 @@ fn left_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
         .child(menu_bar(state, cx))
 }
 
-/// `<div class="flex h-full shrink-0 items-center pl-3 pr-2">`
-///
-/// The `h-full` is why the wrapper is stretched rather than centred: it is
+/// The logo cell: one full-height, un-squeezed row, centred, 12px left and
+/// 8px right padding. Being full-height is why the wrapper is stretched rather
+/// than centred: it is
 /// what gives the logo cell the bar's full 45px content height to centre in.
 fn logo_cell() -> impl IntoElement {
     // On macOS the traffic lights own the top-left corner, so the logo starts
-    // after them instead of at `pl-3`. See `title::LOGO_PAD_L_MACOS` for why
+    // after them instead of at the 12px inset. See `title::LOGO_PAD_L_MACOS` for why
     // and for the fact that the clearance is an estimate.
     let pad_left = if cfg!(target_os = "macos") {
         title::LOGO_PAD_L_MACOS
@@ -203,8 +203,8 @@ fn logo_cell() -> impl IntoElement {
         .child(logo(title::LOGO))
 }
 
-/// `<svg viewBox="0 0 512 512" class="size-[30px] shrink-0">` — full colour,
-/// see the module docs for why this is `img` and not `Icon`.
+/// The logo: a 30px square, never squeezed, full colour from the 512x512
+/// artwork - see the module docs for why this is `img` and not `Icon`.
 ///
 /// `size` is the box requested by the bar or About dialog; both share the same
 /// raster and gradient/mask/filter artwork.
@@ -219,10 +219,10 @@ pub(crate) fn logo(size: f32) -> impl IntoElement {
         .flex_shrink_0()
 }
 
-/// `<nav class="hidden h-full items-center gap-0.5 md:flex">`
+/// The menu bar: one full-height row, centred, 2px between triggers.
 ///
-/// `hidden ... md:flex` is simply `flex` at this viewport: the baseline is
-/// 1366px wide, comfortably past the 768px `md` breakpoint.
+/// The reference hides this bar below its medium breakpoint and shows it as a
+/// row from there up: the baseline is 1366px wide, past the 768px breakpoint.
 fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .self_stretch()
@@ -236,7 +236,7 @@ fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl Int
         )
 }
 
-/// One menu trigger: `<div class="relative flex h-full items-center">` wrapping
+/// One menu trigger: a positioned, full-height, centred row wrapping
 /// the button itself.
 ///
 /// `key` is the catalog key: it names the element id and resolves the visible
@@ -276,11 +276,11 @@ fn menu_trigger(
             .rounded(px(title::RADIUS))
             .px(px(pad_x(key)))
             .text_size(px(title::MENU_TEXT))
-            // `font-medium`
+            // Medium weight.
             .font_weight(FontWeight(500.))
-            // `text-editor-text/90`
+            // Text at 90%.
             .text_color(color::TEXT_90)
-            // `hover:bg-white/[0.045] hover:text-editor-text`
+            // On hover: white at 4.5% behind it, full-strength text.
             .hover(|s| s.bg(color::WHITE_45).text_color(color::TEXT))
             .child(t(key)),
     )
@@ -300,16 +300,16 @@ fn menu_id(key: &str) -> Option<MenuId> {
     }
 }
 
-/// Plain `px-2.5`; tracking compensation is omitted because the gap is
+/// A plain 10px inset; tracking compensation is omitted because the gap is
 /// character-dependent (see the module docs).
 fn pad_x(_label: &str) -> f32 {
     title::MENU_PX
 }
 
-/// `<div class="flex min-w-4 flex-1 items-center justify-center self-stretch">`
+/// The centre cell: a full-height centred row that takes the spare width above a 16px floor.
 ///
 /// The reference shell's drag-region attribute and its double-click handler have no
-/// native equivalent here; the cell is still a plain centred flex child.
+/// native equivalent here; the cell is still a plain centred child.
 fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     let document_name = state.read(cx).document_name.clone();
     h_flex()
@@ -322,15 +322,15 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
             h_flex()
                 .items_center()
                 .gap(px(title::CENTER_GAP))
-                // `opacity-90` applies to the row, not each span.
+                // The 90% opacity applies to the row, not each span.
                 .opacity(0.9)
                 .child(
                     div()
                         .text_size(px(title::MENU_TEXT))
-                        // `font-semibold`
+                        // Semibold.
                         .font_weight(FontWeight(600.))
                         .text_color(color::TEXT)
-                        // `tracking-tight` remains uncompensated; this centered
+                        // The tight tracking here remains uncompensated; this centered
                         // row limits the difference to a 0.15px offset.
                         .child(document_name),
                 )
@@ -344,7 +344,7 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
                     div()
                         .text_size(px(title::WORDMARK_TEXT))
                         .font_weight(FontWeight(500.))
-                        // `text-editor-text-dim/80` composites to ~3.2:1 over
+                        // Dim text at 80% composites to ~3.2:1 over
                         // the topbar; the wordmark uses full dim strength.
                         // The separator stays at 60% as decorative punctuation.
                         .text_color(color::TEXT_DIM)
@@ -353,7 +353,7 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
         )
 }
 
-/// `<div class="flex min-w-0 items-center">` — undo/redo plus window controls.
+/// The right-hand group: a shrinkable centred row of undo/redo and window controls.
 ///
 /// The side-panel toggle is hidden at large widths: it exists below
 /// 1024px and is absent from the 1366px baseline. The branch is decided from
@@ -371,10 +371,10 @@ fn right_group(
         .child(window_controls(window))
 }
 
-/// `<div class="mr-3 flex shrink items-center gap-0.5 overflow-hidden
-/// text-editor-icon">`
+/// The undo/redo group: a clipped centred row, 2px between buttons, 12px right margin, icon colour.
 ///
-/// At the 1366px baseline, `lg:hidden` removes the panel toggle. The 81px group
+/// At the 1366px baseline the panel toggle is hidden (it only shows below the
+/// 1024px breakpoint). The 81px group
 /// (28 + 2 + 28 + 2 + 4 + 1 + 4 + 12) puts undo at x=1153 (1366 - 81 - 3*44),
 /// matching `manifest.json`.
 fn undo_group(
@@ -397,7 +397,7 @@ fn undo_group(
         })
 }
 
-/// `size-7 rounded-[4px] hover:bg-white/[0.045]`, visible below `lg`.
+/// A 28px square with 4px corners and a white-at-4.5% hover fill, shown below 1024px.
 fn panel_toggle(
     dock_open: bool,
     state: &Entity<AppState>,
@@ -430,8 +430,8 @@ fn panel_toggle(
         )
 }
 
-/// `flex size-7 items-center justify-center rounded-[4px]
-///  hover:bg-white/[0.045] hover:text-editor-text`
+/// An undo/redo button: a 28px square with 4px corners, centred on one row,
+/// that gains white at 4.5% behind it and the plain text colour on hover.
 fn icon_button(id: &'static str, icon: &'static [u8]) -> impl IntoElement {
     div()
         .id(id)
@@ -453,7 +453,7 @@ fn icon_button(id: &'static str, icon: &'static [u8]) -> impl IntoElement {
         )
 }
 
-/// `<div class="mx-1 h-3.5 w-px bg-editor-divider" />`
+/// The rule between redo and the controls: 1px wide, 14px tall, 4px side margin, divider fill.
 fn rule() -> impl IntoElement {
     div()
         .mx(px(title::RULE_MX))

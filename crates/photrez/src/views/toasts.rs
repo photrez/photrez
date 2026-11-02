@@ -3,11 +3,12 @@
 //!
 //! # Geometry: the anchor is the bottom-right corner, not the left edge
 //!
-//! The source's host is `pointer-events-none fixed bottom-6 right-6 z-50
-//! flex flex-col gap-2`, so *both* right and bottom are pinned to the window —
-//! `6` = 1.5rem = 24px in each direction. Every number below was read back out
-//! of `manifest.json` and then out of the PNGs rather than derived from the
-//! class names:
+//! The source's host sits out of the flow, pinned to the window with *both*
+//! right and bottom at 1.5rem = 24px, its toasts stacked in a column with 8px
+//! between them, painted above the shell and letting the mouse pass through to
+//! whatever is underneath. Every number below was read back out of
+//! `manifest.json` and then out of the PNGs rather than derived from the
+//! stylesheet:
 //!
 //! ```text
 //! toast-info     109.609x36.75  @ 1232.390,759.25
@@ -23,15 +24,15 @@
 //!   toast from a left margin would match exactly one of the four shots.
 //! * **Bottom = 796.** 759.25 + 36.75 = 796, and 669.75 + 126.25 = 796 — both
 //!   stacks end on the same row, which is `shell-status-bar`'s top edge
-//!   (`status_bar.rs`: 1366x24 at 0,796). It is also 820 - 24, i.e.
-//!   `bottom-6`: the toast bottom sitting *on* the status bar is two different
+//!   (`status_bar.rs`: 1366x24 at 0,796). It is also 820 - 24, i.e. the
+//!   bottom inset again: the toast bottom sitting *on* the status bar is two different
 //!   24s agreeing (the bar is 24 tall, the inset is 24), not a layout
 //!   relationship anyone designed. This view therefore anchors with
 //!   [`RIGHT_INSET`] and [`BOTTOM_INSET`] from the window's edges — see [`render`].
 //!
 //! # Width: hugged from the label, never pinned
 //!
-//! `width = 1 (border) + 16 (px-4) + shaped text + 16 + 1`, so the three
+//! `width = 1 (border) + 16 (padding) + shaped text + 16 + 1`, so the three
 //! severities differ only because their captured labels do: "Layer merged" =
 //! 75.609px of text, "Could not write the file" = 126.766, "Export failed" =
 //! 69.062. This view hugs rather than pinning those four numbers, because the
@@ -45,23 +46,24 @@
 //!
 //! ```text
 //! info   ink from 1250      - 1232.390 = 17.6   \
-//! warn   ink from 1198      - 1181.234 = 16.8    >  ~17 = 1px border + px-4
+//! warn   ink from 1198      - 1181.234 = 16.8    >  ~17 = 1px border + 16px
 //! error  ink from 1256      - 1238.937 = 17.1   /
 //! ```
 //!
 //! i.e. the text box starts 17px in, the residual being each glyph's side
-//! bearing — `px-4` (16) behind a 1px border, on both sides (the warn toast's
-//! last ink column ends 17.0px short of its right edge).
+//! bearing — 16px of padding behind a 1px border, on both sides (the warn
+//! toast's last ink column ends 17.0px short of its right edge).
 //!
 //! # Height: 36.75, which the manifest displays as 37
 //!
-//! `1 (border) + 8 (py-2) + 18.75 + 8 (py-2) + 1 = 36.75`. The line box is
-//! 12.5 x 1.5: Tailwind's preflight leaves `line-height: 1.5` inherited, the
-//! same reason `status_bar.rs` pins its own `LINE_H` — GPUI's default line
-//! box is neither 15 nor 15.75 there and is neither 18.75 here, so it is
+//! `1 (border) + 8 (vertical padding) + 18.75 + 8 (vertical padding) + 1 =
+//! 36.75`. The line box is 12.5 x 1.5: the web baseline left a line height of
+//! 1.5 inherited — the same reason `status_bar.rs` pins its own `LINE_H`;
+//! GPUI's default line box is neither 15 nor 15.75 there and is neither 18.75
+//! here, so it is
 //! spelled out. Glyph ink corroborates the box: cap tops at crop row 12 and
 //! the baseline at ~22 in all three single shots, i.e. the line box occupies
-//! element rows 9..27.75 exactly as `border + py-2 + 18.75` says.
+//! element rows 9..27.75 exactly as border + padding + line box says.
 //!
 //! # The stack gap is 8px, not 4px
 //!
@@ -85,58 +87,61 @@
 //! [`TOAST_GAP`] is 8. A 4px gap would put the stack at 118.25 tall and every
 //! border row in the baseline off by 8px per toast.
 //!
-//! The same shot also pins `align-items`. All three stacked toasts have their
-//! left border at crop x=1 and their right border at crop x=78 — every child
-//! spans the *container's* width, which is CSS column-flex default
-//! (`stretch`). A `gpui_kit` `v_flex()` defaults to `items_center()`, so
+//! The same shot also pins how the stack cross-aligns its children. All three
+//! stacked toasts have their left border at crop x=1 and their right border at
+//! crop x=78 — every child spans the *container's* width, which is the default
+//! for a stacked column: each child stretches across it. A `gpui_kit`
+//! `v_flex()` defaults to `items_center()`, so
 //! [`render`] asks for `.items_stretch()` explicitly, exactly as `main.rs` does
 //! for the shell's columns. The container in turn hugs its widest child, which
 //! is why the stack is 78.281 wide while its widest member ("Opened") has only
 //! 44.28px of text.
 //!
-//! # Severity: three classes, one pixel
+//! # Severity: three border colours, one pixel
 //!
 //! The source picks a border per severity:
 //!
-//! | severity | class | named colour | **measured** |
+//! | severity | border it asks for | named colour | **measured** |
 //! |---|---|---|---|
-//! | info  | `border-editor-divider` | #2e2e2e | #333333 |
-//! | warn  | `border-yellow-500`     | yellow  | #333333 |
-//! | error | `border-editor-accent`  | #F28E42 | #333333 |
+//! | info  | the editor divider | #2e2e2e | #333333 |
+//! | warn  | the yellow ramp's 500 step     | yellow  | #333333 |
+//! | error | the editor accent  | #F28E42 | #333333 |
 //!
-//! All three lose to the unlayered `* { border-color: var(--color-border) }`
-//! rule that [`color::BORDER`] documents at length — and the PNGs agree
+//! All three lose to the stylesheet's unscoped rule that paints every border
+//! with the default border colour, which [`color::BORDER`] documents at length
+//! — and the PNGs agree
 //! rather than merely being predicted: every edge pixel of all four toast
 //! shots reads `#333333` — the scan covered `edges: top/bottom/left/right`.
 //! Severity is therefore **invisible in the chrome** in this build: fill,
 //! border, radius and text colour are identical across the three, and the
 //! label is the only difference. `Severity::border` still spells out the
-//! class each variant asks for, so if the cascade is ever fixed the three
+//! colour each variant asks for, so if that rule is ever scoped the three
 //! arms are where the real colours go.
 //!
 //! Also measured rather than guessed:
 //!
-//! * fill `#1E1E1E` = [`color::PANEL`] (`bg-editor-panel`), text peak `#CACACA`
-//!   = [`color::TEXT`] (`text-editor-text`) — the toast sits over the right
+//! * fill `#1E1E1E` = [`color::PANEL`], the panel fill, and text peak
+//!   `#CACACA` = [`color::TEXT`], the default text colour — the toast sits
+//!   over the right
 //!   dock, whose panel is the *same* #1E1E1E, so the border is the only thing
 //!   separating toast from backdrop in three of the four shots.
 //! * radius 4 — the top border row starts at crop x=4 and ramps `#202020`
-//!   `#272727` `#2F2F2F` before it, i.e. an arc of radius 4 (`rounded`).
+//!   `#272727` `#2F2F2F` before it, i.e. an arc of radius 4.
 //! * **no arrow/notch.** Reading the corners straight off the PNGs shows
 //!   none: four symmetric 4px corners, nothing pointing
 //!   at anything. The measured toast box agrees — a rounded border, padding,
-//!   12.5px text and a shadow, with no pseudo-element and no caret.
+//!   12.5px text and a shadow, with no extra painted decoration and no caret.
 //!
-//! # Shadow: `shadow-lg`, and it *is* visible
+//! # Shadow: the large one, and it *is* visible
 //!
 //! A single toast's crop is its own box, so the shadow falls outside the
 //! baseline entirely. In `toast-stacked` it does not: the 8px gaps are inside
 //! the captured element, and there the backdrop under a toast measurably
 //! darkens — `#1E1E1E -> #1A1A1A` in the first row of gap 1, directly under
 //! toast 1, and a `#333333` rule of the dock showing through gap 2 at
-//! `#2E2E2E`, which is exactly 10% black over it. So the two layers of
-//! Tailwind v4's `--shadow-lg` are painted (`shadow_lg`), matching
-//! `tool_rail.rs`'s treatment of `--shadow-md`.
+//! `#2E2E2E`, which is exactly 10% black over it. So both layers of the web
+//! baseline's large shadow are painted (`shadow_lg`), matching
+//! `tool_rail.rs`'s treatment of the medium one.
 //!
 //! # State: `shot::active()`, nothing else
 //!
@@ -157,17 +162,19 @@
 //! The shot path ([`render`]) paints a fixed stack for a capture and owns no
 //! timers, so these belong to the live path instead:
 //!
-//! * `setTimeout` dismissal (3500ms info/warn, 5000ms error) and
-//!   `dismissToast` on click: [`render_live`] renders the queue that
+//! * Timed dismissal (3500ms info/warn, 5000ms error) and dismissing a toast
+//!   on click: [`render_live`] renders the queue that
 //!   `app::toasts` owns, and that queue carries the two deadlines.
-//! * the FIFO cap (`next.length > 3 ? slice(-3)`) — `toast-stacked` *is* the
+//! * the FIFO cap of three toasts — `toast-stacked` *is* the
 //!   post-cap state; `app::toasts` applies the same cap to the live queue.
-//! * enter/exit transition and the host's `pointer-events` flags — interaction.
-//! * `aria-live`, `role="status"|"alert"` — accessibility, not rendering.
+//! * enter/exit transition and the host letting the mouse through — interaction.
+//! * the live-region announcement and the status/alert role — accessibility,
+//!   not rendering.
 //!
 //! # Known gaps, specific to this component
 //!
-//! * **No `z_index`.** The host is `z-50` and paints over the shell; GPUI has
+//! * **No stacking order.** The host paints above the shell (its layer was
+//!   numbered 50); GPUI has
 //!   no z-index, only tree order. This file therefore cannot place itself —
 //!   its caller must append [`render`]'s result **late** in the tree (after
 //!   `status_bar::render()`, as the last child of the window-sized root), and
@@ -181,15 +188,16 @@
 //!   child is laid out at exactly its own max-content width, so a fractional
 //!   rounding could otherwise push it to two lines. The source never wraps
 //!   (a toast is a single line), so this is the reference behaviour, not a workaround.
-//! * The 6px `scrollbar-gutter` reservation in the previous renderer's
-//!   stylesheet does **not** apply: the host has no `overflow-y-auto`, and
+//! * The 6px scrollbar gutter reserved by the previous renderer's
+//!   stylesheet does **not** apply: this host never scrolls, and
 //!   adding the reservation here would move the left edge of every toast by
 //!   6px for nothing.
 //! * In the stacked crop the corner notches and the area left of the stack are
 //!   warm `#291E19`/`#723719` pixels — that is the right dock's own content
 //!   showing through the transparent host, verified against `shell-right-dock`.
 //!   Nothing in this file paints it, and nothing here should.
-//! * Icon tint, `clip-path`, `translate`, `scale()`, multi-stop gradients and
+//! * Icon tint, clipping paths, positional transforms, scaling, multi-stop
+//!   gradients and
 //!   tooltips are listed as project-wide gaps; this component uses none of
 //!   them, so each is a non-event here rather than an approximation.
 //! * Padding is already whole (8/16), so the "padding rounds to whole px"
@@ -207,18 +215,18 @@ use crate::shot;
 use crate::state::{AppState, ToastSeverity};
 use crate::tokens::color;
 
-// ── Geometry (Tailwind, 16px root) ──
+// ── Geometry (rem at a 16px root) ──
 
-/// `right-6` — 1.5rem. Measured as 1366 - 1342: every one of the four
+/// 1.5rem in from the right. Measured as 1366 - 1342: every one of the four
 /// baselines ends at x=1342.0 whatever its width.
 pub const RIGHT_INSET: f32 = 24.0;
 
-/// `bottom-6` — 1.5rem, the *other* 24. Measured as 820 - 796: both stack
-/// bottoms land on 796, which is `shell-status-bar`'s top edge.
+/// 1.5rem up from the bottom, the *other* 24. Measured as 820 - 796: both
+/// stack bottoms land on 796, which is `shell-status-bar`'s top edge.
 ///
 /// Kept separate from [`RIGHT_INSET`] because the two are coincidences of the
-/// same number — one is `right-6`, the other `bottom-6`, and if the status bar
-/// ever grew, only this one would move.
+/// same number — one insets from the right, the other from the bottom, and if
+/// the status bar ever grew, only this one would move.
 pub const BOTTOM_INSET: f32 = 24.0;
 
 /// One toast's border-box height: 1 + 8 + 18.75 + 8 + 1.
@@ -236,33 +244,35 @@ pub const TOAST_H: f32 = 36.75;
 /// not 4 (three border rows agree on 8).
 pub const TOAST_GAP: f32 = 8.0;
 
-/// `px-4` — 1rem either side, confirmed at 17px from the box edge to the text
-/// box (1px border + 16px) by the first ink column of all three single shots.
+/// 1rem of horizontal padding either side, confirmed at 17px from the box edge
+/// to the text box (1px border + 16px) by the first ink column of all three
+/// single shots.
 const PAD_X: f32 = 16.0;
 
-/// `py-2` — 0.5rem top and bottom.
+/// 0.5rem of vertical padding top and bottom.
 const PAD_Y: f32 = 8.0;
 
-/// `rounded` — Tailwind's bare utility, 0.25rem.
+/// The bare 0.25rem corner radius.
 const RADIUS: f32 = 4.0;
 
-/// `text-[12.5px]` — the toast's own font size.
+/// 12.5px — the toast's own font size.
 const TEXT_SIZE: f32 = 12.5;
 
 /// Line box for the toast text: 12.5 x 1.5.
 ///
-/// The 1.5 is Tailwind preflight's inherited `line-height`, the same way
+/// The 1.5 is the line height the web baseline inherited, the same way
 /// `status_bar.rs` derives its own `LINE_H` — GPUI's default is neither that
 /// nor anything else the previous renderer would use, and the box height
 /// (36.75) hangs off this number, so it has to be exact rather than stylistic.
 const LINE_H: f32 = 18.75;
 
-// `--font-sans` — Inter, the same family every other view uses.
+// The baseline's default sans family — Inter, the same family every other
+// view uses.
 
-/// `rgb(0 0 0 / 0.1)`, the alpha both `--shadow-lg` layers are painted at.
+/// Black at 10% — the alpha both large-shadow layers are painted at.
 ///
-/// **Local, marked for consolidation**: this is a Tailwind default (not an
-/// `--editor-*` token), so `tokens::color` has no name for it yet and it is
+/// **Local, marked for consolidation**: this is a stylesheet default rather
+/// than an editor token, so `tokens::color` has no name for it yet and it is
 /// used by exactly one component so far. If a second one asks for a shadow,
 /// this belongs next to `BLACK_40`.
 const SHADOW_10: Hsla = Hsla {
@@ -293,7 +303,8 @@ const MSG_STACK_WARN: &str = "Copied"; // i18n-exempt: not in catalog
 const MSG_STACK_ERROR: &str = "Disk full"; // i18n-exempt: not in catalog
 
 /// The three values of `ToastSeverity`, which the source uses to pick a border
-/// and a `role`. Only the border reaches pixels — see the module docs.
+/// and an accessibility role. Only the border reaches pixels — see the module
+/// docs.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Severity {
     Info,
@@ -302,22 +313,22 @@ enum Severity {
 }
 
 impl Severity {
-    /// The `border-*` colour this severity asks for, and the one it gets.
+    /// The border colour this severity asks for, and the one it gets.
     ///
     /// All three arms return [`color::BORDER`] because all three *measured*
-    /// #333333: the unlayered `* { border-color }` rule outranks every
-    /// `border-*` utility (see `tokens::BORDER` for the cascade argument and
+    /// #333333: the stylesheet's unscoped border-colour rule outranks every
+    /// per-severity border (see `tokens::BORDER` for the cascade argument and
     /// the four-shot verification). The arms are kept separate rather than
-    /// collapsed to one expression so that the class each severity names — and
+    /// collapsed to one expression so that the colour each severity names — and
     /// therefore the colour to restore if that rule is ever scoped — survives
     /// in the code instead of only in this comment.
     fn border(self) -> Hsla {
         match self {
-            // `border-editor-divider`, #2e2e2e by name -> measured #333333.
+            // The editor divider border, #2e2e2e by name -> measured #333333.
             Severity::Info => color::BORDER,
-            // `border-yellow-500`, Tailwind yellow by name -> measured #333333.
+            // The yellow ramp's 500 step by name -> measured #333333.
             Severity::Warn => color::BORDER,
-            // `border-editor-accent`, --editor-accent #F28E42 -> measured #333333.
+            // The editor accent border, #F28E42 by name -> measured #333333.
             Severity::Error => color::BORDER,
         }
     }
@@ -358,12 +369,13 @@ fn messages_for(id: Option<&str>) -> Vec<(Severity, &'static str)> {
 /// The whole toast stack, in whichever state [`shot::active`] asks for.
 ///
 /// Returned as a transparent `absolute` layer covering the window with the
-/// stack in its bottom-right corner (padding = the `right-6`/`bottom-6`
-/// insets), because that is what `fixed` means and GPUI has no `fixed`. Two
+/// stack in its bottom-right corner (padding = the 24px right and bottom
+/// insets), because the source took the stack out of the flow and pinned it to
+/// the window and GPUI has no equivalent of that. Two
 /// consequences the caller should know, both in the module docs: the layer
 /// only lands on the window's edges if its containing block is the
 /// window-sized root, and it paints over the shell only if it is appended late
-/// in that root's child list (there is no `z_index` to lean on).
+/// in that root's child list (there is no stacking order to lean on).
 pub fn render() -> Div {
     let stack: Vec<AnyElement> = messages_for(shot::active())
         .into_iter()
@@ -376,8 +388,8 @@ pub fn render() -> Div {
 /// the same bottom-right stack as the shot above.
 ///
 /// Rows carry their queue id as the element id (and `test_support`) so mounted
-/// tests can address one toast; the source's `role="status"|"alert"` has no
-/// GPUI surface yet and is not faked.
+/// tests can address one toast; the source's status/alert roles have no
+/// GPUI surface yet and are not faked.
 pub fn render_live(state: &gpui_kit::Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let toasts = state.read(cx).toasts.clone();
     let stack: Vec<AnyElement> = toasts
@@ -394,10 +406,11 @@ pub fn render_live(state: &gpui_kit::Entity<AppState>, cx: &Context<crate::app::
 
 /// The shot host and the live host differ only in their rows.
 fn host(stack: Vec<AnyElement>) -> Div {
-    // The `fixed ... bottom-6 right-6` host: a layer over the window, with the
-    // stack pushed into its bottom-right corner by flex alignment plus the
-    // two insets. `.inset(px(0.))` is the fill pattern `ui::slider` already
-    // uses for an absolutely positioned box; alignment is used rather than
+    // The host pinned to the window's bottom-right 24px insets: a layer over
+    // the window, with the stack pushed into its bottom-right corner by flex
+    // alignment plus the two insets. `.inset(px(0.))` is the fill pattern
+    // `ui::slider` already uses for an absolutely positioned box; alignment is
+    // used rather than
     // `.right()/.bottom()` offsets so the stack hugs its own width instead of
     // relying on shrink-to-fit resolving against the right edge.
     div()
@@ -408,15 +421,17 @@ fn host(stack: Vec<AnyElement>) -> Div {
         .items_end()
         .pr(px(RIGHT_INSET))
         .pb(px(BOTTOM_INSET))
-        // `flex flex-col gap-2`, with `items_stretch`: gpui_kit's `v_flex()`
+        // The column stack, 8px between rows, stretched across its container:
+        // gpui_kit's `v_flex()`
         // defaults to `items_center()`, which would left-align each toast at
         // its own width and break the stack shot, where all three share the
         // container's 78.281px (borders at crop x=1 and x=78 for every one).
         .child(v_flex().items_stretch().gap(px(TOAST_GAP)).children(stack))
 }
 
-/// One toast: `rounded border px-4 py-2 text-[12.5px] shadow-lg` over
-/// `bg-editor-panel` in `text-editor-text`.
+/// One toast: a 4px corner radius, a 1px border, 16px of horizontal and 8px of
+/// vertical padding, 12.5px text and the large shadow, over the panel fill in
+/// the default text colour.
 ///
 /// Width and height are hugged — no `.w()` and no `.h()` — because both are
 /// content functions of the label: 109.609/160.766/103.062 wide for the three
@@ -440,20 +455,20 @@ fn render_toast(severity: Severity, message: &str) -> Div {
         .text_size(px(TEXT_SIZE))
         .line_height(px(LINE_H))
         .text_color(color::TEXT)
-        // `shadow-lg` — the only part of this component that is visible
+        // The large shadow — the only part of this component that is visible
         // *outside* its own box in a baseline: the stacked shot's 8px gaps are
         // inside the captured element and show the shadow falling on the dock.
         .shadow(shadow_lg())
         .child(message.to_string())
 }
 
-/// Tailwind v4's `--shadow-lg`, spelled out as GPUI layers:
+/// The theme's large-shadow preset, spelled out as GPUI layers:
 ///
 /// ```text
 /// 0 10px 15px -3px rgb(0 0 0 / 0.1),  0 4px 6px -4px rgb(0 0 0 / 0.1)
 /// ```
 ///
-/// Same approach as `tool_rail::shadow_md_layers` for `--shadow-md`: CSS blur
+/// Same approach as `tool_rail::shadow_md_layers` for the medium shadow: CSS blur
 /// radii passed through unchanged, so the two spellings cannot drift from the
 /// theme or from each other. Measured against the baseline at gap 2, where a
 /// `#333333` rule of the dock under a toast reads `#2E2E2E` = exactly 10%

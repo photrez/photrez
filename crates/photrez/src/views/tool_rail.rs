@@ -8,16 +8,16 @@
 //!
 //! * Tooltips (`placement="right"`, `shortcut`)
 //! * the selection-variant fly-out popover (right-click)
-//! * `disabled` mode (`opacity-50 pointer-events-none grayscale`)
-//! * `transition-all duration-100` / `duration-150` - GPUI has no declarative
+//! * the disabled mode - half opacity, no pointer response, desaturated
+//! * the 100ms and 150ms transitions - GPUI has no declarative
 //!   per-element transition
 //!
 //! # Transcription notes
 //!
-//! * `z-10` / `z-20` need no equivalent: GPUI paints siblings in tree order,
-//!   and the element order already lists bg-swatch -> fg-swatch -> swap
-//!   button, so the stacking comes out identical.
-//! * `mt-auto` on the divider pins the swatch stack to the bottom.
+//! * The source's stack levels 10 and 20 need no equivalent: GPUI paints
+//!   siblings in tree order, and the element order already lists bg-swatch ->
+//!   fg-swatch -> swap button, so the stacking comes out identical.
+//! * The divider's auto top margin pins the swatch stack to the bottom.
 //!
 //! # `ToolId -> icon/active` mapping
 //!
@@ -116,16 +116,18 @@ const TOOLS: &[Tool] = &[
 // background). `AppState::default` carries the same pair and is the live
 // source the swatches paint from, so no constant is needed here.
 
-/// The sub-variant triangle, from the inline `<svg>` in the reference markup.
-/// It is not a lucide icon - it's a raw `<polygon points="6,6 0,6 6,0">` on a
-/// 6x6 viewBox.
-/// `currentColor` becomes `#ffffff` because GPUI tints by alpha (see icons.rs).
+/// The sub-variant triangle, from the inline `<svg>` in the reference markup -
+/// trace-exempt: that markup is the asset itself, copied verbatim into the const
+/// below. It is not a lucide icon but a raw `<polygon points="6,6 0,6 6,0">` on
+/// a 6x6 viewBox. `currentColor` becomes `#ffffff` - GPUI tints by alpha, see
+/// icons.rs.
 const VARIANT_INDICATOR: &[u8] =
     b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"5\" height=\"5\" viewBox=\"0 0 6 6\" fill=\"#ffffff\"><polygon points=\"6,6 0,6 6,0\" /></svg>";
 
-/// The two `shadow-md` layers GPUI generates, spelled out so they can be
-/// composed with the outline ring below. These are byte-for-byte Tailwind v4's
-/// `--shadow-md`, which is why gpui's `.shadow_md()` is safe to use elsewhere.
+/// The two medium-shadow layers GPUI generates, spelled out so they can be
+/// composed with the outline ring below. They are byte-for-byte the upstream
+/// theme's medium-shadow preset, which is why gpui's `.shadow_md()` is safe to
+/// use elsewhere.
 fn shadow_md_layers() -> Vec<BoxShadow> {
     vec![
         BoxShadow::new(px(0.), px(4.), hsla(0., 0., 0., 0.1))
@@ -173,8 +175,8 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
 /// A tool row: a 36px rounded square centring an 18px icon, plus the optional
 /// sub-variant triangle.
 ///
-/// The original wraps the button in `<div class="relative">` purely to anchor
-/// the fly-out popover, which this build omits - so the `relative` moves onto
+/// The original wraps the button in its own positioned div purely to anchor
+/// the fly-out popover, which this build omits - so that positioning moves onto
 /// the button itself, where it is needed for the absolute triangle.
 ///
 /// The click handler writes this button's `ToolId` back into the live
@@ -333,7 +335,8 @@ pub fn render_flyout(
         .child(popover)
 }
 
-/// `absolute bottom-1 right-1 size-[5px] text-editor-text-dim/80`
+/// Pinned 4px from the bottom and right edges: a 5px triangle in the dim text
+/// colour at 80% opacity.
 fn variant_indicator() -> impl IntoElement {
     Icon::default()
         .data(VARIANT_INDICATOR)
@@ -344,10 +347,11 @@ fn variant_indicator() -> impl IntoElement {
         .text_color(color::TEXT_DIM_80)
 }
 
-/// `<div class="mb-1 mt-auto h-px w-6 shrink-0 bg-editor-divider" />`
+/// The divider: 1px tall, 24px wide, never squeezed, 4px of bottom margin, in
+/// the divider colour.
 ///
-/// `mt-auto` is load-bearing: it is the only thing pushing the divider and the
-/// swatch stack to the bottom of the rail.
+/// Its auto top margin is load-bearing: it is the only thing pushing the divider
+/// and the swatch stack to the bottom of the rail.
 fn divider() -> impl IntoElement {
     div()
         .mt_auto()
@@ -358,11 +362,12 @@ fn divider() -> impl IntoElement {
         .bg(color::DIVIDER)
 }
 
-/// `<div class="relative size-[38px] shrink-0 group my-2 select-none">`
+/// The swatch box: a 38px positioned square, never squeezed, with 8px of
+/// vertical margin; nothing in it is text-selectable.
 ///
-/// `.group("swatch")` is the direct equivalent of Tailwind's `group`, and the
-/// swap button below consumes it with `.group_hover("swatch", ..)` - i.e. the
-/// same parent-hover relationship, with no state on this view.
+/// `.group("swatch")` is the direct equivalent of the upstream hover group, and
+/// the swap button below consumes it with `.group_hover("swatch", ..)` - i.e.
+/// the same parent-hover relationship, with no state on this view.
 fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("swatch-stack")
@@ -376,11 +381,12 @@ fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoE
         .child(swap_button(cx))
 }
 
-/// `absolute bottom-0 right-0 size-[28px] rounded-full border border-white/20
-///  shadow-md hover:scale-105`
+/// The background swatch: a 28px circle flush to the box's bottom-right, stacked
+/// below the foreground one, with a 1px border (white at 20% in the original), a
+/// medium shadow, and 5% larger on hover.
 ///
 /// Rendered first so the foreground swatch overlaps it - which is what the
-/// original achieves with `z-10` on the foreground swatch.
+/// original achieves by stacking the foreground swatch higher.
 fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("bg-swatch")
@@ -391,11 +397,11 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         .size(px(dim::SWATCH))
         .rounded_full()
         .border_1()
-        // `border-white/20` does not survive: the unlayered `*` sets
-        // `border-color` for every element, so this paints #333333 like every
-        // other rule. See `color::BORDER` - and note this is why the rail's
-        // raw diff is 2.377% while its hard count is near zero: `classify()`
-        // buckets #333333 and #484848 as the same `active` class.
+        // The intended white-at-20% border does not survive: an unlayered
+        // universal border-colour rule covers every element, so this paints
+        // #333333 like every other rule. See `color::BORDER` - and note this is
+        // why the rail's raw diff is 2.377% while its hard count is near zero:
+        // `classify()` buckets #333333 and #484848 as the same `active` class.
         .border_color(color::BORDER)
         .bg(fill)
         .shadow_md()
@@ -406,20 +412,21 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         }))
 }
 
-/// `absolute top-0 left-0 size-[28px] rounded-full border border-white/30
-///  outline outline-1 outline-black/40 shadow-md z-10 hover:scale-105`
+/// The foreground swatch: a 28px circle flush to the box's top-left, stacked
+/// above the rest, 1px border (white at 30%), 1px black-at-40% outer ring,
+/// medium shadow, 5% larger on hover.
 ///
 /// ## The one real fidelity gap in this component
 ///
-/// GPUI's `Styled` has no `outline-*`. CSS `outline` is drawn *outside* the
-/// border box and does not consume layout, whereas a second `.border_1()`
-/// would shrink the 28px content box. A 1px-spread, 0-blur `BoxShadow`
-/// reproduces an outline's geometry exactly (outside the border, no layout
-/// effect), so the `outline` is composited into the same `.shadow()` call as
-/// `shadow-md` rather than using the `.shadow_md()` shorthand.
+/// GPUI's `Styled` has no outline property. A browser outline is drawn
+/// *outside* the border box and does not consume layout, whereas a second
+/// `.border_1()` would shrink the 28px content box. A 1px-spread, 0-blur
+/// `BoxShadow` reproduces an outline's geometry exactly (outside the border,
+/// no layout effect), so the ring is composited into the same `.shadow()` call
+/// as the medium shadow layers rather than using the `.shadow_md()` shorthand.
 fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut shadows = vec![
-        // `outline outline-1 outline-black/40`
+        // The 1px black-at-40% outer ring the original draws with an outline
         BoxShadow::new(px(0.), px(0.), color::BLACK_40).spread_radius(px(1.)),
     ];
     shadows.extend(shadow_md_layers());
@@ -443,11 +450,11 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         }))
 }
 
-/// `absolute -top-1.5 -right-1.5 z-20 size-4 bg-editor-toolbar
-///  border border-editor-divider rounded-full ... scale-0 group-hover:scale-100
-///  shadow hover:text-editor-text`
+/// The swap button: a 16px circle 6px past the box's top-right, stacked on top,
+/// in the toolbar colour with a 1px divider border and a small shadow, hidden at
+/// rest and shown - in the plain text colour - on the swatch box's hover.
 ///
-/// `scale-0` / `group-hover:scale-100` is expressed as `opacity(0.)` /
+/// Growing from nothing on hover is expressed as `opacity(0.)` /
 /// `group_hover(.., opacity(1.))`: `Styled` exposes no 2-D transform for `Div`
 /// (only `Svg` has `with_transformation`). For a screenshot the two are
 /// indistinguishable - invisible at rest, fully visible on hover. The missing
@@ -482,9 +489,9 @@ fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         }))
         .child(
             // This micro-button's rotate icon uses the default stroke width
-            // (2). `rotate` and `rotate-cw` both map to RotateCw - the same
-            // glyph - but the `rotate-cw` key is drawn at 1.5 by the option
-            // bars, so it is a different constant and not the one used here.
+            // (2). `icons::ROTATE` and `icons::ROTATE_CW` are the same glyph, but
+            // `icons::ROTATE_CW` is drawn at 1.5 by the option bars, so it is a
+            // different constant and not the one used here.
             Icon::default()
                 .data(icons::ROTATE)
                 .size(px(dim::SWAP_ICON))

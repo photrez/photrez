@@ -3,7 +3,7 @@ use crate::app::tool_settings::ToolFlag;
 use crate::state::ShapeTool;
 use gpui_kit::TestSupportExt;
 
-/// `<div class="flex items-center gap-1.5">` — one variant renders inside.
+/// One centred row with a 6px gap — one variant renders inside.
 pub(super) fn fade_in_row(
     state: &gpui_kit::Entity<AppState>,
     active_tool: &ToolId,

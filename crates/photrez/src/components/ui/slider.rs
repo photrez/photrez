@@ -32,8 +32,8 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
     // one, and the field-border colour otherwise.
     match kind {
         SliderKind::Alpha => {
-            // `linear-gradient(to right, transparent, accent)` over a
-            // conic checkerboard, `background-size: auto, 8px 8px`. GPUI has
+            // A left-to-right fade from full transparency to the accent over
+            // an 8px checkerboard. GPUI has
             // no compositing of two fills on one element, so the pattern goes
             // on a child underneath and the accent fade on another above it —
             // same two layers, same order.
@@ -62,12 +62,12 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
             ));
         }
         SliderKind::BrushSize => {
-            // `clip-path: polygon(0% 65%, 100% 15%, 100% 85%, 0% 65%)` over
-            // `var(--color-editor-field-border)`, and `rounded` is absent so
+            // The upstream shape is a clip polygon 0% 65%, 100% 15%, 100% 85%,
+            // 0% 65% over the field-border colour, with no corner radius, so
             // the track is a sharp-ended bar rather than a pill.
             //
-            // GPUI has no `clip-path`, and this is the one gap in the Slider
-            // that is *visible* at rest rather than only under interaction: a
+            // GPUI cannot clip a box to a polygon, and this is the one gap in the
+            // Slider that is *visible* at rest rather than only under interaction: a
             // `brush-size` slider in the original is a wedge that grows to
             // the right, and here it is a rectangle. Worth knowing before the
             // brush panel lands — the shape would have to be a filled
@@ -88,7 +88,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
                 SliderKind::Brightness => color::ZINC_100.into(),
                 SliderKind::Contrast => color::ZINC_300.into(),
                 SliderKind::Straighten => color::ACCENT.into(),
-                // `bg-gradient-to-r from-pink-500 to-rose-500` — a two-stop
+                // Pink to rose — a two-stop
                 // gradient, which `linear_gradient` happens to support
                 // natively, so it is not split like the wider track fills are.
                 _ => linear_gradient(
@@ -117,7 +117,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
                         BoxShadow::new(px(0.), px(0.), glow).blur_radius(px(8.))
                     ]),
             );
-            // The neutral centre tick — `w-px bg-white/45`, centred. The
+            // The neutral centre tick — a 1px white bar at 45%, centred. The
             // `_PCT` matters: `WHITE_45` is 4.5% and this is 45%.
             track = track.child(
                 div()
@@ -149,11 +149,11 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
         );
     }
 
-    // `top-1/2` + `translate(-50%, -50%)` on a 12px dot: GPUI has no
+    // A 12px dot centred on the fill edge: GPUI has no
     // transform, so the half-box is subtracted as a negative margin instead,
-    // which lands the same pixels — `left` positions the margin edge for an
-    // absolutely positioned child, so a `-6px` margin shifts it back half its
-    // own width.
+    // which lands the same pixels — the GPUI left setter positions the margin
+    // edge for an absolutely positioned child, so a -6px margin shifts it back
+    // half its own width.
     let thumb = div()
         .absolute()
         .left(relative(percent / 100.0))
@@ -182,8 +182,8 @@ impl SliderKind {
     /// `brightness`, `contrast`, `saturation` and `straighten` grow from the
     /// centre rather than the left.
     ///
-    /// For those, `left: 50%` at rest and `width: |value| / 2 %` — so ±100
-    /// reaches an end and 0 sits at the tick.
+    /// For those, the fill's left edge sits at 50% at rest and its width is
+    /// `|value| / 2` % — so ±100 reaches an end and 0 sits at the tick.
     fn is_centre_origin(self) -> bool {
         matches!(
             self,
@@ -221,7 +221,7 @@ impl SliderKind {
     }
 }
 
-/// `left` / `width` of the centre-origin fill, in percent, for a raw value.
+/// The GPUI left/width of the centre-origin fill, in percent, for a raw value.
 ///
 /// The rule is piecewise: at or above zero the fill runs from the centre to
 /// the right by `value / 2`; below zero it starts at `(value + 100) / 2` and
@@ -243,8 +243,8 @@ pub fn centre_fill(raw: f32) -> (f32, f32) {
 /// (`gpui::linear_gradient(angle, from, to)`), where CSS's takes a list. The
 /// straightforward fix is one element per segment rather than a cleverer
 /// encoding: a segment spanning `p0..p1` is an absolutely positioned box at
-/// `left: p0%`, `width: (p1 - p0)%` carrying its own two-stop gradient across
-/// its own box, which is the same interpolation CSS would have performed.
+/// `p0`% from the left, `(p1 - p0)`% wide, carrying its own two-stop gradient
+/// across its own box — the same interpolation CSS would have performed.
 ///
 /// Splitting also sidesteps whether a two-stop gradient clamps outside its
 /// stops — each segment's stops sit at its own 0 and 1, so there is nothing
@@ -262,7 +262,7 @@ pub fn gradient_segments(stops: &[(Hsla, f32)]) -> Vec<Div> {
                 .top(px(0.0))
                 .bottom(px(0.0))
                 .bg(linear_gradient(
-                    90.0, // `to right`: 0deg is top, clockwise from there
+                    90.0, // left to right: 0deg is top, clockwise from there
                     linear_color_stop(c0, 0.0),
                     linear_color_stop(c1, 1.0),
                 ))

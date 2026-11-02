@@ -4,7 +4,7 @@
 //!
 //! Exactly `layers_panel`'s slot — the *other* tab of the same LayerDock pane,
 //! so only one of the two is ever on screen and they
-//! share bounds. The height, 527, is `611 - 84`: the panel column is `flex-1`
+//! share bounds. The height, 527, is `611 - 84`: the panel column stretches
 //! between the dock's 38px tab bar (y 46..83, its bottom border painted at 83)
 //! the Navigator (`shell-navigator` manifest box, y=611, drawn by whoever
 //! owns the dock chrome — not here). See `layers_panel.rs` for how those
@@ -24,7 +24,7 @@
 //!
 //! ```text
 //! row box     y 38..75 (38px), x 273..526 (254px — not 260, see below)
-//! row fill    #393939 = white/[0.12] over the #1e1e1e panel  (0.12*255+0.88*30 = 57)
+//! row fill    #393939 = white at 12% over the #1e1e1e panel  (0.12*255+0.88*30 = 57)
 //! icon ink    x 290..303, y 50..63, peak colour #f28e42 = color::ACCENT
 //! label ink   x 315..344 ("Open"), peak colour #cacaca = color::TEXT
 //! hint ink    x 290..373, y 88..97, peak colour #4e4e4e
@@ -34,7 +34,7 @@
 //! Every coordinate falls out of the row arithmetic: 16px horizontal padding
 //! puts the
 //! 16px icon box at x=289, a 10px gap puts the label at x=315, and the
-//! 38px row's `items-center` centres both glyph runs exactly where the ink
+//! 38px row centres its content, putting both glyph runs exactly where the ink
 //! lands (icon box y 49..64 with 1px AA inset; 12px Inter line box 14.5px
 //! centred → cap top at 52.6, descender to 64.3 — measured 52..63). The hint's
 //! brightest pixel (78) sits just under the 80 that dim text at 55%
@@ -49,7 +49,7 @@
 //! strip on the right of the scroll container whether or not it overflows; the
 //! track is transparent so the panel background shows through. It is
 //! transcribed as `.pr(px(SCROLLBAR_GUTTER))` on the scroll column, which
-//! makes every `w-full` child 260 - 6 = 254 wide — matching the scan to the
+//! makes every full-width child 260 - 6 = 254 wide — matching the scan to the
 //! pixel. (GPUI has no scrollbars to reserve space, so the reservation is
 //! spelled out rather than emergent.)
 //!
@@ -65,7 +65,7 @@
 //! (index 0 === the active history index), which is why it carries the
 //! 12%-white fill, the accent icon and the full-strength label.
 //!
-//! The per-label icon map (`getActionIcon`) is transcribed in full even
+//! The per-label icon map (`action_icon`) is transcribed in full even
 //! though only its first arm (`"open"` → `image`) is reachable here: it is
 //! pure presentation, and the other arms decide which glyph later states
 //! show.
@@ -79,12 +79,13 @@
 //! * **Omitted — state the capture never shows:** the no-document fallback
 //!   (an 88px dashed box with a `history` glyph and "No image open"); it is
 //!   keyed on `activeDocumentId`, which is not a thing a static render has.
-//! * **Omitted — interaction only:** `onClick` / `aria-current`,
-//!   `focus-visible:bg-white/[0.075]`, `hover:bg-white/[0.02]` and the
-//!   matching text-colour shifts, `transition-colors`, `select-none`, and
-//!   real scrolling (the content is 67px tall in a 527px column).
-//! * `truncate` on the label *is* transcribed (overflow-hidden +
-//!   text-ellipsis + nowrap), but it can never fire in this state: "Open" is
+//! * **Omitted — interaction only:** the click handler and the current-step
+//!   marker, the keyboard-focus fill (white at 7.5%), the hover fill (white at
+//!   2%) and the matching text-colour shifts, colour transitions,
+//!   text-selection suppression, and real scrolling (the content is 67px tall
+//!   in a 527px column).
+//! * Label clipping *is* transcribed (clipped to its box, ellipsis, kept on
+//!   one line), but it can never fire in this state: "Open" is
 //!   30px of the 196px the label gets.
 //!
 //! # Known fidelity gaps
@@ -129,7 +130,7 @@ const PANEL_W: f32 = 260.0;
 )]
 const PANEL_H: f32 = 527.0;
 
-/// The 6px scrollbar-gutter reservation of the scrollable list.
+/// The 6px gutter reserved for the scrollable list's scrollbar.
 /// See the module docs; this is why rows are 254 wide inside a 260 panel.
 const SCROLLBAR_GUTTER: f32 = 6.0;
 
@@ -164,18 +165,18 @@ const TEXT_HINT: f32 = 11.0;
 /// `with_stroke` rather than editing the constants.
 const STROKE_ACTIVE: f32 = 2.0;
 
-/// `strokeWidth={1.75}` on a non-current row's icon (same line).
+/// Stroke width 1.75 on a non-current row's icon (same line).
 const STROKE_IDLE: f32 = 1.75;
 
 // ── Faces ────────────────────────────────────────────────────────────────────
 
-// --font-sans: the row label inherits it from the dock chrome; main.rs loads the collection.
+// UI font: the row label inherits it from the dock chrome; main.rs loads the collection.
 //── Colours not in tokens.rs ────────────────────────────────────────────────
 //
 // The four alpha composites below are local candidates for `tokens.rs`
-// consolidation; each is named by its literal class.
+// consolidation; each is named for its opacity.
 
-/// `bg-white/[0.12]` — the current row's fill. Over `color::PANEL` this is
+/// White at 12% — the current row's fill. Over `color::PANEL` this is
 /// (57,57,57), which is exactly the #393939 the column scan reads at x=500.
 const WHITE_12: Hsla = Hsla {
     h: 0.0,
@@ -184,7 +185,7 @@ const WHITE_12: Hsla = Hsla {
     a: 0.12,
 };
 
-/// `text-editor-text/40` — a *future* (redo) row's label. Unreachable in the
+/// Editor text at 40% — a *future* (redo) row's label. Unreachable in the
 /// captured state: the stack has no redo entries.
 const TEXT_40: Hsla = Hsla {
     h: color::TEXT.h,
@@ -193,7 +194,7 @@ const TEXT_40: Hsla = Hsla {
     a: 0.40,
 };
 
-/// `text-editor-text/30` — a *future* row's icon. Same reachability note.
+/// Editor text at 30% — a *future* row's icon. Same reachability note.
 const TEXT_30: Hsla = Hsla {
     h: color::TEXT.h,
     s: color::TEXT.s,
@@ -211,7 +212,7 @@ const HINT_TEXT_KEY: &str = "history.editsAppearHere";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
-/// The row's visual state, from `data-history-state` in the reference markup.
+/// The row's visual state, which the reference marks on each row element.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Step {
     /// The cursor is on this entry.
@@ -257,9 +258,9 @@ pub fn render(
         .child(list)
 }
 
-/// `flex-1 overflow-y-auto` — the scroll container, with the 6px
-/// `scrollbar-gutter: stable` strip on its right (module docs). Rows are
-/// `w-full` of what remains: 254px.
+/// The stretch-to-fill, vertically scrollable container, with the 6px
+/// reserved-gutter strip on its right (module docs). Rows are
+/// full-width of what remains: 254px.
 fn list_column(rows: &[crate::state::HistoryRow], cx: &gpui_kit::Context<crate::app::App>) -> Div {
     let mut list = v_flex().flex_1().overflow_hidden().pr(px(SCROLLBAR_GUTTER));
     for (index, item) in rows.iter().enumerate() {
@@ -290,7 +291,6 @@ fn history_row(
         .text_size(px(TEXT_ROW))
         .font_weight(FontWeight(500.))
         .text_color(label_color)
-        // `truncate`
         .overflow_hidden()
         .text_ellipsis()
         .whitespace_nowrap()
@@ -333,7 +333,7 @@ fn hint() -> Div {
         .px(px(PAD_X))
         .py(px(HINT_PY))
         .text_size(px(TEXT_HINT))
-        // Source asks for `text-editor-text-dim/55`; 55% composites to ~2.1:1
+        // Source asks for dim text at 55%; 55% composites to ~2.1:1
         // over the panel, so the hint paints at the full dim strength.
         .text_color(color::TEXT_DIM)
         .child(t(HINT_TEXT_KEY))

@@ -19,7 +19,7 @@
 //!
 //! * the box geometry, borders, fills and radii;
 //! * every colour, resolved through [`crate::tokens`] rather than restated;
-//! * the value/caption typography, including the `font-mono` face;
+//! * the value/caption typography, including the monospace face;
 //! * `Slider`'s per-kind track — the gradients, the checkerboard, the
 //!   centre-origin fills, the thumb.
 //!
@@ -30,10 +30,10 @@
 //!   mutable value, which is `Render`/`Entity` territory rather than a
 //!   function returning `impl IntoElement`, and the captured baseline shows
 //!   none of it.
-//! * **`focus-within:ring`** — same problem: there is no focus state to ring.
+//! * **the focus ring** — same problem: there is no focus state to ring.
 //!   A 1px-spread `BoxShadow` would stand in for the ring if a focused variant
 //!   is ever needed.
-//! * **`transition-colors` / `hover:scale-110`** — GPUI has no declarative
+//! * **colour transitions and the hover grow** — GPUI has no declarative
 //!   per-element transition, so the *hover* colours are also absent rather
 //!   than painted permanently. Painting them would be worse than omitting
 //!   them: a hover state baked into the resting screenshot is a pixel the
@@ -41,7 +41,7 @@
 //!
 //! # Two conventions inherited from the option bar
 //!
-//! `font-mono` is rendered as **Consolas**, and `#A1A1AA` as
+//! The monospace face is rendered as **Consolas**, and `#A1A1AA` as
 //! [`color::FIELD_CAPTION`]. Both were measured rather than assumed — the
 //! mono face from its advance width against the baseline (18px for `"800"` at
 //! 11px, where Inter would give 21px), the grey from being neither
@@ -62,36 +62,36 @@ pub use slider::{centre_fill, gradient_segments, slider};
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
 
-/// `h-[24px]` — every field control, without exception.
+/// 24px tall — every field control, without exception.
 const FIELD_H: f32 = 24.0;
-/// `rounded-[4px]` on the field box.
+/// 4px corner radius on the field box.
 const RADIUS: f32 = 4.0;
-/// `gap-1` between a field's label, value and suffix.
+/// 4px between a field's label, value and suffix.
 const INNER_GAP: f32 = 4.0;
-/// `px-1.5` on `NumField` and `EditableNumField`.
+/// 6px horizontal padding on `NumField` and `EditableNumField`.
 const PAD_X: f32 = 6.0;
-/// `px-2` on `SelectField` — wider, because it justifies content to both
-/// edges instead of packing it.
+/// 8px horizontal padding on `SelectField` — wider, because it justifies
+/// content to both edges instead of packing it.
 const SELECT_PAD_X: f32 = 8.0;
-/// `w-[50px]` on a [`PropRow`] label, `shrink-0`.
+/// 50px-wide [`PropRow`] label, never squeezed.
 const LABEL_W: f32 = 50.0;
-/// `gap-2` between a [`PropRow`]'s label and its slot.
+/// 8px between a [`PropRow`]'s label and its slot.
 const ROW_GAP: f32 = 8.0;
-/// `gap-1.5` inside a [`PropRow`]'s content slot.
+/// 6px inside a [`PropRow`]'s content slot.
 const SLOT_GAP: f32 = 6.0;
-/// `size-3` — the `SelectField` chevron.
+/// 12px square — the `SelectField` chevron.
 const ICON_SM: f32 = 12.0;
-/// `text-[10px]` — captions.
+/// 10px — captions.
 const TEXT_XS: f32 = 10.0;
-/// `text-[11px]` — values and row labels.
+/// 11px — values and row labels.
 const TEXT_SM: f32 = 11.0;
 
 // ── Faces ────────────────────────────────────────────────────────────────────
 
-/// `font-mono`, i.e. Consolas — values in `NumField` and
+/// The monospace face, i.e. Consolas — values in `NumField` and
 /// `EditableNumField`.
 ///
-/// The numeric field values use a monospace face (`font-mono`). On this
+/// The numeric field values use a monospace face. On this
 /// Windows build the face that resolves is Consolas. It stands in for the
 /// reference's monospace stack rather than being that stack literally, a gap
 /// first recorded in the option bar's font notes and unchanged here.
@@ -100,7 +100,7 @@ const TEXT_SM: f32 = 11.0;
 /// values read it directly instead of spelling "Consolas" per module.
 pub const FONT_MONO: &str = "Consolas"; // i18n-exempt: technical token
 
-/// `--font-sans` — Inter, on everything that is *not* `font-mono`.
+/// The sans face — Inter, on everything that is *not* monospace.
 /// Inter, the font every label uses.
 ///
 /// Public because thirteen modules each declared their own copy before this
@@ -117,7 +117,7 @@ const MENU_ROW_GAP: f32 = 24.0;
 const MENU_ROW_TEXT: f32 = 12.0;
 const MENU_SHORTCUT_TEXT: f32 = 10.0;
 
-/// `my-1` around a separator, plus the line itself.
+/// 4px vertical margin around a separator, plus the line itself.
 const MENU_SEP_MY: f32 = 4.0;
 
 // ── Shared runs ──────────────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ const MENU_SEP_MY: f32 = 4.0;
 /// `div().text_size(..).font_family(FONT_UI).font_weight(..).text_color(..)`.
 ///
 /// Four setters in a fixed order is a lot of places to get the order wrong in,
-/// and the order is load-bearing: `text_color` after `bg` tints the glyphs,
+/// and the order is load-bearing: `text_color` after `.bg()` tints the glyphs,
 /// while the same pair before a parent's colour can be inherited differently.
 /// One helper means one place to reason about it.
 ///
@@ -147,7 +147,7 @@ const MENU_SEP_MY: f32 = 4.0;
 ///
 /// `focus_bg` is `Option` rather than a plain colour because the two callers
 /// genuinely differ here: the pointer-anchored context menus capture a
-/// focus-visible accent tint (`bg-editor-accent/15`) on the first enabled row
+/// focus-visible accent tint (accent at 15% opacity) on the first enabled row
 /// (a state the keyboard produces, not the mouse), while the title-bar popups
 /// have no captured focus tint at all. `None` paints no background, which is
 /// what a static render of those should do.
@@ -264,7 +264,7 @@ pub fn caption(text: &str) -> Div {
         // chops all three pieces at once — "X 10", "0 p", "x" — which reads on
         // screen as the same garbled overlap, one step removed. Pinning the
         // captions hands the whole squeeze to the value, so a narrow field
-        // clips "100" down to "10" the way an `<input>` would.
+        // clips "100" down to "10" the way an edit field would.
         .flex_none()
         .text_size(px(TEXT_XS))
         .font_weight(FontWeight(500.))
@@ -288,7 +288,7 @@ pub fn value_mono(text: &str) -> Div {
 /// `SelectField`'s value run — 11px, semibold, set in Inter (not mono),
 /// white.
 ///
-/// Deliberately *not* [`value_mono`]: this one carries no `font-mono`, so it
+/// Deliberately *not* [`value_mono`]: this one is not set in mono, so it
 /// is set in Inter even though the two look almost alike at 11px.
 pub fn value_sans(text: &str) -> Div {
     div()
@@ -311,13 +311,13 @@ pub fn value_sans(text: &str) -> Div {
 pub enum SliderKind {
     /// `default` — a plain trough and an accent fill from the left.
     Default,
-    /// `opacity` / `brush-strength` — a checkerboard under a fade to accent,
-    /// because the slider fades to `transparent` and needs something to show
-    /// through it.
+    /// the layer-Opacity and brush-Strength sliders — a checkerboard under a
+    /// fade to accent, because the slider fades to no colour and needs
+    /// something to show through it.
     Alpha,
-    /// `brightness` — black → zinc-600 → white.
+    /// `brightness` — black → `color::SLIDER_MID_BRIGHT` → white.
     Brightness,
-    /// `contrast` — black → zinc-500 → white.
+    /// `contrast` — black → `color::SLIDER_MID_CONTRAST` → white.
     Contrast,
     /// `saturation` — grey → red → yellow → blue.
     Saturation,

@@ -91,12 +91,12 @@ pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, h
                                 .text_size(px(NAME_TEXT))
                                 .font_family(ui::FONT_UI)
                                 .font_weight(FontWeight(500.))
-                                // `leading-tight`.
+                                // Line height 1.25.
                                 .line_height(relative(1.25))
                                 .text_color(color::TEXT)
                                 .child(name.to_string()),
                         )
-                        // `mt-0.5` = 2px, and `leading-snug`.
+                        // 2px top margin, and line height 1.375.
                         .child(
                             div()
                                 .mt(px(TYPE_MT))
@@ -202,7 +202,7 @@ pub(super) fn basic_section(
                         .mt(px(DESC_MT))
                         .text_size(px(DESC_TEXT))
                         .font_family(ui::FONT_UI)
-                        // `leading-snug`.
+                        // Line height 1.375.
                         .line_height(relative(1.375))
                         .text_color(color::TEXT_DIM)
                         .child(t("adjustments.dragToPreview")),
@@ -218,8 +218,8 @@ pub(super) fn basic_section(
 /// Slider row: 58px label,
 /// slider, and 40px value box.
 ///
-/// Not [`ui::prop_row`]: this label is 58px, `text-[12px] font-medium`
-/// `text-editor-text-dim`; `PropRow` uses 50px of 11px `text-[#A1A1AA]`.
+/// Not [`ui::prop_row`]: this label is 58px of 12px medium dim text;
+/// `PropRow` uses 50px of 11px `#A1A1AA`.
 fn slider_row(
     label: &str,
     kind: ui::SliderKind,
@@ -354,7 +354,7 @@ fn status_hint(message: &str) -> Div {
                 .overflow_hidden()
                 .text_size(px(HINT_TEXT))
                 .font_family(ui::FONT_UI)
-                // `leading-snug`.
+                // Line height 1.375.
                 .line_height(relative(1.375))
                 .text_color(color::TEXT_DIM)
                 .child(message.to_string()),

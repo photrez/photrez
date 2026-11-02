@@ -51,7 +51,7 @@ fn card_shell(actions: impl IntoElement, presets: impl IntoElement) -> Div {
         .child(footer())
 }
 
-/// `shadow-[0_12px_32px_rgba(0,0,0,0.8)]`.
+/// The CSS shadow `0 12px 32px rgba(0,0,0,0.8)`.
 ///
 /// The parameters are exact; the *curve* is not. The reference capture's
 /// coverage at the card's own edge reads about 0.4 (`#090909` over a `#0f0f0f`
@@ -82,7 +82,7 @@ fn header() -> Div {
             h_flex()
                 .w_full()
                 .h(px(HEADER_ROW_H))
-                // `items-center`, resolved by hand: the icon box would sit at
+                // Centred on one row, resolved by hand: the icon box would sit at
                 // +2 of the 41px row and the capture has it at +3.
                 .items_start()
                 .gap(px(HEADER_GAP))
@@ -129,7 +129,7 @@ fn header() -> Div {
         )
 }
 
-/// The two action buttons: `grid grid-cols-2 gap-2.5 px-5 py-3.5`.
+/// The two action buttons: a two-column grid, 10px gap, 20px horizontal and 14px vertical padding.
 ///
 /// 64px = 14 + 36 + 14. Column widths are 234 each, from (478 - 10) / 2.
 fn actions() -> Div {
@@ -212,12 +212,12 @@ fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
 
 /// One action button.
 ///
-/// The first is `bg-editor-accent text-white` with no border; the second is
-/// `border border-editor-field-border bg-editor-field text-editor-text`, and
+/// The first uses the accent fill with white text and no border; the second is
+/// a field fill and text colour with a border, and
 /// that the field-border token resolves to [`color::BORDER`] like every
 /// other border in the app rather than to [`color::FIELD_BORDER`].
 ///
-/// Both are `h-9 ... justify-center gap-2 px-3`, so the icon and the label
+/// Both are 36px tall, contents centred with an 8px gap and 12px side padding, so the icon and the label
 /// centre as a group: the baseline puts the first group's ink at crop
 /// x 91..186 (97 wide) and the second's at 328..440 (114 wide), against a
 /// 234px column.
@@ -323,7 +323,7 @@ fn presets_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
         )
 }
 
-/// One row of the `grid-cols-2` presets grid - two 235px tiles 8px apart.
+/// One row of the two-column presets grid - two 235px tiles 8px apart.
 fn preset_row(first: usize, second: usize) -> Div {
     h_flex()
         .w_full()
@@ -456,11 +456,11 @@ fn footer() -> Div {
         .child(ui::pin(kbd()))
 }
 
-/// `<kbd class="font-sans rounded-[3px] border border-editor-divider
-/// bg-editor-field px-1.5 py-0.5 text-[10px] text-editor-text-dim">`.
+/// `<kbd class="font-sans rounded-[3px] border border-editor-divider bg-editor-field` - trace-exempt:
+/// `px-1.5 py-0.5 text-[10px] text-editor-text-dim">` - trace-exempt: verbatim source kbd markup.
 ///
 /// Measured 44x21 at crop x 456..499, y 318..338, with the "Ctrl+O" run's ink
-/// at x 463..492 - which is `456 + 1 (border) + 6 (px-1.5)`, so the box is
+/// at x 463..492 - which is `456 + 1 (border) + 6 (left padding)`, so the box is
 /// exactly padding + text + padding and nothing here needs an explicit width.
 /// (The *earlier* apparent 38px text run was the chip's own top and bottom
 /// border rows being read as ink.)
@@ -504,8 +504,8 @@ fn kbd() -> Div {
 /// `div`), so this is the natural thing to hoist into `ui.rs` if a fifth
 /// arrives.
 ///
-/// `whitespace_nowrap` stands in for the source's `truncate` on the preset
-/// labels and for the single-line spans; nothing clips at these widths, so
+/// `whitespace_nowrap` stands in for the preset labels' clip-with-ellipsis and
+/// for the single-line spans; nothing clips at these widths, so
 /// the ellipsis itself never appears.
 fn text_line(text: &str, size: f32, line_h: f32, weight: FontWeight, colour: Hsla) -> Div {
     div()

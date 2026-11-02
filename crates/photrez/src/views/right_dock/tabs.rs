@@ -109,12 +109,12 @@ pub(super) fn layer_tab_id(tab: &LayerTab) -> &'static str {
     }
 }
 
-/// A `relative flex h-full items-center px-3 text-[11.5px] font-medium`
-/// button, with the 2px ACCENT underline under it when active.
+/// A full-height, positioned button that centres 11.5px medium-weight text with
+/// 12px of horizontal inset, plus the 2px ACCENT underline under it when active.
 ///
 /// The underline is the button's *last child* rather than an absolutely
-/// positioned pseudo-element: there is no `after:absolute after:bottom-0
-/// after:inset-x-0` equivalent, since GPUI has no pseudo-elements and no
+/// positioned pseudo-element: nothing in GPUI pins an after-pseudo to the bottom
+/// edge across the full width - there are no pseudo-elements and no
 /// `z_index` to order an `absolute()` overlay against its siblings.
 /// Stacking the label in a `flex_1` row above a full-width 2px bar gets the
 /// same pixels without either.
@@ -163,8 +163,8 @@ fn tab_button(
     if active {
         btn = btn.child(div().w_full().h(px(UNDERLINE_H)).bg(color::ACCENT));
     } else {
-        // `hover:bg-white/[0.02] hover:text-editor-text` — Tailwind emits
-        // CSS for both. No token for 2% white; use hsla inline.
+        // The 2%-white hover fill and the plain-text hover colour both do have
+        // CSS effect upstream. No token for 2% white; use hsla inline.
         btn = btn.hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.02)).text_color(color::TEXT));
     }
     btn

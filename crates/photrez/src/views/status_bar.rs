@@ -1,7 +1,7 @@
 //! Native status bar (the window footer).
 //!
 //! Geometry: `manifest.json` gives `shell-status-bar` as 1366x24 at (0,796) —
-//! the full client width, below `<main>`, and the last 24px that take the
+//! the full client width, below the content area, and the last 24px that take the
 //! window from 796 to the baseline's 820.
 //!
 //! # Scope: the resting state the baseline captures
@@ -53,7 +53,7 @@
 //!   box inside a centred flex item cancels the box's height out of the
 //!   baseline calculation, so 15 and 15.75 put every glyph in the same place.
 //! * **Mixed weight on one line.** `Canvas: ` (dim, 400) and `800 x 600 px`
-//!   (text, 700 — Tailwind's preflight renders `<strong>` `bolder`) are inline
+//!   (text, 700 — the source's emphasis run, which renders bolder) are inline
 //!   siblings in the markup. GPUI stacks plain text children, so each cell is one
 //!   [`StyledText`] carrying two [`TextRun`]s: one shaped line, one line box,
 //!   and no invented inter-word gap. Runs spell out `Inter` themselves because
@@ -158,7 +158,7 @@ const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 /// "Background" layer.
 const LAYER: &str = "Background"; // i18n-exempt: new-document layer name
 
-/// The tool-tip sentence colour: `--editor-text` (#CACACA) at 60% alpha.
+/// The tool-tip sentence colour: the plain text colour (#CACACA) at 60% alpha.
 ///
 /// Not `color::TEXT_DIM_60`, which is text-**dim** at 60%. Over the
 /// #1E1E1E panel it lands on ~#858585, and the PNG's status sentence peaks at
@@ -207,12 +207,12 @@ impl FrameMetrics {
     }
 }
 
-/// `<footer class="relative flex h-[24px] shrink-0 items-center justify-between
-///  border-t border-editor-divider bg-editor-panel-bg px-3 text-[10.5px]
-///  text-editor-text-dim select-none">`
+/// The bar itself: a positioned row 24px tall, never squeezed, centred on one
+/// row with children pushed to both ends; 1px top border, panel fill, 12px
+/// side padding, 10.5px dim text, nothing selectable.
 ///
-/// `relative` only exists in the source to anchor the tiling-progress hairline
-/// (omitted above); it is kept so the element tree still mirrors the markup.
+/// Being positioned only exists in the source to anchor the tiling-progress
+/// hairline (omitted above); it is kept so the tree mirrors the layout.
 ///
 /// `status_error` is production state, not a baseline value: the resting captures
 /// pass `None`, so the default bar is pixel-identical to the golden master. A
@@ -255,7 +255,7 @@ pub fn render(
         .child(ui::pin(right_group(status_error, autosave)))
 }
 
-/// `<div class="flex items-center gap-3">` — the readout cells, in order.
+/// The readout cells, in order: centred on one row with 12px between them.
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
 /// Frame timing. The Frame cell keeps the previous build's gate - it shows
@@ -277,7 +277,7 @@ fn left_group(
     let layer = layer_name.unwrap_or(LAYER).to_string();
     h_flex()
         .gap(px(GROUP_GAP))
-        // The first cell is the only one without the `border-l ... pl-3` rule.
+        // The first cell is the only one without the left rule and its padding.
         .child(field(&format!("{}: ", t("status.canvas")), &doc))
         .child(divided_field(&format!("{}: ", t("status.zoom")), &zoom))
         .child(divided_field(
@@ -308,7 +308,7 @@ fn tool_key(tool: crate::state::ToolId) -> &'static str {
     }
 }
 
-/// `label: <strong>value</strong>` without a rule — the `Canvas` cell.
+/// A dim label then a bold value, with no rule — the `Canvas` cell.
 fn field(label: &str, value: &str) -> impl IntoElement {
     div().child(labeled(label, value))
 }
@@ -364,7 +364,7 @@ fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> 
         },
         FrameRun {
             // One run, not two: the markup wraps ` max {max}ms` in a single
-            // `text-editor-text/40` span, and the golden master measures one
+            // plain-text-at-40% span, and the golden master measures one
             // flat ~94 level across the whole tail - `max 1.9ms` is NOT bold.
             text: format!(" max {max}ms"),
             color: FRAME_TAIL_COLOR,
@@ -400,11 +400,11 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
     )
 }
 
-/// `<span class="border-l border-editor-divider pl-3">
-///  <span class="text-editor-text/60">...</span></span>` — the tool hint.
+/// The tool hint: a 1px left rule with 12px left padding on the outer layer,
+/// the sentence at 60% of the plain text colour on the inner one.
 ///
-/// The inner span carries the colour and the outer the rule; nesting them
-/// rather than colouring the ruled div keeps the two markup layers apart, which
+/// The inner layer carries the colour and the outer the rule; nesting them
+/// rather than colouring the ruled div keeps the two layers apart, which
 /// matters if either ever grows a second child.
 fn divided_tip(tool: crate::state::ToolId) -> impl IntoElement {
     ruled(div().text_color(STATUS_COLOR).child(t(tip_key(tool))))
@@ -426,7 +426,7 @@ fn tip_key(tool: crate::state::ToolId) -> &'static str {
     }
 }
 
-/// The `border-l border-editor-divider pl-3` wrapper, applied to every cell
+/// The left-rule wrapper, applied to every cell
 /// after the first. 1px rule + 12px padding, exactly as CSS adds them to a
 /// bordered flex item.
 fn ruled(content: impl IntoElement) -> impl IntoElement {
@@ -437,12 +437,12 @@ fn ruled(content: impl IntoElement) -> impl IntoElement {
         .child(content)
 }
 
-/// One inline flow: the dim label, then the value in `<strong>` — `bolder` in
-/// Tailwind's preflight, i.e. 700 over the 400 the footer sets.
+/// One inline flow: the dim label, then the value bold — 700 over the 400 the
+/// bar itself sets.
 ///
 /// Two runs rather than two sibling elements because GPUI stacks text children
 /// instead of flowing them, and because the space between `:` and the value
-/// belongs to the label run in the source (`{t(..)}: <strong>`), where it is
+/// belongs to the label run in the source, where it is
 /// shaped as part of the same line.
 fn labeled(label: &str, value: &str) -> StyledText {
     StyledText::new(format!("{label}{value}")).with_runs(vec![
@@ -461,9 +461,9 @@ fn labeled(label: &str, value: &str) -> StyledText {
     ])
 }
 
-/// `<div class="flex shrink-0 items-center gap-5">` — the right-hand cells.
+/// The right-hand cells: centred on one row, never squeezed, 20px between them.
 ///
-/// The source also toggles `opacity-50 pointer-events-none` when no document
+/// The source also dims the group to 50% and ignores input when no document
 /// is open; the baseline has one, so that branch never renders here.
 fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatus) -> Div {
     h_flex()
@@ -511,12 +511,12 @@ fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatu
         .child(history_button())
 }
 
-/// `<button type="button" data-status-history-trigger
-///  class="flex items-center gap-1 hover:text-editor-text transition-colors">`
+/// The History trigger: one row, centred, 4px between icon and label, colour
+/// transitioned, plain text colour on hover.
 ///
-/// Resting colour is the footer's `text-editor-text-dim` — the button sets no
+/// Resting colour is the bar's dim text — the button sets no
 /// colour of its own unless the History dock panel is the open one, and the
-/// PNG shows dim, not `text-editor-accent`, so it is not.
+/// PNG shows dim, not the accent colour, so it is not.
 ///
 /// The `data-status-history-trigger` hook, `aria-pressed` and the dock wiring
 /// are state, not chrome; only the appearance is reproduced here.
@@ -549,7 +549,7 @@ mod tests {
     /// method. `frame_text` is a thin consumer of these specs, so exercising them
     /// IS exercising the production path.
     ///
-    /// RED proof: alter any `text`, `bold`, or `alpha` value in
+    /// RED proof: alter any text, bold, or alpha value in
     /// `frame_run_specs` and the corresponding assertion here flips.
     #[test]
     fn frame_cell_runs_match_baseline() {

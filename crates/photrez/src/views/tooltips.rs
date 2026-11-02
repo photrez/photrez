@@ -25,7 +25,7 @@
 //!
 //! # The 26px height is *not* content-driven here
 //!
-//! The source has no height: `px-2 py-1` + a border + the 11px label's line
+//! The source has no height: 8px x / 4px y padding + a border + the 11px label's line
 //! box give 26.5 in the previous renderer (that is the manifest's 26.5). GPUI
 //! computes its
 //! own line box for Inter 11px, so leaving the height to the text would put
@@ -35,29 +35,29 @@
 //! found it: cap-height rows 10..17 of a box whose top border sits at crop
 //! row ~1. The one thing that *was* measured rather than assumed inside that
 //! box is the kbd chip: the probe reads it 15px tall (crop rows 7..21,
-//! border to border) — `9px text at leading-none + py-0.5 (2+2) + border
-//! (1+1)` — so `KBD_H` is pinned to that and centred like everything else.
+//! border to border) — `9px text on a zero-leading line + 2+2 vertical padding
+//! + 1+1 border` — so `KBD_H` is pinned to that and centred like everything else.
 //!
 //! # Colours, all measured
 //!
-//! * border `border-white/10` → probes read **#333333** on all four sides,
-//!   the unlayered `* { border-color }` override every `border-*` in Photrez
-//!   loses to ([`color::BORDER`]; see `tokens.rs` for the cascade at length).
-//! * fill `bg-editor-panel` → #1e1e1e interior, [`color::PANEL`].
-//! * label `text-editor-text` → peak ink #cacaca, [`color::TEXT`].
-//! * kbd `bg-white/10` → #353535 flat fill, which is [`color::WHITE_10`]
-//!   composited over the panel; kbd text `text-white/50` → glyph plateaus at
+//! * border, authored as white at 10% → probes read **#333333** on all four
+//!   sides, the unlayered universal border-colour override every bordered
+//!   element loses to ([`color::BORDER`]; `tokens.rs` has the cascade at length).
+//! * panel fill → #1e1e1e interior, [`color::PANEL`].
+//! * label, in the plain text colour → peak ink #cacaca, [`color::TEXT`].
+//! * kbd fill, white at 10% → #353535 flat fill, which is [`color::WHITE_10`]
+//!   composited over the panel; kbd text, white at 50% → glyph plateaus at
 //!   #9a9a9a = white at 50% over that fill (local `WHITE_50`, no token
-//!   exists); kbd `border-white/5` → #333333 again, same override.
+//!   exists); kbd border, white at 5% → #333333 again, same override.
 //! * shadow `0 4px 12px rgba(0,0,0,0.5)` → one [`BoxShadow`], transcribed
-//!   stop for stop, the same way `tool_rail.rs` spells `shadow-md` out.
+//!   stop for stop, the same way `tool_rail.rs` spells its medium shadow out.
 //!
 //! # No arrow — checked, not assumed
 //!
 //! Tooltip components often carry a `clip-path` notch pointing at the
 //! trigger; the project-wide gap list calls that out as inexpressible in
 //! GPUI. This one does not need it: the probe's corner ramp is a plain 4px
-//! `rounded-[4px]` arc on all four corners of all three crops, with no
+//! circular arc on all four corners of all three crops, with no
 //! protrusion on the placement side (or any side). The tooltip is a bare box;
 //! the gap does not apply here.
 //!
@@ -74,18 +74,18 @@
 //!   `z_index`, and late-in-tree is the only ordering that paints on top;
 //! * the coordinates are the captured ones, not anchor arithmetic —
 //!   anchoring needs the trigger's rect at hover time, which is interaction;
-//! * `transition-opacity duration-100` and the `opacity-0` pre-measure state
+//! * the 100ms opacity transition and the fully transparent pre-measure state
 //!   are unrenderable and unneeded: the baseline settles at full opacity
-//!   (`settle: 700` outlasts the 100ms fade), so this paints `opacity-100`
+//!   (`settle: 700` outlasts the 100ms fade), so this paints fully opaque
 //!   unconditionally.
 //!
 //! # Not reused from `ui.rs`
 //!
 //! All four shared helpers were considered and none fits: [`ui::caption`] is
 //! 10px/500 in the caption grey, [`ui::value_sans`] is 11px but **600 white**,
-//! [`ui::value_mono`] adds `font-mono`, [`ui::field_chrome`] is the 24px
-//! field box. The tooltip label is 11px Inter *regular* in `text-editor-text`
-//! — no existing run matches it, so `label_run` and `kbd` are local. If a
+//! [`ui::value_mono`] adds a monospace face, [`ui::field_chrome`] is the 24px
+//! field box. The tooltip label is 11px Inter *regular* in the text colour —
+//! no existing run matches it, so `label_run` and `kbd` are local. If a
 //! second component turns up wanting an 11px regular `#cacaca` run, those two
 //! are the consolidation candidates (into `ui.rs` here, `tokens.rs` for
 //! `WHITE_50`).
@@ -96,7 +96,7 @@
 //! `t("tools.move", "Move Tool")`, the selection variant resolved through
 //! `VARIANT_I18N_KEYS` → `t("tools.rectSelect", "Rectangle Select")` plus
 //! `t("tools.rightClickOptions", " (Right-click for options)")`, and
-//! `t("tools.foregroundColor", "Foreground Color")`. The kbd `uppercase` is
+//! `t("tools.foregroundColor", "Foreground Color")`. The kbd's letter-casing is
 //! a no-op on "V"/"M" and needs no GPUI equivalent.
 
 use gpui_kit::base::h_flex;
@@ -121,43 +121,43 @@ const FRAME_H: f32 = 820.0;
 /// renderer's — see the module docs.
 pub const TOOLTIP_H: f32 = 26.0;
 
-/// `px-2` — horizontal padding; label ink starts at crop x=10, i.e. 1 border
+/// 8px horizontal padding; label ink starts at crop x=10, i.e. 1 border
 /// + 8 padding + the "M" glyph's ~1px side bearing.
 const PAD_X: f32 = 8.0;
 
-/// `rounded-[4px]` — the probe's corner ramp spans ~3px of AA per corner on
+/// The 4px corner radius: the probe's corner ramp spans ~3px of AA per corner on
 /// every crop, consistent with a 4px arc and with nothing larger.
 const RADIUS: f32 = 4.0;
 
-/// `gap-1.5` between the label span and the kbd. The kbd *also* carries
-/// `ml-1` (4px), so the two together are 10px of floor — transcribed as
+/// 6px between the label span and the kbd. The kbd *also* carries
+/// its own 4px left margin, so the two together are 10px of floor — transcribed as
 /// [`KBD_ML`] on the chip rather than folded into the gap, matching the
 /// source's own composition.
 const GAP: f32 = 6.0;
 
-/// `text-[11px]` — the label; the source gives it no `font-weight`, i.e.
+/// 11px — the label; the source gives it no weight setting, i.e.
 /// regular 400, which is also GPUI's default (set explicitly below anyway so
 /// the run is self-documenting).
 const LABEL_TEXT: f32 = 11.0;
 
-/// `ml-1` on the kbd.
+/// The kbd chip's 4px left margin.
 const KBD_ML: f32 = 4.0;
-/// `px-1` on the kbd.
+/// The kbd chip's horizontal padding.
 const KBD_PX: f32 = 2.0;
 /// Measured kbd height, border to border: crop rows 7..21 in
-/// `tooltip-rail-tool.png` = 9px `leading-none` line + `py-0.5` (2+2) +
+/// `tooltip-rail-tool.png` = 9px zero-leading line + 2+2 vertical padding +
 /// border (1+1).
 const KBD_H: f32 = 15.0;
-/// `text-[9px] font-semibold` — the shortcut glyph.
+/// 9px semibold — the shortcut glyph.
 const KBD_TEXT: f32 = 9.0;
 const KBD_WEIGHT: f32 = 600.0;
 
-// `--font-sans` — Inter, the same face `main.rs` registers and every other
+// The UI sans stack — Inter, the same face `main.rs` registers and every other
 // view uses.
 
 // ── Colours ─────────────────────────────────────────────────────────────────
 
-/// `text-white/50` on the kbd — no token exists for it (the `WHITE_*` ramp in
+/// White at 50% on the kbd — no token exists for it (the `WHITE_*` ramp in
 /// `tokens.rs` covers 4.5/5/5.5/8/10/20/30/45/80, not 50). Measured: glyphs
 /// plateau at #9a9a9a, which is white 50% over the #353535 chip fill — the
 /// composite checks out to the integer. Marked for consolidation into
@@ -169,8 +169,8 @@ const WHITE_50: Hsla = Hsla {
     a: 0.5,
 };
 
-/// `shadow-[0_4px_12px_rgba(0,0,0,0.5)]` — one layer, transcribed stop for
-/// stop.
+/// One layer: no x offset, 4px down, 12px blur, black at 50% — transcribed stop
+/// for stop.
 fn tooltip_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow::new(px(0.), px(4.), hsla(0., 0., 0., 0.5)).blur_radius(px(12.))]
 }
@@ -228,8 +228,8 @@ fn spec_for(id: Option<&str>) -> Spec {
 // ── Render ───────────────────────────────────────────────────────────────────
 
 /// A transparent client-area frame with the requested tooltip pinned inside
-/// it — the `context_menus.rs` convention for a `position: fixed` + portal
-/// source. Mount late in the tree: that is this view's only `z-[100]`.
+/// it — the `context_menus.rs` convention for a viewport-pinned, portalled
+/// source. Mount late in the tree: that is this view's only stacking-order claim.
 pub fn render() -> impl IntoElement {
     let spec = spec();
     let tip: Div = tooltip(&spec.label, spec.shortcut)
@@ -251,9 +251,9 @@ pub fn render() -> impl IntoElement {
 /// 4px corners, the #333333 edge every Photrez border actually paints, panel
 /// fill, and the drop shadow.
 ///
-/// `whitespace-nowrap` needs no equivalent: without a width constraint GPUI
-/// does not wrap, which is the same reason the source needs the class in the
-/// first place.
+/// A label that stays on one line needs no equivalent: without a width
+/// constraint GPUI does not wrap, which is the same reason the source needs its
+/// no-wrap rule in the first place.
 fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
     let mut row = h_flex().items_center().gap(px(GAP)).child(label_run(label));
     if let Some(keys) = shortcut {
@@ -272,7 +272,7 @@ fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
         .child(row)
 }
 
-/// `<span class="text-[11px] font-sans text-editor-text">` — the content
+/// The label run — 11px sans in the text colour, carrying the content
 /// string. `.child()` copies the `&str` (see `ui.rs` on why the `to_string`
 /// is load-bearing).
 fn label_run(text: &str) -> Div {
@@ -284,14 +284,14 @@ fn label_run(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// `<kbd class="ml-1 px-1 py-0.5 rounded bg-white/10 text-white/50
-/// text-[9px] font-sans font-semibold border border-white/5 uppercase
-/// leading-none">`.
+/// The chip as the source composes it: a 4px left margin, horizontal padding,
+/// 2px above and below, 4px corners, white at 10% on the panel, white at 50%
+/// text, 9px semibold sans, a 1px light border, uppercased, no line leading.
 ///
-/// Height is pinned to the measured 15px rather than left to `leading-none`:
-/// GPUI has no line-height control, so the 9px line box is whatever DirectWrite
-/// says, and pinning keeps the chip's border rows on crop 7/21 where the probe
-/// put them. `uppercase` is dropped as a no-op — see the module docs.
+/// Height is pinned to the measured 15px rather than left to the source's
+/// zero-leading line box: GPUI has no line-height control, so the 9px line box
+/// is whatever DirectWrite says, and pinning keeps the chip's border rows on
+/// crop 7/21 where the probe put them. Uppercasing is a no-op: see module docs.
 fn kbd(keys: &str) -> Div {
     h_flex()
         .h(px(KBD_H))
@@ -375,7 +375,7 @@ mod tests {
         assert!((KBD_H - 15.0).abs() < 0.001, "KBD_H = {KBD_H}");
     }
 
-    /// The kbd text weight is semibold (600), matching `font-semibold`.
+    /// The kbd text weight is semibold (600), as the source sets it.
     #[test]
     fn kbd_weight_is_semibold() {
         assert!(
@@ -384,7 +384,7 @@ mod tests {
         );
     }
 
-    /// The label font size is 11px, matching `text-[11px]` in the source.
+    /// The label font size is 11px, the size the source gives the label.
     #[test]
     fn label_size_is_eleven() {
         assert!(

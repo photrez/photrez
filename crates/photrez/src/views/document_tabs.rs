@@ -3,7 +3,7 @@
 //! The 38px strip that caps the editor column, directly under the title bar:
 //! `manifest.json` records the active tab at `x52,y46,89.86x37`, and the
 //! column runs from the tool rail's right edge (x=52) to the right dock
-//! (x=833) — 781px wide. Left to right it holds the tab list (`flex-1`), the
+//! (x=833) — 781px wide. Left to right it holds the flexible tab list, the
 //! new-document button, and the utility cluster (layout toggle + Export)
 //! pressed against the dock edge.
 //!
@@ -23,8 +23,8 @@
 //! change, as in
 //! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
 //!
-//! With **zero** documents the original still paints this strip — `<For>`
-//! simply renders no tab, so the `flex-1` list comes up empty while the `+`
+//! With **zero** documents the original still paints this strip — the tab list
+//! simply renders no tab, so the flexible list comes up empty while the `+`
 //! and the utility cluster stay where they are. That state is *not*
 //! implemented here; this module renders the captured one-document state,
 //! because that is what the baseline measured.
@@ -74,14 +74,13 @@
 //!   backgrounds and plain text do. Same gap as `tool_rail` and `title_bar`;
 //!   no baseline captures a hover of those three controls, so it is unverified
 //!   either way.
-//! * `cursor: pointer`, `transition-all duration-75`, `select-none`, the ARIA
-//!   roles/`tabindex`, and every pointer/drag/wheel handler have no pixel
-//!   consequence and are dropped.
+//! * The pointer cursor, the transition timings, the text-selection lock, the
+//!   ARIA roles and tab order, and every pointer/drag/wheel handler have no
+//!   pixel consequence and are dropped.
 
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
-// `flex-row + items-center` row that the reference markup's `class="flex items-center"`
-// expresses.
+// centred single row the reference markup expresses.
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
@@ -95,8 +94,8 @@ use crate::tokens::color;
 use gpui_kit::Div;
 
 // ---------------------------------------------------------------------------
-// Dimensions. Tailwind's 16px root: every value below is already resolved to
-// pixels, and each const names the class (with its markup line) it comes from.
+// Dimensions. The original rem scale has a 16px root: every value below is
+// already resolved to pixels, and each const names the part it measures.
 // ---------------------------------------------------------------------------
 
 /// 38px — strip height. `manifest.json`
@@ -170,10 +169,10 @@ const EXPORT_ICON: f32 = 14.0;
 /// fallback: `assets/i18n/en.json:51` is `"Export…"`.
 const EXPORT_LABEL_KEY: &str = "menus.items.export";
 
-/// `<div class="flex h-[38px] shrink-0 items-center border-b
-///  border-editor-divider bg-editor-topbar justify-between select-none">`
+/// The 38px strip: one centred row that is never squeezed, a 1px bottom
+/// border, the topbar fill, and its children pushed to both ends.
 ///
-/// `select-none` has no GPUI equivalent and nothing here is selectable; the
+/// Text selection has no GPUI equivalent and nothing here is selectable; the
 /// `data-tab-bar-empty` marker and the drop handlers are behaviour, not
 /// pixels. Width is not set: `main.rs` puts this in a `v_flex().items_stretch()`,
 /// so it spans the editor column (781px) exactly as the block-level div did in
@@ -200,7 +199,7 @@ pub fn render(
         // here, whose advances differ and would move the measured 89.86px tab
         // width.
         .font_family(ui::FONT_UI)
-        // The tab strip is the flexible one (it carries overflow-x-auto in the
+        // The tab strip is the flexible one (it scrolls sideways in the
         // source); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
         .child(ui::clip(tab_list(tabs, active_id, cx)))
@@ -208,10 +207,11 @@ pub fn render(
         .child(ui::pin(cluster()))
 }
 
-/// `<div role="tablist" class="flex items-stretch overflow-x-auto
-///  tab-scrollbar flex-1 h-full min-w-0">`
+/// The tab list: a row that takes the spare width and the strip's full height,
+/// stretches each tab to that height, may shrink below its content, and scrolls
+/// sideways; its accessibility role is `tablist`.
 ///
-/// The reference's overlay-overflow and scrollbar rules only style a scrollbar
+/// The reference's scrollbar styling only styles a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar the reference capture does not show here.
@@ -221,10 +221,10 @@ fn tab_list(
     cx: &Context<crate::app::App>,
 ) -> Div {
     h_flex()
-        // `h-full` on a centred row: stretch instead of hug, so the list is
+        // Full height on a centred row: stretch instead of hug, so the list is
         // the strip's full 37px content height.
         .self_stretch()
-        // `items-stretch` is explicit in the class list and is what gives
+        // Stretching the children is explicit in the source and is what gives
         // each tab that same height — `h_flex()` would otherwise centre them.
         .items_stretch()
         .flex_1()
@@ -235,24 +235,25 @@ fn tab_list(
         }))
 }
 
-/// `<div role="tab" ... class="group relative flex shrink-0 items-center
-///  gap-2 border-r border-editor-divider pl-3 pr-2.5 cursor-pointer select-none
-///  transition-all duration-75" ... bg-editor-bg">`
+/// A tab: the `tab` accessibility role on a positioned row that is never
+/// squeezed and centres its children — 8px between them, a 1px right border,
+/// 12px left and 10px right padding, the document background behind the active
+/// one, a pointer cursor and a 75ms colour transition.
 ///
 /// Only the **active** tab is rendered: the baseline captured the
-/// one-document state, and with one open document the `<For>` yields exactly
-/// one row. The `group` marker is dropped because nothing inside the tab
-/// consumes a group-hover rule (the close button uses a plain hover,
+/// one-document state, and with one open document the list yields exactly
+/// one row. The hover-grouping marker is dropped because nothing inside the tab
+/// consumes a descendant hover rule (the close button uses a plain hover,
 /// which is independent of the ancestor).
 ///
-/// The inactive branch would be `bg-editor-topbar` — the strip colour, i.e.
-/// invisible against it — plus the topbar hover fill, which is a
-/// class with no backing token and therefore paints nothing at all.
+/// The inactive branch would be the topbar fill — the strip colour, i.e.
+/// invisible against it — plus the topbar hover fill, which names a token the
+/// app never declared and therefore paints nothing at all.
 ///
 /// Not reproduced, because a resting screenshot cannot show them:
 /// the drag-over outline, the dimmed
 /// (30% opacity), and reordering states (60% opacity, a 0.98 scale and a ring)
-/// and the two `before:`/`after:` drop indicators.
+/// and the two drop-edge indicators.
 fn tab(
     tab_row: &crate::state::TabRow,
     active: bool,
@@ -264,7 +265,7 @@ fn tab(
     let drop_id = tab_row.doc_id.clone();
     let ghost_name = tab_row.name.clone();
     h_flex()
-        // `relative` — the containing block for the active underline, whose
+        // Positioned as the containing block for the active underline, whose
         // The underline anchors to this tab's *padding* box.
         .relative()
         .id(format!("document-tab-{}", tab_row.doc_id))
@@ -278,8 +279,8 @@ fn tab(
         .pr(px(TAB_PAD_R))
         .border_r_1()
         .border_color(color::BORDER)
-        // `bg-editor-bg` is the active branch; inactive tabs sit on the strip
-        // colour, which is what `bg-editor-topbar` resolves to.
+        // The document background is the active branch; inactive tabs sit on
+        // the strip colour, which is the topbar fill.
         .when(active, |el| el.bg(color::BG))
         .cursor_pointer()
         .on_click(
@@ -323,15 +324,15 @@ fn tab(
         .when(active, |el| el.child(active_underline()))
 }
 
-/// `<span class="whitespace-nowrap text-[11.5px] ... text-editor-text
-///  font-medium">` — the active, non-dirty branch of the clsx chain
+/// The tab label: 11.5px medium-weight text in the plain text colour, kept on
+/// one line — the active, non-dirty branch of the class chain
 /// The dirty branch (accent text plus a `•`) is not
 /// rendered: a freshly captured blank document is clean.
 fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
     div()
         .whitespace_nowrap()
         .text_size(px(TAB_TEXT))
-        // `font-medium`
+        // Medium weight.
         .font_weight(FontWeight(500.))
         .text_color(if dirty { color::ACCENT } else { color::TEXT })
         .child(if dirty {
@@ -341,13 +342,13 @@ fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
         })
 }
 
-/// `<button class="flex size-4 items-center justify-center rounded
-///  text-editor-text-dim hover:text-editor-text hover:bg-editor-app-hover">`
-/// with `<Icon name="x" class="size-3.5" strokeWidth={1.75} />`.
+/// The close button: a 16px square with 4px corners, centred on one row, in
+/// the dim text colour and brightening to the plain text colour on hover,
+/// holding the `x` glyph at 14px with a 1.75 stroke.
 ///
-/// The close button's hover fill is omitted deliberately: there is no
-/// `--editor-app-hover` token anywhere in the app, so Tailwind generates no
-/// rule for it and the original's hover background is transparent too.
+/// The close button's hover fill is omitted deliberately: no app-hover token
+/// exists anywhere in the app, so nothing backs it and the original's hover
+/// background is transparent too.
 fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         // The id is what makes the button hit-testable, and therefore what
@@ -378,7 +379,8 @@ fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoE
         )
 }
 
-/// `<span class="absolute inset-x-0 bottom-0 h-[2px] bg-editor-accent" />`
+/// A 2px accent bar pinned to the tab's bottom edge and stretched from its
+/// left edge to its right.
 ///
 /// The underline spans the padding box, so the orange stops at x=141 and
 /// the tab's 1px right border column stays #333333 — which is what
@@ -395,15 +397,15 @@ fn active_underline() -> impl IntoElement {
         .bg(color::ACCENT)
 }
 
-/// `<button class="flex w-11 shrink-0 items-center justify-center
-///  text-editor-icon hover:text-editor-text border-l border-editor-divider
-///  h-full">` with `<Icon name="plus" class="size-[18px]"
-///  strokeWidth={1.75} />`.
+/// The new-document button: 44px wide, never squeezed, full strip height,
+/// centred on one row, a 1px left border, in the icon colour and brightening to
+/// the plain text colour on hover; it holds the `plus` glyph at 18px with a
+/// 1.75 stroke.
 fn new_tab_button() -> impl IntoElement {
     h_flex()
         .id("new-document")
         .w(px(NEW_TAB_W))
-        // `h-full`
+        // Full strip height.
         .self_stretch()
         // Pin the whole button rather than wrapping it in ui::pin(): it carries
         // an explicit width and an .id(), so its type is Stateful<Div> and the
@@ -423,15 +425,17 @@ fn new_tab_button() -> impl IntoElement {
         )
 }
 
-/// `<div class="flex items-center gap-2 pr-4 pl-2 shrink-0 border-l
-///  border-editor-divider h-full">` — layout toggle plus export.
+/// The utility cluster: centred on one row with 8px between its children, 8px
+/// left and 16px right padding, never squeezed, a 1px left border and the full
+/// strip height — layout toggle plus export.
 ///
-/// The third child of this row, `CloseDockButton`, is `lg:hidden` and so is
-/// `display:none` at the 1366px baseline; it is absent rather than omitted.
+/// The third child of this row, the dock-close button, is hidden from the
+/// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
+/// absent rather than omitted.
 /// See the module docs for the 153px arithmetic that confirms it.
 fn cluster() -> Div {
     h_flex()
-        // `h-full`
+        // Full strip height.
         .self_stretch()
         .flex_shrink_0()
         .items_center()
@@ -444,9 +448,9 @@ fn cluster() -> Div {
         .child(export_button())
 }
 
-/// `<button class="flex size-7 items-center justify-center rounded-[4px]
-///  text-editor-icon hover:bg-white/[0.045] hover:text-editor-text">` wrapping
-/// `<Icon name="columns" class="size-4" strokeWidth={1.75} />`.
+/// The layout toggle: a 28px square with 4px corners, centred on one row, in
+/// the icon colour; on hover it gains white at 4.5% behind it and the plain
+/// text colour. It wraps the `columns` glyph at 16px with a 1.75 stroke.
 ///
 /// Not accent-coloured because the dock is in its default `side-by-side`
 /// layout — see the module docs. The `Tooltip` around it is hover-only and
@@ -467,17 +471,17 @@ fn layout_toggle() -> impl IntoElement {
         )
 }
 
-/// `<button class="flex h-[28px] shrink-0 items-center gap-2 rounded-[4px]
-///  border border-editor-field-border px-3 text-[12.5px] text-editor-text
-///  transition-colors hover:bg-white/[0.045] hover:text-editor-text">` with
-/// `<Icon name="chevron-down" class="size-3.5 text-editor-text-dim"
-///  strokeWidth={1.75} />`.
+/// The export button: 28px tall, never squeezed, centred on one row with 8px
+/// between its children, 4px corners, a 1px field-border, 12px horizontal
+/// padding and 12.5px text in the plain text colour, with a colour transition
+/// and a hover fill of white at 4.5%. It carries the `chevron-down` glyph at
+/// 14px in the dim text colour with a 1.75 stroke.
 ///
 /// The export button's border paints #333333 like every other border, and
 /// its hover text colour is a no-op (the label is already
 /// full-brightness text), so only the background changes on hover — and the
 /// chevron keeps the dim colour in the original too, because it has
-/// its own colour class rather than inheriting one.
+/// its own colour rather than inheriting one.
 ///
 /// Its width is content-driven: 2*12 padding + 2 border + 8 gap + 14 icon +
 /// a ~44px advance for "Export…" = 92px, i.e. x=725..816 where

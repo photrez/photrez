@@ -20,7 +20,7 @@
 //! This overlay is the opposite, and the measurement is
 //! unambiguous on every *resting* surface: the rail's `#1b1b1b` (27) reads
 //! `#101010` (16, = 27 * 0.6), the dock's `#1e1e1e` (30) reads 18, and the
-//! white canvas (255) reads 153 - a flat 40%, so the scrim is `bg-black/40`.
+//! white canvas (255) reads 153 - a flat 40%, so the scrim is black at 40%.
 //! An earlier read of 22 at (20,100) compared against the resting rail when
 //! that row's own fill reads 38 (a highlighted rail row; 38 * 0.6 = 22.8) -
 //! the alpha was pinned from a row fill, not from the background.
@@ -61,7 +61,7 @@ const OVERLAY_Y: f32 = 46.0;
 const OVERLAY_H: f32 = 774.0;
 const OVERLAY_W: f32 = 1366.0;
 
-/// `bg-black/40` - the scrim, measured on the resting surfaces: the rail's
+/// Black at 40% - the scrim, measured on the resting surfaces: the rail's
 /// `#1b1b1b` (27) becomes `#101010` (16, = 27 * 0.6), the dock becomes 18 and
 /// the white canvas becomes 153.
 const SCRIM: Hsla = Hsla {

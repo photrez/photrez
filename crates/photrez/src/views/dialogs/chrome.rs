@@ -83,8 +83,9 @@ pub(super) fn dialog_shell_with_actions(
         .child(actions(buttons))
 }
 
-/// `flex h-9 items-center justify-between border-b border-editor-divider
-/// bg-editor-topbar px-3` \u{2014} brand mark, title, close button.
+/// 36px tall, centred on one row with the ends pushed apart, 1px bottom
+/// DIVIDER border, TOPBAR fill and 12px side inset \u{2014} brand mark, title,
+/// close button.
 pub(super) fn titlebar(title: &str) -> Div {
     titlebar_with(title, close_box())
 }
@@ -108,7 +109,7 @@ fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
                 .items_center()
                 .gap(px(GAP_2))
                 .min_w(px(0.0))
-                // The brand mark is an inline `<svg>` with two gradients, a
+                // The brand mark is an inline SVG with two gradients, a
                 // mask and a drop-shadow filter. `assets/icons.rs` is generated
                 // from lucide paths and cannot carry any of that, so this view
                 // draws the slot rather than the mark; `title_bar.rs` owns the
@@ -168,8 +169,9 @@ pub(super) fn dialog_close_button(
     close_box().test_support().on_click(listener)
 }
 
-/// `flex min-h-11 items-center justify-end gap-2 border-t border-editor-divider
-/// bg-editor-topbar/65 px-3 py-2` \u{2014} the footer, and the buttons in it.
+/// Centred on one row, buttons pushed right, 45px tall including the 1px top
+/// DIVIDER border, TOPBAR fill at 65%, 8px gap, 12px side and 8px vertical
+/// inset \u{2014} the footer, and the buttons in it.
 fn actions(buttons: Vec<gpui_kit::AnyElement>) -> Div {
     h_flex()
         .w_full()
@@ -186,10 +188,10 @@ fn actions(buttons: Vec<gpui_kit::AnyElement>) -> Div {
         .children(buttons)
 }
 
-/// `DesktopDialogButton`: `h-7 min-w-16 rounded-[6px] border px-3 text-[11px]
-/// font-medium`.
+/// The source's dialog button: 28px tall, 64px min-width, 6px radius,
+/// 1px border, 12px side inset, 11px medium text.
 ///
-/// `primary` is `border-editor-accent bg-editor-accent text-black/90`; the
+/// `primary` is an accent border and fill with black text at 90%; the
 /// black text is the one place a dialog inverts the palette, and it is why
 /// `TEXT_BLACK` is spelled as a literal rather than borrowed from a token.
 pub(super) fn dialog_button(label: &str, primary: bool) -> Div {

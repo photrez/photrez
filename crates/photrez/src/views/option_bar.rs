@@ -50,115 +50,115 @@ use self::widgets::*;
 /// Height from the manifest: 44px.
 const BAR_H: f32 = 44.0;
 
-/// `px-3` — the bar's horizontal inset.
+/// 12px — the bar's horizontal inset.
 const BAR_PX: f32 = 12.0;
 
-/// `gap-1.5` — between branches and inside the FadeIn row.
+/// 6px — between branches and inside the FadeIn row.
 const GAP: f32 = 6.0;
 
-/// `gap-1` — inside a field and between paired X/Y and W/H groups.
+/// 4px — inside a field and between paired X/Y and W/H groups.
 const ITEM_GAP: f32 = 4.0;
 
-/// `gap-0.5` — inside the align/flip button groups and the text bar's align icons.
+/// 2px — inside the align/flip button groups and the text bar's align icons.
 const ICON_GAP: f32 = 2.0;
 
-/// `h-[24px]` — every control in the bar.
+/// 24px tall — every control in the bar.
 const CTRL_H: f32 = 24.0;
 
-/// `size-[24px]` — the align/flip buttons and the `...` button.
+/// A 24px square — the align/flip buttons and the "..." (ellipsis) button.
 const BTN: f32 = 24.0;
 
-/// `rounded-[4px]` — pill, checkboxes, fields, align/flip/reset.
+/// 4px corner radius — pill, checkboxes, fields, align/flip/reset.
 const RADIUS: f32 = 4.0;
 
-/// `rounded-[3px]` — the checkbox square and the `...` button.
+/// 3px corner radius — the checkbox square and the `...` button.
 const RADIUS_SM: f32 = 3.0;
 
-/// `px-2` — pill padding.
+/// 8px — the pill's horizontal padding.
 const PILL_PX: f32 = 8.0;
 
-/// `px-1.5` — checkbox-label and field padding.
+/// 6px — checkbox-label and field padding.
 const FIELD_PX: f32 = 6.0;
 
-/// `mr-1` — after the "Align" / "Flip" captions and the text-bar chevrons.
+/// 4px of right margin — after the "Align" / "Flip" captions and the text-bar chevrons.
 const MR_LABEL: f32 = 4.0;
 
-/// `h-5` — the `Divider` helper's height.
+/// 20px tall — the `Divider` helper's height.
 const DIV_H: f32 = 20.0;
 
 /// See [`DIV_H`]: its width.
 const DIV_W: f32 = 1.0;
 
-/// `size-3` — pill icon and the check mark.
+/// 12px — pill icon and the check mark.
 const ICON_SM: f32 = 12.0;
 
-/// `size-3.5` — align/flip icons and the checkbox square.
+/// 14px — align/flip icons and the checkbox square.
 const ICON_MD: f32 = 14.0;
 
-/// `size-4` — the `...` icon.
+/// 16px — the "..." (ellipsis) icon.
 const ICON_LG: f32 = 16.0;
 
-/// `text-[11px]` — pill, checkbox labels, field values, Reset.
+/// 11px — pill, checkbox labels, field values, Reset.
 const TEXT_SM: f32 = 11.0;
 
-/// `text-[10px]` — field labels and suffixes, Align/Flip captions.
+/// 10px — field labels and suffixes, Align/Flip captions.
 const TEXT_XS: f32 = 10.0;
 
-/// `text-[12px]` — the gradient bar's arrow and the text bar's letter toggles.
+/// 12px — the gradient bar's arrow and the text bar's letter toggles.
 const TEXT_MD: f32 = 12.0;
 
-/// `text-[13px]` — the text bar's "Aa".
+/// 13px — the text bar's "Aa".
 const TEXT_13: f32 = 13.0;
 
-/// `w-[62px]` — the X and Y fields.
+/// 62px wide — the X and Y fields.
 const FIELD_W_XY: f32 = 62.0;
 
-/// `w-[70px]` — the W and H fields.
+/// 70px wide — the W and H fields.
 const FIELD_W_WH: f32 = 70.0;
 
-/// `w-[58px]` — the rotation field.
+/// 58px wide — the rotation field.
 const FIELD_W_R: f32 = 58.0;
 
-/// `w-12` — the brush Size field's fixed input.
+/// 48px wide — the brush Size field's fixed input.
 const PAINT_INPUT_W: f32 = 48.0;
 
-/// `w-11` — the brush Hard/Strength field's fixed input.
+/// 44px wide — the brush Hard/Strength field's fixed input.
 const PAINT_INPUT_W_SM: f32 = 44.0;
 
-/// `w-11` — the paint-bucket tolerance number field.
+/// 44px wide — the paint-bucket tolerance number field.
 const TOLERANCE_FIELD_W: f32 = 44.0;
 
-/// `w-24` — the tolerance slider wrapper.
+/// 96px wide — the tolerance slider wrapper.
 const TOLERANCE_SLIDER_W: f32 = 96.0;
 
-/// `h-5 w-24` — the gradient preview strip.
+/// 20px tall, 96px wide — the gradient preview strip.
 const STRIP_H: f32 = 20.0;
 
 /// See [`STRIP_H`]: its width.
 const STRIP_W: f32 = 96.0;
 
-/// `size-2.5` — the stroke pill's dot.
+/// 10px — the stroke pill's dot.
 const DOT: f32 = 10.0;
 
-/// `size-[22px]` — the shape bar's fill swatch.
+/// A 22px square — the shape bar's fill swatch.
 const SWATCH_FILL: f32 = 22.0;
 
-/// `w-[116px]` — the stroke pill.
+/// 116px wide — the stroke pill.
 const STROKE_PILL_W: f32 = 116.0;
 
-/// `min-w-[34px]` — the stroke pill's value slot.
+/// Never below 34px wide — the stroke pill's value slot.
 const STROKE_VAL_W: f32 = 34.0;
 
-/// `w-[38px]` — the text bar's font-size input.
+/// 38px wide — the text bar's font-size input.
 const SIZE_INPUT_W: f32 = 38.0;
 
-/// `w-[34px]` — the shape bar's corner-radius input.
+/// 34px wide — the shape bar's corner-radius input.
 const RADIUS_INPUT_W: f32 = 34.0;
 
-/// `px-2.5` — the crop bar's Apply / Cancel buttons.
+/// 10px horizontal padding — the crop bar's Apply / Cancel buttons.
 const ACTION_PX: f32 = 10.0;
 
-/// `w-[72px] h-[14px]` — the brush size slider (never painted at 781px).
+/// 72px wide, 14px tall — the brush size slider (never painted at 781px).
 const BRUSH_SLIDER_W: f32 = 72.0;
 const BRUSH_SLIDER_H: f32 = 14.0;
 
@@ -195,7 +195,7 @@ const FG: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-editor-field/40` — inactive button backgrounds.
+/// The field background at 40% opacity — inactive button backgrounds.
 const FIELD_40: Hsla = Hsla {
     h: color::FIELD.h,
     s: color::FIELD.s,
@@ -203,7 +203,7 @@ const FIELD_40: Hsla = Hsla {
     a: 0.40,
 };
 
-/// `bg-editor-field/60` — checkbox hover.
+/// The field background at 60% opacity — checkbox hover.
 const FIELD_60: Hsla = Hsla {
     h: color::FIELD.h,
     s: color::FIELD.s,
@@ -211,7 +211,7 @@ const FIELD_60: Hsla = Hsla {
     a: 0.60,
 };
 
-/// `bg-editor-field/80` — the unchecked checkbox square.
+/// The field background at 80% opacity — the unchecked checkbox square.
 const FIELD_80: Hsla = Hsla {
     h: color::FIELD.h,
     s: color::FIELD.s,
@@ -219,7 +219,7 @@ const FIELD_80: Hsla = Hsla {
     a: 0.80,
 };
 
-/// `shadow-xs` — on the checked square and active chips.
+/// A subtle shadow tint — on the checked square and active chips.
 const SHADOW_XS: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -227,7 +227,7 @@ const SHADOW_XS: Hsla = Hsla {
     a: 0.05,
 };
 
-/// `bg-editor-accent/20` — active toggles and the accent swatch ring.
+/// The accent colour at 20% opacity — active toggles and the accent swatch ring.
 const ACCENT_20: Hsla = Hsla {
     h: color::ACCENT.h,
     s: color::ACCENT.s,

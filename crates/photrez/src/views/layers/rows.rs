@@ -23,7 +23,7 @@ const ADJUST_STROKE: f32 = 1.75;
 /// The layer stack: a scrollable column with a 6px reserved gutter, bordered
 /// top and bottom.
 ///
-/// The `pr` is the reserved scrollbar gutter; see the module docs on why 254
+/// The right padding is the scrollbar gutter; see the module docs on why 254
 /// and 260 are both correct answers here. `border_y` is [`color::BORDER`] and
 /// not [`color::DIVIDER`]: the baseline reads `#333333` on both edges (y=164
 /// and y=572), the `* { border-color }` rule being what reaches the screen for
@@ -108,10 +108,10 @@ struct RowView<'a> {
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
 }
 
-/// `flex h-[50px] items-center gap-2.5 px-3.5 border-b border-editor-divider/10`
-/// with the active row's `bg-editor-row-active` and its 1px inset ACCENT ring.
+/// A 50px row, centred on one row with a 10px gap, 14px side inset and a 10%
+/// DIVIDER bottom border; the active row adds `ROW_ACTIVE` fill, 1px inset ring.
 ///
-/// A `ring-1 ring-inset ring-editor-accent/40` has no GPUI equivalent — rings
+/// A 1px inset ring in ACCENT at 40% alpha has no GPUI equivalent — rings
 /// are a box-shadow family GPUI does not expose — so the 1px inset edge is
 /// drawn as a border and the colour as `ACCENT` at 40% alpha. That is the
 /// closest available reading of "a faint inner outline".

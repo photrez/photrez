@@ -3,8 +3,9 @@
 //! size/hardness adjustment.
 //!
 //! Geometry: `left = max(12, x + 16)`, `top = max(50, y - 4)` with the box
-//! translated up by its own height, border `neutral-700/80`, fill `#18181B`,
-//! radius 6, padding 10x6, a 2 px row gap inside a `gap-0.5` column, 11px text.
+//! translated up by its own height, a grey border at 80% opacity, fill
+//! `#18181B`, radius 6, padding 10x6, a 2 px row gap between the stacked
+//! rows, 11px text.
 //!
 //! Row layout is per mode:
 //!
@@ -33,8 +34,8 @@ const HUD_BG: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `border-neutral-700/80`, `text-neutral-100`, `text-neutral-400`: the HUD
-/// uses raw neutrals, not the editor tokens.
+/// The HUD uses raw neutrals, not the editor tokens: a grey border at 80%
+/// opacity, near-white values and mid-grey dim labels.
 const HUD_BORDER: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -54,7 +55,8 @@ const HUD_DIM: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `border-emerald-700/60`, `bg-emerald-950/80`, `text-emerald-300`.
+/// The SNAP badge: green border at 60% opacity, very dark green fill at 80%,
+/// light green text.
 const SNAP_BORDER: Hsla = Hsla {
     h: 0.3956,
     s: 0.7183,
@@ -77,10 +79,10 @@ const SNAP_TEXT: Hsla = Hsla {
 /// One-row height for the readout; the rotate mode is one row, every other
 /// mode two.
 const ROW_H: f32 = 17.0;
-/// `gap-0.5` between the rows.
+/// 2px between the rows.
 const ROW_GAP: f32 = 2.0;
 const PAD_Y: f32 = 6.0;
-/// `w-3` on the X/Y/W/H/R labels; `w-7` on the brush Size/Hard labels.
+/// 12px on the X/Y/W/H/R labels; 28px on the brush Size/Hard labels.
 const LABEL_W: f32 = 12.0;
 const LABEL_W_BRUSH: f32 = 28.0;
 
@@ -124,7 +126,7 @@ struct RowSpec {
     value: String,
     suffix: &'static str,
     snap: bool,
-    /// The dimmed right-hand readout (`scalePercent` on the resize W row).
+    /// The dimmed right-hand readout (`scale_percent` on the resize W row).
     trailing: Option<String>,
     label_w: f32,
 }

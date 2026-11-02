@@ -160,7 +160,7 @@ pub(crate) fn render(
         Some((concrete.zoom * 100.).round() as u32)
     });
 
-    // Outer BG fill — full window, matches `bg-editor-bg` (`#171717`).
+    // Outer BG fill — full window, the editor background (`#171717`).
     v_flex()
         .size_full()
         .bg(color::BG)
@@ -171,7 +171,7 @@ pub(crate) fn render(
                 .child(title_bar::render(window, state, cx)),
         )
         .child(
-            // <main class="flex min-h-0 flex-1 overflow-hidden">
+            // The main row: takes the spare width, shrinks below its content.
             h_flex()
                 .flex_1()
                 .min_h(px(0.))
@@ -189,14 +189,14 @@ pub(crate) fn render(
                     )
                 })
                 .child(
-                    // <div class="flex flex-1 min-w-0 overflow-hidden">
+                    // The editor/dock row: stretches, shrinks, clipped to its box.
                     h_flex()
                         .flex_1()
                         .min_w(px(0.))
                         .items_stretch()
                         .overflow_hidden()
                         .child(
-                            // <section class="flex min-w-0 flex-1 flex-col">
+                            // The canvas column: stacked, stretches, may shrink.
                             v_flex()
                                 .flex_1()
                                 .min_w(px(0.))
@@ -406,9 +406,9 @@ pub(crate) fn render(
         .when(shot::starts_with("loading-"), |el| {
             el.child(loading::render())
         })
-        // Last child in the window-sized root: the host is `z-50`, and GPUI
-        // paints in tree order, so anything appended earlier sits under the
-        // dock (`views::toasts` module docs).
+        // Last child in the window-sized root: the host stacks at level 50
+        // there, and GPUI paints in tree order, so anything appended earlier
+        // sits under the dock (`views::toasts` module docs).
         .child(if shot::starts_with("toast-") {
             toasts::render().into_any_element()
         } else {

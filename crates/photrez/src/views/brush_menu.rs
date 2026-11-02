@@ -216,7 +216,7 @@ pub(crate) fn render(
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .p(px(PAD))
-        // Tailwind `shadow-xl`: 0 20px 25px -5px / 0 8px 10px -6px at 10% black.
+        // Large drop shadow: 0 20px 25px -5px / 0 8px 10px -6px at 10% black.
         // GPUI has no spread, so only the offsets and blurs carry over.
         .shadow(vec![
             gpui_kit::BoxShadow::new(px(0.0), px(20.0), gpui_kit::hsla(0.0, 0.0, 0.0, 0.10))

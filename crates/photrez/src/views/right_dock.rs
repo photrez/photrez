@@ -11,7 +11,7 @@
 //! ```text
 //!   InspectorDock   x 833..1104   (272)   272px wide
 //!   +---------------------------+------------------+  y=46
-//!   | tab bar  38px  Properties | tab bar  38px    |  border-b #333333
+//!   | tab bar  38px  Properties | tab bar  38px    |  1px bottom border #333333
 //!   |                           | Layers | History  |
 //!   +---------------------------+------------------+  y=84
 //!   | panel content   712 tall   | panel content    |
@@ -29,7 +29,7 @@
 //! not equal-width**.
 //! Bottom Navigator: 185px; 38 (tab bar) + 527 (panel) + 185 = 750.
 //! `shell-navigator` is 260x185 at (1106,611): 611 = 46 + 38 + 527. Its 185
-//! includes `border-t`; canvas below the 38px header is 185 - 38 - 1 = 146.
+//! includes a 1px top border; canvas below the 38px header is 185 - 38 - 1 = 146.
 //!
 //! The dock reads its tab choice from [`AppState`]
 //! (`state::is_seeded` / `state::active` / `shot::is`
@@ -55,7 +55,7 @@
 //! # Gaps
 //!
 //! * No `z_index`; everything renders last in `workspace.rs`'s tree.
-//! * `Tooltip`, `FadeIn`, `transition-colors`, and per-row hover on active tabs
+//! * `Tooltip`, `FadeIn`, the colour transition, and per-row hover on active tabs
 //!   are interaction-only. Active-tab hover is omitted; inactive-tab hover is
 //!   reproduced.
 //! * Known deviation: the Presets tab's 50% opacity is omitted; re-add
@@ -115,18 +115,18 @@ const TAB_BAR_H: f32 = 38.0;
 /// The border between the two columns.
 const SPLIT_BORDER: f32 = 1.0;
 
-/// The Navigator block: 185px tall. The 185 counts the block's own `border-t`,
-/// so the canvas below the 38px header is `185 - 38 - 1` = 146.
+/// The Navigator block: 185px tall. The 185 counts the block's own 1px top
+/// border, so the canvas below the 38px header is `185 - 38 - 1` = 146.
 const NAV_H: f32 = 185.0;
 const NAV_HEADER_H: f32 = 38.0;
 
-/// `h-[2px]` — the active tab's underline.
+/// The active tab's underline: 2px tall.
 const UNDERLINE_H: f32 = 2.0;
 
-/// `px-3` — a tab button's horizontal inset.
+/// A tab button's horizontal inset: 12px.
 const TAB_PAD_X: f32 = 12.0;
 
-/// `text-[11.5px] font-medium` — the tab labels.
+/// The tab labels: 11.5px, medium weight.
 const TAB_TEXT: f32 = 11.5;
 
 /// The live app-state entity the dock writes its tab selection back into, plus
@@ -394,7 +394,7 @@ fn presets_stub() -> Div {
 ///
 /// The preview itself is canvas-drawn,
 /// so this is the frame only. Its height is what is left of [`NAV_H`] after the
-/// `border-t` and the header: `NAV_H - NAV_HEADER_H - SPLIT_BORDER` = 146.
+/// 1px top border and the header: `NAV_H - NAV_HEADER_H - SPLIT_BORDER` = 146.
 fn navigator(
     canvas: Option<&CanvasImage>,
     camera: Option<Camera>,

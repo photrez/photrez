@@ -31,8 +31,8 @@
 //!   shell border   1px  #333333   color::BORDER    rows y=1 and y=242
 //!   separator      1px  #2e2e2e   color::DIVIDER   full-bleed, no inset
 //!   row            28px           label left, shortcut right
-//!   separator block my-1 (4px) + 1px line        = 9px
-//!   recent row     28px           11px label, text-dim/60, File only
+//!   separator block 4px margins + 1px line       = 9px
+//!   recent row     28px           11px label, dim text at 60%, File only
 //! ```
 //!
 //! The separator/border split is worth stating because both are "a border" in
@@ -77,12 +77,12 @@
 //!
 //! * No `z_index` — the frame convention above is the substitute, and it is
 //!   only correct while the caller appends late.
-//! * `transition-colors`, `focus-visible` rings and keyboard navigation are
+//! * Colour transitions, keyboard-focus rings and keyboard navigation are
 //!   interaction. The hovered row *is* painted where a baseline shows it: the
 //!   two `menu-*-hover-item` captures seed their first row through the
 //!   `focus_bg` argument `components::ui::menu_row` already takes (see
 //!   `HOVER_ROW_FILL`), the same argument the pointer-anchored context menus
-//!   use for their `focus-visible` row. A live hover still cannot tint a row
+//!   use for their keyboard-focused row. A live hover still cannot tint a row
 //!   without a per-variant `.id` + `Stateful` wrapper that breaks the
 //!   `Vec<Div>` shell builder, so only the seeded captures paint it.
 //! * A global border colour would beat any per-element white border; these
@@ -146,11 +146,11 @@ const ROW_PX: f32 = 12.0;
 /// label and in dim text at 60%.
 const RECENT_TEXT: f32 = 11.0;
 
-/// `rounded-[6px]` on the shell.
+/// 6px radius on the shell.
 const SHELL_R: f32 = 6.0;
 
 /// The hovered first row in the two `menu-*-hover-item` baselines:
-/// `bg-editor-field/70` over the `#1e1e1e` panel reads `#232323` = 35/255 on
+/// FIELD at 70% over the `#1e1e1e` panel reads `#232323` = 35/255 on
 /// the strip (crop y6..33 — the whole first row). A measured solid, so the
 /// value is exact under any blend path.
 const HOVER_ROW_FILL: Hsla = Hsla {
@@ -193,8 +193,8 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
         _ => positioned(X_FILE, "menu-file-popup", file_menu(None, state, cx)),
     };
     // Transparent full-viewport frame, itself absolute so it disturbs no
-    // layout wherever it is appended. The caller appends late; late paints on
-    // top, which is the only `z-index` equivalent GPUI offers.
+    // layout when appended. The caller appends late; late paints on top - the
+    // only stacking control GPUI offers, where CSS would use z-index.
     div()
         .absolute()
         .top(px(0.0))
@@ -273,14 +273,14 @@ pub fn render_open(
 }
 
 /// One entry of `MENU_DEFINITIONS`. `shortcut` is the right-aligned key hint
-/// and `disabled` is whole-row `opacity-35` in the source — no captured menu
+/// and `disabled` is whole-row 35% opacity in the source — no captured menu
 /// has a disabled row, so the arm is here for completeness rather than because
 /// a baseline shows it.
-/// `my-1 border-t border-editor-divider`, full-bleed — the probe reads
-/// separator rows edge to edge, so there is no horizontal inset.
+/// 4px vertical margins and a 1px top border in the divider colour, full-bleed
+/// — the probe reads separator rows edge to edge, so there is no inset.
 /// The recent-files popup's empty state — the row the File popup shows when
-/// the loaded list comes back empty: `h-7 items-center px-3
-/// text-[11px] text-editor-text-dim/60`, `aria-disabled`. Same shape
+/// the loaded list comes back empty: 28px tall, centred on one row, 12px side
+/// inset, 11px dim text at 60%, and marked disabled. Same shape
 /// as a `menu_row` with a smaller, dimmer label and no shortcut, and
 /// the 28px the entry list does not account for: it sits below the
 /// fourth separator, closing the popup at 242px.
@@ -443,7 +443,7 @@ fn command_row(
     command_row_enabled(state, label, shortcut, id, true, cx, run)
 }
 
-/// [`command_row`] with the reference's disabled state: dimmed (`opacity-35`)
+/// [`command_row`] with the reference's disabled state: dimmed to 35%
 /// and inert, but still painted with its id.
 fn command_row_enabled(
     state: &Entity<AppState>,
@@ -470,8 +470,8 @@ fn command_row_enabled(
         ))
         .into_any_element()
     } else {
-        // A disabled row is inert but still part of the menu: the press must
-        // not bubble to the overlay's click-away (`disabled:pointer-events-none`).
+        // A disabled row is inert but still part of the menu: the press must not
+        // bubble to the overlay's click-away, as CSS pointer-events-none did.
         row.on_click(cx.listener(
             |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
                 cx.stop_propagation();
@@ -927,12 +927,12 @@ mod tests {
         assert_eq!(X_SETTINGS, 421.0);
     }
 
-    /// `menu-file`'s measured height is a hard pin: 5 (py-1) + 6 rows*28 +
-    /// 4 seps*(8+1) + 1 recent row*28 + 5 (py-1) + 2 (border) = 242. Removing a
+    /// `menu-file`'s measured height is a hard pin: 5 (vertical inset) + 6 rows*28 +
+    /// 4 seps*(8+1) + 1 recent row*28 + 5 (vertical inset) + 2 (border) = 242. Removing a
     /// row (-28) or a separator (-9) reddens.
     #[test]
     fn file_menu_height_is_242px() {
-        let sep_my = 4.0; // `my-1` — `ui::menu_separator` owns the real value
+        let sep_my = 4.0; // 4px margins — `ui::menu_separator` owns the real value
         let computed = SHELL_PY + 6.0 * ROW_H + 4.0 * (2.0 * sep_my + 1.0) + ROW_H + SHELL_PY + 2.0;
         assert_eq!(computed, 242.0);
     }

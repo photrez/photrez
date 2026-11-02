@@ -57,7 +57,7 @@
 //! margins above and below, full-bleed — it reads edge to edge).
 //! Factored once here as `menu_shell`, `menu_row`, `menu_separator`;
 //! each menu below is just an entry list through them. Stacking order,
-//! hover and focus-visible styling, open animation and the selection callback
+//! hover and keyboard-focus styling, open animation and the selection callback
 //! are
 //! interaction and are not rendered — with one measured exception, below.
 //!
@@ -83,9 +83,9 @@
 //!   read `#5a5a5a` (disabled); New / Duplicate / Rename / Hide / Lock read
 //!   `#cacaca`. Labels assume the fresh-layer defaults the pixels cannot
 //!   distinguish: "Hide Layer" (visible) and "Lock Layer" (unlocked).
-//!   Separators at crop y=93, 158, 307. `danger` needs no branch: a danger
-//!   entry is full-brightness text at rest (accent only arrives on
-//!   hover/focus-visible), so Delete Layer renders as a normal disabled row.
+//!   Separators at crop y=93, 158, 307. The danger style needs no branch: a
+//!   danger entry is full-brightness text at rest (accent only arrives on
+//!   hover or keyboard focus), so Delete Layer renders as a normal disabled row.
 //! * **ctx-brush** — brush tool at its defaults (Size 20px -> slider 3,
 //!   Hardness 80%, Strength 100%), no preset selected (all four `tool: "both"`
 //!   presets — Hard Round, Soft Round, Detail, Large Soft — read default
@@ -98,10 +98,10 @@
 //! # The one interaction trace that stays
 //!
 //! The shell focuses the first enabled entry on open, and the capture's
-//! applies its `focus-visible:bg-editor-accent/15` there: crop rows 98..125
+//! applies its 15% accent focus wash there: crop rows 98..125
 //! of `ctx-canvas` ("Select All") and 5..32 of `ctx-layer` ("New Layer") read
 //! `#3d2e23` edge to edge — accent at 15% over panel, to the pixel. The label
-//! on those rows stays `#cacaca` (`focus-visible:text-editor-text` for
+//! on those rows stays `#cacaca` (the keyboard-focus text rule for
 //! non-danger entries), so only the row background differs. It is painted
 //! here as the static constant `FOCUS_BG` — there is no keyboard nav behind
 //! it and none is planned (see the project-wide gap list), this is simply
@@ -124,18 +124,19 @@
 //!   renders as the rectangle `ui::slider` already draws — that gap is owned
 //!   by `ui.rs` (documented on `SliderKind::BrushSize`) and inherited here,
 //!   not re-explained.
-//! * The brush panel's invisible range `<input>`s (absolute, `opacity-0`)
+//! * The brush panel's invisible range fields (overlaid, fully transparent)
 //!   take pointer input only; nothing visible, nothing rendered.
-//! * The brush grid is `grid-cols-2` in source and two flex rows here —
+//! * The brush grid is two columns in source and two flex rows here —
 //!   identical pixels for the fixed 2x2, but a third preset row would need a
 //!   third flex row rather than flowing automatically.
-//! * No explicit `line-height` anywhere: the small menus centre 12px/10px
+//! * No explicit line height anywhere: the small menus centre 12px/10px
 //!   runs in fixed 28px rows so line height cannot move them, but the brush
-//!   panel stacks 10px labels and `py-1` buttons in flow, where GPUI's
+//!   panel stacks 10px labels and 4px-padded buttons in flow, where GPUI's
 //!   default line height decides the exact block heights. Transcribed
-//!   faithfully (`p-3`, `gap-3`, `gap-1`, `py-1`); if a later capture
+//!   faithfully (12px panel inset, 12px and 4px gaps, 4px button padding);
+//!   if a later capture
 //!   disagrees by a pixel per block, line height is the first suspect.
-//! * `shadow-xl` on the brush panel is two `BoxShadow`s transcribed stop for
+//! * The brush panel's large drop shadow is two `BoxShadow`s, transcribed
 //!   stop; whether the blur matches the capture's rasteriser is unmeasured.
 //! * `ctx-export`'s `y=82.5` is kept fractional as measured; subpixel top
 //!   edges rasterise differently per engine, so its top/bottom border rows
@@ -162,18 +163,19 @@ pub const CTX_W: f32 = 210.0;
 const FRAME_W: f32 = 1366.0;
 const FRAME_H: f32 = 820.0;
 
-/// `rounded-[6px]` — the menu shell.
+/// 6px — the menu shell's corner radius.
 const MENU_R: f32 = 6.0;
 
-/// `py-1` — the shell's own vertical inset; rows start at crop y=4 in every
-/// small-menu baseline. `px-3`, `min-h-7`, `gap-6`, `my-1` and the two text
-/// sizes all live in `ui::menu_row` / `ui::menu_separator` (measured 12 / 28
-/// / 24 / 4 / 12 / 10 there), so they are not redeclared here; only the
-/// separator's `my-1` (=4px) is restated as a literal in the height tests.
+/// 4px — the shell's own vertical inset; rows start at crop y=4 in every
+/// small-menu baseline. The 12px row inset, 28px row min-height, 24px gap,
+/// 4px separator margin and the two text sizes all live in `ui::menu_row` /
+/// `ui::menu_separator` (measured 12 / 28 / 24 / 4 / 12 / 10 there), so they
+/// are not redeclared here; only the separator's 4px margin is restated as a
+/// literal in the height tests.
 const MENU_PY: f32 = 4.0;
 
-/// The captured `:focus-visible` background: `bg-editor-accent/15` over
-/// `bg-editor-panel` reads `#3d2e23` edge to edge on the focused row, so the
+/// The captured keyboard-focus background: accent at 15% over the panel
+/// colour reads `#3d2e23` edge to edge on the focused row, so the
 /// constant is accent at 15% alpha and the shell behind it stays panel.
 /// `h/s/l` are `color::ACCENT`'s own (0.072, 0.8713, 0.6039); there is no
 /// accent-alpha token, and this trace belongs to these captures rather than
@@ -199,22 +201,22 @@ const LAYER_Y: f32 = 190.0;
 const BRUSH_X: f32 = 420.0;
 const BRUSH_Y: f32 = 323.0;
 
-/// `width: 200px` — the brush panel's own width (its side borders probe at
+/// 200px — the brush panel's own width (its side borders probe at
 /// exactly 199px apart in `ctx-brush.png`).
 const BRUSH_W: f32 = 200.0;
 
-/// `p-3` on the panel, `gap-3` between its sections.
+/// 12px on the panel, 12px between its sections.
 const BRUSH_PAD: f32 = 12.0;
 const BRUSH_GAP: f32 = 12.0;
 
-/// `gap-1` inside a slider section and inside the preset grid.
+/// 4px inside a slider section and inside the preset grid.
 const BLOCK_GAP: f32 = 4.0;
 
-/// `h-[14px]` — the slider's positioning box (`relative flex items-center`);
+/// 14px — the slider's centred positioning box;
 /// the track/thumb inside it come from [`ui::slider`].
 const SLIDER_H: f32 = 14.0;
 
-/// `rounded-[3px] px-2 py-1 text-[10px]` — preset and Reset buttons.
+/// 3px radius, 8px / 4px padding, 10px text — preset and Reset buttons.
 const BTN_R: f32 = 3.0;
 const BTN_PX: f32 = 8.0;
 const BTN_PY: f32 = 4.0;
@@ -231,7 +233,7 @@ pub fn render() -> impl IntoElement {
     };
     // Transparent full-viewport frame, itself absolute so it disturbs no
     // layout wherever it is appended. The caller puts this late in the tree;
-    // late paints on top, which is the only `z-[80]` equivalent available.
+    // late paints on top, which is the only stacking-order equivalent available.
     div()
         .absolute()
         .top(px(0.0))
@@ -346,8 +348,8 @@ fn export_menu() -> Div {
 /// the `ctx-layer` manifest box height of 345 (which requires 11 rows +
 /// 3 separators), so this view restores the full 14-entry list at the
 /// 11-row / 3-separator layout, matching the reference markup's order and
-/// state. The `FocusBg` trace and the two top-group row orders follow that
-/// markup.
+/// state. The focus-background trace and the two top-group row orders follow
+/// that markup.
 fn layer_menu() -> Div {
     menu_shell(vec![
         ui::menu_row(
@@ -377,8 +379,8 @@ fn layer_menu() -> Div {
     ])
 }
 
-/// The brush panel at brush defaults: 200px panel, 6px corners,
-/// corners, `p-3`, `gap-3`, `shadow-xl`. Three slider sections, the 2x2
+/// The brush panel at brush defaults: 200px panel, 6px corners, 12px
+/// padding, 12px gaps, a large drop shadow. Three slider sections, the 2x2
 /// preset grid (all four `tool: "both"` presets, none selected), Reset.
 /// Slider percentages are the capture state's: size 20px maps to
 /// `paintSizeToSizeSlider(20)` = round(19/499 * 75) = 3; hardness 0.8 -> 80;
@@ -410,7 +412,7 @@ fn brush_panel() -> Div {
         .child(reset_button())
 }
 
-/// One slider block: 10px medium dim caption, `gap-1`, then the 14px
+/// One slider block: 10px medium dim caption, 4px gap, then the 14px
 /// positioning box around the shared [`ui::slider`]. (The invisible range
 /// input overlaid in source takes pointer input only — nothing rendered.)
 fn brush_section(label: &str, control: impl IntoElement) -> Div {
@@ -434,7 +436,7 @@ fn brush_section(label: &str, control: impl IntoElement) -> Div {
         )
 }
 
-/// `grid-cols-2 gap-1` as two flex rows — identical pixels for the fixed 2x2
+/// Two columns with a 4px gap as two flex rows — identical pixels for the fixed 2x2
 /// (a third preset row would need a third flex row; see module docs).
 fn preset_grid() -> Div {
     v_flex()
@@ -451,9 +453,9 @@ fn preset_row(names: [&str; 2]) -> Div {
         .children(names.map(preset_button))
 }
 
-/// `rounded-[3px] border border-editor-field-border bg-editor-field px-2 py-1
-/// text-left text-[10px] text-editor-text` — the resting branch. The capture
-/// shows no preset selected, so the accent/40 selected branch is not drawn.
+/// 3px radius, 1px border, field fill, 8px / 4px padding, 10px left-aligned
+/// full-brightness text — the resting branch. The capture
+/// shows no preset selected, so the accent-at-40% selected branch is not drawn.
 fn preset_button(name: &str) -> Div {
     h_flex()
         .flex_1()
@@ -474,7 +476,7 @@ fn preset_button(name: &str) -> Div {
 }
 
 /// Same chrome full-width, centred label — the source button has no
-/// `text-left`, so it centres.
+/// left-alignment rule, so it centres.
 fn reset_button() -> Div {
     h_flex()
         .w_full()
@@ -495,7 +497,7 @@ fn reset_button() -> Div {
         )
 }
 
-/// `shadow-xl`: `0 20px 25px -5px rgb(0 0 0 / 0.1),
+/// The large drop shadow: `0 20px 25px -5px rgb(0 0 0 / 0.1),
 /// 0 8px 10px -6px rgb(0 0 0 / 0.1)`. Transcribed
 /// stop for stop; whether the blur matches the capture's rasteriser is
 /// unmeasured —

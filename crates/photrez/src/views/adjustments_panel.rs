@@ -32,8 +32,8 @@
 //!   label                12.5px TEXT from crop x~43
 //!   chevron              ink x240..246
 //! panel content ends     crop y=599 — the last 113px of the 712px
-//!                        column is empty PANEL; `flex-1` on the scroll
-//!                        column is all that is needed.
+//!                        column is empty PANEL; the scroll column
+//!                        growing to fill is all that is needed.
 //! ```
 //!
 //! # Captured state
@@ -52,13 +52,12 @@
 //!   `rgba(255,255,255,0.1)` in 6px cells over FIELD (`#252525`), yielding
 //!   `#303030` / `#3b3b3b`. GPUI's one-colour `checkerboard()` uses their
 //!   50/50 mean (`#353535`, `CHECKER_MEAN`); this layer has no pixels.
-//! * At rest (no pending adjustment), reset is disabled;
-//!   `disabled:opacity-40` paints at 40%. Omitted interaction styles:
-//!   `hover:bg-white/[0.045]`, `hover:text-editor-text`,
-//!   `hover:bg-white/[0.03]`, `hover:scale-110`, and status
-//!   `transition-colors`.
-//! * GPUI lacks `font-variant-numeric`; Inter defaults replace
-//!   `tabular-nums`. Static views cannot reproduce icon `Tooltip` wrappers.
+//! * At rest (no pending adjustment), reset is disabled and paints at 40%
+//!   opacity. Omitted interaction styles: hover fills (white at 4.5% and
+//!   white at 3%), text brightening to the editor text colour on hover,
+//!   icons scaling to 110% on hover, and colour transitions.
+//! * GPUI lacks tabular figures; Inter's default proportions replace the
+//!   fixed-width digits. Static views cannot reproduce icon `Tooltip` wrappers.
 //! * Standard gaps: no letter-spacing, clip-path, translate/z-index/scale;
 //!   two-stop gradients only (five-stop saturation uses
 //!   `ui::gradient_segments`); padding rounds to whole px; odd-height
@@ -98,14 +97,14 @@ const PANEL_W: f32 = 272.0;
 )]
 const PANEL_H: f32 = 712.0;
 
-/// `px-3` — each section's horizontal inset, measured as the first
+/// 12px — each section's horizontal inset, measured as the first
 /// ink pixel at crop x=12.
 const PAD_X: f32 = 12.0;
 
-/// `py-2.5` — the inset around each section's content.
+/// 10px — the inset around each section's content.
 const PAD_Y: f32 = 10.0;
 
-/// `mt-2` between a `SectionHeader` and the block under it.
+/// 8px between a `SectionHeader` and the block under it.
 const HEADER_GAP: f32 = 8.0;
 
 /// 10px between the thumbnail and its text, and between the
@@ -130,7 +129,7 @@ const R3: f32 = 3.0;
 const HDR_ICON_BOX: f32 = 16.0;
 const HDR_ICON: f32 = 15.0;
 
-/// `text-[12.5px] font-medium` — `SectionHeader`'s label.
+/// 12.5px medium — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
 /// 11.5px / 10.5px — the layer name and its type line.
@@ -140,7 +139,7 @@ const TYPE_TEXT: f32 = 10.5;
 /// 58px — a slider row's label.
 const SLIDER_LABEL_W: f32 = 58.0;
 
-/// `text-[12px]` — the slider row's label.
+/// 12px — the slider row's label.
 const SLIDER_LABEL: f32 = 12.0;
 
 /// 28px minimum height — the slider row, and 18px — the slider's
@@ -153,11 +152,11 @@ const VALUE_W: f32 = 40.0;
 const VALUE_H: f32 = 22.0;
 const VALUE_PAD_X: f32 = 6.0;
 
-/// `text-[11px]` — the value box's readout.
+/// 11px — the value box's readout.
 const VALUE_TEXT: f32 = 11.0;
 
-/// `mt-1` above the "Drag to preview…" paragraph, and its
-/// `text-[11px]`.
+/// 4px above the "Drag to preview…" paragraph, and its
+/// 11px text.
 const DESC_MT: f32 = 4.0;
 const DESC_TEXT: f32 = 11.0;
 
@@ -196,7 +195,7 @@ const CHECKER_MEAN: Hsla = Hsla {
 
 // Coming-soon icons use raw Tailwind colors, not editor tokens.
 
-/// `text-sky-400` — measured core: `#00bcff`.
+/// The HSL Color section icon's blue — measured core: `#00bcff`.
 const SKY_400: Hsla = Hsla {
     h: 0.543791,
     s: 1.0,
@@ -204,7 +203,7 @@ const SKY_400: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `text-sky-300` — measured core: `#74d4ff`.
+/// The Detail section icon's lighter blue — measured core: `#74d4ff`.
 const SKY_300: Hsla = Hsla {
     h: 0.551559,
     s: 1.0,
@@ -212,7 +211,7 @@ const SKY_300: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `text-amber-400` — measured core: `#fcb701` (within anti-aliasing
+/// The Color Grading icon's amber — measured core: `#fcb701` (within anti-aliasing
 /// tolerance).
 const AMBER_400: Hsla = Hsla {
     h: 0.120915,
@@ -221,7 +220,7 @@ const AMBER_400: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `text-emerald-400` — measured core: `#01d291` (within anti-aliasing
+/// The Lens Corrections icon's green — measured core: `#01d291` (within anti-aliasing
 /// tolerance).
 const EMERALD_400: Hsla = Hsla {
     h: 0.448113,

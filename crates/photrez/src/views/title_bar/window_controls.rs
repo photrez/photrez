@@ -7,11 +7,12 @@ use gpui_kit::{div, px, Decorations, Window, WindowControlArea};
 use crate::icons;
 use crate::tokens::{color, title};
 
-/// `<div class="flex shrink-0 items-center pr-0 text-editor-icon">` with three
-/// `h-[46px] w-11` children, where controls render.
+/// The controls row: centred on one row, never squeezed, flush to the right
+/// edge, in the icon colour, with three 46px x 44px children; where controls
+/// render.
 ///
-/// Each 46px button overhangs the 45px content box by 0.5px; `overflow-hidden`
-/// clips it. `manifest.json`: Minimize at `y = -0.5`, height 46.
+/// Each 46px button overhangs the 45px content box by 0.5px; the bar clips it.
+/// `manifest.json`: Minimize at `y = -0.5`, height 46.
 ///
 /// The reference paints the same buttons everywhere because its shell set
 /// `decorations: false`, removing window chrome; native toolkits own controls
@@ -83,8 +84,8 @@ fn run_window_action(area: WindowControlArea, window: &mut Window) {
     }
 }
 
-/// `flex h-[46px] w-11 items-center justify-center
-///  hover:bg-white/[0.055] hover:text-editor-text`
+/// A minimize/maximize button: 46px tall, 44px wide, centred on one row, that
+/// gains white at 5.5% behind it and the plain text colour on hover.
 fn window_button(
     id: &'static str,
     icon: &'static [u8],
@@ -114,8 +115,8 @@ fn window_button(
         )
 }
 
-/// `flex h-[46px] w-11 items-center justify-center hover:bg-red-500/85
-///  hover:text-white`
+/// The close button: the same 46px x 44px centred box, but its hover fill is
+/// red at 85% and its hover text is plain white.
 fn close_button() -> impl IntoElement {
     div()
         .id("close-window")

@@ -121,29 +121,29 @@ const PANEL_W: f32 = 260.0;
 )]
 const PANEL_H: f32 = 527.0;
 
-/// `px-3.5` — both header rows' horizontal inset.
+/// 14px — both header rows' horizontal inset.
 const PAD_X: f32 = 14.0;
 
-/// `pt-3` / `py-3`.
+/// 12px top / 12px vertical inset.
 const PAD_T: f32 = 12.0;
 
-/// `gap-2` on the first header row, `gap-4` on the second, `gap-2.5` on a row.
+/// 8px on the first header row, 16px on the second, 10px on a row.
 const GAP_2: f32 = 8.0;
 const GAP_4: f32 = 16.0;
 const ROW_GAP: f32 = 10.0;
 
-/// `h-[26px] w-[120px]` — the blend-mode select.
+/// 26px × 120px — the blend-mode select.
 const SELECT_H: f32 = 26.0;
 const SELECT_W: f32 = 120.0;
 
-/// `size-4` — the lock buttons' box, holding a 15px icon.
+/// 16px — the lock buttons' box, holding a 15px icon.
 const LOCK_BOX: f32 = 16.0;
 const LOCK_ICON: f32 = 15.0;
 
-/// `h-[50px]` — a layer row.
+/// 50px — a layer row.
 const ROW_H: f32 = 50.0;
 
-/// `size-[34px]` — a row's `LayerThumb`.
+/// 34px — a row's `LayerThumb`.
 const THUMB: f32 = 34.0;
 
 /// The mean of `LayerThumb`'s two checkerboard tones, as one flat colour.
@@ -159,33 +159,33 @@ const CHECKER_MEAN: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `rounded-[4px]` / `rounded-[3px]`.
+/// 4px / 3px corner radii.
 const R4: f32 = 4.0;
 const R3: f32 = 3.0;
 
-/// `text-[11px] font-semibold` — the select's label.
+/// 11px semibold — the select's label.
 const SELECT_TEXT: f32 = 11.0;
 
-/// `text-[12px]` — "Lock:", the opacity readout.
+/// 12px — "Lock:", the opacity readout.
 const TEXT_12: f32 = 12.0;
 
-/// `text-[12.5px]` — a layer row's name.
+/// 12.5px — a layer row's name.
 const ROW_TEXT: f32 = 12.5;
 
-/// `gap-5` — between the Layer Actions footer's icons.
+/// 20px — between the Layer Actions footer's icons.
 const FOOT_GAP: f32 = 20.0;
 
-/// `px-4` — the footer's horizontal inset.
+/// 16px — the footer's horizontal inset.
 const FOOT_PAD_X: f32 = 16.0;
 
-/// `py-2.5` — the footer's vertical inset, which is what makes it 10 + 17 + 10
-/// = 37px plus its `border-t`.
+/// 10px — the footer's vertical inset, which is what makes it 10 + 17 + 10
+/// = 37px plus its 1px top border.
 const FOOT_PAD_Y: f32 = 10.0;
 
 /// 17px — each of the footer's five icons.
 const FOOT_ICON: f32 = 17.0;
 
-/// `strokeWidth={1.75}` — explicit on all five footer icons; the `icons::`
+/// Stroke width 1.75 — explicit on all five footer icons; the `icons::`
 /// constants are baked at 1.5, 1.6, 1.75 or 2 depending on where they were
 /// first used, so the footer asks for this one by name.
 const STROKE: f32 = 1.75;
@@ -223,8 +223,8 @@ pub const FOOTER_ICONS: &[FooterIcon] = &[
 ];
 
 /// The panel root: a flexible, minimum-height, clipped column on the panel
-/// fill, carrying the `right-dock-layers-panel` id.
-///
+/// fill, carrying the `right-dock-layers-panel` id - trace-exempt: a local
+/// test id, not a class.
 pub fn render(
     state: &Entity<AppState>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
@@ -267,8 +267,8 @@ pub fn render(
         .child(actions_footer(state, cx))
 }
 
-/// `flex items-center gap-2 px-3.5 pt-3` — the blend select and the opacity
-/// readout, pushed to the right by `ml-auto`.
+/// Centred on one row with an 8px gap, 14px side inset and 12px top inset —
+/// the blend select and the opacity readout, pushed to the right by `.ml_auto()`.
 fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let (blend, opacity) = {
         let s = state.read(cx);
@@ -338,9 +338,9 @@ fn opacity_button(
         .child(label)
 }
 
-/// The native `<select>`'s resting chrome: `h-[26px] w-[120px] rounded-[4px]
-/// border border-editor-field-border bg-editor-field px-2 text-[11px]
-/// font-semibold`, with a chevron standing in for the control's own arrow.
+/// The native select control's resting chrome: 26px tall and 120px wide, a
+/// 4px radius, a 1px FIELD_BORDER edge on a FIELD fill, 8px side inset and
+/// 11px semibold text, with a chevron standing in for the control's own arrow.
 fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .id("layer-blend-cycle")
@@ -471,8 +471,8 @@ fn lock_toggles(flags: Option<crate::state::LayerFlags>) -> Vec<LockToggle> {
     ]
 }
 
-/// `flex items-center gap-4 px-3.5 py-3` — the "Lock:" label and four
-/// `size-4` icon buttons.
+/// Centred on one row with a 16px gap, 14px side and 12px vertical inset —
+/// the "Lock:" label and four 16px icon buttons.
 ///
 /// Each button carries its `Tooltip`; the locked variants tint ACCENT and the
 /// three partial locks dim while the base lock is on. The background layer
@@ -655,8 +655,8 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
         }))
 }
 
-/// One footer glyph: the source's `<button>` has no dimensions of its own, so
-/// it is exactly the 17px of the icon inside it.
+/// One footer glyph: the source `<button>` has no size (trace-exempt: that
+/// shape is why), it is exactly the 17px of the icon inside it.
 ///
 /// A 1.75 stroke width is explicit on all five,
 /// and the `icons::` constants are baked at whatever width they were first

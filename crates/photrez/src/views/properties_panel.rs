@@ -36,7 +36,7 @@
 //!   "single layer selected" branch the source's default implies. See
 //!   "What state the baseline caught" below.
 //! * **The panel's content stops at crop y=470 of a 712px column.** This view
-//!   therefore does not need to fill the height, and `flex-1` on the scroll
+//!   therefore does not need to fill the height, and a stretch-to-fill scroll
 //!   column is enough; there is nothing to scroll.
 //!
 //! # What state the baseline caught
@@ -63,7 +63,7 @@
 //!   cell values compute to 41 and 52.5 over it, and the scan reads ~48/59,
 //!   close enough that the base is right and the difference is the canvas's own
 //!   compositing.
-//! * Tooltips, `disabled` (35% opacity), hover borders and the
+//! * Tooltips, the disabled state (35% opacity), hover borders and the
 //!   status-hint row are all interaction states, so none is rendered here.
 //! * The scroll column reserves 6px for a scrollbar gutter on every
 //!   scrollable area, whether or not the content overflows. This panel's
@@ -97,11 +97,11 @@ const PANEL_W: f32 = 272.0;
 )]
 const PANEL_H: f32 = 712.0;
 
-/// `px-3` — the panel's own horizontal inset, measured as the first ink pixel
+/// The panel's own horizontal inset, measured as the first ink pixel
 /// at crop x=12 in `dock-properties.png`.
 const PAD_X: f32 = 14.0;
 
-/// `py-2.5` — the inset around each section's content.
+/// 10px — the inset around each section's content.
 const PAD_Y: f32 = 10.0;
 
 /// 10px between the thumbnail and its text.
@@ -130,7 +130,7 @@ const R3: f32 = 3.0;
 const HDR_ICON_BOX: f32 = 16.0;
 const HDR_ICON: f32 = 15.0;
 
-/// `text-[12.5px] font-medium` — `SectionHeader`'s label.
+/// 12.5px, medium weight — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
 // --- Static "Selected Layer" literals (single-selected-layer branch) ---
@@ -1085,7 +1085,7 @@ fn transform_section(
         )
 }
 
-/// `h-[26px] flex-1 rounded-[4px] border bg-editor-field px-2 text-[11px]`.
+/// 26px tall, stretches with its row: 4px corners, 1px border, 8px inset, 11px text.
 ///
 /// Three of these share a 186px slot, 58px each. The chrome is therefore kept
 /// at 28px (12px icon, 4px gap, 6px padding) so the widest label, "Flip H" at
@@ -1442,7 +1442,7 @@ fn multi_text_button(
         .child(label.to_string())
 }
 
-/// Same chrome, icon only — `size-3.5`, no label.
+/// Same chrome, icon only — a 14px glyph, no label.
 fn icon_button(icon: &'static [u8]) -> Div {
     div()
         .flex_1()

@@ -169,7 +169,7 @@ pub(super) fn num_field(
         .child(suffix_span(suffix))
 }
 
-/// Value run: `font-mono text-[11px] font-semibold text-white`.
+/// Value run: 11px monospace, semibold, white.
 pub(super) fn value_text(value: &'static str) -> impl IntoElement {
     div()
         .font_family(ui::FONT_MONO)
@@ -179,7 +179,7 @@ pub(super) fn value_text(value: &'static str) -> impl IntoElement {
         .child(value)
 }
 
-/// Caption run: `text-[10px] font-medium text-[#A1A1AA]`.
+/// Caption run: 10px medium label in `#A1A1AA`.
 pub(super) fn dim_span(text: &str) -> impl IntoElement {
     div()
         .text_size(px(TEXT_XS))
@@ -280,7 +280,7 @@ pub(super) fn reset_button() -> impl IntoElement {
         .child(t("common.reset"))
 }
 
-/// The overflow button (`MoreDropdown`) — `size-[24px] rounded-[3px]`.
+/// The overflow button (`MoreDropdown`) — 24px square, 3px corner radius.
 pub(super) fn more_dropdown_button() -> impl IntoElement {
     div()
         .id("opt-more")
@@ -576,12 +576,12 @@ pub(super) fn chevron_175() -> impl IntoElement {
         .text_color(ZINC)
 }
 
-/// `ml-1` spacing for the text bar's chevrons.
+/// 4px of left spacing for the text bar's chevrons.
 pub(super) fn ml_label(el: impl IntoElement) -> Div {
     div().ml(px(MR_LABEL)).child(el)
 }
 
-/// `shadow-sm` as two layered shadows.
+/// A subtle drop shadow as two layered shadows.
 pub(super) fn shadow_sm_layers() -> Vec<BoxShadow> {
     vec![
         BoxShadow::new(px(0.), px(1.), hsla(0.0, 0.0, 0.0, 0.10)).blur_radius(px(3.)),
@@ -591,7 +591,7 @@ pub(super) fn shadow_sm_layers() -> Vec<BoxShadow> {
     ]
 }
 
-/// `ring-1 ring-white/20` as a 1px spread shadow.
+/// A 1px white ring at 20% opacity, as a spread shadow.
 pub(super) fn ring_white_20() -> BoxShadow {
     BoxShadow::new(px(0.), px(0.), color::WHITE_20).spread_radius(px(1.))
 }
@@ -657,12 +657,12 @@ pub(super) fn brush_field(
     field
 }
 
-/// `opacity-40` wrapper for the selection bar's disabled fields.
+/// A 40%-opacity wrapper for the selection bar's disabled fields.
 pub(super) fn dimmed(el: impl IntoElement) -> Div {
     div().opacity(0.4).child(el)
 }
 
-/// `<div class="flex shrink-0 items-center gap-1">` around paired fields.
+/// One centred, never-squeezed row with a 4px gap, around paired fields.
 pub(super) fn field_pair(first: impl IntoElement, second: impl IntoElement) -> Div {
     h_flex()
         .flex_shrink_0()

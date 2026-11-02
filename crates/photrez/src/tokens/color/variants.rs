@@ -2,9 +2,9 @@ use gpui_kit::Hsla;
 
 use super::{TEXT, TEXT_DIM};
 
-// --- Alpha-modified tokens (Tailwind `/N` syntax) ---
+// --- Alpha-modified tokens (a base colour plus a percentage) ---
 
-/// `bg-white/5` on tool buttons + hover state on inactive buttons.
+/// White at 5% on tool buttons + hover state on inactive buttons.
 pub const WHITE_5: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -12,7 +12,7 @@ pub const WHITE_5: Hsla = Hsla {
     a: 0.05,
 };
 
-/// `bg-white/10` on the active row in the variant fly-out.
+/// White at 10% on the active row in the variant fly-out.
 pub const WHITE_10: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -20,7 +20,7 @@ pub const WHITE_10: Hsla = Hsla {
     a: 0.10,
 };
 
-/// `border-white/20` on the background swatch ring.
+/// A white border at 20% on the background swatch ring.
 pub const WHITE_20: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -28,7 +28,7 @@ pub const WHITE_20: Hsla = Hsla {
     a: 0.20,
 };
 
-/// `border-white/30` on the foreground swatch ring.
+/// A white border at 30% on the foreground swatch ring.
 pub const WHITE_30: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -36,7 +36,7 @@ pub const WHITE_30: Hsla = Hsla {
     a: 0.30,
 };
 
-/// `outline-black/40` on the foreground swatch.
+/// A black outline at 40% on the foreground swatch.
 pub const BLACK_40: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -44,7 +44,7 @@ pub const BLACK_40: Hsla = Hsla {
     a: 0.40,
 };
 
-/// `text-editor-text-dim/80` - the sub-variant triangle indicator.
+/// Dim text at 80% - the sub-variant triangle indicator.
 pub const TEXT_DIM_80: Hsla = Hsla {
     h: TEXT_DIM.h,
     s: TEXT_DIM.s,
@@ -54,7 +54,7 @@ pub const TEXT_DIM_80: Hsla = Hsla {
 
 // --- AppTitleBar / AppMenuBar ---
 
-/// `text-editor-text/90` - a menu trigger at rest.
+/// Text at 90% - a menu trigger at rest.
 pub const TEXT_90: Hsla = Hsla {
     h: TEXT.h,
     s: TEXT.s,
@@ -62,7 +62,7 @@ pub const TEXT_90: Hsla = Hsla {
     a: 0.9,
 };
 
-/// `text-editor-text-dim/60` - the `.` between the document name and the
+/// Dim text at 60% - the `.` between the document name and the
 /// "photrez" wordmark.
 pub const TEXT_DIM_60: Hsla = Hsla {
     h: TEXT_DIM.h,
@@ -71,7 +71,7 @@ pub const TEXT_DIM_60: Hsla = Hsla {
     a: 0.6,
 };
 
-/// `hover:bg-white/[0.045]` - the shared *bracket-form* hover: menu
+/// White at 4.5% on hover - the shared faint hover: menu
 /// triggers, undo/redo, the document tab's close button and the two
 /// header icon buttons.
 ///
@@ -84,7 +84,7 @@ pub const WHITE_45: Hsla = Hsla {
     a: 0.045,
 };
 
-/// `hover:bg-white/[0.055]` - the minimize and maximize buttons.
+/// White at 5.5% on hover - the minimize and maximize buttons.
 pub const WHITE_55: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -92,7 +92,7 @@ pub const WHITE_55: Hsla = Hsla {
     a: 0.055,
 };
 
-/// `bg-white/[0.08]` - the menu trigger whose popup is open.
+/// White at 8% - the menu trigger whose popup is open.
 pub const WHITE_80: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -100,9 +100,9 @@ pub const WHITE_80: Hsla = Hsla {
     a: 0.08,
 };
 
-/// `hover:bg-red-500/85` - the close-window button.
+/// Red at 85% on hover - the close-window button.
 ///
-/// Tailwind v4's `red-500` is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
+/// The original's red stop is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
 /// rgb(251, 44, 54). Converted to HSL: max 251, min 44, delta 207,
 /// hue 60 * ((44 - 54) / 207) = -2.90deg = 357.10deg, l = 147.5 / 255,
 /// s = delta / (2 - max - min) = 0.8118 / 0.8431.
@@ -116,7 +116,7 @@ pub const RED_500_85: Hsla = Hsla {
     a: 0.85,
 };
 
-/// `bg-editor-accent/15` - the crop bar's `Apply` interior in its resting
+/// Accent at 15% - the crop bar's `Apply` interior in its resting
 /// capture: `#3a2b20` (58, 43, 32) over the `#1b1b1b` bar, which is
 /// `ACCENT` at 15% (the blend lands on 59, 44, 33). The transform bar's
 /// full-strength `Apply` variant is not in any baseline, so this is pinned
@@ -128,13 +128,13 @@ pub const ACCENT_15: Hsla = Hsla {
     a: 0.15,
 };
 
-// -- Ad-hoc literals, not `--editor-*` tokens ----------------------------
+// -- Ad-hoc literals, not themed tokens ---------------------------------
 //
-// Everything above this line is a `--editor-*` / Tailwind theme variable:
-// one value, one meaning, reused across the app. The colours below are the
-// other kind - hex literals written straight into a component's class
-// string, so they have no variable to look up and are named here by the
-// *part* they colour instead.
+// Everything above this line is a theme colour: one value, one meaning,
+// reused across the app. The colours below are the
+// other kind - hex literals written straight into a component's style
+// declarations, so they have no variable to look up and are named here by
+// the *part* they colour instead.
 //
 // All eleven come from the shared primitive controls,
 // which is the module that introduces them and
@@ -142,11 +142,11 @@ pub const ACCENT_15: Hsla = Hsla {
 // `AdjustmentsPanel` and the option bars all build on those controls, so a
 // value pinned here is pinned once rather than transcribed per panel.
 //
-// Provenance is the literal class, quoted; the `--editor-*` values above
+// Provenance is the literal hex, quoted; the themed values above
 // were derived by the OKLCH -> sRGB -> HSL path, but these bypass it -
 // there is no `oklch()` to expand, only a hex to turn into HSL.
 
-/// `text-[#A1A1AA]` - the caption colour on a field: its `label` and its
+/// `#A1A1AA` - the caption colour on a field: its `label` and its
 /// `suffix`.
 ///
 /// Not `color::TEXT_DIM` (#8c8c8c) and not `color::ICON` (#868686): this
@@ -159,7 +159,7 @@ pub const FIELD_CAPTION: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `hover:border-[#4B515D]` - the border a field moves to on hover
+/// `#4B515D` - the border a field moves to on hover
 ///
 /// Only `SelectField` and `EditableNumField` ask for it; `NumField` has no
 /// hover state at all, which is a real difference between the two and not
@@ -171,7 +171,7 @@ pub const HOVER_BORDER: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-[#d8dce2]` - the `Slider` thumb.
+/// `#d8dce2` - the `Slider` thumb.
 pub const SLIDER_THUMB: Hsla = Hsla {
     h: 0.600000,
     s: 0.147059,
@@ -205,12 +205,12 @@ pub const SLIDER_MID_CONTRAST: Hsla = Hsla {
 };
 
 /// `#2d3139` - the light square of the transparency checkerboard that sits
-/// under the `opacity` / `brush-strength` track.
+/// under the layer-Opacity and brush-Strength slider tracks.
 ///
-/// Paired with [`CHECK_DARK`]. Both are written into a `conic-gradient`
-/// rather than a `background-color`, so a solid fill cannot substitute: the
-/// alternation is the point, since a slider that fades to `transparent` has
-/// to show *something* through it.
+/// Paired with [`CHECK_DARK`]. Both are painted as an alternating checker
+/// pattern rather than a flat fill, so a solid colour cannot substitute: the
+/// alternation is the point, since a slider that fades to full transparency
+/// has to show *something* through it.
 pub const CHECK_LIGHT: Hsla = Hsla {
     h: 0.611111,
     s: 0.117647,
@@ -227,7 +227,7 @@ pub const CHECK_DARK: Hsla = Hsla {
 };
 
 /// `#ef4444` - `saturation`'s 60% stop; the palette's
-/// `red-500`.
+/// mid red.
 pub const RED_500: Hsla = Hsla {
     h: 0.0,
     s: 0.842424,
@@ -236,7 +236,7 @@ pub const RED_500: Hsla = Hsla {
 };
 
 /// `#eab308` - `saturation`'s 80% stop; the palette's
-/// `yellow-500`.
+/// mid yellow.
 pub const YELLOW_500: Hsla = Hsla {
     h: 0.126064,
     s: 0.933941,
@@ -245,7 +245,7 @@ pub const YELLOW_500: Hsla = Hsla {
 };
 
 /// `#3b82f6` - `saturation`'s 100% stop; the palette's
-/// `blue-500`.
+/// mid blue.
 pub const BLUE_500: Hsla = Hsla {
     h: 0.603354,
     s: 0.912216,
@@ -253,7 +253,7 @@ pub const BLUE_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-zinc-100` - the light end of the `brightness` fill.
+/// Pale grey - the light end of the `brightness` fill.
 pub const ZINC_100: Hsla = Hsla {
     h: 0.666667,
     s: 0.047619,
@@ -261,7 +261,7 @@ pub const ZINC_100: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-zinc-300` - the light end of the `contrast` fill.
+/// Light grey - the light end of the `contrast` fill.
 pub const ZINC_300: Hsla = Hsla {
     h: 0.666667,
     s: 0.048780,
@@ -269,7 +269,7 @@ pub const ZINC_300: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `from-pink-500` - the start of the `saturation` fill, paired with
+/// Pink - the start of the `saturation` fill, paired with
 /// [`ROSE_500`].
 pub const PINK_500: Hsla = Hsla {
     h: 0.917683,
@@ -278,7 +278,7 @@ pub const PINK_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `to-rose-500` - the end of the `saturation` fill.
+/// Rose - the end of the `saturation` fill.
 pub const ROSE_500: Hsla = Hsla {
     h: 0.971455,
     s: 0.891626,
@@ -286,7 +286,7 @@ pub const ROSE_500: Hsla = Hsla {
     a: 1.0,
 };
 
-/// `bg-editor-text/55` - the `Slider` fill when `accent={false}`:
+/// Text at 55% - the `Slider` fill when `accent={false}`:
 /// [`TEXT`] at 55% alpha.
 pub const TEXT_55: Hsla = Hsla {
     h: 0.0,
@@ -295,11 +295,11 @@ pub const TEXT_55: Hsla = Hsla {
     a: 0.55,
 };
 
-/// `bg-white/45` - the `Slider`'s centre tick.
+/// White at 45% - the `Slider`'s centre tick.
 ///
 /// **Not** [`WHITE_45`], despite the identical-looking name. That one is
-/// Tailwind's *bracket* form, `bg-white/[0.045]`, whose suffix and this
-/// one's slash value both read as "45" - so `WHITE_45` is four and a half
+/// the fractional form, white at 4.5%, whose value and this
+/// one's both read as "45" - so `WHITE_45` is four and a half
 /// percent and this is forty-five. The suffix tracks the source's
 /// spelling rather than a unit, which is what makes the collision
 /// possible; the `_PCT` is here so the next reader does not assume the
@@ -311,7 +311,7 @@ pub const WHITE_45_PCT: Hsla = Hsla {
     a: 0.45,
 };
 
-/// `border-black/55` - the `Slider` thumb's own 1px border.
+/// A black border at 55% - the `Slider` thumb's own 1px border.
 ///
 /// Distinct from [`BLACK_40`], which is the token this palette uses for
 /// recessed shadows; the thumb is the one place asking for 55.
@@ -322,7 +322,7 @@ pub const BLACK_55: Hsla = Hsla {
     a: 0.55,
 };
 
-/// `text-white` - Tailwind's unmodified white, `#ffffff`.
+/// Unmodified white, `#ffffff` - the plain foreground colour.
 ///
 /// The one value here that is not really a colour choice: it is the
 /// absence of one, which is why the palette never gave it a variable.

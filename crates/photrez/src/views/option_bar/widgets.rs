@@ -415,7 +415,7 @@ pub(super) fn shape_stroke_pill(
 
 /// The stroke pill plus, when open, its popover.
 ///
-/// The popover is 224px (`w-56`) with a header checkbox, a colour row and a
+/// The popover is 224px wide with a header checkbox, a colour row and a
 /// width row; when the outline is off the body is dimmed and a click on it
 /// enables the outline as the dimmed wrapper itself does.
 // Explicit stroke state and hit-test bounds keep popover construction readable.
@@ -1267,10 +1267,10 @@ pub(super) const HOVER_BORDER_LOCAL: Hsla = Hsla {
     a: 1.0,
 };
 
-/// The stroke popover's width (`w-56`).
+/// The stroke popover's 224px width.
 const STROKE_POPOVER_W: f32 = 224.0;
 
-/// The text stroke popover's width (`w-60`).
+/// The text stroke popover's 240px width.
 const TEXT_STROKE_POPOVER_W: f32 = 240.0;
 
 // ── Group labels ───────────────────────────────────────────────────────────────
@@ -1292,7 +1292,7 @@ pub(super) fn caps_label(text: &str) -> Div {
 /// fill source resolves to the white background default (the crop's
 /// resolved fill colour), so the swatch paints [`color::WHITE`].
 ///
-/// The swatch is a 22x18 rounded rect (`h-[18px] w-[22px] rounded-[2px]`), not
+/// The swatch is a 22x18 rect with a 2px corner radius, not
 /// the circular `round_swatch` - it is flat (no ring) to match the baseline.
 pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
     div()
@@ -1328,13 +1328,13 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
 }
 
 /// `t("common.apply", "Apply")` — accent action:
-/// `h-6 px-2.5 rounded-[4px] font-bold text-white shadow-xs`, with the fill at
+/// 24px tall, 10px padding, 4px radius, bold white text and a subtle shadow, with the fill at
 /// 15%. Live via the Crop bar, so [`ACTION_PX`] is consumed (the dead-code
 /// allow on it was dropped in mod.rs).
 ///
 /// The fill: the resting `option-crop` baseline blends the button interior to
 /// `#3a2b20` (58, 43, 32) over the `#1b1b1b` bar - [`color::ACCENT_15`], not
-/// the solid `bg-editor-accent` the transform variant's class string spells
+/// the solid accent fill that the transform variant's own markup spells
 /// out. No baseline captures the transform bar's Apply, so the measured crop
 /// value is what paints here.
 pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
@@ -1368,9 +1368,9 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
 }
 
 /// `t("common.cancel", "Cancel")` — secondary
-/// action. The class string reads `bg-editor-field text-[#A1A1AA]`, but the
+/// action. The markup asks for a field background and a `#A1A1AA` label, but the
 /// resting `option-crop` baseline paints the border-only ghost: the interior
-/// stays the bar's `#1b1b1b` (27) where `bg-editor-field` would read 37. The
+/// stays the bar's `#1b1b1b` (27) where the field background would read 37. The
 /// border and the label paint; the fill does not.
 pub(super) fn cancel_button(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
     div()
