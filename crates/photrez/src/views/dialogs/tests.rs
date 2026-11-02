@@ -180,3 +180,28 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
         assert!(text.is_ascii(), "`{text}` left the Latin subset");
     }
 }
+
+/// The `Keep proportions` pill paints the reference's two colour states:
+/// locked is accent/40 over an accent/10 fill with full accent text, unlocked
+/// is a transparent edge and fill with the dim text. The 1px border is present
+/// in both, so this pins colour only - toggling the lock cannot reflow the pill.
+/// RED proof: hand `resize_pill_colours` the values the pill had before this
+/// change (full-alpha accent edge when locked, `color::BORDER` when not, no
+/// fill in either) and the locked edge tier, the locked fill tier and both
+/// unlocked transparency assertions fail by name.
+#[test]
+fn resize_pill_colours_are_the_reference_tiers() {
+    let locked = resize_pill_colours(true);
+    assert_eq!(locked.edge.h, color::ACCENT.h);
+    assert_eq!(locked.edge.s, color::ACCENT.s);
+    assert_eq!(locked.edge.l, color::ACCENT.l);
+    assert_eq!(locked.edge.a, 0.40, "the locked edge is accent/40");
+    assert_eq!(locked.fill.a, 0.10, "the locked fill is accent/10");
+    assert_eq!(locked.fill.h, color::ACCENT.h);
+    assert_eq!(locked.text, color::ACCENT);
+
+    let unlocked = resize_pill_colours(false);
+    assert_eq!(unlocked.edge.a, 0.0, "the unlocked pill draws no edge");
+    assert_eq!(unlocked.fill.a, 0.0, "the unlocked pill draws no fill");
+    assert_eq!(unlocked.text, color::TEXT_DIM);
+}

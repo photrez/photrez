@@ -600,9 +600,51 @@ fn resize_field(
         .child(h_flex().justify_end().child(list))
 }
 
+/// The `Keep proportions` pill's colours for one lock state, kept out of the
+/// view builder so the tiers can be asserted without a window.
+///
+/// The design locks the pill to a 40%-alpha accent edge over a 10%-alpha
+/// accent fill and unlocks it to a transparent edge and fill.
+/// The 1px border stays in both states, so toggling the lock never reflows the
+/// pill; only its colours move.
+struct ResizePillColours {
+    edge: Hsla,
+    fill: Hsla,
+    text: Hsla,
+}
+
+fn resize_pill_colours(locked: bool) -> ResizePillColours {
+    let accent_at = |alpha: f32| Hsla {
+        h: color::ACCENT.h,
+        s: color::ACCENT.s,
+        l: color::ACCENT.l,
+        a: alpha,
+    };
+    if locked {
+        ResizePillColours {
+            edge: accent_at(0.40),
+            fill: accent_at(0.10),
+            text: color::ACCENT,
+        }
+    } else {
+        let clear = Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.0,
+            a: 0.0,
+        };
+        ResizePillColours {
+            edge: clear,
+            fill: clear,
+            text: color::TEXT_DIM,
+        }
+    }
+}
+
 /// `Keep proportions`: an accent pill while
 /// the aspect lock is on, a dim row while it is off.
 fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> Div {
+    let colours = resize_pill_colours(locked);
     h_flex().h(px(24.0)).pl(px(24.0)).child(
         div()
             .id("resize-aspect")
@@ -613,14 +655,11 @@ fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> 
             .items_center()
             .rounded(px(6.0))
             .border_1()
-            .border_color(if locked { color::ACCENT } else { color::BORDER })
+            .border_color(colours.edge)
+            .bg(colours.fill)
             .when(locked, |el| el.shadow(vec![ui::accent_well()]))
             .text_size(px(11.0))
-            .text_color(if locked {
-                color::ACCENT
-            } else {
-                color::TEXT_DIM
-            })
+            .text_color(colours.text)
             .gap(px(4.0))
             .cursor_pointer()
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
