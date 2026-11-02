@@ -216,3 +216,26 @@ fn resize_pill_colours_are_the_reference_tiers() {
     assert_eq!(unlocked.fill.a, 0.0, "the unlocked pill draws no fill");
     assert_eq!(unlocked.text, color::TEXT_DIM);
 }
+
+/// The About dialog's version pill: the same ruling as the resize pill, on a
+/// different surface. The reference asks an accent/40 edge over an accent/10
+/// fill; the edge that paints is the global border grey and the fill is
+/// accent/10. The S015 about capture measures rgb(51,51,51) on the pill's
+/// border rows over an accent wash, which is what separates a measured edge
+/// from a reading of the rule.
+///
+/// RED proof: hand [`about_pill_colours`] the accent/40 edge it carried before
+/// this correction and the edge assertion fails by name while the fill and
+/// text assertions stay green.
+#[test]
+fn about_pill_edge_is_the_global_grey() {
+    let (edge, fill, text) = about::about_pill_colours();
+    assert_eq!(
+        edge,
+        color::BORDER,
+        "the pill's 1px edge is the global border grey, not accent/40"
+    );
+    assert_eq!(fill.a, 0.10, "the pill's fill keeps its own accent/10 tier");
+    assert_eq!(fill.h, color::ACCENT.h);
+    assert_eq!(text, color::ACCENT);
+}

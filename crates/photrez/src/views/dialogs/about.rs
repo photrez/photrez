@@ -60,14 +60,18 @@ const ABOUT_PILL_FILL: Hsla = Hsla {
     a: 0.10,
 };
 
-/// The version pill's edge: accent at 40%,
-/// and the link buttons' hover border.
-const ABOUT_ACCENT_40: Hsla = Hsla {
-    h: color::ACCENT.h,
-    s: color::ACCENT.s,
-    l: color::ACCENT.l,
-    a: 0.40,
-};
+/// The version pill's painted edge, fill and text, kept out of the view
+/// builder so the tiers can be asserted without a window.
+///
+/// The reference asks this pill for a 40%-alpha accent edge over a 10%-alpha
+/// accent fill. Only the fill ever arrives: one app-wide rule outranks the
+/// border colour a component asks for (see [`color::BORDER`]), so the edge that
+/// paints is the global border grey. Measured in the about-dialog capture -
+/// the reference's pill rows read rgb(51,51,51) above and below an accent/10
+/// wash, where an accent edge would read rgb(112,73,44).
+pub(super) fn about_pill_colours() -> (Hsla, Hsla, Hsla) {
+    (color::BORDER, ABOUT_PILL_FILL, color::ACCENT)
+}
 
 /// The four spec rows' labels, catalogue-routed like the rest of the dialog.
 pub(super) const ABOUT_SPEC_LABELS: [&str; 4] = [
@@ -187,14 +191,15 @@ fn about_hero() -> Div {
         )
 }
 
-/// The version pill: 4px corners, a 40% accent edge, a 10% accent fill,
+/// The version pill: 4px corners, the [`about_pill_colours`] edge and fill,
 /// 6px horizontal and 2px vertical padding, 10px semibold accent text.
 fn about_version_pill() -> Div {
+    let (edge, fill, text) = about_pill_colours();
     div()
         .rounded(px(R4))
         .border_1()
-        .border_color(ABOUT_ACCENT_40)
-        .bg(ABOUT_PILL_FILL)
+        .border_color(edge)
+        .bg(fill)
         .px(px(ABOUT_PILL_PX))
         .py(px(ABOUT_PILL_PY))
         .child(
@@ -203,7 +208,7 @@ fn about_version_pill() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(600.))
                 .line_height(relative(1.3))
-                .text_color(color::ACCENT)
+                .text_color(text)
                 .child(about_version()),
         )
 }
@@ -297,10 +302,9 @@ fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Sta
         .cursor_pointer()
         // No token holds 8% white (the scale carries 5 and 10); inline like the
         // dock tab's 2%. The alpha blends over FIELD exactly as the CSS does.
-        .hover(|s| {
-            s.bg(hsla(0.0, 0.0, 1.0, 0.08))
-                .border_color(ABOUT_ACCENT_40)
-        })
+        // The hover brightens the fill only: the reference's asked
+        // hover-accent edge never paints, so its edge is the same on hover.
+        .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .on_click(move |_, _, cx| cx.open_url(url))
         .child(
             Icon::default()
