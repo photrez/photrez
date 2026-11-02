@@ -603,10 +603,16 @@ fn resize_field(
 /// The `Keep proportions` pill's colours for one lock state, kept out of the
 /// view builder so the tiers can be asserted without a window.
 ///
-/// The design locks the pill to a 40%-alpha accent edge over a 10%-alpha
-/// accent fill and unlocks it to a transparent edge and fill.
-/// The 1px border stays in both states, so toggling the lock never reflows the
-/// pill; only its colours move.
+/// The locked pill asks for an accent edge at 40%, the unlocked one for a
+/// transparent edge, but neither ever paints: one app-wide border colour
+/// outranks the per-element border colour a component asks for, so the pill's
+/// 1px edge is [`color::BORDER`] in both states. The capture of the locked
+/// dialog measures rgb(51,51,51) on that row, which is what makes this visible
+/// rather than a reading of the rules.
+///
+/// Fills keep their own token, so the locked accent/10 wash does paint and the
+/// unlocked pill really is unfilled. The 1px border stays in both states, so
+/// toggling the lock never reflows the pill; only its fill and text move.
 struct ResizePillColours {
     edge: Hsla,
     fill: Hsla,
@@ -622,20 +628,19 @@ fn resize_pill_colours(locked: bool) -> ResizePillColours {
     };
     if locked {
         ResizePillColours {
-            edge: accent_at(0.40),
+            edge: color::BORDER,
             fill: accent_at(0.10),
             text: color::ACCENT,
         }
     } else {
-        let clear = Hsla {
-            h: 0.0,
-            s: 0.0,
-            l: 0.0,
-            a: 0.0,
-        };
         ResizePillColours {
-            edge: clear,
-            fill: clear,
+            edge: color::BORDER,
+            fill: Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.0,
+            },
             text: color::TEXT_DIM,
         }
     }

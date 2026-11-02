@@ -182,26 +182,37 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
 }
 
 /// The `Keep proportions` pill paints the reference's two colour states:
-/// locked is accent/40 over an accent/10 fill with full accent text, unlocked
-/// is a transparent edge and fill with the dim text. The 1px border is present
-/// in both, so this pins colour only - toggling the lock cannot reflow the pill.
-/// RED proof: hand `resize_pill_colours` the values the pill had before this
-/// change (full-alpha accent edge when locked, `color::BORDER` when not, no
-/// fill in either) and the locked edge tier, the locked fill tier and both
-/// unlocked transparency assertions fail by name.
+/// locked is the global border grey over an accent/10 fill with full accent
+/// text, unlocked is the same grey over no fill with the dim text.
+///
+/// The edge is grey in both states, not accent, because one app-wide border
+/// colour outranks every per-element border colour the reference asks for; the
+/// capture of the locked dialog measures rgb(51,51,51) on the pill's border
+/// row, which is exactly [`color::BORDER`]. Fills are not affected by that
+/// rule, so the accent/10 fill does paint. The 1px border is present in both
+/// states, so this pins colour only - toggling the lock cannot reflow the pill.
+/// RED proof: hand `resize_pill_colours` the values this function had before
+/// the correction (an accent/40 edge when locked, a transparent edge when not)
+/// and the locked edge, the unlocked edge and the unlocked fill assertions all
+/// fail by name.
 #[test]
 fn resize_pill_colours_are_the_reference_tiers() {
     let locked = resize_pill_colours(true);
-    assert_eq!(locked.edge.h, color::ACCENT.h);
-    assert_eq!(locked.edge.s, color::ACCENT.s);
-    assert_eq!(locked.edge.l, color::ACCENT.l);
-    assert_eq!(locked.edge.a, 0.40, "the locked edge is accent/40");
+    assert_eq!(
+        locked.edge,
+        color::BORDER,
+        "the locked edge is the global border grey, not accent/40"
+    );
     assert_eq!(locked.fill.a, 0.10, "the locked fill is accent/10");
     assert_eq!(locked.fill.h, color::ACCENT.h);
     assert_eq!(locked.text, color::ACCENT);
 
     let unlocked = resize_pill_colours(false);
-    assert_eq!(unlocked.edge.a, 0.0, "the unlocked pill draws no edge");
+    assert_eq!(
+        unlocked.edge,
+        color::BORDER,
+        "the unlocked pill keeps the same grey edge"
+    );
     assert_eq!(unlocked.fill.a, 0.0, "the unlocked pill draws no fill");
     assert_eq!(unlocked.text, color::TEXT_DIM);
 }
