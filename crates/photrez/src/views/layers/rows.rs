@@ -20,6 +20,19 @@ const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
+/// The colour of the 1px rule closing every layer row.
+///
+/// The reference asks `border-b border-editor-divider/10` for it, which names
+/// DIVIDER at 10% over the row - a 2/255 step a capture would never notice. The
+/// rule that actually reaches the screen is the app-wide border override
+/// ([`color::BORDER`]), so this is rgb(51,51,51): a 21/255 step over the
+/// rgb(30,30,30) panel, in a row the reference draws and the native did not.
+/// Kept as a function so the tier is assertable without a window; the width is
+/// the fixed 1px the reference's `border-b` gives it.
+pub(super) fn row_hairline_colour() -> Hsla {
+    color::BORDER
+}
+
 /// The layer stack: a scrollable column with a 6px reserved gutter, bordered
 /// top and bottom.
 ///
@@ -116,7 +129,16 @@ struct RowView<'a> {
 /// reference builds it (`ring-1 ring-inset`) and the two are not
 /// interchangeable here: a border takes its pixel out of the content box, so a
 /// bordered row paints its thumbnail and name 1px further in than the reference
-/// row does.
+/// row does. The row's bottom rule is a real border, because that is what the
+/// reference draws there (`border-b`) and a bottom-only border leaves the
+/// content 49px of 50 - the same box the reference's own layout works in.
+///
+/// On a ringed row the rule and the ring want the same last pixel and the rule
+/// wins, so the ring reads as open at the bottom where the reference closes it
+/// one row higher. Measured in the layers capture, and still the closer of the
+/// two arrangements: the reference's own bottom pixel is rgb(67,57,49), a grey
+/// rule with accent bleeding through it, where the bare ring would leave
+/// rgb(124,84,54).
 ///
 /// The id is the stable `layer-row-<id>` form: both the drag source and
 /// the drop target are this same element, and the mounted test addresses it by
@@ -257,6 +279,8 @@ fn layer_row(
         .items_center()
         .gap(px(ROW_GAP))
         .px(px(PAD_X))
+        .border_b_1()
+        .border_color(row_hairline_colour())
         .when(selected, |el| el.bg(color::ROW_ACTIVE))
         .shadow(rings)
         .cursor_pointer()

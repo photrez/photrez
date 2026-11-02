@@ -697,6 +697,22 @@ mod tests {
         assert!(FOOTER_ICONS[4].trailing);
     }
 
+    /// Each row closes with a 1px rule, and the rule is the colour that
+    /// actually paints rather than the `border-editor-divider/10` the
+    /// reference's class names: the app-wide border override wins, so this is
+    /// rgb(51,51,51) over the rgb(30,30,30) panel, not DIVIDER at 10%.
+    /// RED proof by mutation: point [`rows::row_hairline_colour`] at
+    /// `color::DIVIDER` and this fails by name; the surface capture is what
+    /// shows the row closing without any rule at all.
+    #[test]
+    fn layer_row_hairline_is_the_global_border_colour() {
+        assert_eq!(
+            rows::row_hairline_colour(),
+            color::BORDER,
+            "the row rule is the global border grey, not divider/10"
+        );
+    }
+
     fn flags() -> crate::state::LayerFlags {
         crate::state::LayerFlags {
             visible: true,
