@@ -265,6 +265,7 @@ fn hue_strip(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> imp
 
 fn column(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl IntoElement {
     let rgb = hsv_to_rgb(session.hsv);
+    let readouts = channel_readouts(session);
     v_flex()
         .w(px(COLUMN_W))
         .flex_shrink_0()
@@ -325,22 +326,8 @@ fn column(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl I
                 .w_full()
                 .items_start()
                 .justify_between()
-                .child(
-                    v_flex()
-                        .w(px(86.0))
-                        .gap(px(6.0))
-                        .child(readout("H:", format!("{:.0}", session.hsv.h), "\u{00b0}"))
-                        .child(readout("S:", format!("{:.0}", session.hsv.s * 100.0), "%"))
-                        .child(readout("B:", format!("{:.0}", session.hsv.v * 100.0), "%")),
-                )
-                .child(
-                    v_flex()
-                        .w(px(86.0))
-                        .gap(px(6.0))
-                        .child(readout("R:", rgb[0].to_string(), ""))
-                        .child(readout("G:", rgb[1].to_string(), ""))
-                        .child(readout("B:", rgb[2].to_string(), "")),
-                ),
+                .child(readout_group(&readouts[..3]))
+                .child(readout_group(&readouts[3..])),
         )
         .child(
             h_flex()
@@ -422,6 +409,65 @@ fn readout(label: &'static str, value: String, suffix: &'static str) -> impl Int
                 .text_color(color::TEXT_DIM)
                 .child(suffix),
         )
+}
+
+/// One channel field as the picker displays it: its caption, the value
+/// derived from the live colour, and the unit printed after the value.
+pub(crate) struct Readout {
+    pub(crate) label: &'static str,
+    pub(crate) value: String,
+    pub(crate) suffix: &'static str,
+}
+
+/// The picker lists both colour models at once - hue/saturation/brightness
+/// first, then red/green/blue - and every field derives from the live colour in
+/// the open session, which is the only input the column can read. Deriving them
+/// here, rather than in six inline expressions, keeps the captions and the
+/// numbers on the same source value, so the two models cannot drift apart or
+/// keep text from the previous colour.
+pub(crate) fn channel_readouts(session: &ColorPickerSession) -> [Readout; 6] {
+    let hsv = session.hsv;
+    let rgb = hsv_to_rgb(hsv);
+    [
+        Readout {
+            label: "H:", // i18n-exempt: colour-model abbreviation
+            value: format!("{:.0}", hsv.h),
+            suffix: "\u{00b0}",
+        },
+        Readout {
+            label: "S:", // i18n-exempt: colour-model abbreviation
+            value: format!("{:.0}", hsv.s * 100.0),
+            suffix: "%",
+        },
+        Readout {
+            label: "B:", // i18n-exempt: colour-model abbreviation
+            value: format!("{:.0}", hsv.v * 100.0),
+            suffix: "%",
+        },
+        Readout {
+            label: "R:", // i18n-exempt: colour-model abbreviation
+            value: rgb[0].to_string(),
+            suffix: "",
+        },
+        Readout {
+            label: "G:", // i18n-exempt: colour-model abbreviation
+            value: rgb[1].to_string(),
+            suffix: "",
+        },
+        Readout {
+            label: "B:", // i18n-exempt: colour-model abbreviation
+            value: rgb[2].to_string(),
+            suffix: "",
+        },
+    ]
+}
+
+fn readout_group(items: &[Readout]) -> impl IntoElement {
+    let mut group = v_flex().w(px(86.0)).gap(px(6.0));
+    for item in items {
+        group = group.child(readout(item.label, item.value.clone(), item.suffix));
+    }
+    group
 }
 
 enum ColorAction {
@@ -639,3 +685,6 @@ fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {
     };
     window.captured_hitbox() == Some(captured)
 }
+
+#[cfg(test)]
+mod tests;

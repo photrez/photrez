@@ -379,3 +379,9 @@ mod viewport;
 
 #[path = "tests/cross_doc.rs"]
 mod cross_doc;
+
+#[path = "tests/picker_channels.rs"]
+mod picker_channels;
+
+#[path = "tests/picker_eyedropper.rs"]
+mod picker_eyedropper;
