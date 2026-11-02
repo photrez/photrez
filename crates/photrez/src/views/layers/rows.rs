@@ -108,15 +108,15 @@ struct RowView<'a> {
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
 }
 
-/// A 50px row, centred on one row with a 10px gap, 14px side inset and a 10%
-/// DIVIDER bottom border; the active row adds `ROW_ACTIVE` fill, 1px inset ring.
+/// A 50px row with a 10px child gap and 14px side inset; a selected row takes
+/// the `ROW_ACTIVE` fill and the active row a 1px `ACCENT` edge at 40% alpha.
 ///
-/// A 1px inset ring in ACCENT at 40% alpha has no GPUI equivalent — rings
-/// are a box-shadow family GPUI does not expose — so the 1px inset edge is
-/// drawn as a border and the colour as `ACCENT` at 40% alpha. That is the
-/// closest available reading of "a faint inner outline".
+/// The reference paints that edge as a 1px inset ring. GPUI can do the same:
+/// `BoxShadow` has an `inset` flag, and this app already builds spread-only
+/// rings for the option bar (`option_bar/controls.rs`). So the border below is
+/// a chosen reading, not the only available one.
 ///
-/// The id is the A8.0-stable `layer-row-<id>` form: both the drag source and
+/// The id is the stable `layer-row-<id>` form: both the drag source and
 /// the drop target are this same element, and the mounted test addresses it by
 /// that string.
 fn layer_row(
