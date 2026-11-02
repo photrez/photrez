@@ -1,8 +1,7 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use gpui_kit::profiler::{FrameEvent, FrameTimingCollector};
 use gpui_kit::{
@@ -25,9 +24,11 @@ use super::{
 
 mod args;
 mod fixture;
+mod sandbox;
 
 use args::{parse_args, Case, Config, USAGE};
 use fixture::stage_fixture;
+use sandbox::Sandbox;
 
 const WAIT_LIMIT: Duration = Duration::from_secs(60);
 /// A click or hover that paints nothing produces no frame; this is how long a
@@ -193,33 +194,6 @@ pub fn run() {
         })
         .detach();
     });
-}
-
-struct Sandbox {
-    root: PathBuf,
-}
-
-impl Sandbox {
-    fn create() -> Result<Self, String> {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| format!("system clock precedes Unix epoch: {error}"))?
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "photrez-measure-input-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir(&root)
-            .map_err(|error| format!("cannot create sandbox {}: {error}", root.display()))?;
-        // Link-free spelling: the file boundary rejects a path behind a link.
-        Ok(Self {
-            root: std::fs::canonicalize(&root).unwrap_or(root),
-        })
-    }
-
-    fn cleanup(&self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
 }
 
 struct Runner {

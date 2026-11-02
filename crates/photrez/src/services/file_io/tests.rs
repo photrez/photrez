@@ -1,5 +1,12 @@
 use super::{FileIo, LocalFileIo};
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,11 +43,19 @@ fn assert_code(error: super::super::error::ServiceError, expected: &str) {
     assert_eq!(error.code(), expected, "{error}");
 }
 
-/// The handle-bound open behind `read_approved` is implemented only for Windows
-/// and Linux x86_64; other targets fail closed, so the tests that observe an
-/// approval snapshot are gated to those targets and these helpers must follow
-/// them. Ungated, they are dead code everywhere else, which this crate denies.
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+/// The handle-bound open behind `read_approved` is implemented only for Windows,
+/// Linux x86_64 and macOS (arm64 or x86_64); other targets fail closed, so the
+/// tests that observe an approval snapshot are gated to those targets and these
+/// helpers must follow them. Ungated, they are dead code everywhere else, which
+/// this crate denies.
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn approval_snapshot(io: &LocalFileIo, persistence: &Path) -> (Vec<PathBuf>, Option<Vec<u8>>) {
     let approved = io
         .approved_paths
@@ -55,7 +70,14 @@ fn approval_snapshot(io: &LocalFileIo, persistence: &Path) -> (Vec<PathBuf>, Opt
     (approved, persisted)
 }
 
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn assert_approval_snapshot_unchanged(
     io: &LocalFileIo,
     persistence: &Path,
@@ -220,7 +242,14 @@ fn approval_persistence_replaces_existing_file_on_windows() {
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_returns_bytes_for_an_explicitly_approved_file() {
     let temp = TestDir::new("read-approved-success");
     let cache = temp.path().join("cache");
@@ -239,7 +268,14 @@ fn read_approved_returns_bytes_for_an_explicitly_approved_file() {
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_rejects_unapproved_path_without_mutating_approval() {
     let temp = TestDir::new("read-approved-unapproved");
     let cache = temp.path().join("cache");
@@ -260,7 +296,14 @@ fn read_approved_rejects_unapproved_path_without_mutating_approval() {
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_rejects_a_symlink_at_an_approved_path_without_mutating_approval() {
     let temp = TestDir::new("read-approved-symlink");
     let cache = temp.path().join("cache");
@@ -300,7 +343,14 @@ fn read_approved_rejects_a_symlink_at_an_approved_path_without_mutating_approval
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_rejects_non_regular_paths_without_mutating_approval() {
     let temp = TestDir::new("read-approved-non-regular");
     let cache = temp.path().join("cache");
@@ -322,7 +372,14 @@ fn read_approved_rejects_non_regular_paths_without_mutating_approval() {
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_reports_missing_file_without_mutating_approval() {
     let temp = TestDir::new("read-approved-missing");
     let cache = temp.path().join("cache");
@@ -343,7 +400,14 @@ fn read_approved_reports_missing_file_without_mutating_approval() {
 }
 
 #[test]
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 fn read_approved_enforces_the_max_bytes_boundary_without_mutating_approval() {
     let temp = TestDir::new("read-approved-limit");
     let cache = temp.path().join("cache");
@@ -368,7 +432,14 @@ fn read_approved_enforces_the_max_bytes_boundary_without_mutating_approval() {
     assert_approval_snapshot_unchanged(&io, &persistence, &before);
 }
 
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 #[test]
 fn opened_read_handle_survives_final_component_replacement() {
     let temp = TestDir::new("read-handle-final-replacement");
@@ -394,7 +465,14 @@ fn opened_read_handle_survives_final_component_replacement() {
     );
 }
 
-#[cfg(any(windows, all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(
+    windows,
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(
+        target_os = "macos",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+))]
 #[test]
 fn opened_parent_handle_survives_ancestor_replacement() {
     let temp = TestDir::new("read-handle-ancestor-replacement");
