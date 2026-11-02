@@ -296,7 +296,7 @@ fn tool_key(tool: crate::state::ToolId) -> &'static str {
     use crate::state::ToolId;
     match tool {
         ToolId::Move => "tools.move",
-        ToolId::Selection => "tools.selection",
+        ToolId::Selection => "tools.rectSelect",
         ToolId::Crop => "tools.crop",
         ToolId::Eyedropper => "tools.eyedropper",
         ToolId::Brush => "tools.brush",
@@ -587,5 +587,33 @@ mod tests {
     fn frame_metrics_source_values() {
         assert_eq!(FRAME.avg_ms_str(), "1.1");
         assert_eq!(FRAME.max_ms_str(), "1.9");
+    }
+
+    /// The Active cell asks for a key chosen at runtime, so the literal-key
+    /// sweep cannot see it: every tool must land on a catalog entry, or the
+    /// cell prints the dotted key itself.
+    #[test]
+    fn every_tool_label_resolves() {
+        use crate::state::ToolId;
+        let tools = [
+            ToolId::Move,
+            ToolId::Selection,
+            ToolId::Crop,
+            ToolId::Eyedropper,
+            ToolId::Brush,
+            ToolId::Eraser,
+            ToolId::PaintBucket,
+            ToolId::Gradient,
+            ToolId::Shape,
+            ToolId::Text,
+        ];
+        for tool in tools {
+            let key = tool_key(tool);
+            assert_ne!(
+                crate::i18n::t(key),
+                key,
+                "the Active cell renders {key} verbatim: no catalog entry answers it"
+            );
+        }
     }
 }

@@ -9,6 +9,234 @@ fn reference_path(code: &str) -> std::path::PathBuf {
         .join("translation.json")
 }
 
+/// Every leaf path in a nested catalog, joined with `.`.
+fn leaf_paths(
+    value: &serde_json::Value,
+    prefix: &str,
+    out: &mut std::collections::BTreeMap<String, String>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, item) in map {
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                leaf_paths(item, &path, out);
+            }
+        }
+        serde_json::Value::String(s) => {
+            out.insert(prefix.to_owned(), s.clone());
+        }
+        _ => {}
+    }
+}
+
+fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
+    let text = std::fs::read_to_string(reference_path(code))
+        .expect("the reference catalog is in the tree");
+    let value: serde_json::Value =
+        serde_json::from_str(&text).expect("the reference catalog parses");
+    let mut out = std::collections::BTreeMap::new();
+    leaf_paths(&value, "", &mut out);
+    out
+}
+
+/// The catalog is the reference catalog plus the deltas the reference cannot
+/// express, and nothing else. A byte copy is impossible: the reference reaches
+/// three align strings only through inline defaults, keeps the text tool's
+/// commit/newline leaves under a `tools.text` object where the native catalog
+/// needs a `tools.text` label, and the reference's own dead menu string is not
+/// wanted here. Each of those is a named row below, so a new divergence still
+/// fails the test instead of being absorbed by a re-copy.
+#[test]
+fn catalog_matches_reference_plus_named_deltas() {
+    const NATIVE_ONLY: &[&str] = &[
+        // The reference spells these three through `t(key, default)`; here they
+        // are real entries so the label resolves without a fallback.
+        "properties.alignCenter",
+        "properties.alignLeft",
+        "properties.alignRight",
+        // The reference's `tools.text` is an object, so it has no leaf for the
+        // tool's own name; the two action strings move to `tools.textActions`.
+        "tools.text",
+        "tools.textActions.commit",
+        "tools.textActions.newline",
+    ];
+    const REFERENCE_ONLY: &[&str] = &["tools.text.commit", "tools.text.newline"];
+
+    for (locale, text) in CATALOGS {
+        let native: std::collections::BTreeMap<String, String> = {
+            let value: serde_json::Value =
+                serde_json::from_str(text).expect("the embedded catalog parses");
+            let mut out = std::collections::BTreeMap::new();
+            leaf_paths(&value, "", &mut out);
+            out
+        };
+        let reference = reference_leaves(locale.code());
+        let native_only: Vec<_> = native
+            .keys()
+            .filter(|key| !reference.contains_key(*key))
+            .cloned()
+            .collect();
+        let reference_only: Vec<_> = reference
+            .keys()
+            .filter(|key| !native.contains_key(*key))
+            .cloned()
+            .collect();
+        assert_eq!(
+            native_only,
+            NATIVE_ONLY,
+            "{}: unrecorded keys exist only in the native catalog",
+            locale.code()
+        );
+        assert_eq!(
+            reference_only,
+            REFERENCE_ONLY,
+            "{}: unrecorded keys are missing from the native catalog",
+            locale.code()
+        );
+        let renamed = [
+            ("tools.text.commit", "tools.textActions.commit"),
+            ("tools.text.newline", "tools.textActions.newline"),
+        ];
+        for (from, to) in renamed {
+            assert_eq!(
+                reference[from],
+                native[to],
+                "{}: {to} must carry the reference text of {from}",
+                locale.code()
+            );
+        }
+        for (key, value) in &reference {
+            if REFERENCE_ONLY.contains(&key.as_str()) {
+                continue;
+            }
+            assert_eq!(
+                native.get(key).map(String::as_str),
+                Some(value.as_str()),
+                "{}: shared key {key} diverges from the reference text",
+                locale.code()
+            );
+        }
+    }
+}
+
+/// A lookup the catalog cannot answer renders its key on screen, and no
+/// capture shows that is intentional. Every literal key the views ask for must
+/// resolve in both embedded catalogs.
+#[test]
+fn every_literal_lookup_resolves() {
+    let en = load(Locale::En);
+    let id = load(Locale::Id);
+    let mut unresolved = Vec::new();
+    for path in source_files(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .as_path(),
+    ) {
+        let text = std::fs::read_to_string(&path).expect("a source file reads");
+        let production = text.split("#[cfg(test)]").next().unwrap_or_default();
+        for key in literal_lookup_keys(production) {
+            for (code, catalog) in [("en", &en), ("id", &id)] {
+                if !catalog.entries.contains_key(&key) {
+                    unresolved.push(format!(
+                        "{}:{}: {key} missing from {code}",
+                        path.display(),
+                        line_of(production, &key)
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        unresolved.is_empty(),
+        "unresolved lookups:\n{}",
+        unresolved.join("\n")
+    );
+}
+
+/// `t("k")`, `t_args("k", ..)` and `t_plural("k", ..)` literals; a plural
+/// lookup is expanded to the two variant keys the catalog actually stores.
+fn literal_lookup_keys(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut keys = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+            i += 1;
+            continue; // never cut a multi-byte character in half
+        }
+        let boundary =
+            i == 0 || !matches!(bytes[i - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_');
+        let (name, is_plural) = if boundary && text[i..].starts_with("t_plural(") {
+            ("t_plural(", true)
+        } else if boundary && text[i..].starts_with("t_args(") {
+            ("t_args(", false)
+        } else if boundary && text[i..].starts_with("t(") {
+            ("t(", false)
+        } else {
+            i += 1;
+            continue;
+        };
+        let mut j = i + name.len();
+        while j < bytes.len() && matches!(bytes[j], b' ' | b'\r' | b'\n' | b'\t') {
+            j += 1;
+        }
+        if bytes.get(j) == Some(&b'"') {
+            if let Some(end) = text[j + 1..].find('"') {
+                let key = text[j + 1..j + 1 + end].to_owned();
+                if is_plural {
+                    keys.push(format!("{key}_one"));
+                    keys.push(format!("{key}_other"));
+                } else {
+                    keys.push(key);
+                }
+            }
+        }
+        i = j;
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// The 1-based line a key is first asked for, for the failure message only.
+fn line_of(text: &str, key: &str) -> usize {
+    text.match_indices(&format!("\"{key}\""))
+        .map(|(at, _)| text[..at].matches('\n').count() + 1)
+        .next()
+        .unwrap_or(0)
+}
+
+fn source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(source_files(&path));
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            let parent = path
+                .parent()
+                .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_owned));
+            // The fixture catalogs and the reference-copies are data, not lookups.
+            if name != "tests.rs" && parent.as_deref() != Some("tests") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 fn load(locale: Locale) -> Catalog {
     let (_, text) = CATALOGS
         .iter()
@@ -38,24 +266,6 @@ fn token_set(value: &str) -> Vec<String> {
     set.sort();
     set.dedup();
     set
-}
-
-/// The embedded copies are the pinned reference, byte for byte after checkout
-/// line-ending normalization. A diff is never a translation decision: the
-/// reference changes first and the copy step re-copies it.
-#[test]
-fn catalog_matches_reference() {
-    for (locale, text) in CATALOGS {
-        let reference = std::fs::read_to_string(reference_path(locale.code()))
-            .expect("the reference catalog is in the tree");
-        let embedded = text.replace("\r\n", "\n");
-        assert_eq!(
-            embedded,
-            reference.replace("\r\n", "\n"),
-            "embedded {} catalog drifted from the reference",
-            locale.code()
-        );
-    }
 }
 
 /// Every key in one locale exists in the other: a missing translation
@@ -113,7 +323,7 @@ fn leaf_counts_are_pinned() {
     for locale in [Locale::En, Locale::Id] {
         assert_eq!(
             load(locale).entries.len(),
-            457,
+            459,
             "{} leaf count",
             locale.code()
         );
