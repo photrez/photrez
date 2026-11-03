@@ -85,6 +85,36 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
     }
 }
 
+/// Whether the OS is currently allowing interface animation. On Windows this is
+/// the "show animations in Windows" setting, read through the `windows-sys`
+/// feature this crate already enables, so the app asks the system instead of
+/// keeping its own motion preference.
+#[cfg(windows)]
+#[allow(unsafe_code)] // SAFETY: one SystemParametersInfoW call that writes the ANIMATIONINFO it is given a pointer to.
+fn system_animations_enabled() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, ANIMATIONINFO, SPI_GETANIMATION,
+    };
+    let mut info = ANIMATIONINFO {
+        cbSize: std::mem::size_of::<ANIMATIONINFO>() as u32,
+        iMinAnimate: 0,
+    };
+    let read = unsafe {
+        SystemParametersInfoW(
+            SPI_GETANIMATION,
+            std::mem::size_of::<ANIMATIONINFO>() as u32,
+            &mut info as *mut ANIMATIONINFO as *mut core::ffi::c_void,
+            0,
+        )
+    };
+    read != 0 && info.iMinAnimate != 0
+}
+
+#[cfg(not(windows))]
+fn system_animations_enabled() -> bool {
+    true
+}
+
 /// Runs the application: toolkit init, locale, fonts, and the main window.
 ///
 /// This is the only startup path. `main.rs` calls it; tests and measurement
@@ -97,6 +127,12 @@ pub fn run() {
     let open_path = startup_args.open_path;
     gpui_kit::application().run(|cx: &mut App| {
         gpui_kit::init(cx);
+
+        // A capture must never catch a dialog half-faded, and a user who told
+        // the OS they do not want animation gets a static interface. With the
+        // flag set the runtime paints each animation's settled state and
+        // schedules no animation frames at all.
+        cx.set_reduce_motion(shot::active().is_some() || !system_animations_enabled());
 
         // Settle the locale before any control reads a string: the whole
         // window tree renders from the catalog (`i18n/`).

@@ -81,7 +81,9 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, relative, BoxShadow, Div, Entity, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{
+    div, hsla, px, relative, AnimationExt, BoxShadow, Div, Entity, FontWeight, Hsla, TestSupportExt,
+};
 
 use super::title_bar;
 #[allow(unused_imports)]
@@ -2001,6 +2003,15 @@ pub fn render_dialog(
                 .test_support()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                 .child(framed),
+        )
+        // The design fades the dialog panel in over 200ms. The backdrop this
+        // group paints is transparent, so fading the group reaches the panel and
+        // nothing else.
+        .with_animation(
+            "dialog-fade-in",
+            gpui_kit::Animation::new(std::time::Duration::from_millis(200))
+                .with_easing(gpui_kit::ease_out_quint()),
+            |overlay, progress| overlay.opacity(progress),
         )
         .into_any_element()
 }
