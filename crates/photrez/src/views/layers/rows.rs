@@ -20,6 +20,19 @@ const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
+/// 24px tall, 8px side inset, 4px icon gap, 12px glyph, 11px label — the
+/// locked-row badge the reference's `Locked` pill asks for.
+const BADGE_H: f32 = 24.0;
+const BADGE_PX: f32 = 8.0;
+const BADGE_GAP: f32 = 4.0;
+const BADGE_ICON: f32 = 12.0;
+const BADGE_TEXT: f32 = 11.0;
+
+/// 20px square with a 2px corner and a 12px glyph — the drag ghost's icon tile.
+const GHOST_TILE: f32 = 20.0;
+const GHOST_TILE_RADIUS: f32 = 2.0;
+const GHOST_TILE_ICON: f32 = 12.0;
+
 /// The colour of the 1px rule closing every layer row.
 ///
 /// The reference asks `border-b border-editor-divider/10` for it, which names
@@ -69,6 +82,88 @@ pub(super) fn row_hover_fill() -> Hsla {
         l: 1.0,
         a: 0.03,
     }
+}
+
+/// The locked badge's three tiers: fill, edge, label.
+///
+/// The reference pill is `bg-editor-accent/5` with a `border-editor-accent/20`
+/// edge. Its label asks `text-editor-accent/70`, which measures 3.33:1 on that
+/// fill over the active row's `ROW_ACTIVE`, under the 4.5:1 floor for 11px
+/// text, so the native label keeps full `color::ACCENT` (5.18:1 there, 6.38:1
+/// over the plain panel). A function, so the tiers are assertable without a
+/// window.
+pub(super) fn locked_badge_colours() -> (Hsla, Hsla, Hsla) {
+    (
+        color::ACCENT.opacity(0.05),
+        color::ACCENT.opacity(0.2),
+        color::ACCENT,
+    )
+}
+
+/// The badge a locked row carries: the lock glyph plus the localized label, so
+/// the state never reads as colour alone.
+///
+/// It is a status label, not a control: the row's own lock button is what
+/// toggles, so this element takes no click handler and no pointer cursor.
+fn locked_badge(id: u64) -> impl IntoElement {
+    let (fill, edge, label) = locked_badge_colours();
+    h_flex()
+        .id(format!("layer-locked-badge-{id}"))
+        .test_support()
+        .h(px(BADGE_H))
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(BADGE_GAP))
+        .px(px(BADGE_PX))
+        .rounded(px(R3))
+        .border_1()
+        .border_color(edge)
+        .bg(fill)
+        .font_family(ui::FONT_UI)
+        .text_size(px(BADGE_TEXT))
+        .text_color(label)
+        .child(
+            Icon::default()
+                .data(icons::LOCK)
+                .size(px(BADGE_ICON))
+                .text_color(label),
+        )
+        .child(t("layers.locked"))
+}
+
+/// The tile the drag ghost leads with, so a floating chip still reads as the
+/// layer it came from.
+///
+/// The design gives non-text layers a 20px dark tile carrying the layers glyph;
+/// its adjustment and text variants branch on the layer's type, which the
+/// projected rows do not carry.
+fn ghost_tile() -> impl IntoElement {
+    div()
+        .id("layer-drag-ghost-tile")
+        .test_support()
+        .w(px(GHOST_TILE))
+        .h(px(GHOST_TILE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .flex_shrink_0()
+        .rounded(px(GHOST_TILE_RADIUS))
+        .border_1()
+        .border_color(color::WHITE_10)
+        // The reference asks `bg-black/50`; no token sits on that alpha
+        // (`BLACK_40` and `BLACK_55` flank it), so the tile names it here.
+        .bg(Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.0,
+            a: 0.5,
+        })
+        .child(
+            Icon::default()
+                .data(icons::LAYERS)
+                .size(px(GHOST_TILE_ICON))
+                .text_color(color::TEXT_DIM),
+        )
 }
 
 /// The layer stack: a scrollable column with a 6px reserved gutter, bordered
@@ -338,6 +433,7 @@ fn layer_row(
                 .text_color(if locked { color::TEXT_DIM } else { color::TEXT })
                 .child(name),
         )
+        .when(locked, |el| el.child(locked_badge(id)))
         .child(
             h_flex()
                 .items_center()
@@ -547,8 +643,9 @@ fn move_button(
 /// The chip GPUI paints under the pointer while a row is dragged.
 ///
 /// `dragGhost` in the reference is the row itself floating above the list;
-/// this is the same 50px row minus the thumbnail, drawn only mid-drag so the
-/// resting tree stays identical to the baseline.
+/// this is the same 50px row minus the layer bitmap, drawn only mid-drag so the
+/// resting tree stays identical to the baseline. [`ghost_tile`] stands in for
+/// the thumbnail so the chip still names a layer.
 struct LayerDragGhost {
     name: String,
 }
@@ -568,6 +665,7 @@ impl Render for LayerDragGhost {
             .border_b_1()
             .border_color(row_hairline_colour())
             .shadow(vec![ui::inset_ring(color::ACCENT.opacity(0.6))])
+            .child(ghost_tile())
             .child(
                 div()
                     .text_size(px(ROW_TEXT))

@@ -1054,3 +1054,128 @@ fn ctrl_click_and_plain_click_manage_the_multi_selection(cx: &mut gpui_kit::Test
     })
     .expect("test window remains open");
 }
+
+/// The locked badge follows the layer's real lock flag, not a constant.
+#[gpui_kit::test]
+fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let top = rows
+            .iter()
+            .find(|row| row.core_id.as_deref() == Some("top"))
+            .expect("top row")
+            .id;
+        assert!(
+            !flags(&content, cx)[0].locked,
+            "the fixture row starts unlocked"
+        );
+        assert!(
+            window
+                .try_find(format!("layer-locked-badge-{top}"))
+                .is_none(),
+            "an unlocked row shows no badge"
+        );
+
+        window.click(format!("layer-lock-{top}"), cx);
+        window.render_frame(cx);
+        assert!(
+            flags(&content, cx)[0].locked,
+            "the row lock button locks the layer"
+        );
+        let badge = window
+            .try_find(format!("layer-locked-badge-{top}"))
+            .expect("a locked row shows the badge");
+        assert!(
+            badge.bounds().size.width > gpui_kit::px(0.0),
+            "the badge takes its own row slot"
+        );
+
+        window.click(format!("layer-lock-{top}"), cx);
+        window.render_frame(cx);
+        assert!(
+            !flags(&content, cx)[0].locked,
+            "the second click unlocks again"
+        );
+        assert!(
+            window
+                .try_find(format!("layer-locked-badge-{top}"))
+                .is_none(),
+            "unlocking takes the badge away"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The drag ghost carries the layer tile only while a row is actually dragged.
+#[gpui_kit::test]
+fn layer_drag_ghost_carries_the_icon_tile(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-drag-ghost-tile").is_none(),
+            "nothing is dragged, so the tile is absent"
+        );
+        let (rows, _) = super::input::layer_rows(&content, cx);
+        let start = window
+            .find(format!("layer-row-{}", rows[0].id))
+            .bounds()
+            .center();
+        // Release over the canvas: no row is under the pointer, so the drag
+        // ends without a reorder.
+        let moved = gpui_kit::point(start.x - gpui_kit::px(260.0), start.y);
+        let _ = window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let _ = window.dispatch_event(
+            PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(cx.has_active_drag(), "the layer row drag is active");
+        assert!(
+            window.try_find("layer-drag-ghost-tile").is_some(),
+            "the floating ghost carries the layer tile"
+        );
+        let _ = window.dispatch_event(
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-drag-ghost-tile").is_none(),
+            "the tile goes away when the drag ends"
+        );
+        assert_eq!(
+            super::input::layer_rows(&content, cx).0.len(),
+            2,
+            "releasing over the canvas reorders nothing"
+        );
+    })
+    .expect("test window remains open");
+}
