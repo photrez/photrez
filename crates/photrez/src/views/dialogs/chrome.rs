@@ -109,11 +109,9 @@ fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
                 .items_center()
                 .gap(px(GAP_2))
                 .min_w(px(0.0))
-                // The brand mark is an inline SVG with two gradients, a
-                // mask and a drop-shadow filter. `assets/icons.rs` is generated
-                // from lucide paths and cannot carry any of that, so this view
-                // draws the slot rather than the mark; `title_bar.rs` owns the
-                // importable LOGO for the same reason.
+                // This chrome draws a flat accent slot rather than the brand
+                // mark; `title_bar.rs` owns the importable LOGO. The mark needs
+                // no mask or filter, so a rasteriser cannot refuse it.
                 .child(
                     div()
                         .w(px(BRAND))

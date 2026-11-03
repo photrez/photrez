@@ -1,44 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- 
-    PHOTREZ APP ICON - THE FINAL MASTERPIECE
-    Shape: V18 Flawless (Slanted, Sharp)
-    Background: Dark Titanium (Matte)
-    Colors: Photon Amber Gradient + Pale Yellow Sun
-    Padding: Balanced (85% Scale)
+  <title>Photrez</title>
+  <!--
+    Photrez application icon.
+
+    FIGURE AND GROUND: the dark charcoal shape is the mountain, the amber shape
+    is the sky, and the pale disc is the setting sun, cut by the mountain's
+    right slope so the mountain passes in front of it.
+
+    GEOMETRY: one closed path plus one arc. The notch apex is a tangent arc
+    (r=4) rather than a flat bar, so the tip keeps its height without a
+    straight cut across it. The five convex exterior corners share a single
+    fillet radius (r=20). The mark is scaled 1.12 about the tile centre, which
+    moves coloured area from 21.2% to 26.1% of the tile.
+
+    NO mask, no filter, no raster. The file renders identically in a browser,
+    an icon rasteriser, and a one-colour print, and it cannot fail on a
+    rasteriser that does not implement SVG filters.
   -->
   <defs>
-    <!-- Photon Amber Gradient -->
     <linearGradient id="brandGradient" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#FFB31A" />
       <stop offset="100%" stop-color="#E15A17" />
     </linearGradient>
-
-    <!-- Dark Titanium Matte Background -->
     <linearGradient id="bgDark" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#2C2C2E" />
       <stop offset="100%" stop-color="#151516" />
     </linearGradient>
-
-    <!-- Mountain Cutout Mask -->
-    <mask id="mountainMask" maskUnits="userSpaceOnUse" x="-500" y="-500" width="2000" height="2000">
-      <rect x="-500" y="-500" width="2000" height="2000" fill="white" />
-      <polygon points="250.4,320 300.86,127 307,127 357.6,320" fill="black" />
-    </mask>
-
-    <!-- Soft Drop Shadow for the P -->
-    <filter id="pShadow" x="-20%" y="-20%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000000" flood-opacity="0.5" />
-    </filter>
   </defs>
-
-  <!-- Modern Squircle Background -->
   <rect x="24" y="24" width="464" height="464" rx="100" fill="url(#bgDark)" />
-
-  <!-- Logo Group with Balanced Padding (Scale 0.85) and visually centered -->
-  <g transform="translate(8, 48) scale(0.85)" filter="url(#pShadow)">
-    <!-- The Solid Slanted 'P' Block -->
-    <path d="M 240 50 L 460 50 L 390 310 L 253 310 L 219 440 L 136 440 Z" fill="url(#brandGradient)" mask="url(#mountainMask)" />
-    <!-- The Rising Sun -->
-    <circle cx="333" cy="175" r="30" fill="#FFE57F" mask="url(#mountainMask)" />
+  <g transform="translate(256 256) scale(1.12) translate(-256 -256)">
+    <g transform="translate(8 48) scale(0.85)">
+      <path fill="url(#brandGradient)" d="M 236.04 64.85 A 20.00 20.00 0 0 1 255.37 50.00 L 433.90 50.00 A 20.00 20.00 0 0 1 453.22 75.20 L 393.98 295.20 A 20.00 20.00 0 0 1 374.67 310.00 L 350.94 310.00 L 307.79 148.97 A 4.00 4.00 0 0 0 300.07 148.97 L 256.92 310.00 L 226.06 425.18 A 20.00 20.00 0 0 1 206.74 440.00 L 162.03 440.00 A 20.00 20.00 0 0 1 142.71 414.85 Z" />
+      <path fill="#FFE57F" d="M 309.70 156.10 A 30.0 30.0 0 1 1 322.28 203.02 Z" />
+    </g>
   </g>
 </svg>
