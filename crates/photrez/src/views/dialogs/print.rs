@@ -23,21 +23,51 @@ const HEADER_H: f32 = 38.0;
 /// The print resolution the dialog treats as optimal: 300 PPI.
 const PRINT_PPI: f64 = 300.0;
 
-fn danger() -> Hsla {
-    Hsla {
-        h: 0.0,
-        s: 0.62,
-        l: 0.52,
-        a: 1.0,
+/// What the printer cell reports. A failed enumeration says why, because an
+/// unreadable spool and a machine with no printers otherwise look identical;
+/// an empty list says there is nothing to print to; a populated list says
+/// nothing.
+pub(super) fn printer_notice(error: Option<&str>, printer_count: usize) -> Option<String> {
+    match error {
+        Some(message) => Some(message.to_string()),
+        None if printer_count == 0 => Some(t("dialogs.print.noPrinters").to_string()),
+        None => None,
     }
 }
 
-fn success() -> Hsla {
-    Hsla {
-        h: 0.42,
-        s: 0.55,
-        l: 0.48,
-        a: 1.0,
+/// The resolution a document actually lands at once it is laid out on paper:
+/// pixels per inch on each axis, and the worse of the two is what the eye
+/// judges. A size that has not been worked out yet reads as zero rather than
+/// as an infinitely good print.
+pub(super) fn effective_ppi(doc_px: (f64, f64), print_mm: (f64, f64)) -> u32 {
+    const MM_PER_INCH: f64 = 25.4;
+    if print_mm.0 <= 0.0 || print_mm.1 <= 0.0 {
+        return 0;
+    }
+    let per_axis = |px: f64, mm: f64| px / (mm / MM_PER_INCH);
+    per_axis(doc_px.0, print_mm.0)
+        .min(per_axis(doc_px.1, print_mm.1))
+        .round() as u32
+}
+
+/// The badge tier for an effective resolution, cut where the design cuts it.
+/// The copy is the reference's own literal, which it never runs through the
+/// catalog.
+pub(super) fn ppi_quality(ppi: u32) -> (&'static str, Hsla, Hsla) {
+    if ppi >= 300 {
+        ("Optimal (300+ PPI)", color::EMERALD_400, color::EMERALD_950)
+    } else if ppi >= 150 {
+        (
+            "Acceptable (150-299 PPI)",
+            color::AMBER_400,
+            color::AMBER_950,
+        )
+    } else {
+        (
+            "Low resolution (min 150 PPI recommended)",
+            color::ROSE_400,
+            color::ROSE_950,
+        )
     }
 }
 
@@ -260,6 +290,7 @@ pub(super) fn render(
     let copies = s.print_copies;
     let landscape = s.print_landscape;
     let printers = s.printers.clone();
+    let print_error = s.print_error.clone();
     let printer = s.print_printer.min(printers.len().saturating_sub(1));
     let margins = s.print_margins_mm;
     let center = s.print_center_on_page;
@@ -484,29 +515,31 @@ pub(super) fn render(
         }
         inspector = inspector.child(list);
     }
-    if printers.is_empty() {
+    if let Some(message) = printer_notice(print_error.as_deref(), printers.len()) {
         inspector = inspector.child(
             h_flex()
+                .id("print-error")
+                .test_support()
                 .w_full()
                 .items_center()
                 .gap(px(6.0))
-                .px(px(8.0))
+                .px(px(10.0))
                 .py(px(6.0))
                 .rounded(px(4.0))
                 .border_1()
                 .border_color(color::BORDER)
-                .bg(color::FIELD)
+                .bg(color::ROSE_950.opacity(0.2))
                 .child(
                     Icon::default()
                         .data(icons::CIRCLE)
                         .size(px(12.0))
-                        .text_color(danger()),
+                        .text_color(color::ROSE_400),
                 )
                 .child(
                     div()
-                        .text_size(px(11.0))
-                        .text_color(danger())
-                        .child(t("dialogs.print.noPrinters")),
+                        .text_size(px(10.5))
+                        .text_color(color::ROSE_400)
+                        .child(message),
                 ),
         );
     }
@@ -1020,6 +1053,8 @@ pub(super) fn render(
                 ),
         );
 
+        let print_ppi = effective_ppi((doc_w as f64, doc_h as f64), (width_mm, height_mm));
+        let (badge_text, badge_tint, badge_fill) = ppi_quality(print_ppi);
         inspector = inspector.child(
             h_flex()
                 .w_full()
@@ -1030,11 +1065,12 @@ pub(super) fn render(
                 .rounded(px(4.0))
                 .border_1()
                 .border_color(color::BORDER)
-                .bg(color::EMERALD_950.opacity(0.4))
+                .bg(badge_fill.opacity(0.4))
                 .text_size(px(11.0))
-                .text_color(success())
+                .text_color(badge_tint)
                 .child(t("dialogs.print.printResolution").to_string())
-                .child("300 PPI \u{2014} Optimal (300+ PPI)".to_string()), // i18n-exempt: copy not in catalog
+                // i18n-exempt: the reference keeps this copy out of its catalog
+                .child(format!("{print_ppi} PPI \u{2014} {badge_text}")),
         );
     }
 

@@ -708,6 +708,10 @@ pub struct AppState {
     pub print_landscape: bool,
     pub print_paper: usize,
     pub printers: Vec<String>,
+    /// Why the printer list could not be read. The dialog reports the failure
+    /// instead of showing an empty list, because an unreadable spool and no
+    /// installed printers look identical otherwise.
+    pub print_error: Option<String>,
     pub print_printer: usize,
     /// Print layout options driven by the PrintInspector.
     pub print_margins_mm: f64,
@@ -999,6 +1003,7 @@ impl Default for AppState {
             print_landscape: false,
             print_paper: 0,
             printers: Vec::new(),
+            print_error: None,
             print_printer: 0,
             print_margins_mm: 5.0,
             print_center_on_page: true,

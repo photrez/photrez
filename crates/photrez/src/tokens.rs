@@ -219,6 +219,50 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `#4C0519` = rgb(76, 5, 25): the deep rose a printer or save error is
+    /// reported on. The design paints it at 20% over the field behind it.
+    pub const ROSE_950: Hsla = Hsla {
+        h: 0.95305,
+        s: 0.87654,
+        l: 0.15882,
+        a: 1.0,
+    };
+
+    /// `#FB7185` = rgb(251, 113, 133): the rose text tier of an error banner.
+    pub const ROSE_400: Hsla = Hsla {
+        h: 0.97585,
+        s: 0.94521,
+        l: 0.71373,
+        a: 1.0,
+    };
+
+    /// `#34D399` = rgb(52, 211, 153): the text tier of a good-quality badge, the
+    /// light partner of `EMERALD_950`.
+    pub const EMERALD_400: Hsla = Hsla {
+        h: 0.43920,
+        s: 0.64372,
+        l: 0.51569,
+        a: 1.0,
+    };
+
+    /// `#FBBF24` = rgb(251, 191, 36): the amber text tier of an acceptable
+    /// quality badge.
+    pub const AMBER_400: Hsla = Hsla {
+        h: 0.12016,
+        s: 0.96413,
+        l: 0.56275,
+        a: 1.0,
+    };
+
+    /// `#451A03` = rgb(69, 26, 3): the amber badge fill, painted at 40% over the
+    /// panel behind it, like `EMERALD_950` and `ROSE_950`.
+    pub const AMBER_950: Hsla = Hsla {
+        h: 0.05808,
+        s: 0.91667,
+        l: 0.14118,
+        a: 1.0,
+    };
+
     /// `#E15A17` = rgb(225, 90, 23): the tool mark, a darker orange than
     /// `ACCENT` (`#F28E42`). It only appears where the layout draws through an
     /// SVG stroke attribute or a cursor asset, which no CSS rule can override,
@@ -503,6 +547,26 @@ mod tests {
         assert_eq!(hsla_to_rgb(color::YELLOW_400), (250, 204, 21));
         assert_eq!(hsla_to_rgb(color::GREEN_400), (74, 222, 128));
         assert_eq!(hsla_to_rgb(color::RED_400), (248, 113, 113));
+    }
+
+    /// The printer-error banner paints rose at 20% over the field behind it, so
+    /// the composited pixel is what a capture sees.
+    #[test]
+    fn error_banner_tier_composites_over_the_field() {
+        assert_eq!(hsla_to_rgb(color::ROSE_400), (251, 113, 133));
+        let field = hsla_to_rgb(color::FIELD);
+        let rose = hsla_to_rgb(color::ROSE_950);
+        let a = 0.2_f32;
+        let mix = |t: u8, base: u8| (t as f32 * a + base as f32 * (1.0 - a)).round() as u8;
+        assert_eq!(field, (37, 37, 37));
+        assert_eq!(
+            (
+                mix(rose.0, field.0),
+                mix(rose.1, field.1),
+                mix(rose.2, field.2)
+            ),
+            (45, 31, 35)
+        );
     }
 
     /// The badge and destructive tiers are painted translucent over the panel, so

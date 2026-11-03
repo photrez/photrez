@@ -239,3 +239,79 @@ fn about_pill_edge_is_the_global_grey() {
     assert_eq!(fill.h, color::ACCENT.h);
     assert_eq!(text, color::ACCENT);
 }
+
+/// The printer cell tells a failed enumeration apart from a machine with no
+/// printers, and stays silent when the list read fine.
+#[test]
+fn printer_notice_reports_the_failure_not_an_empty_library() {
+    assert_eq!(
+        print::printer_notice(Some("EnumPrintersW failed"), 0).as_deref(),
+        Some("EnumPrintersW failed"),
+        "the reason a refresh failed outranks the generic copy, even when no printers are listed"
+    );
+    assert_eq!(
+        print::printer_notice(Some("offline"), 2).as_deref(),
+        Some("offline"),
+        "a failure is still reported even when printers are listed"
+    );
+    assert_eq!(
+        print::printer_notice(None, 0).as_deref(),
+        Some(t("dialogs.print.noPrinters").as_str()),
+        "an empty list says there is nothing to print to"
+    );
+}
+
+/// The print-quality badge reports the resolution the layout really lands at,
+/// and changes tier with it, so a stretched print stops calling itself optimal.
+#[test]
+fn print_quality_badge_follows_the_measured_resolution() {
+    assert_eq!(
+        print::effective_ppi((2480.0, 3508.0), (210.0, 297.0)),
+        300,
+        "an A4 page at 2480x3508 px is the 300 PPI reference print"
+    );
+    assert_eq!(
+        print::effective_ppi((2480.0, 3508.0), (297.0, 420.0)),
+        212,
+        "the same document stretched to A3 loses resolution"
+    );
+    assert_eq!(
+        print::effective_ppi((1000.0, 1000.0), (500.0, 500.0)),
+        51,
+        "the worse axis decides, so a square print reads low"
+    );
+    assert_eq!(
+        print::effective_ppi((1000.0, 1000.0), (0.0, 297.0)),
+        0,
+        "an unknown printed size is no resolution, not an infinite one"
+    );
+
+    assert_eq!(
+        print::ppi_quality(300).0,
+        "Optimal (300+ PPI)",
+        "the tier boundary is inclusive at 300"
+    );
+    assert_eq!(print::ppi_quality(299).0, "Acceptable (150-299 PPI)");
+    assert_eq!(print::ppi_quality(150).0, "Acceptable (150-299 PPI)");
+    assert_eq!(
+        print::ppi_quality(149).0,
+        "Low resolution (min 150 PPI recommended)",
+        "the tier boundary is exclusive below 150"
+    );
+    assert_eq!(
+        crate::tokens::hsla_to_rgb(print::ppi_quality(300).2),
+        (0, 44, 34)
+    );
+    assert_eq!(
+        crate::tokens::hsla_to_rgb(print::ppi_quality(200).2),
+        (69, 26, 3)
+    );
+    assert_eq!(
+        crate::tokens::hsla_to_rgb(print::ppi_quality(100).2),
+        (76, 5, 25)
+    );
+    assert_eq!(
+        crate::tokens::hsla_to_rgb(print::ppi_quality(200).1),
+        (251, 191, 36)
+    );
+}

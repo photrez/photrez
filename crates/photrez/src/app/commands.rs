@@ -640,11 +640,14 @@ impl App {
 
     /// Re-list the platform printers for the Print dialog's refresh control.
     pub(crate) fn refresh_printers(&mut self, cx: &mut Context<Self>) {
-        let printers = crate::services::print::PrintService::default()
-            .list_printers()
-            .unwrap_or_default();
+        let (printers, print_error) =
+            match crate::services::print::PrintService::default().list_printers() {
+                Ok(printers) => (printers, None),
+                Err(error) => (Vec::new(), Some(error.to_string())),
+            };
         self.state.update(cx, |state, _| {
             state.printers = printers;
+            state.print_error = print_error;
             state.print_printer = 0;
         });
         cx.notify();
