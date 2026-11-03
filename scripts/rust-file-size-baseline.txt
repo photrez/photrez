@@ -59,8 +59,14 @@
 1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
-2108 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
 1349 crates/photrez/src/views/properties_panel.rs
 1291 crates/xtask/src/parity/surfaces.rs
+#
+# A third split paid, the same day: four dialogs left `views/dialogs.rs` for their
+# own modules - New Document (657), Export (306), Resize Canvas (285) and Rename
+# (98) - taking that file from 2108 to 793, so its entry is deleted too. The move
+# was again checked token by token: nothing from the previous revision is absent,
+# and the only new code is four `pub(super)` markers plus the pill colours' fields,
+# which the dialog tests read.
