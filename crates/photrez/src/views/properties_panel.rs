@@ -148,17 +148,9 @@ const ACTION_HANDLERS: &[(&str, ActionHandler)] = &[
     ("prop-reset", |app, cx| app.reset_selected_transform(cx)),
 ];
 
-// --- Static Transform field values (pinned to the baseline) ---
-// The new-document "Background" layer sits at 0,0 and spans the whole
-// 800x600 canvas; its position and rotation are locked (the panel shows the
-// lock notice), so Position shows 0/0 and Size the canvas extent.
-pub const POS_X: &str = "0";
-pub const POS_Y: &str = "0";
-pub const SIZE_W: &str = "800";
-pub const SIZE_H: &str = "600";
-pub const ROTATION: &str = "0";
-pub const SCALE_X: &str = "100";
-pub const SCALE_Y: &str = "100";
+// --- Static Opacity readout (pinned to the baseline) ---
+// The opacity row still shows the baseline value; the transform rows above it
+// read the live layer.
 pub const OPACITY: &str = "100 %"; // i18n-exempt: numeric value
 
 // --- Action + quick-row icon tables (static, asserted in tests) ---
@@ -175,6 +167,7 @@ pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (has_document, has_layers, multi) = {
@@ -196,7 +189,7 @@ pub fn render(
         v_flex()
             .child(selected_layer_section())
             .when(text_selected, |el| el.child(typography_section(state, cx)))
-            .child(transform_section(state, cx))
+            .child(transform::section(state, transform_readout, cx))
     };
     v_flex()
         .w_full()
@@ -975,166 +968,6 @@ fn typography_section(
         )
 }
 
-fn transform_section(
-    state: &gpui_kit::Entity<crate::state::AppState>,
-    cx: &Context<crate::app::App>,
-) -> Div {
-    // The layer's
-    // lock flags decide which hint, if any, sits above the rows.
-    let status = {
-        let s = state.read(cx);
-        s.layer_flags
-            .get(s.selected_layer as usize)
-            .copied()
-            .and_then(|flags| {
-                if flags.locked {
-                    Some((
-                        "properties-status-layer-locked",
-                        t("properties.layerLockedTransform"),
-                    ))
-                } else if flags.lock_position && flags.lock_rotation {
-                    Some(("properties-status-pos-rot", t("properties.posRotLocked")))
-                } else if flags.lock_position {
-                    Some(("properties-status-pos", t("properties.posLocked")))
-                } else if flags.lock_rotation {
-                    Some(("properties-status-rot", t("properties.rotLocked")))
-                } else {
-                    None
-                }
-            })
-    };
-    v_flex()
-        .w_full()
-        .flex_shrink_0()
-        .px(px(PAD_X))
-        .py(px(PAD_Y))
-        .border_b(px(1.0))
-        .border_color(color::DIVIDER)
-        .child(section_header(icons::MOVE, &t("properties.transform")))
-        .when(status.is_some(), move |el| match status {
-            Some((id, message)) => el.child(status_hint(id, message)),
-            None => el,
-        })
-        .child(
-            v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
-                // Position — X / Y, each taking half the slot.
-                ui::prop_row(
-                    &t("properties.position"),
-                    h_flex()
-                        .flex_1()
-                        .gap(px(SLOT_GAP))
-                        .child(ui::editable_num_field(Some("X"), POS_X, Some("px"), None))
-                        .child(ui::editable_num_field(Some("Y"), POS_Y, Some("px"), None)),
-                )
-                .into_any_element(),
-                // Size — W / H plus the constrain-proportions toggle.
-                ui::prop_row(
-                    &t("tools.options.size"),
-                    h_flex()
-                        .flex_1()
-                        .gap(px(SLOT_GAP))
-                        .child(ui::editable_num_field(Some("W"), SIZE_W, Some("px"), None))
-                        .child(ui::editable_num_field(Some("H"), SIZE_H, Some("px"), None))
-                        .child(
-                            div()
-                                .w(px(BTN))
-                                .h(px(BTN))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .flex_shrink_0()
-                                .child(
-                                    Icon::default()
-                                        .data(icons::LINK)
-                                        .size(px(14.0))
-                                        .text_color(color::ACCENT),
-                                ),
-                        ),
-                )
-                .into_any_element(),
-                // Rotation — one field, "deg" rather than "px".
-                ui::prop_row(
-                    &t("properties.rotation"),
-                    ui::editable_num_field(Some("R"), ROTATION, Some("deg"), None),
-                )
-                .into_any_element(),
-                // Scale — read-only `NumField`s, percent.
-                ui::prop_row(
-                    &t("properties.scale"),
-                    h_flex()
-                        .flex_1()
-                        .gap(px(SLOT_GAP))
-                        .child(ui::num_field(Some("X"), None, SCALE_X, Some("%")))
-                        .child(ui::num_field(Some("Y"), None, SCALE_Y, Some("%"))),
-                )
-                .into_any_element(),
-                // Opacity — the slider plus a right-aligned 44px readout.
-                ui::prop_row(
-                    &t("tools.options.opacity"),
-                    h_flex()
-                        .flex_1()
-                        .items_center()
-                        .gap(px(10.0))
-                        // `h_flex` + `items_center`, not a bare block box: the
-                        // wrapper is what centres the 4px track in its 24px row.
-                        .child(
-                            h_flex()
-                                .flex_1()
-                                .h(px(24.0))
-                                .items_center()
-                                .child(ui::slider(100.0, None, ui::SliderKind::Alpha, false)),
-                        )
-                        .child(
-                            div()
-                                .w(px(44.0))
-                                .flex_shrink_0()
-                                .text_right()
-                                .text_size(px(12.0))
-                                .font_family(ui::FONT_UI)
-                                .text_color(color::TEXT)
-                                .child(OPACITY.to_string()),
-                        ),
-                )
-                .into_any_element(),
-                // Actions — three labelled buttons, wired to the transform
-                // handlers (the additive strip that used to carry them is
-                // gone; the inspector puts these here). Labels are catalog
-                // keys, resolved from the `properties.*` entries: properties.flipH /
-                // properties.flipV / common.reset.
-                ui::prop_row(
-                    &t("properties.actions"),
-                    h_flex().flex_1().gap(px(6.0)).children(
-                        ACTIONS
-                            .iter()
-                            .zip(ACTION_HANDLERS)
-                            .map(|(&(svg, key), (id, action))| {
-                                wired_action_button(svg, id, &t(key), cx, *action)
-                            }),
-                    ),
-                )
-                .into_any_element(),
-                // Quick — icon-only buttons, so the labels live in `Tooltip`
-                // wrappers that a static view cannot show.
-                ui::prop_row(
-                    "Quick", // i18n-exempt: not in catalog (the previous build's `t` resolves canvasProps.quickActions = "Quick Actions", not byte-identical)
-                    h_flex()
-                        .flex_1()
-                        .gap(px(4.0))
-                        .children(QUICK_ICONS.iter().map(|&svg| icon_button(svg))),
-                )
-                .into_any_element(),
-            ]),
-        )
-}
-
-/// 26px tall, stretches with its row: 4px corners, 1px border, 8px inset, 11px text.
-///
-/// Three of these share a 186px slot, 58px each. The chrome is therefore kept
-/// at 28px (12px icon, 4px gap, 6px padding) so the widest label, "Flip H" at
-/// 10.5px, still has ~2px of slack: the toolkit measures a label's min-content
-/// as its whole string, so a heavier chrome makes the buttons sit at their
-/// intrinsic widths and pushes the last one past the row's edge ("Reset" used
-/// to clip to "Res").
 /// The Actions-row button: the captured chrome with the wired handler and the
 /// test id the mounted tests click (`prop-flip-h` etc.).
 fn wired_action_button(
@@ -1509,6 +1342,8 @@ fn icon_button(icon: &'static [u8]) -> Div {
                 .text_color(color::TEXT_DIM),
         )
 }
+
+mod transform;
 
 #[cfg(test)]
 mod tests;

@@ -410,6 +410,15 @@ impl App {
         cx.notify();
     }
 
+    /// Hold the two size axes at one ratio. The Move bar's ratio button and the
+    /// Properties panel's link share this state, as they do in the reference.
+    pub(crate) fn toggle_constrain_ratio(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.constrain_ratio = !state.constrain_ratio
+        });
+        cx.notify();
+    }
+
     /// Opens or closes one not-yet-built adjustment group. Groups are
     /// independent, so opening Curves leaves HSL as it was.
     pub(crate) fn toggle_adjustment_section(&mut self, id: &'static str, cx: &mut Context<Self>) {

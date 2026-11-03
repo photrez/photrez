@@ -141,6 +141,7 @@ pub fn render(
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (inspector_tab, layer_tab) = {
@@ -168,6 +169,7 @@ pub fn render(
                 document_size,
                 zoom_percent,
                 inspector_w,
+                transform_readout,
                 cx,
             )
             .id("inspector-dock")
@@ -196,6 +198,7 @@ fn inspector_dock(
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
     width: f32,
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let active = inspector_tab_id(&inspector_tab);
@@ -230,6 +233,7 @@ fn inspector_dock(
                     state,
                     document_size,
                     zoom_percent,
+                    transform_readout,
                     cx,
                 )),
         )
@@ -247,6 +251,7 @@ fn inspector_body(
     state: &Entity<AppState>,
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     match inspector_tab {
@@ -265,6 +270,7 @@ fn inspector_body(
                     state,
                     document_size,
                     zoom_percent,
+                    transform_readout,
                     cx,
                 ))
         }

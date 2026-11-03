@@ -11,6 +11,12 @@
 # lines past its entry when the rest were recorded, and the new tab-strip and
 # status-bar click tests add 66 lines to `app/tests/commands.rs`. Both stay
 # grandfathered; neither split is done.
+#
+# Amended again the same day for the live Properties rows: `state.rs` and
+# `transform_move.rs` carry the scale, the per-axis locks and the size commit,
+# while `views/properties_panel.rs` moved the other way. Its Transform section
+# now lives in `views/properties_panel/transform.rs` (254 lines), so that entry
+# drops from 1514 to 1349. The remaining entries still owe their splits.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -23,13 +29,13 @@
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
 3339 crates/photrez/src/app/tests/tools.rs
-1402 crates/photrez/src/app/transform_move.rs
+1442 crates/photrez/src/app/transform_move.rs
 1803 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
-1540 crates/photrez/src/state.rs
+1569 crates/photrez/src/state.rs
 1192 crates/photrez/src/views/dialogs/print.rs
 2102 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
-1514 crates/photrez/src/views/properties_panel.rs
+1349 crates/photrez/src/views/properties_panel.rs
 1291 crates/xtask/src/parity/surfaces.rs

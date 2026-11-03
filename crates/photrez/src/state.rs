@@ -159,9 +159,13 @@ pub struct LayerFlags {
     pub is_background: bool,
 }
 
-/// What the Move bar's five transform fields show: the selected layer's
-/// position and rotation, plus its size in document pixels. The size is the
-/// scaled frame, so a layer at half scale reads half its source width.
+/// What the transform rows show for the selected layer: position, rotation, its
+/// size in document pixels and the scale that produced that size. The size is
+/// the scaled frame, so a layer at half scale reads half its source width.
+///
+/// The three lock flags decide which rows answer an edit: `locked` stops all of
+/// them, `lock_position` stops X and Y, `lock_rotation` stops R. The reference
+/// product guards the same three ways, per row rather than for the panel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerTransformReadout {
     pub x: f64,
@@ -169,7 +173,26 @@ pub struct LayerTransformReadout {
     pub width: f64,
     pub height: f64,
     pub rotation: f64,
+    pub scale_x: f64,
+    pub scale_y: f64,
     pub locked: bool,
+    pub lock_position: bool,
+    pub lock_rotation: bool,
+}
+
+impl LayerTransformReadout {
+    /// Whether one transform row answers an edit. `axis` is the field id's
+    /// last letter: `x`, `y`, `w`, `h` or `r`.
+    pub fn editable(&self, axis: char) -> bool {
+        if self.locked {
+            return false;
+        }
+        match axis {
+            'x' | 'y' => !self.lock_position,
+            'r' => !self.lock_rotation,
+            _ => true,
+        }
+    }
 }
 
 /// One open-document tab in the strip.
@@ -860,6 +883,10 @@ pub struct AppState {
     pub move_auto_select: bool,
     /// Draw the interactive transform frame/handles.
     pub show_transform_controls: bool,
+    /// Keep the two size axes at one ratio. Shared by the Move bar's ratio
+    /// toggle and the Properties panel's link button, which drive the same
+    /// state in the reference; it starts on.
+    pub constrain_ratio: bool,
     /// Which not-yet-built adjustment groups are expanded, by section id. The
     /// reference opens each one independently and shows its In Development card.
     pub open_adjustment_sections: Vec<String>,
@@ -1115,6 +1142,7 @@ impl Default for AppState {
             snap_enabled: true,
             move_auto_select: true,
             show_transform_controls: true,
+            constrain_ratio: true,
             open_adjustment_sections: Vec::new(),
             crop_rect: None,
             crop_history: Vec::new(),

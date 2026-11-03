@@ -11,14 +11,18 @@ fn static_layer_values_pinned() {
     assert!(LAYER_SUBTITLE.contains('\u{b7}'));
     assert!(LAYER_SUBTITLE.contains('\u{d7}'));
     assert_eq!(LAYER_SUBTITLE, "Image layer \u{b7} 800 \u{d7} 600 px");
-    assert_eq!(POS_X, "0");
-    assert_eq!(POS_Y, "0");
-    assert_eq!(SIZE_W, "800");
-    assert_eq!(SIZE_H, "600");
-    assert_eq!(ROTATION, "0");
-    assert_eq!(SCALE_X, "100");
-    assert_eq!(SCALE_Y, "100");
     assert_eq!(OPACITY, "100 %");
+}
+
+#[test]
+fn transform_rows_read_the_layer_or_fall_back_to_the_baseline() {
+    // The live branch is what a mounted document drives; the fallback is what
+    // the engine-less shot path paints, and it keeps the baseline's own numbers.
+    assert_eq!(transform::row_text(Some(2.4), transform::REST_W), "2");
+    assert_eq!(transform::row_text(Some(39.6), transform::REST_X), "40");
+    assert_eq!(transform::row_text(None, transform::REST_W), "800");
+    assert_eq!(transform::row_text(None, transform::REST_H), "600");
+    assert_eq!(transform::row_text(None, transform::REST_SCALE), "100");
 }
 
 #[test]

@@ -321,6 +321,7 @@ pub(crate) fn render(
                                         Rc::clone(&canvas_bounds),
                                         Rc::clone(&navigator_bounds),
                                         layer_thumbs,
+                                        transform_readout,
                                         cx,
                                     )),
                             )

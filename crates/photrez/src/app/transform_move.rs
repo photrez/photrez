@@ -130,13 +130,22 @@ impl App {
             width: layer.width * layer.transform.scale_x,
             height: layer.height * layer.transform.scale_y,
             rotation: layer.transform.rotation,
+            scale_x: layer.transform.scale_x,
+            scale_y: layer.transform.scale_y,
             locked: layer.locked,
+            lock_position: layer.lock_position.unwrap_or(false),
+            lock_rotation: layer.lock_rotation.unwrap_or(false),
         })
     }
 
-    /// Commits one Move-bar transform field. The patch carries the whole
-    /// transform because `TransformLayer` is absolute; the two flip flags stay
-    /// `None` so the layer's mirrored state survives the edit.
+    /// Commits one transform field, from the Move bar (`num-*`) or the
+    /// Properties panel (`prop-*`). The patch carries the whole transform
+    /// because `TransformLayer` is absolute; the two flip flags stay `None` so
+    /// the layer's mirrored state survives the edit.
+    ///
+    /// W and H are size in document pixels, so they commit as a scale: the
+    /// reference divides by the layer's source size. With the ratio held, the
+    /// other axis follows at the same magnitude.
     pub(crate) fn set_transform_field(
         &mut self,
         id: &'static str,
@@ -144,23 +153,54 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
-        if layer.locked || !value.is_finite() {
+        let axis = id.chars().next_back().unwrap_or(' ');
+        let blocked = layer.locked
+            || (matches!(axis, 'x' | 'y') && layer.lock_position.unwrap_or(false))
+            || (axis == 'r' && layer.lock_rotation.unwrap_or(false));
+        if blocked || !value.is_finite() {
             return Ok(());
         }
+        let constrain = self.state.read(cx).constrain_ratio;
+        let mut scale_x = layer.transform.scale_x;
+        let mut scale_y = layer.transform.scale_y;
+        if matches!(axis, 'w' | 'h') {
+            let source = if axis == 'w' {
+                layer.width
+            } else {
+                layer.height
+            };
+            if value <= 0. || source <= 0. {
+                return Ok(());
+            }
+            let next = value / source;
+            scale_x = if axis == 'w' || constrain {
+                next
+            } else {
+                scale_x
+            };
+            scale_y = if axis == 'h' || constrain {
+                next
+            } else {
+                scale_y
+            };
+        }
         let transform = TransformPatch {
-            x: match id {
-                "num-x" => value,
-                _ => layer.transform.x,
+            x: if axis == 'x' {
+                value
+            } else {
+                layer.transform.x
             },
-            y: match id {
-                "num-y" => value,
-                _ => layer.transform.y,
+            y: if axis == 'y' {
+                value
+            } else {
+                layer.transform.y
             },
-            scale_x: layer.transform.scale_x,
-            scale_y: layer.transform.scale_y,
-            rotation: match id {
-                "num-r" => value,
-                _ => layer.transform.rotation,
+            scale_x,
+            scale_y,
+            rotation: if axis == 'r' {
+                value
+            } else {
+                layer.transform.rotation
             },
             flip_h: None,
             flip_v: None,

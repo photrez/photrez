@@ -1,7 +1,7 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight};
+use gpui_kit::{div, px, Div, FontWeight, TestSupportExt};
 
 use crate::icons;
 use crate::tokens::color;
@@ -90,6 +90,69 @@ pub fn num_field(
     }
 
     row.child(inner)
+}
+
+/// The editable sibling: the same box, but it opens a number session on click,
+/// shows the live buffer with its caret while that session holds this row, and
+/// takes the keyboard focus so typing and Enter commit through the app.
+///
+/// `editing` is the open session's buffer, matched to this row by the caller. A
+/// locked row still comes through here: the reference's disabled field paints
+/// the resting pixels of an enabled one, and the opener is what declines.
+#[allow(clippy::too_many_arguments)] // geometry, value, session and opener of one box
+pub fn live_num_field(
+    id: &'static str,
+    label: Option<&str>,
+    value: &str,
+    suffix: Option<&str>,
+    editing: Option<&str>,
+    focus: Option<gpui_kit::FocusHandle>,
+    open: fn(
+        &mut crate::app::App,
+        &'static str,
+        &mut gpui_kit::Window,
+        &mut gpui_kit::Context<crate::app::App>,
+    ),
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let text = match editing {
+        Some("") => "|".to_string(),
+        Some(buffer) => format!("{buffer}|"),
+        None => value.to_string(),
+    };
+    let row = h_flex()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .min_w(px(0.0))
+        .cursor_pointer()
+        .shadow(super::ring_cue(editing.is_some()))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                open(app, id, window, cx);
+            }),
+        );
+
+    let mut inner = h_flex();
+    inner = field_chrome(PAD_X)(inner);
+
+    if let Some(l) = label {
+        inner = inner.child(caption(l));
+    }
+    inner = inner.child(value_mono(&text));
+    if let Some(s) = suffix {
+        inner = inner.child(caption(s));
+    }
+
+    let row = row.child(inner);
+    match focus {
+        Some(handle) => row.track_focus(&handle).on_key_down(cx.listener(
+            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                app.num_field_key(event, cx);
+            },
+        )),
+        None => row,
+    }
 }
 
 // ── SelectField ──────────────────────────────────────────────────────────────

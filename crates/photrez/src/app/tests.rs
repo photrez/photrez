@@ -425,3 +425,6 @@ mod picker_channels;
 
 #[path = "tests/picker_eyedropper.rs"]
 mod picker_eyedropper;
+
+#[path = "tests/properties.rs"]
+mod properties;

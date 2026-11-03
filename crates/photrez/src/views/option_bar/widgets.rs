@@ -85,8 +85,8 @@ pub(super) fn position_group(
 }
 
 /// A non-shrinking, centred row (the shared inner gap) around the W and H
-/// fields. The reference keeps these two read-only: they are the layer's
-/// scaled frame, and the size changes by dragging the frame, not by typing.
+/// fields. The reference types a size here only during a transform session, so
+/// a typed size belongs to the Properties rows.
 pub(super) fn size_group(readout: Option<crate::state::LayerTransformReadout>) -> impl IntoElement {
     let size = |value: Option<f64>| {
         value.map_or_else(|| "0".to_string(), |value| format!("{}", value.round()))

@@ -84,8 +84,9 @@ impl App {
         self.begin_num_field(id, value, window, cx);
     }
 
-    /// Opens one of the Move bar's editable transform fields. A locked layer
-    /// keeps the reference's disabled state, so the click does nothing.
+    /// Opens one of the editable transform fields: the Move bar's (`num-*`) or
+    /// the Properties panel's (`prop-*`). A row whose lock flag is set keeps the
+    /// reference's disabled state, so its click does nothing.
     pub(crate) fn begin_transform_field(
         &mut self,
         id: &'static str,
@@ -95,15 +96,17 @@ impl App {
         let Some(readout) = self.transform_readout(cx) else {
             return;
         };
-        if readout.locked {
-            return;
-        }
         let value = match id {
-            "num-x" => readout.x,
-            "num-y" => readout.y,
-            "num-r" => readout.rotation,
+            "num-x" | "prop-x" => readout.x,
+            "num-y" | "prop-y" => readout.y,
+            "num-r" | "prop-r" => readout.rotation,
+            "prop-w" => readout.width,
+            "prop-h" => readout.height,
             _ => return,
         };
+        if !readout.editable(id.chars().next_back().unwrap_or(' ')) {
+            return;
+        }
         self.begin_num_field(id, value, window, cx);
     }
 
@@ -248,7 +251,9 @@ impl App {
             "sel-x" | "sel-y" | "sel-w" | "sel-h" | "sel-r" => {
                 self.set_selection_field(id, value, cx)
             }
-            "num-x" | "num-y" | "num-r" => self.set_transform_field(id, value, cx),
+            "num-x" | "num-y" | "num-r" | "prop-x" | "prop-y" | "prop-w" | "prop-h" | "prop-r" => {
+                self.set_transform_field(id, value, cx)
+            }
             "opt-brush-size" => {
                 self.set_brush_value(crate::app::tool_settings::BrushField::Size, value, cx);
                 Ok(())

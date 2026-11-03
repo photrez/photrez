@@ -57,7 +57,9 @@ use crate::tokens::color;
 mod fields;
 mod slider;
 
-pub use fields::{editable_num_field, field_chrome, num_field, prop_row, select_field};
+pub use fields::{
+    editable_num_field, field_chrome, live_num_field, num_field, prop_row, select_field,
+};
 pub use slider::{centre_fill, gradient_segments, slider};
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
