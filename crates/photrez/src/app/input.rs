@@ -505,6 +505,7 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.pointer_alt = event.modifiers.alt;
         if self.update_pan(event, cx) {
             return;
         }
@@ -2033,6 +2034,8 @@ impl App {
             phase: self.input.phase(),
             layer_locked,
             layer_paintable,
+            dragging: self.transform_drag.is_some(),
+            cloning: self.pointer_alt,
         })
     }
 

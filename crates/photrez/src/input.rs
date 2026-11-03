@@ -22,6 +22,9 @@ pub(crate) enum CursorPolicy {
     Crosshair,
     Text,
     Grabbing,
+    /// The clone affordance: the reference switches to `cursor: copy` while the
+    /// pointer holds Alt during a Move drag.
+    Cloning,
     OpenHand,
     ResizeNwse,
     ResizeNesw,
@@ -30,15 +33,19 @@ pub(crate) enum CursorPolicy {
     NotAllowed,
 }
 
-/// The reachable native cursor inputs. Handles, rotate, pan, Alt-copy and the
-/// colour picker have no native implementation yet, so they are not inputs
-/// here; their unsupported branches are recorded as 40/50 obligations.
+/// The reachable native cursor inputs. Handles, rotate and pan have no native
+/// implementation yet, so they are not inputs here; their unsupported branches
+/// are recorded as 40/50 obligations.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CursorContext {
     pub tool: ToolId,
     pub phase: GesturePhase,
     pub layer_locked: bool,
     pub layer_paintable: bool,
+    /// A Move transform is in flight on the canvas.
+    pub dragging: bool,
+    /// Alt as the pointer last reported it.
+    pub cloning: bool,
 }
 
 pub(crate) fn cursor_policy_for_tool(tool: ToolId) -> CursorPolicy {
@@ -63,8 +70,12 @@ pub(crate) fn cursor_policy_for_context(context: CursorContext) -> CursorPolicy 
     if writes && (!context.layer_paintable || context.layer_locked) {
         return CursorPolicy::NotAllowed;
     }
-    if context.tool == ToolId::Move && context.phase == GesturePhase::Action {
-        return CursorPolicy::Grabbing;
+    if context.tool == ToolId::Move && (context.phase == GesturePhase::Action || context.dragging) {
+        return if context.cloning {
+            CursorPolicy::Cloning
+        } else {
+            CursorPolicy::Grabbing
+        };
     }
     cursor_policy_for_tool(context.tool)
 }

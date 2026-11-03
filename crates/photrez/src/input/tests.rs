@@ -92,8 +92,34 @@ fn cursor_branch_table_covers_reachable_states() {
         phase,
         layer_locked,
         layer_paintable,
+        dragging: false,
+        cloning: false,
+    };
+    // Alt held during a Move drag is the clone affordance; Alt on its own, with
+    // no gesture running, changes nothing.
+    let alt = |tool, phase, cloning| CursorContext {
+        tool,
+        phase,
+        layer_locked: false,
+        layer_paintable: true,
+        dragging: false,
+        cloning,
+    };
+    let drag = |tool, alt_held| CursorContext {
+        tool,
+        phase: GesturePhase::Idle,
+        layer_locked: false,
+        layer_paintable: true,
+        dragging: true,
+        cloning: alt_held,
     };
     for (ctx, expected) in [
+        (alt(ToolId::Move, Action, true), Cloning),
+        (alt(ToolId::Move, Idle, true), SystemDefault),
+        (alt(ToolId::Selection, Action, true), Crosshair),
+        (drag(ToolId::Move, true), Cloning),
+        (drag(ToolId::Move, false), Grabbing),
+        (drag(ToolId::Selection, true), Crosshair),
         (context(ToolId::Move, Idle, false, true), SystemDefault),
         (context(ToolId::Move, Action, false, true), Grabbing),
         // The reference keeps move-on-locked on the system default, not the block cursor.

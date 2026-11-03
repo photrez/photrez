@@ -595,6 +595,7 @@ fn canvas_hitbox(
         crate::input::CursorPolicy::Crosshair => hitbox.cursor(gpui_kit::CursorStyle::Crosshair),
         crate::input::CursorPolicy::Text => hitbox.cursor(gpui_kit::CursorStyle::IBeam),
         crate::input::CursorPolicy::Grabbing => hitbox.cursor(gpui_kit::CursorStyle::ClosedHand),
+        crate::input::CursorPolicy::Cloning => hitbox.cursor(gpui_kit::CursorStyle::DragCopy),
         crate::input::CursorPolicy::OpenHand => hitbox.cursor(gpui_kit::CursorStyle::OpenHand),
         crate::input::CursorPolicy::ResizeNwse => {
             hitbox.cursor(gpui_kit::CursorStyle::ResizeUpLeftDownRight)

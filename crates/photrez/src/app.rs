@@ -330,6 +330,9 @@ pub struct App {
     /// Space is held over the canvas: the next drag pans instead of using the
     /// active tool (`usePanNavigation.isSpacePressed`).
     space_pressed: bool,
+    /// Alt as the pointer last reported it, so a Move drag can show the clone
+    /// cursor without a modifier event of its own.
+    pointer_alt: bool,
     /// The live space/middle-button pan drag.
     pan: Option<viewport::PanDrag>,
     /// An option-bar slider drag is in flight.
@@ -1024,6 +1027,7 @@ impl App {
             checker_cache: Rc::new(RefCell::new(CheckerCache::default())),
             navigator_bounds: Rc::new(Cell::new(None)),
             space_pressed: false,
+            pointer_alt: false,
             pan: None,
             slider_dragging: false,
             #[cfg(feature = "input-measurement")]
