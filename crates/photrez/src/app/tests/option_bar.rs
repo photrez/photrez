@@ -316,3 +316,45 @@ fn option_bar_at_or_above_880_mounts_the_folded_controls_inline(cx: &mut gpui_ki
     })
     .expect("narrow test window remains open");
 }
+
+/// The wide bar's full-strength helper is the eraser's click target above the
+/// breakpoint; only the folded route had its effect proven.
+#[gpui_kit::test]
+fn inline_full_strength_helper_sets_the_eraser_to_full(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1600.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Eraser, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-brush-hard100").is_some()
+                && window.find("opt-brush-hard100").visible(),
+            "the helper is inline at or above the breakpoint"
+        );
+        super::tools::set_state(&content, cx, |state| {
+            state.eraser_hardness = 0.2;
+            state.eraser_opacity = 0.3;
+            state.eraser_flow = 0.4;
+            state.brush_preset_index = 2;
+        });
+        window.render_frame(cx);
+        window.click("opt-brush-hard100", cx);
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test().read(cx);
+        assert_eq!(
+            state.eraser_hardness, 1.0,
+            "the inline helper sets full hardness"
+        );
+        assert_eq!(
+            state.eraser_opacity, 1.0,
+            "the inline helper sets full strength"
+        );
+        assert_eq!(state.eraser_flow, 1.0, "the inline helper sets full flow");
+        assert_eq!(
+            state.brush_preset_index,
+            usize::MAX,
+            "the inline helper clears the preset to Custom"
+        );
+    })
+    .expect("test window remains open");
+}
