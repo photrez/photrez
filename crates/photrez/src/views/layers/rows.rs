@@ -562,13 +562,12 @@ impl Render for LayerDragGhost {
             .gap(px(ROW_GAP))
             .px(px(PAD_X))
             .bg(color::ROW_ACTIVE)
-            .border(px(1.0))
-            .border_color(Hsla {
-                h: color::ACCENT.h,
-                s: color::ACCENT.s,
-                l: color::ACCENT.l,
-                a: 0.4,
-            })
+            // The reference's dragged row asks a dashed accent border and an inset
+            // accent ring; the border colour is overridden to grey by the global rule,
+            // so only the ring carries the accent here.
+            .border_b_1()
+            .border_color(row_hairline_colour())
+            .shadow(vec![ui::inset_ring(color::ACCENT.opacity(0.6))])
             .child(
                 div()
                     .text_size(px(ROW_TEXT))
