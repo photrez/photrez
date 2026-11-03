@@ -42,7 +42,22 @@
 # the cap, so its entry is deleted rather than re-recorded. The move was checked
 # token-by-token against the previous revision: nothing was lost, and the only code
 # token that changed shape is the `center` condition, where two identical `if`
-# blocks became one. The rest still owe theirs.
+# blocks became one.
+#
+# A third split paid the same day: four dialogs left `views/dialogs.rs` for their
+# own modules (New Document 657, Export 306, Resize Canvas 285, Rename 98), taking
+# that file from 2108 to 793, so its entry is deleted too. Again checked token by
+# token: nothing from the previous revision is absent, and the only new code is
+# four `pub(super)` markers plus the pill colours' fields, which the dialog tests
+# read.
+#
+# A fourth split paid: the mounted input tests went from one 3506-line file to a
+# parent of 636 plus seven topic modules under `app/tests/input/`, so that entry is
+# deleted as well. The shared fixtures (`mount_archive_app`, `layer_rows`,
+# `select_layer`) stayed in the parent because five other test modules import them
+# through `super::input`, and the test count is 59 on both sides of the move.
+#
+# The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -51,7 +66,6 @@
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
 1441 crates/photrez/src/app/tests/documents.rs
-3506 crates/photrez/src/app/tests/input.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
 3339 crates/photrez/src/app/tests/tools.rs
@@ -63,10 +77,3 @@
 1561 crates/photrez/src/views/option_bar/widgets.rs
 1349 crates/photrez/src/views/properties_panel.rs
 1291 crates/xtask/src/parity/surfaces.rs
-#
-# A third split paid, the same day: four dialogs left `views/dialogs.rs` for their
-# own modules - New Document (657), Export (306), Resize Canvas (285) and Rename
-# (98) - taking that file from 2108 to 793, so its entry is deleted too. The move
-# was again checked token by token: nothing from the previous revision is absent,
-# and the only new code is four `pub(super)` markers plus the pill colours' fields,
-# which the dialog tests read.
