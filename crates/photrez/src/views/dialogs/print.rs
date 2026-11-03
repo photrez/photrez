@@ -1030,7 +1030,7 @@ pub(super) fn render(
                 .rounded(px(4.0))
                 .border_1()
                 .border_color(color::BORDER)
-                .bg(color::FIELD)
+                .bg(color::EMERALD_950.opacity(0.4))
                 .text_size(px(11.0))
                 .text_color(success())
                 .child(t("dialogs.print.printResolution").to_string())

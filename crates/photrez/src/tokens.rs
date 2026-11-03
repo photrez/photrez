@@ -174,6 +174,25 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `rgb(0, 44, 34)`: the deep green behind a quality or snap badge. The
+    /// palette's `RED_500`/`YELLOW_500` are theme stops, not these tiers.
+    pub const EMERALD_950: Hsla = Hsla {
+        h: 0.4621,
+        s: 1.0,
+        l: 0.0863,
+        a: 1.0,
+    };
+
+    /// `rgb(251, 44, 54)`: the destructive-action red, painted translucent over
+    /// the panel it sits on. Distinct from `danger` (`#ef4444`), which is the
+    /// theme's own mid red.
+    pub const DESTRUCTIVE: Hsla = Hsla {
+        h: 0.992,
+        s: 0.9628,
+        l: 0.5784,
+        a: 1.0,
+    };
+
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     pub const ROW_ACTIVE: Hsla = Hsla {
         h: 0.0,
@@ -430,6 +449,25 @@ mod tests {
     fn menu_list_paints_the_reference_dropdown_fill() {
         assert_eq!(hsla_to_rgb(color::MENU_LIST), (27, 29, 34));
         assert_eq!(hsla_to_rgb(color::PANEL), (30, 30, 30));
+    }
+
+    /// The badge and destructive tiers are painted translucent over the panel, so
+    /// the composited pixel is what a capture compares, not the tier alone.
+    #[test]
+    fn badge_and_destructive_tiers_composite_over_the_panel() {
+        let panel = hsla_to_rgb(color::PANEL);
+        let over = |tier: (u8, u8, u8), a: f32| {
+            let mix = |t: u8, base: u8| (t as f32 * a + base as f32 * (1.0 - a)).round() as u8;
+            (
+                mix(tier.0, panel.0),
+                mix(tier.1, panel.1),
+                mix(tier.2, panel.2),
+            )
+        };
+        assert_eq!(hsla_to_rgb(color::EMERALD_950), (0, 44, 34));
+        assert_eq!(over((0, 44, 34), 0.4), (18, 36, 32));
+        assert_eq!(hsla_to_rgb(color::DESTRUCTIVE), (251, 44, 54));
+        assert_eq!(over((251, 44, 54), 0.1), (52, 31, 32));
     }
 
     /// ACCENT (`oklch(0.74 0.15 55)`) and BRAND (`oklch(0.62 0.2 36)`) carry

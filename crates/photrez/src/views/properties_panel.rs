@@ -378,6 +378,7 @@ fn canvas_properties(
                             "canvas-action-fit",
                             icons::MAXIMIZE,
                             &t("canvasProps.fitToScreen"),
+                            color::FIELD,
                             cx,
                             |app, _window, cx| {
                                 app.fit_to_screen(cx);
@@ -388,6 +389,7 @@ fn canvas_properties(
                             "canvas-action-resize",
                             icons::CROP,
                             &t("menus.items.resizeCanvas"),
+                            color::FIELD,
                             cx,
                             |app, window, cx| app.begin_resize_canvas(window, cx),
                         )),
@@ -457,6 +459,7 @@ fn canvas_action_button(
     id: &'static str,
     icon: &'static [u8],
     label: &str,
+    fill: gpui_kit::Hsla,
     cx: &Context<crate::app::App>,
     action: impl Fn(
             &mut crate::app::App,
@@ -475,7 +478,7 @@ fn canvas_action_button(
         .rounded(px(R4))
         .border(px(1.0))
         .border_color(color::FIELD_BORDER)
-        .bg(color::FIELD)
+        .bg(fill)
         .px(px(10.0))
         .text_size(px(12.0))
         .font_family(ui::FONT_UI)
@@ -1335,6 +1338,7 @@ fn multi_layers_section(
                         "prop-merge-selected",
                         icons::LAYERS,
                         &t("properties.mergeSelectedLayers"),
+                        color::FIELD,
                         cx,
                         |app, _window, cx| app.merge_selected_layers(cx),
                     ))
@@ -1346,6 +1350,7 @@ fn multi_layers_section(
                                 "prop-duplicate",
                                 icons::COPY,
                                 &t("layers.duplicateLayer"),
+                                color::FIELD,
                                 cx,
                                 |app, _window, cx| app.duplicate_selected_layer_id(cx).map(|_| ()),
                             ))
@@ -1353,6 +1358,7 @@ fn multi_layers_section(
                                 "prop-delete",
                                 icons::TRASH,
                                 &t("layers.deleteLayer"),
+                                color::DESTRUCTIVE.opacity(0.1),
                                 cx,
                                 |app, _window, cx| {
                                     app.delete_selected_layer(cx);
