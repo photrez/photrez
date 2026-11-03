@@ -60,6 +60,13 @@
 # A fifth split paid: `app/tests/tools.rs` went from 3339 lines to 917 plus five
 # topic modules under `app/tests/tools/`, same 59 tests, entry deleted.
 #
+# A sixth split paid: the option-bar tool builders left `views/option_bar/variants.rs`
+# for `variants/{crop,brush,paint_tools,shape,text}.rs`, taking it from 2108 to 533
+# lines. This one moved product UI code, so it carries the extra checks: the token
+# comparison found nothing missing, the file's 1689 non-ASCII bytes are conserved
+# across the six files, and the dispatcher reaches the builders through glob imports
+# instead of changed call sites.
+#
 # The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
@@ -75,7 +82,6 @@
 1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
-2108 crates/photrez/src/views/option_bar/variants.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
 1349 crates/photrez/src/views/properties_panel.rs
 1291 crates/xtask/src/parity/surfaces.rs
