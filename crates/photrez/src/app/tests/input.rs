@@ -1315,6 +1315,92 @@ fn escape_cancels_move_transform_preview_and_preserves_selection(
 }
 
 #[gpui_kit::test]
+fn alt_during_a_live_move_drag_shows_the_copy_cursor(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::{Modifiers, MouseMoveEvent, PlatformInput};
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("blank document");
+            app.state_for_test()
+                .update(cx, |state, _| state.active_tool = ToolId::Move);
+        });
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+        let (bounds, placement) = page(window, (200, 150));
+        let start = window_point(bounds, placement, (200, 150), 60.0, 60.0);
+        let moved = window_point(bounds, placement, (200, 150), 100.0, 90.0);
+        dispatch_pointer_event(
+            window,
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, cx| {
+            assert!(
+                app.transform_drag_for_test().is_some(),
+                "the press started the move drag"
+            );
+            // The grip layer answers first wherever the pointer sits on a
+            // transform handle, so the drag-layer rule is unreadable with the
+            // controls shown.
+            app.state_for_test()
+                .update(cx, |state, _| state.show_transform_controls = false);
+        });
+
+        let move_with = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App, alt: bool| {
+            dispatch_pointer_event(
+                window,
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position: moved,
+                    modifiers: Modifiers {
+                        alt,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+        };
+
+        move_with(window, cx, true);
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.canvas_cursor_policy(cx),
+                crate::input::CursorPolicy::Cloning,
+                "Alt during the drag is the copy cursor"
+            );
+        });
+
+        move_with(window, cx, false);
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.canvas_cursor_policy(cx),
+                crate::input::CursorPolicy::Grabbing,
+                "releasing Alt returns to the grabbing cursor"
+            );
+        });
+
+        dispatch_pointer_event(
+            window,
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn escape_cancels_group_move_preview_and_preserves_selection(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
