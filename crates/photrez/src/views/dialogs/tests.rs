@@ -133,14 +133,23 @@ fn empty_new_document_fold_targets_dialog_new_document() {
     );
 }
 
-/// `FOOTER_FILL` is the composite of TOPBAR/65 over PANEL. Verify the
-/// lightness constant by hand: 0.65 * l(TOPBAR) + 0.35 * l(PANEL)
-/// = 0.65 * 0.0784 + 0.35 * 0.1176 = 0.05096 + 0.04116 = 0.09212
-/// \u{2248} 0.0902 (the measured value, off by the rounding in HSL→HSL).
+/// The footer paints TOPBAR at 65% over the dialog root. The blend happens in
+/// the painted channel, not in a lightness number: 0.65*20 + 0.35*30 = 23.5,
+/// the value the scan reads. The constant used to carry a hand-blended
+/// lightness *and* the alpha, which blended twice and landed 2/255 light.
 #[test]
 fn footer_fill_is_translucent_topbar() {
     assert_eq!(FOOTER_FILL.a, 0.65);
-    assert_eq!(FOOTER_FILL.l, 0.0902);
+    let topbar = crate::tokens::hsla_to_rgb(FOOTER_FILL);
+    assert_eq!(topbar, (20, 20, 20), "the ingredient is TOPBAR");
+    let panel = crate::tokens::hsla_to_rgb(color::PANEL);
+    assert_eq!(panel, (30, 30, 30), "the dialog root is PANEL");
+    let painted = |base: u8| FOOTER_FILL.a * topbar.0 as f32 + (1.0 - FOOTER_FILL.a) * base as f32;
+    assert!(
+        (painted(panel.0) - 23.5).abs() < 0.01,
+        "the painted footer is the design's 23.5, not {}",
+        painted(panel.0)
+    );
 }
 
 /// `DIALOGS` entry at index 0 (`dialog-resize`) must carry the manifest's

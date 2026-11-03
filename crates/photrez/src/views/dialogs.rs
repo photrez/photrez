@@ -147,13 +147,15 @@ const BODY_LINE: f32 = 18.0;
 /// 8px between the brand mark and the title, and between footer buttons.
 const GAP_2: f32 = 8.0;
 
-/// TOPBAR at 65% over PANEL \u{2014} the footer's fill, composited by hand
-/// because no token carries it. TOPBAR is `#141414` (20) and PANEL `#1e1e1e`
-/// (30), so 0.65*20 + 0.35*30 = 23.5, which is what the scan reads.
+/// The footer's fill: TOPBAR at 65% over the dialog root, held as the design's
+/// own ingredient rather than a pre-blended number. TOPBAR is `#141414` (20) and
+/// PANEL `#1e1e1e` (30), so the renderer's blend gives 0.65*20 + 0.35*30 = 23.5,
+/// which is what the scan reads. Pre-blending it and keeping the alpha blended
+/// twice, and left the footer 2/255 light.
 const FOOTER_FILL: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
-    l: 0.0902,
+    l: 0.0784,
     a: 0.65,
 };
 
