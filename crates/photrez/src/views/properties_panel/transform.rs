@@ -16,6 +16,16 @@ pub(super) const REST_H: &str = "600";
 pub(super) const REST_R: &str = "0";
 pub(super) const REST_SCALE: &str = "100";
 
+/// The opacity readout: whole percent, as the reference prints it.
+pub(super) fn opacity_text(opacity: f64) -> String {
+    format!("{} %", (opacity * 100.).round())
+}
+
+/// The same measure as the track's `0..=100` fill.
+pub(super) fn opacity_percent(opacity: f64) -> f32 {
+    (opacity.clamp(0., 1.) * 100.).round() as f32
+}
+
 /// One row's text: the layer's own measure, or the baseline number when the shot
 /// path has no engine to read.
 pub(super) fn row_text(value: Option<f64>, rest: &str) -> String {
@@ -53,12 +63,13 @@ pub(super) fn section(
                 }
             })
     };
-    let (session, focus, constrain) = {
+    let (session, focus, constrain, opacity) = {
         let s = state.read(cx);
         (
             s.num_field.clone(),
             s.num_field_focus.clone(),
             s.constrain_ratio,
+            s.layer_opacity,
         )
     };
     let editing = |id: &'static str| {
@@ -176,7 +187,8 @@ pub(super) fn section(
                         )),
                 )
                 .into_any_element(),
-                // Opacity — the slider plus a right-aligned 44px readout.
+                // Opacity — the slider plus a right-aligned 44px readout, both
+                // driven by the selected layer's own opacity.
                 ui::prop_row(
                     &t("tools.options.opacity"),
                     h_flex()
@@ -190,17 +202,24 @@ pub(super) fn section(
                                 .flex_1()
                                 .h(px(24.0))
                                 .items_center()
-                                .child(ui::slider(100.0, None, ui::SliderKind::Alpha, false)),
+                                .child(ui::slider(
+                                    opacity_percent(opacity),
+                                    None,
+                                    ui::SliderKind::Alpha,
+                                    false,
+                                )),
                         )
                         .child(
                             div()
+                                .id("prop-opacity-value")
+                                .test_support()
                                 .w(px(44.0))
                                 .flex_shrink_0()
                                 .text_right()
                                 .text_size(px(12.0))
                                 .font_family(ui::FONT_UI)
                                 .text_color(color::TEXT)
-                                .child(OPACITY.to_string()),
+                                .child(opacity_text(opacity)),
                         ),
                 )
                 .into_any_element(),

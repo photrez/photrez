@@ -11,7 +11,15 @@ fn static_layer_values_pinned() {
     assert!(LAYER_SUBTITLE.contains('\u{b7}'));
     assert!(LAYER_SUBTITLE.contains('\u{d7}'));
     assert_eq!(LAYER_SUBTITLE, "Image layer \u{b7} 800 \u{d7} 600 px");
-    assert_eq!(OPACITY, "100 %");
+}
+
+#[test]
+fn opacity_rows_print_the_layer_not_a_specimen() {
+    assert_eq!(transform::opacity_text(1.0), "100 %");
+    assert_eq!(transform::opacity_text(0.6), "60 %");
+    assert_eq!(transform::opacity_text(0.336), "34 %");
+    assert_eq!(transform::opacity_percent(0.6), 60.);
+    assert_eq!(transform::opacity_percent(1.4), 100.);
 }
 
 #[test]

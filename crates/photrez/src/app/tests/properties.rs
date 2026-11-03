@@ -90,6 +90,35 @@ fn the_properties_transform_rows_describe_and_edit_the_layer(cx: &mut gpui_kit::
 
 /// The reference guards each axis with its own flag: the position lock stops X
 /// and Y only, and the rotation row keeps answering.
+/// The opacity row follows the layer the same way the transform rows do: the
+/// Layers panel's step buttons move the projected value the row prints.
+#[gpui_kit::test]
+fn the_properties_opacity_row_follows_the_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Properties;
+            });
+        });
+        window.render_frame(cx);
+        assert!(
+            window.try_find("prop-opacity-value").is_some(),
+            "the panel carries its opacity readout"
+        );
+
+        content.update(cx, |app, cx| app.adjust_selected_opacity(-0.4, cx));
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_opacity,
+            0.6,
+            "the row's source value moves with the layer"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn a_position_lock_stops_only_the_properties_position_rows(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

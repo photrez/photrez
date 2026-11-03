@@ -148,11 +148,6 @@ const ACTION_HANDLERS: &[(&str, ActionHandler)] = &[
     ("prop-reset", |app, cx| app.reset_selected_transform(cx)),
 ];
 
-// --- Static Opacity readout (pinned to the baseline) ---
-// The opacity row still shows the baseline value; the transform rows above it
-// read the live layer.
-pub const OPACITY: &str = "100 %"; // i18n-exempt: numeric value
-
 // --- Action + quick-row icon tables (static, asserted in tests) ---
 // Action button labels are catalog keys; rendered at the call site via `t()`.
 pub const ACTIONS: &[(&[u8], &str)] = &[
