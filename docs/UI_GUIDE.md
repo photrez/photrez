@@ -127,6 +127,33 @@
 
 ---
 
+### Canvas Cursors
+
+The pointer over the canvas is decided by the active tool, then by the gesture,
+then by what is under the tip:
+
+1. Resting: the Move, Brush and Eraser tools keep the standard arrow, because
+   their cursor is decided by what it is about to hit. The Selection, Crop,
+   Eyedropper, Paint Bucket, Gradient and Shape tools show a crosshair. The Text
+   tool shows the I-beam.
+2. Handles: over a crop frame's eight handles the arrow becomes the matching
+   resize cursor for that direction (diagonal at the corners, vertical or
+   horizontal at the edges), and over a transform frame's rotate handle it
+   becomes the crosshair. The frame's edges and corners stay live for dragging.
+3. Gesture: a Move drag shows the closed hand, and holding Alt through the drag
+   swaps it to the clone cursor. A pan shows the open hand and closes it while
+   the view moves.
+4. Refusal: painting with a tool that writes pixels onto a locked or otherwise
+   unpaintable layer shows the not-allowed cursor instead of silently dropping
+   the stroke.
+
+Two differences are deliberate, and no cursor is ever hidden or swapped to make
+a screenshot match. The toolkit exposes a fixed list of system cursors and no
+custom bitmap cursors, so the paint tools use the plain crosshair rather than a
+cross with a small tool mark drawn beside it, and there is no four-way
+move cursor: the draggable interior of a crop frame and a layer move use the
+standard arrow and the grab hand.
+
 ## 5. Scrollbar and Motion Guidance
 
 ### Overlay Scrollbars
