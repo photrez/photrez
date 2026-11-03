@@ -269,7 +269,7 @@ pub(super) fn tolerance_slider(
             s.slider_focus_for(crate::state::SliderTarget::Tolerance),
         )
     };
-    let mut visual = h_flex()
+    let visual = h_flex()
         .id("opt-tolerance-slider")
         .test_support()
         .relative()
@@ -277,13 +277,12 @@ pub(super) fn tolerance_slider(
         .w(px(TOLERANCE_SLIDER_W))
         .items_center()
         .child(ui::slider(pct, None, ui::SliderKind::Alpha, true));
-    if let Some(handle) = focus.as_ref() {
-        visual = visual.track_focus(handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.slider_key(crate::state::SliderTarget::Tolerance, event, cx);
-            },
-        ));
-    }
+    let visual = super::slider_surface::track_focus_and_keys(
+        visual,
+        &focus,
+        crate::state::SliderTarget::Tolerance,
+        cx,
+    );
     super::slider_surface::BarSliderSurface::new(
         visual,
         cx.entity().downgrade(),
@@ -1107,20 +1106,19 @@ fn text_stroke_width_slider(
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let pct = width.clamp(0.0, 100.0) as f32;
-    let mut visual = h_flex()
+    let visual = h_flex()
         .id("opt-text-stroke-slider")
         .test_support()
         .relative()
         .w_full()
         .items_center()
         .child(ui::slider(pct, None, ui::SliderKind::Default, true));
-    if let Some(handle) = focus.as_ref() {
-        visual = visual.track_focus(handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.slider_key(crate::state::SliderTarget::TextStrokeWidth, event, cx);
-            },
-        ));
-    }
+    let visual = super::slider_surface::track_focus_and_keys(
+        visual,
+        &focus,
+        crate::state::SliderTarget::TextStrokeWidth,
+        cx,
+    );
     super::slider_surface::BarSliderSurface::new(
         visual,
         cx.entity().downgrade(),

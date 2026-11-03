@@ -102,19 +102,14 @@ pub(crate) fn render(
             // A click focuses the track and arrows step the same 0..=100
             // position a drag sets.
             let focus = state.read(cx).slider_focus_for(target);
-            let mut track = div()
+            let track = div()
                 .id(id)
                 .test_support()
                 .w_full()
                 .h(px(SLIDER_H))
                 .aria_label(label.clone());
-            if let Some(handle) = focus.as_ref() {
-                track = track.track_focus(handle).on_key_down(cx.listener(
-                    move |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                        app.slider_key(target, event, cx);
-                    },
-                ));
-            }
+            let track =
+                super::option_bar::slider_surface::track_focus_and_keys(track, &focus, target, cx);
             let track = track.child(BarSliderSurface::new(
                 visual,
                 cx.entity().downgrade(),

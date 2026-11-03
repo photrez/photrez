@@ -243,19 +243,14 @@ fn slider_row(
     };
     // Centre-origin: 0 sits at 50 %, the ends are -100 / +100.
     let percent = ((f64::from(value) + 100.0) / 2.0) as f32;
-    let mut track = div()
+    let track = div()
         .id(id)
         .test_support()
         .flex_1()
         .h(px(SLIDER_WRAP_H))
         .aria_label(label.to_string());
-    if let Some(handle) = focus.as_ref() {
-        track = track.track_focus(handle).on_key_down(cx.listener(
-            move |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.slider_key(target, event, cx);
-            },
-        ));
-    }
+    let track =
+        crate::views::option_bar::slider_surface::track_focus_and_keys(track, &focus, target, cx);
     let track = track.child(BarSliderSurface::new(
         // Centre-origin: no fill, the centre tick and
         // thumb; accent is unused by these kinds.

@@ -266,3 +266,41 @@ fn a_position_lock_stops_only_the_properties_position_rows(cx: &mut gpui_kit::Te
     })
     .expect("test window remains open");
 }
+
+/// The track is a tab stop in its own right: Tab from the canvas focuses it, and
+/// the arrows then step the layer without any pointer having touched it.
+#[gpui_kit::test]
+fn the_properties_opacity_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Properties;
+            });
+        });
+        window.render_frame(cx);
+        crate::app::tests::input::tab_to_canvas(window, cx);
+
+        let mut reached = false;
+        for _ in 0..32 {
+            window.press("tab", cx);
+            window.render_frame(cx);
+            if window.find("prop-opacity-track").focused() == Some(true) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab from the canvas must reach the opacity track");
+
+        let before = content.read(cx).state_for_test().read(cx).layer_opacity;
+        window.press("left", cx);
+        window.press("left", cx);
+        let after = content.read(cx).state_for_test().read(cx).layer_opacity;
+        assert!(
+            after < before - 0.015,
+            "arrows step the track that Tab focused, got {before} then {after}"
+        );
+    })
+    .expect("test window remains open");
+}

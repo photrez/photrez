@@ -84,7 +84,7 @@ pub(super) fn section(
     let open = crate::app::App::begin_transform_field;
     // The track is a slider host like the option bar's: the shared capture
     // surface maps a pointer across it, and the arrow keys step one percent.
-    let mut track = h_flex()
+    let track = h_flex()
         .id("prop-opacity-track")
         .test_support()
         .flex_1()
@@ -97,13 +97,12 @@ pub(super) fn section(
             ui::SliderKind::Alpha,
             false,
         ));
-    if let Some(handle) = track_focus.as_ref() {
-        track = track.track_focus(handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.slider_key(crate::state::SliderTarget::LayerOpacity, event, cx);
-            },
-        ));
-    }
+    let track = crate::views::option_bar::slider_surface::track_focus_and_keys(
+        track,
+        &track_focus,
+        crate::state::SliderTarget::LayerOpacity,
+        cx,
+    );
     let opacity_surface = crate::views::option_bar::slider_surface::BarSliderSurface::new(
         track,
         cx.entity().downgrade(),

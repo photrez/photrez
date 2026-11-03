@@ -1030,13 +1030,12 @@ fn export_body(
             .w_full()
             .h(px(14.0))
             .aria_label(t("dialogs.export.quality"));
-        if let Some(handle) = focus.as_ref() {
-            quality_track = quality_track.track_focus(handle).on_key_down(cx.listener(
-                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                    app.slider_key(crate::state::SliderTarget::ExportQuality, event, cx);
-                },
-            ));
-        }
+        quality_track = crate::views::option_bar::slider_surface::track_focus_and_keys(
+            quality_track,
+            &focus,
+            SliderTarget::ExportQuality,
+            cx,
+        );
         quality_track = quality_track.child(BarSliderSurface::new(
             track,
             cx.entity().downgrade(),

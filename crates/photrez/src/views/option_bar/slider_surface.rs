@@ -2,15 +2,24 @@
 //! `on_mouse_move`/`on_mouse_up` only while its hitbox is hovered, so a drag
 //! released outside the track would be lost. This element inserts a hitbox,
 //! captures it on left-down, and routes move/up through the capture.
+//!
+//! The file also holds `track_focus_and_keys`, because a track's pointer host and
+//! its keyboard host have to agree about the same handle or one of them focuses a
+//! node the other never renders.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{
-    AnyElement, App, Bounds, DispatchPhase, Element, ElementId, GlobalElementId, Hitbox,
-    HitboxBehavior, HitboxId, InspectorElementId, IntoElement, LayoutId, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, WeakEntity, Window,
+    AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, FocusHandle,
+    GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement,
+    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    WeakEntity, Window,
 };
+
+use crate::components::ui;
+use crate::tokens::color;
+use gpui_kit::prelude::*;
 
 pub(crate) struct BarSliderSurface {
     visual: AnyElement,
@@ -155,6 +164,38 @@ impl Element for BarSliderSurface {
 
         self.visual.paint(window, cx);
     }
+}
+
+/// Give a track its focus and its keys: the inset band the option-bar pills use,
+/// and the arrow handler every `SliderTarget` shares. A host with no handle (an
+/// engine-less `--shot` launch, where there is no App to talk to) keeps the bare
+/// track, so the painted element does not change on that path.
+///
+/// Generic because a host's `div().id(..)` is not one named type: outside the
+/// `test-support` feature it is `Stateful<Div>`, inside it is the observed wrapper
+/// around that, and a track has to compile both ways.
+pub(crate) fn track_focus_and_keys<E>(
+    track: E,
+    focus: &Option<FocusHandle>,
+    target: crate::state::SliderTarget,
+    cx: &Context<crate::app::App>,
+) -> E
+where
+    E: InteractiveElement + StatefulInteractiveElement,
+{
+    let Some(handle) = focus.as_ref() else {
+        return track;
+    };
+    track
+        .track_focus(handle)
+        .focusable()
+        .focus_visible(|mut style| {
+            style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
+            style
+        })
+        .on_key_down(cx.listener(move |app, event: &KeyDownEvent, _window, cx| {
+            app.slider_key(target, event, cx);
+        }))
 }
 
 fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {

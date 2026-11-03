@@ -973,13 +973,12 @@ pub(super) fn render(
             .flex_1()
             .h(px(14.0))
             .aria_label(t("dialogs.print.scale"));
-        if let Some(handle) = scale_focus.as_ref() {
-            scale_track = scale_track.track_focus(handle).on_key_down(cx.listener(
-                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                    app.slider_key(crate::state::SliderTarget::PrintScale, event, cx);
-                },
-            ));
-        }
+        scale_track = crate::views::option_bar::slider_surface::track_focus_and_keys(
+            scale_track,
+            &scale_focus,
+            SliderTarget::PrintScale,
+            cx,
+        );
         scale_track = scale_track.child(BarSliderSurface::new(
             track,
             cx.entity().downgrade(),
