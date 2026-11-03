@@ -461,6 +461,37 @@ fn labeled(label: &str, value: &str) -> StyledText {
     ])
 }
 
+/// The save cell: the design pairs every autosave state with an 8px dot in that
+/// state's own tier, so the status reads at a glance and not only through the
+/// label. The busy dot's `animate-pulse` is the reference's only motion here and
+/// stays a static fill.
+fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::AnyElement> {
+    use crate::state::AutosaveStatus;
+    let (label, dot, text) = match autosave {
+        AutosaveStatus::Saving => (t("common.saving"), color::YELLOW_400, color::TEXT_DIM),
+        AutosaveStatus::Saved => (t("common.saved"), color::GREEN_400, color::TEXT_DIM),
+        AutosaveStatus::Error => (t("common.saveFailed"), color::RED_400, color::RED_400),
+        AutosaveStatus::Idle => return None,
+    };
+    Some(
+        h_flex()
+            .id("autosave-status")
+            .test_support()
+            .items_center()
+            .gap(px(4.0))
+            .child(
+                div()
+                    .id("autosave-dot")
+                    .test_support()
+                    .size(px(8.0))
+                    .rounded_full()
+                    .bg(dot),
+            )
+            .child(div().text_color(text).child(label))
+            .into_any_element(),
+    )
+}
+
 /// The right-hand cells: centred on one row, never squeezed, 20px between them.
 ///
 /// The source also dims the group to 50% and ignores input when no document
@@ -469,33 +500,7 @@ fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatu
     h_flex()
         .flex_shrink_0()
         .gap(px(RIGHT_GAP))
-        .when(autosave == crate::state::AutosaveStatus::Saving, |row| {
-            row.child(
-                div()
-                    .id("autosave-status")
-                    .test_support()
-                    .text_color(color::TEXT_DIM)
-                    .child(t("common.saving")),
-            )
-        })
-        .when(autosave == crate::state::AutosaveStatus::Saved, |row| {
-            row.child(
-                div()
-                    .id("autosave-status")
-                    .test_support()
-                    .text_color(color::TEXT_DIM)
-                    .child(t("common.saved")),
-            )
-        })
-        .when(autosave == crate::state::AutosaveStatus::Error, |row| {
-            row.child(
-                div()
-                    .id("autosave-status")
-                    .test_support()
-                    .text_color(color::RED_500)
-                    .child(t("common.saveFailed")),
-            )
-        })
+        .when_some(autosave_cell(autosave), |row, cell| row.child(cell))
         .when_some(status_error, |row, message| {
             row.child(
                 div()

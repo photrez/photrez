@@ -533,3 +533,30 @@ fn explicit_open_and_startup_recovery_coexist_at_startup(cx: &mut gpui_kit::Test
     })
     .expect("test window remains open");
 }
+
+#[gpui_kit::test]
+fn each_autosave_state_paints_its_status_dot(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        for status in [
+            crate::state::AutosaveStatus::Saving,
+            crate::state::AutosaveStatus::Saved,
+            crate::state::AutosaveStatus::Error,
+        ] {
+            content.update(cx, |app, cx| {
+                app.state_for_test()
+                    .update(cx, |state, _| state.autosave_status = status);
+            });
+            window.render_frame(cx);
+            let bounds = window.find("autosave-dot").bounds();
+            let width: f32 = bounds.size.width.into();
+            let height: f32 = bounds.size.height.into();
+            assert!(
+                (width - 8.0).abs() < 0.6 && (height - 8.0).abs() < 0.6,
+                "the {status:?} cell carries the design's 8px dot, got {width}x{height}"
+            );
+        }
+    })
+    .expect("test window remains open");
+}

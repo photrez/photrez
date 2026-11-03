@@ -193,6 +193,32 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `#FACC15` = rgb(250, 204, 21): the busy dot in the status bar's save
+    /// group. A tier of the palette, not the theme's `YELLOW_500` stop.
+    pub const YELLOW_400: Hsla = Hsla {
+        h: 0.13319,
+        s: 0.95816,
+        l: 0.53137,
+        a: 1.0,
+    };
+
+    /// `#4ADE80` = rgb(74, 222, 128): the saved dot.
+    pub const GREEN_400: Hsla = Hsla {
+        h: 0.39414,
+        s: 0.69159,
+        l: 0.58039,
+        a: 1.0,
+    };
+
+    /// `#F87171` = rgb(248, 113, 113): the failed-save dot, a lighter red than
+    /// `RED_500`, which the design keeps for the label and the error text.
+    pub const RED_400: Hsla = Hsla {
+        h: 0.0,
+        s: 0.90604,
+        l: 0.70784,
+        a: 1.0,
+    };
+
     /// `#E15A17` = rgb(225, 90, 23): the tool mark, a darker orange than
     /// `ACCENT` (`#F28E42`). It only appears where the layout draws through an
     /// SVG stroke attribute or a cursor asset, which no CSS rule can override,
@@ -468,6 +494,15 @@ mod tests {
     fn tool_mark_is_not_the_theme_accent() {
         assert_eq!(hsla_to_rgb(color::TOOL_MARK), (225, 90, 23));
         assert_eq!(hsla_to_rgb(color::ACCENT), (242, 142, 66));
+    }
+
+    /// The save-state dots paint at full opacity, so the tier itself is the
+    /// pixel a capture compares.
+    #[test]
+    fn save_state_dots_paint_their_palette_tiers() {
+        assert_eq!(hsla_to_rgb(color::YELLOW_400), (250, 204, 21));
+        assert_eq!(hsla_to_rgb(color::GREEN_400), (74, 222, 128));
+        assert_eq!(hsla_to_rgb(color::RED_400), (248, 113, 113));
     }
 
     /// The badge and destructive tiers are painted translucent over the panel, so
