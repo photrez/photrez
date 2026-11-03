@@ -57,6 +57,9 @@
 # `select_layer`) stayed in the parent because five other test modules import them
 # through `super::input`, and the test count is 59 on both sides of the move.
 #
+# A fifth split paid: `app/tests/tools.rs` went from 3339 lines to 917 plus five
+# topic modules under `app/tests/tools/`, same 59 tests, entry deleted.
+#
 # The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
@@ -68,7 +71,6 @@
 1441 crates/photrez/src/app/tests/documents.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
-3339 crates/photrez/src/app/tests/tools.rs
 1442 crates/photrez/src/app/transform_move.rs
 1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
