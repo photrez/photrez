@@ -217,6 +217,10 @@ impl FrameMetrics {
 /// `status_error` is production state, not a baseline value: the resting captures
 /// pass `None`, so the default bar is pixel-identical to the golden master. A
 /// failed save paints the typed service error in red until a save succeeds.
+///
+/// `state` and `cx` reach the History trigger's click handler and the accent
+/// tint of its panel; every other cell here is a value the caller passes in.
+#[allow(clippy::too_many_arguments)] // six live cells plus the state the trigger writes
 pub fn render(
     status_error: Option<&str>,
     zoom_percent: Option<u32>,
@@ -224,7 +228,10 @@ pub fn render(
     tool: crate::state::ToolId,
     layer_name: Option<&str>,
     autosave: crate::state::AutosaveStatus,
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
+    let history_open = state.read(cx).layer_tab == crate::state::LayerTab::History;
     h_flex()
         .relative()
         .h(px(BAR_H))
@@ -252,7 +259,12 @@ pub fn render(
         } else {
             div().into_any_element()
         })
-        .child(ui::pin(right_group(status_error, autosave)))
+        .child(ui::pin(right_group(
+            status_error,
+            autosave,
+            history_open,
+            cx,
+        )))
 }
 
 /// The readout cells, in order: centred on one row with 12px between them.
@@ -496,7 +508,12 @@ fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::Any
 ///
 /// The source also dims the group to 50% and ignores input when no document
 /// is open; the baseline has one, so that branch never renders here.
-fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatus) -> Div {
+fn right_group(
+    status_error: Option<&str>,
+    autosave: crate::state::AutosaveStatus,
+    history_open: bool,
+    cx: &Context<crate::app::App>,
+) -> Div {
     h_flex()
         .flex_shrink_0()
         .gap(px(RIGHT_GAP))
@@ -513,34 +530,44 @@ fn right_group(status_error: Option<&str>, autosave: crate::state::AutosaveStatu
                     .child(message.to_string()),
             )
         })
-        .child(history_button())
+        .child(history_button(history_open, cx))
 }
 
 /// The History trigger: one row, centred, 4px between icon and label, colour
 /// transitioned, plain text colour on hover.
 ///
-/// Resting colour is the bar's dim text — the button sets no
-/// colour of its own unless the History dock panel is the open one, and the
-/// PNG shows dim, not the accent colour, so it is not.
+/// It is accent-coloured while the History dock panel is the open one and dim
+/// otherwise; the resting captures have the Layers panel open, so the golden
+/// master shows dim. Clicking shows the History panel and opens the dock.
 ///
-/// The `data-status-history-trigger` hook, `aria-pressed` and the dock wiring
-/// are state, not chrome; only the appearance is reproduced here.
+/// The `data-status-history-trigger` hook and `aria-pressed` have no GPUI
+/// surface, so they stay with the reference; the wiring is real.
 ///
 /// [`HIT_PY`] pads the button's 15px content box out to the 24px minimum
 /// target size; symmetric, so the icon and label do not move.
-fn history_button() -> impl IntoElement {
+fn history_button(open: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let ink = if open { color::ACCENT } else { color::TEXT_DIM };
+    let hover_ink = if open { color::ACCENT } else { color::TEXT };
     h_flex()
         .id("status-history")
+        .test_support()
         .gap(px(BTN_GAP))
         .py(px(HIT_PY))
-        .hover(|s| s.text_color(color::TEXT))
+        .cursor_pointer()
+        .text_color(ink)
+        .hover(move |s| s.text_color(hover_ink))
+        .on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                app.show_history_panel(cx);
+            },
+        ))
         .child(
             // `icons::HISTORY` bakes stroke-width 1.5; this call site asks for
             // lucide's `strokeWidth={1.75}` — see `crate::icons::with_stroke`.
             Icon::default()
                 .data(icons::with_stroke(icons::HISTORY, ICON_STROKE))
                 .size(px(HISTORY_ICON))
-                .text_color(color::TEXT_DIM),
+                .text_color(ink),
         )
         .child(t("panels.history"))
 }

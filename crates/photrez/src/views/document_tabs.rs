@@ -14,13 +14,14 @@
 //! writing this: strip #141414, tab #171717, every border column #333333,
 //! underline #F28E42 across y=81..82, export button 725..816).
 //!
-//! The tab strip's behaviour cannot appear in a static
-//! screenshot and is not reproduced here: drag-to-reorder with drop
+//! A static screenshot cannot show behaviour, so what stays out of this module
+//! is the reference's drag-to-reorder with drop
 //! indicators, cross-document drag dimming, the hover-to-switch timer, the
-//! dirty marker, the close- and new-document dialogs, the toasts, the export
-//! menu, the tooltip on the layout toggle, and the wheel/keyboard
-//! navigation. Hover *styling* is reproduced where it is a plain colour
-//! change, as in
+//! toasts, the export menu, the tooltip on the layout toggle, and the wheel/keyboard
+//! navigation. Clicks that have a native command are wired: a tab activates,
+//! its close button closes the document, `+` opens the New Document dialog and
+//! Export opens the Export dialog. Hover *styling* is reproduced where it is a plain
+//! colour change, as in
 //! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
 //!
 //! With **zero** documents the original still paints this strip — the tab list
@@ -74,9 +75,10 @@
 //!   backgrounds and plain text do. Same gap as `tool_rail` and `title_bar`;
 //!   no baseline captures a hover of those three controls, so it is unverified
 //!   either way.
-//! * The pointer cursor, the transition timings, the text-selection lock, the
-//!   ARIA roles and tab order, and every pointer/drag/wheel handler have no
-//!   pixel consequence and are dropped.
+//! * The transition timings, the text-selection lock, the
+//!   ARIA roles and tab order have no pixel consequence and are dropped. The
+//!   pointer cursor is applied to the controls that work, and the icon-only `+`
+//!   carries the accessible name the reference gives it.
 
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
@@ -203,8 +205,8 @@ pub fn render(
         // source); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
         .child(ui::clip(tab_list(tabs, active_id, cx)))
-        .child(new_tab_button())
-        .child(ui::pin(cluster()))
+        .child(new_tab_button(cx))
+        .child(ui::pin(cluster(cx)))
 }
 
 /// The tab list: a row that takes the spare width and the strip's full height,
@@ -401,9 +403,14 @@ fn active_underline() -> impl IntoElement {
 /// centred on one row, a 1px left border, in the icon colour and brightening to
 /// the plain text colour on hover; it holds the `plus` glyph at 18px with a
 /// 1.75 stroke.
-fn new_tab_button() -> impl IntoElement {
+///
+/// Clicking opens the New Document dialog, the same command as File > New. The
+/// reference also cancels an active transform session and refuses when the
+/// workspace is full; neither has a native counterpart yet.
+fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .id("new-document")
+        .test_support()
         .w(px(NEW_TAB_W))
         // Full strip height.
         .self_stretch()
@@ -414,9 +421,16 @@ fn new_tab_button() -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
+        .cursor_pointer()
+        .aria_label(t("menus.items.newDocument"))
         .border_l_1()
         .border_color(color::BORDER)
         .hover(|s| s.text_color(color::TEXT))
+        .on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                app.open_new_document(cx);
+            },
+        ))
         .child(
             Icon::default()
                 .data(icons::PLUS)
@@ -433,7 +447,7 @@ fn new_tab_button() -> impl IntoElement {
 /// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
 /// absent rather than omitted.
 /// See the module docs for the 153px arithmetic that confirms it.
-fn cluster() -> Div {
+fn cluster(cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.
         .self_stretch()
@@ -445,7 +459,7 @@ fn cluster() -> Div {
         .border_l_1()
         .border_color(color::BORDER)
         .child(layout_toggle())
-        .child(export_button())
+        .child(export_button(cx))
 }
 
 /// The layout toggle: a 28px square with 4px corners, centred on one row, in
@@ -455,6 +469,9 @@ fn cluster() -> Div {
 /// Not accent-coloured because the dock is in its default `side-by-side`
 /// layout — see the module docs. The `Tooltip` around it is hover-only and
 /// not reproduced.
+///
+/// The reference switches the dock between side-by-side and stacked here; the
+/// app has no stacked layout, so this button has no handler.
 fn layout_toggle() -> impl IntoElement {
     h_flex()
         .id("layout-toggle")
@@ -485,11 +502,15 @@ fn layout_toggle() -> impl IntoElement {
 ///
 /// Its width is content-driven: 2*12 padding + 2 border + 8 gap + 14 icon +
 /// a ~44px advance for "Export…" = 92px, i.e. x=725..816 where
-/// `shell-full-page.png` has its two border columns. The `ContextMenu` it
-/// opens is not reproduced.
-fn export_button() -> impl IntoElement {
+/// `shell-full-page.png` has its two border columns.
+///
+/// Clicking opens the Export dialog, the same command as File > Export. The
+/// reference first opens a quick-export menu whose three formats have no native
+/// command yet, so the strip goes to the dialog.
+fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .id("export-button")
+        .test_support()
         .h(px(EXPORT_H))
         .flex_shrink_0()
         .items_center()
@@ -500,7 +521,13 @@ fn export_button() -> impl IntoElement {
         .px(px(EXPORT_PX))
         .text_size(px(EXPORT_TEXT))
         .text_color(color::TEXT)
+        .cursor_pointer()
         .hover(|s| s.bg(color::WHITE_45))
+        .on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                app.export_document_action(&crate::app::ExportDocument, cx);
+            },
+        ))
         .child(t(EXPORT_LABEL_KEY))
         .child(
             Icon::default()

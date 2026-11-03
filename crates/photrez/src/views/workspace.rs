@@ -336,6 +336,8 @@ pub(crate) fn render(
                 active_tool,
                 selected_layer_name.as_deref(),
                 autosave_status,
+                state,
+                cx,
             )))
         })
         // Overlays last on the root — GPUI has no z_index, paint order is tree

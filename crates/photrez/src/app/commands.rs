@@ -98,6 +98,17 @@ impl App {
         cx.notify();
     }
 
+    /// The status bar's History trigger: show the dock's History panel.
+    /// The reference opens the dock as well, since a closed dock would show
+    /// a panel the user cannot see.
+    pub(crate) fn show_history_panel(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.layer_tab = crate::state::LayerTab::History;
+            state.dock_open = true;
+        });
+        cx.notify();
+    }
+
     pub(crate) fn close_document_action(&mut self, _: &CloseDocument, cx: &mut Context<Self>) {
         self.close_after_dirty = false;
         self.pending_tab_close = None;

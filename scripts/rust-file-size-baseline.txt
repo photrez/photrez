@@ -6,13 +6,18 @@
 # Re-recorded on 2026-11-03 for the ten entries the parity-closure wave grew: the
 # overflow panels, the live Move-bar transform fields, the print tiers and the
 # coverage they each carry. The split obligation is unchanged and now larger.
+#
+# Amended the same day: `crates/photrez/src/state.rs` had already drifted four
+# lines past its entry when the rest were recorded, and the new tab-strip and
+# status-bar click tests add 66 lines to `app/tests/commands.rs`. Both stay
+# grandfathered; neither split is done.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
 1168 crates/core/src/render/compositor/tests.rs
 2663 crates/photrez/src/app/input.rs
 1661 crates/photrez/src/app/measurement/driver.rs
-1136 crates/photrez/src/app/tests/commands.rs
+1202 crates/photrez/src/app/tests/commands.rs
 1864 crates/photrez/src/app/tests/documents.rs
 3506 crates/photrez/src/app/tests/input.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
@@ -21,7 +26,7 @@
 1402 crates/photrez/src/app/transform_move.rs
 1803 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
-1536 crates/photrez/src/state.rs
+1540 crates/photrez/src/state.rs
 1192 crates/photrez/src/views/dialogs/print.rs
 2102 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs

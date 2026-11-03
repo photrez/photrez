@@ -117,6 +117,72 @@ fn ctrl_shift_p_toggles_the_side_panels(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+/// The two document commands the tab strip carries: `+` opens the New Document
+/// dialog and Export opens the Export dialog, both the same routes as the File
+/// menu rows.
+#[gpui_kit::test]
+fn the_tab_strip_opens_new_document_and_export(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("export-button", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::Export),
+            "the strip's Export button opens the Export dialog"
+        );
+
+        content.update(cx, |app, cx| {
+            app.state_for_test()
+                .update(cx, |state, _| state.active_dialog = None);
+        });
+        window.click("new-document", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::NewDocument),
+            "the strip's plus button opens the New Document dialog"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The status bar's History trigger shows the dock's History panel, and opens
+/// the dock when the user had hidden it.
+#[gpui_kit::test]
+fn the_status_history_trigger_opens_the_history_panel(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.layer_tab = crate::state::LayerTab::Layers;
+                state.dock_open = false;
+            });
+        });
+        window.render_frame(cx);
+
+        window.click("status-history", cx);
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test().read(cx);
+        assert_eq!(
+            state.layer_tab,
+            crate::state::LayerTab::History,
+            "the trigger switches the dock to History"
+        );
+        assert!(state.dock_open, "and opens a dock the user had hidden");
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn ctrl_s_rewrites_the_source_archive_and_clears_dirty(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::test::TestWindowExt as _;
