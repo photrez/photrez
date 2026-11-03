@@ -221,6 +221,46 @@ fn mount_app_sized(
     })
 }
 
+/// Mount an app whose startup recovery reads a cache the test owns, so the
+/// startup order (explicit open first, then the recovery offer) runs through the
+/// production constructor instead of being re-implemented in the test.
+fn mount_app_with_cache_root(
+    cx: &mut gpui_kit::TestAppContext,
+    open_path: PathBuf,
+    file_io: Arc<dyn FileIo>,
+    cache_root: PathBuf,
+) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
+    use gpui_kit::base::Root;
+    use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
+
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::views::title_bar::init(&cx.svg_renderer());
+        load_fonts(cx);
+    });
+
+    cx.update(|cx| {
+        let bounds = Bounds {
+            origin: Point::default(),
+            size: size(px(1366.), px(820.)),
+        };
+        let (window, content) = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            },
+            cx,
+            move |window, cx| {
+                cx.new(|cx| {
+                    App::new_with_cache_root(window, None, Some(open_path), file_io, cache_root, cx)
+                })
+            },
+        )
+        .expect("open test window");
+        (window.downcast::<Root>().expect("base root"), content)
+    })
+}
+
 /// Mount an app whose active document is the bounded fixture, backed by a
 /// real approval store so the save path can be exercised end to end.
 fn mount_fixture_app(

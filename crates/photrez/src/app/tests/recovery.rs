@@ -376,3 +376,70 @@ fn recovery_prompt_buttons_reach_their_actions(cx: &mut gpui_kit::TestAppContext
         );
     }
 }
+
+/// A launch that names a file on the command line while an autosave from a
+/// different document sits in the cache: the named document is on screen and the
+/// recovery offer is still up. This is the composite the startup order exists to
+/// protect, driven through the production constructor with the cache root
+/// injected, which is what `use_autosave_cache_root_for_test` could not do.
+#[gpui_kit::test]
+fn explicit_open_and_startup_recovery_coexist_at_startup(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("named.ptz");
+    std::fs::write(&source, super::commands::multi_layer_archive_with(false))
+        .expect("the named archive is written");
+    let file_io = LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
+        .expect("the file boundary opens");
+    file_io
+        .approve_path(&source)
+        .expect("the named archive is approved");
+    let io: Arc<dyn FileIo> = Arc::new(file_io);
+
+    let cache = directory.path().join("startup-order-cache");
+    let autosave = cache.join("autosave");
+    std::fs::create_dir_all(&autosave).expect("the autosave directory");
+    std::fs::write(
+        autosave.join("other-doc.ptz"),
+        super::commands::multi_layer_archive_with(false),
+    )
+    .expect("the stale autosave is written");
+    // Startup runs the 7-day stale cleanup before it offers anything, so the
+    // fixture is written with a current timestamp rather than a fixed one.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    std::fs::write(
+        autosave.join("manifest.json"),
+        format!(r#"{{"other-doc":"Other work|{now_ms}"}}"#),
+    )
+    .expect("the manifest is written");
+
+    let (window, content) = mount_app_with_cache_root(cx, source, io, cache);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let app = content.read(cx);
+        assert_eq!(
+            app.active_document_id_for_test().as_deref(),
+            Some("multi-doc"),
+            "the document named on the command line is the one on screen"
+        );
+        let state = app.state_for_test().read(cx);
+        let entries = state
+            .recovery_entries
+            .iter()
+            .map(|row| row.doc_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entries,
+            vec!["other-doc"],
+            "the stale work is what is offered"
+        );
+        assert_eq!(
+            state.active_dialog,
+            Some(crate::state::DialogId::Recovery),
+            "the recovery offer is still presented over the opened document"
+        );
+    })
+    .expect("test window remains open");
+}

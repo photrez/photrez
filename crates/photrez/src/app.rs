@@ -721,6 +721,14 @@ impl App {
         self.canvas_overlay(cx).transform
     }
 
+    /// The cache a launch may recover from: only a settings-backed one owns the
+    /// real user cache directory.
+    fn startup_cache_root(settings: &Option<FileSettings>) -> Option<PathBuf> {
+        settings
+            .as_ref()
+            .and_then(|_| services::settings::user_cache_root())
+    }
+
     /// Creates a new `App`, seeding `AppState` from the active shot id,
     /// building the demo document's display snapshot through core, and
     /// subscribing to the window geometry it will persist.
@@ -730,7 +738,8 @@ impl App {
         open_path: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::new_inner(window, settings, open_path, None, cx)
+        let cache_root = Self::startup_cache_root(&settings);
+        Self::new_inner(window, settings, open_path, None, cache_root, cx)
     }
 
     #[cfg(test)]
@@ -741,7 +750,30 @@ impl App {
         file_io: Arc<dyn FileIo>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::new_inner(window, settings, open_path, Some(file_io), cx)
+        let cache_root = Self::startup_cache_root(&settings);
+        Self::new_inner(window, settings, open_path, Some(file_io), cache_root, cx)
+    }
+
+    /// A mount whose startup recovery reads a cache the test owns. Without this
+    /// seam the explicit-open-then-recovery order only runs when the process has
+    /// a real user cache directory, so no mounted test could drive it.
+    #[cfg(test)]
+    pub(crate) fn new_with_cache_root(
+        window: &mut Window,
+        settings: Option<FileSettings>,
+        open_path: Option<PathBuf>,
+        file_io: Arc<dyn FileIo>,
+        cache_root: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_inner(
+            window,
+            settings,
+            open_path,
+            Some(file_io),
+            Some(cache_root),
+            cx,
+        )
     }
 
     fn new_inner(
@@ -749,6 +781,7 @@ impl App {
         settings: Option<FileSettings>,
         open_path: Option<PathBuf>,
         file_io: Option<Arc<dyn FileIo>>,
+        cache_root: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> Self {
         let shot_id = crate::shot::active();
@@ -1011,12 +1044,8 @@ impl App {
         });
         app._window_watch.push(blur);
         // Only a settings-backed launch owns the real app cache; a test mount
-        // has no settings and injects its own root instead.
-        app.autosave_cache_root = if app.settings.is_some() {
-            services::settings::user_cache_root()
-        } else {
-            None
-        };
+        // injects its own root through `new_with_cache_root`.
+        app.autosave_cache_root = cache_root;
         app.apply_startup_locale();
         app.start_autosave_timer(cx);
         app.load_recent_files(cx);
