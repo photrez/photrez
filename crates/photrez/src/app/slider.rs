@@ -91,7 +91,32 @@ impl App {
             | SliderTarget::AdjustmentContrast
             | SliderTarget::AdjustmentSaturation
             | SliderTarget::PrintScale
+            // The opacity track has its own handler; this match only carries the
+            // targets whose keys map onto option-bar state.
             | SliderTarget::LayerOpacity => return false,
+        }
+        true
+    }
+
+    /// The Properties panel's opacity track: arrows step one percent, Home and
+    /// End go to the ends.
+    pub(crate) fn opacity_slider_key(
+        &mut self,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let current = self.state.read(cx).layer_opacity * 100.0;
+        let value = match event.keystroke.key.as_str() {
+            "left" | "down" => current - 1.0,
+            "right" | "up" => current + 1.0,
+            "home" => 0.0,
+            "end" => 100.0,
+            _ => return false,
+        };
+        let result = self.set_selected_layer_opacity(value.clamp(0.0, 100.0) / 100.0, cx);
+        match result {
+            Ok(()) => self.set_status_error(None, cx),
+            Err(error) => self.set_status_error(Some(format!("Opacity: {error}")), cx),
         }
         true
     }

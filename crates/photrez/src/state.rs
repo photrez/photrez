@@ -938,6 +938,8 @@ pub struct AppState {
     pub num_field_focus: Option<gpui_kit::FocusHandle>,
     /// Focus target for the option-bar slider, installed at App construction.
     pub slider_focus: Option<gpui_kit::FocusHandle>,
+    /// Focus target for the Properties panel's opacity track.
+    pub opacity_slider_focus: Option<gpui_kit::FocusHandle>,
     /// Focus targets for the Move bar toggles, installed at App construction.
     pub move_snap_focus: Option<gpui_kit::FocusHandle>,
     pub move_auto_select_focus: Option<gpui_kit::FocusHandle>,
@@ -1172,6 +1174,7 @@ impl Default for AppState {
             num_field: None,
             num_field_focus: None,
             slider_focus: None,
+            opacity_slider_focus: None,
             move_snap_focus: None,
             move_auto_select_focus: None,
             move_transform_focus: None,

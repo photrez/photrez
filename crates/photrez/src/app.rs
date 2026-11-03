@@ -957,6 +957,7 @@ impl App {
 
         let field_focus = cx.focus_handle();
         let slider_focus = cx.focus_handle();
+        let opacity_slider_focus = cx.focus_handle().tab_stop(true);
         let move_snap_focus = cx.focus_handle().tab_stop(true);
         let move_auto_select_focus = cx.focus_handle().tab_stop(true);
         let move_transform_focus = cx.focus_handle().tab_stop(true);
@@ -965,6 +966,7 @@ impl App {
                 let mut state = state;
                 state.num_field_focus = Some(field_focus);
                 state.slider_focus = Some(slider_focus);
+                state.opacity_slider_focus = Some(opacity_slider_focus);
                 state.move_snap_focus = Some(move_snap_focus);
                 state.move_auto_select_focus = Some(move_auto_select_focus);
                 state.move_transform_focus = Some(move_transform_focus);

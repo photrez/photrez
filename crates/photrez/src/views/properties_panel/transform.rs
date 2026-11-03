@@ -63,7 +63,7 @@ pub(super) fn section(
                 }
             })
     };
-    let (session, focus, constrain, opacity, slider_bounds, slider_capture) = {
+    let (session, focus, constrain, opacity, slider_bounds, slider_capture, track_focus) = {
         let s = state.read(cx);
         (
             s.num_field.clone(),
@@ -72,6 +72,7 @@ pub(super) fn section(
             s.layer_opacity,
             s.opacity_slider_bounds.clone(),
             s.slider_capture.clone(),
+            s.opacity_slider_focus.clone(),
         )
     };
     let editing = |id: &'static str| {
@@ -81,6 +82,36 @@ pub(super) fn section(
             .map(|field| field.buffer.clone())
     };
     let open = crate::app::App::begin_transform_field;
+    // The track is a slider host like the option bar's: the shared capture
+    // surface maps a pointer across it, and the arrow keys step one percent.
+    let mut track = h_flex()
+        .id("prop-opacity-track")
+        .test_support()
+        .flex_1()
+        .h(px(24.0))
+        .items_center()
+        .aria_label(t("tools.options.opacity"))
+        .child(ui::slider(
+            opacity_percent(opacity),
+            None,
+            ui::SliderKind::Alpha,
+            false,
+        ));
+    if let Some(handle) = track_focus.as_ref() {
+        track = track.track_focus(handle).on_key_down(cx.listener(
+            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                app.opacity_slider_key(event, cx);
+            },
+        ));
+    }
+    let opacity_surface = crate::views::option_bar::slider_surface::BarSliderSurface::new(
+        track,
+        cx.entity().downgrade(),
+        crate::state::SliderTarget::LayerOpacity,
+        slider_bounds,
+        slider_capture,
+        track_focus,
+    );
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -199,28 +230,7 @@ pub(super) fn section(
                         .gap(px(10.0))
                         // `h_flex` + `items_center`, not a bare block box: the
                         // wrapper is what centres the 4px track in its 24px row.
-                        .child(
-                            crate::views::option_bar::slider_surface::BarSliderSurface::new(
-                                h_flex()
-                                    .id("prop-opacity-track")
-                                    .test_support()
-                                    .flex_1()
-                                    .h(px(24.0))
-                                    .items_center()
-                                    .aria_label(t("tools.options.opacity"))
-                                    .child(ui::slider(
-                                        opacity_percent(opacity),
-                                        None,
-                                        ui::SliderKind::Alpha,
-                                        false,
-                                    )),
-                                cx.entity().downgrade(),
-                                crate::state::SliderTarget::LayerOpacity,
-                                slider_bounds,
-                                slider_capture,
-                                None,
-                            ),
-                        )
+                        .child(opacity_surface)
                         .child(
                             div()
                                 .id("prop-opacity-value")

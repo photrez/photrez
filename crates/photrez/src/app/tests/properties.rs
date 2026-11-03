@@ -167,6 +167,60 @@ fn dragging_the_properties_opacity_track_sets_the_layer(cx: &mut gpui_kit::TestA
     .expect("test window remains open");
 }
 
+/// The track answers the keyboard as well: a click focuses it, arrows step one
+/// percent, and Home and End go to the ends.
+#[gpui_kit::test]
+fn the_properties_opacity_track_answers_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Properties;
+            });
+        });
+        window.render_frame(cx);
+
+        let bounds = window.find("prop-opacity-track").bounds();
+        window.click_at(
+            "prop-opacity-track",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        let middle = content.read(cx).state_for_test().read(cx).layer_opacity;
+        assert!(
+            (middle - 0.5).abs() <= 0.03,
+            "the click that focuses the track maps to 50 %, got {middle}"
+        );
+
+        window.press("right", cx);
+        window.press("up", cx);
+        let raised = content.read(cx).state_for_test().read(cx).layer_opacity;
+        assert!(
+            raised > middle + 0.015,
+            "arrows step the opacity up, got {raised}"
+        );
+
+        window.press("home", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_opacity,
+            0.0,
+            "Home empties the layer"
+        );
+        window.press("end", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_opacity,
+            1.0,
+            "End restores full opacity"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn a_position_lock_stops_only_the_properties_position_rows(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
