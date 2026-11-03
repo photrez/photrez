@@ -358,7 +358,7 @@ pub(super) fn render(
                 .h(px(doc_px_h))
                 .border_1()
                 .border_dashed()
-                .border_color(color::ACCENT),
+                .border_color(color::TOOL_MARK),
         );
 
     let left = v_flex()

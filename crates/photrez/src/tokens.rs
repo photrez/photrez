@@ -193,6 +193,17 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `#E15A17` = rgb(225, 90, 23): the tool mark, a darker orange than
+    /// `ACCENT` (`#F28E42`). It only appears where the layout draws through an
+    /// SVG stroke attribute or a cursor asset, which no CSS rule can override,
+    /// so the two must not be merged.
+    pub const TOOL_MARK: Hsla = Hsla {
+        h: 0.05528,
+        s: 0.81452,
+        l: 0.48627,
+        a: 1.0,
+    };
+
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     pub const ROW_ACTIVE: Hsla = Hsla {
         h: 0.0,
@@ -449,6 +460,14 @@ mod tests {
     fn menu_list_paints_the_reference_dropdown_fill() {
         assert_eq!(hsla_to_rgb(color::MENU_LIST), (27, 29, 34));
         assert_eq!(hsla_to_rgb(color::PANEL), (30, 30, 30));
+    }
+
+    /// The tool mark is a different orange from the theme accent, and the layout
+    /// uses each in a different construction, so they must not merge.
+    #[test]
+    fn tool_mark_is_not_the_theme_accent() {
+        assert_eq!(hsla_to_rgb(color::TOOL_MARK), (225, 90, 23));
+        assert_eq!(hsla_to_rgb(color::ACCENT), (242, 142, 66));
     }
 
     /// The badge and destructive tiers are painted translucent over the panel, so
