@@ -666,9 +666,6 @@ pub struct AppState {
     /// The last save failure, shown in the status bar until a save succeeds.
     /// `None` is the resting state the baseline captures.
     pub status_error: Option<String>,
-    /// True while the pointer is over the canvas hitbox (drives the hidden
-    /// OS cursor for the paint tools).
-    pub canvas_hovered: bool,
     /// The live toast stack, oldest first, capped at three.
     pub toasts: Vec<Toast>,
     /// Next toast id.
@@ -978,7 +975,6 @@ impl Default for AppState {
             history: Vec::new(),
             chrome_visible: true,
             status_error: None,
-            canvas_hovered: false,
             toasts: Vec::new(),
             next_toast_id: 1,
             document_name: "Baseline".into(), // i18n-exempt: demo content
@@ -1210,11 +1206,7 @@ impl AppState {
             // the chrome (title, layer rows, thumbnails) would still describe
             // the demo document the empty state does not have.
             if sid.strip_prefix("empty-").is_some() {
-                state.has_document = false;
-                state.layers.clear();
-                state.selected_layers.clear();
-                state.layer_flags.clear();
-                state.document_name = "Untitled".into(); // i18n-exempt: unsaved-document label
+                state = Self::empty();
             }
 
             // chrome-hidden: rail, option bar, dock and status bar hidden
@@ -1229,6 +1221,19 @@ impl AppState {
         }
 
         state
+    }
+
+    /// The fresh-launch state: no document, and none of the demo layer
+    /// projection that [`Default::default`] carries for the capture fixtures.
+    pub(crate) fn empty() -> Self {
+        Self {
+            has_document: false,
+            layers: Vec::new(),
+            selected_layers: Vec::new(),
+            layer_flags: Vec::new(),
+            document_name: "Untitled".into(), // i18n-exempt: unsaved-document label
+            ..Default::default()
+        }
     }
 
     /// Move the row `from_id` so it sits at `to_id`'s current index.

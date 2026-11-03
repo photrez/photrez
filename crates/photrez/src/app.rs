@@ -752,7 +752,11 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Self {
         let shot_id = crate::shot::active();
-        let mut state = AppState::seeded(shot_id);
+        let mut state = if shot_id.is_none() {
+            AppState::empty()
+        } else {
+            AppState::seeded(shot_id)
+        };
         // A `--shot` launch seeds the demo document without a session, so the
         // tab strip's projection from real sessions would be empty while the
         // document is on screen. The captured shell has one open document, so

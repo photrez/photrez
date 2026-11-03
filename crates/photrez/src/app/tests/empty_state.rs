@@ -16,6 +16,32 @@ fn show_empty_workspace(app: &Entity<App>, cx: &mut gpui_kit::App) {
     });
 }
 
+#[gpui_kit::test]
+fn fresh_start_without_open_path_mounts_empty_workspace(cx: &mut gpui_kit::TestAppContext) {
+    let (window, content) = mount_app(cx, None, None);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+
+        {
+            let state = content.read(cx).state_for_test();
+            let state = state.read(cx);
+            assert!(!state.has_document, "a fresh launch has no document");
+            assert_ne!(state.document_name, "Baseline");
+            assert!(
+                state.layers.is_empty(),
+                "a fresh launch has no layer projection"
+            );
+        }
+
+        let bounds = window.find("empty-open-image").bounds();
+        assert!(
+            f32::from(bounds.size.width) > 0.0 && f32::from(bounds.size.height) > 0.0,
+            "the production open-image action is mounted"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// The card's Quick Preset tiles create the document the tile names, at the
 /// size printed under its label.
 #[gpui_kit::test]

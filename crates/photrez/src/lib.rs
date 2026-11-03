@@ -23,7 +23,6 @@ pub mod i18n;
 pub mod icons;
 pub mod input;
 pub mod palette;
-pub(crate) mod platform;
 pub mod render;
 pub mod services;
 pub mod shot;

@@ -261,26 +261,7 @@ impl App {
             }
             state.selection_drag = None;
         });
-        self.sync_canvas_cursor(cx);
         cx.notify();
-    }
-
-    /// Apply the paint-tool cursor policy to the OS cursor: the canvas
-    /// hides the pointer under the brush/eraser ring and restores it elsewhere.
-    fn sync_canvas_cursor(&self, cx: &Context<Self>) {
-        let (hovered, tool) = {
-            let state = self.state.read(cx);
-            (state.canvas_hovered, state.active_tool)
-        };
-        let hide = hovered && matches!(tool, ToolId::Brush | ToolId::Eraser);
-        crate::platform::set_brush_cursor_hidden(hide);
-    }
-
-    /// Track canvas hover for the cursor policy.
-    pub(crate) fn set_canvas_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        self.state
-            .update(cx, |state, _| state.canvas_hovered = hovered);
-        self.sync_canvas_cursor(cx);
     }
 
     /// Drop the platform pointer capture and the shared slot (lost window).
@@ -524,12 +505,6 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Win32 re-arms the window cursor on every WM_SETCURSOR (mouse move),
-        // so the hidden paint-tool cursor is re-applied for each move.
-        let tool = self.state.read(cx).active_tool;
-        if matches!(tool, ToolId::Brush | ToolId::Eraser) {
-            crate::platform::set_brush_cursor_hidden(true);
-        }
         if self.update_pan(event, cx) {
             return;
         }

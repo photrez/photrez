@@ -559,11 +559,6 @@ fn canvas_hitbox(
                 app.canvas_scroll(event, cx)
             }),
         )
-        .on_hover(
-            cx.listener(|app: &mut crate::app::App, hovered: &bool, _window, cx| {
-                app.set_canvas_hovered(*hovered, cx);
-            }),
-        )
         .on_drop::<crate::app::cross_doc::LayerDragPayload>({
             let drop_bounds = Rc::clone(&bounds);
             cx.listener(

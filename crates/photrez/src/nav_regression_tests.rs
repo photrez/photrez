@@ -382,7 +382,13 @@ fn dock_columns_and_navigator_match_mounted_geometry(cx: &mut TestAppContext) {
 /// Every rail tool must select its matching option bar, with no other bar mounted.
 #[gpui_kit::test]
 fn each_tool_selects_its_option_bar(cx: &mut TestAppContext) {
-    let (handle, content) = open_app(cx);
+    // The option bar is a document affordance: a launch that opens nothing
+    // shows the empty workspace instead, so this mount opens a project.
+    let paths = StartupTestFiles::new();
+    let source = paths.file("tools.ptz");
+    let io = Arc::new(StartupFileIo::default());
+    io.insert(&source, startup_archive("doc-tools", 1, 1, false, 0));
+    let (handle, content) = open_app_with(cx, Some((source, io)));
     cx.update_window(handle.into(), |_, window, cx| {
         let state = content.read(cx).state_for_test().clone();
         state.update(cx, |s, _| s.active_tool = ToolId::Text);
