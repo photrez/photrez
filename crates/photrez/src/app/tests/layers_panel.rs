@@ -804,6 +804,7 @@ fn rename_button_opens_a_focused_prompt_and_enter_commits(cx: &mut gpui_kit::Tes
         window.render_frame(cx);
         window.click("layer-rename-0", cx);
         window.render_frame(cx);
+        assert!(window.find("rename-value").bounds().size.width > gpui_kit::px(0.0));
         assert_eq!(
             content.read(cx).rename_content_for_test(cx).as_deref(),
             Some("Raster")

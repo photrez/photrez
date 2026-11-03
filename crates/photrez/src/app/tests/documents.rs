@@ -1,6 +1,6 @@
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
+use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
 
 pub(super) fn open_second_document(
     app: &mut App,
@@ -1763,6 +1763,54 @@ fn document_tab_presentation_and_activation_latency(cx: &mut gpui_kit::TestAppCo
             "S055_TAB_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn document_tab_drag_ghost_renders_during_active_drag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test()
+                .update(cx, |state, _| state.seed_shot_tab());
+            app.create_document(200, 150, cx).expect("blank document");
+        });
+        content.update(cx, |app, cx| {
+            app.state_for_test()
+                .update(cx, |state, _| state.seed_shot_tab());
+        });
+        window.render_frame(cx);
+        let start = window.find("document-tab-shot-document").bounds().center();
+        let moved = gpui_kit::point(start.x + gpui_kit::px(20.0), start.y);
+        let _ = window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let _ = window.dispatch_event(
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(cx.has_active_drag(), "the document-tab drag is active");
+        let _ = window.dispatch_event(
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
     })
     .expect("test window remains open");
 }

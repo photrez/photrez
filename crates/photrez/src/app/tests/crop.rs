@@ -574,6 +574,11 @@ fn crop_ratio_dropdown_refits_the_pending_frame(cx: &mut gpui_kit::TestAppContex
             content.read(cx).state_for_test().read(cx).crop_ratio_open,
             "the ratio list expands"
         );
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).crop_mode,
+            crate::crop_aspect::CropMode::Free
+        );
+        let _active_row = window.find("crop-ratio-free");
         window.click("crop-ratio-preset-0", cx);
         window.render_frame(cx);
         let (w, h, _) = pixels(&content, cx);
