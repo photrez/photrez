@@ -75,6 +75,12 @@
 # already resolves to something else in this module, and a moved method another module
 # calls has to be `pub(super)`.
 #
+# An eighth split paid: `app.rs` went from 1805 lines to 653 plus four modules under
+# `app/` (overlay, startup, test accessors, layer projection). Same shape as the seventh:
+# inherent `App` methods in their own `impl App` blocks, so no call site changed, 32
+# methods on both sides, nothing missing by token comparison, and the `#[cfg(test)]`
+# attributes travelled with the accessors so both build shapes still compile.
+#
 # The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
@@ -86,7 +92,6 @@
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
 1442 crates/photrez/src/app/transform_move.rs
-1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
