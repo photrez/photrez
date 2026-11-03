@@ -76,6 +76,11 @@ fn print_help() {
          \n\
          USAGE:\n\
          \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>]\n\
+         \x20 xtask capture --window <title|:pid> --out <png> [--maximize]\n\
+         \x20              [--expect-locale <tag>]\n\
+         \x20     Attach to a window that is already running. Refuses unless that\n\
+         \x20     app renders the English catalog; --expect-locale states the\n\
+         \x20     catalog a deliberately translated surface is meant to show.\n\
          \x20 xtask dev [-- <app args>]\n\
          \x20     Build and run the app with the gnu linker directory on the\n\
          \x20     child PATH (the link chain needs it for ld's DLLs and for\n\
@@ -85,6 +90,11 @@ fn print_help() {
          \x20              [--report <dir>] [--mask-metrics] [--accept-ink-residual]\n\
          \x20 xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
          \x20 xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]\n\
+         \x20 xtask parity band-diff --a <png> --b <png> [--threshold <f>]\n\
+         \x20              [--band-height <px>] [--max-shift <px>] [--tiers <n>]\n\
+         \x20              [--max-band <pct>] [--out <json>]\n\
+         \x20     Per-band identity: what differs, whether a shift explains it,\n\
+         \x20     and which exact colours each side is made of.\n\
          \n\
          Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-parity."
     );
@@ -452,11 +462,24 @@ fn cmd_parity_diff(args: &[String]) -> i32 {
 
 /// Attach to an already-running window and capture its client area.
 #[cfg(windows)]
-fn capture_window_mode(target: &str, out: Option<&str>, maximize: bool) -> i32 {
+fn capture_window_mode(
+    target: &str,
+    out: Option<&str>,
+    maximize: bool,
+    expect_locale: Option<&str>,
+) -> i32 {
     let Some(out) = out else {
         eprintln!("xtask capture --window: --out <png> is required");
         return 2;
     };
+    let (catalog, source) = match capture::require_attached_locale(expect_locale) {
+        Ok(found) => found,
+        Err(e) => {
+            eprintln!("xtask capture --window: {e}");
+            return 1;
+        }
+    };
+    println!("locale: {catalog} ({})", source.label());
     let spec = capture::window::WindowSpec {
         target: target.to_string(),
         maximize,
@@ -478,14 +501,24 @@ fn capture_window_mode(target: &str, out: Option<&str>, maximize: bool) -> i32 {
 /// The window-attach path reads the desktop through the Windows graphics API,
 /// so on other systems the option is refused instead of silently doing nothing.
 #[cfg(not(windows))]
-fn capture_window_mode(_target: &str, _out: Option<&str>, _maximize: bool) -> i32 {
+fn capture_window_mode(
+    _target: &str,
+    _out: Option<&str>,
+    _maximize: bool,
+    _expect_locale: Option<&str>,
+) -> i32 {
     eprintln!("xtask capture --window attaches to a desktop window through the Windows graphics API; it is only supported on Windows");
     2
 }
 
 fn cmd_capture(args: &[String]) -> i32 {
     if let Some(target) = flag(args, "--window") {
-        return capture_window_mode(target, flag(args, "--out"), has_flag(args, "--maximize"));
+        return capture_window_mode(
+            target,
+            flag(args, "--out"),
+            has_flag(args, "--maximize"),
+            flag(args, "--expect-locale"),
+        );
     }
     let Some(out) = flag(args, "--out") else {
         eprintln!("xtask capture: --out <png> is required");

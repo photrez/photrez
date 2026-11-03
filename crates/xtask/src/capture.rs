@@ -153,6 +153,135 @@ fn locale_request_ok(requested: Option<&str>) -> Result<(), String> {
 pub fn require_english_locale() -> Result<(), String> {
     locale_request_ok(std::env::var(LOCALE_ENV).ok().as_deref())
 }
+
+/// Where an attached app's rendered language came from, so a refusal names the lever that
+/// controls it. The window-attach path does not launch the app, so it cannot set anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocaleSource {
+    /// The `PHOTREZ_LOCALE` override the app read at launch.
+    Environment,
+    /// The `photrez.locale` value in the app's settings file, which the Settings dialog writes
+    /// on every change, so it is the current state of a running app.
+    StoredSetting,
+    /// A POSIX `LC_ALL`, `LC_MESSAGES` or `LANG` tag.
+    OsLanguage,
+    /// Nothing above named a language, which is the usual Windows path.
+    EnglishFallback,
+}
+
+impl LocaleSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Environment => "the PHOTREZ_LOCALE override",
+            Self::StoredSetting => "the stored preference in the app's settings file",
+            Self::OsLanguage => "the OS language tag",
+            Self::EnglishFallback => "no language named anywhere",
+        }
+    }
+}
+
+/// The setting the app persists its locale under (`photrez::i18n::LOCALE_KEY`).
+const LOCALE_SETTING_KEY: &str = "photrez.locale";
+
+/// The catalog codes that are not English. `photrez::i18n::Locale::normalize` renders every
+/// other language from the English catalog, so a tag outside this list still captures English.
+const NON_ENGLISH_CATALOGS: [&str; 1] = ["id"];
+
+/// The language subtag of a POSIX-style tag, the same way the app reads it.
+fn language_of(tag: &str) -> String {
+    tag.split(['-', '_', '.'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
+
+/// The catalog a tag actually selects: English unless it names one of the other catalogs.
+fn catalog_of(tag: &str) -> String {
+    let language = language_of(tag);
+    if NON_ENGLISH_CATALOGS.contains(&language.as_str()) {
+        language
+    } else {
+        CAPTURE_LOCALE.to_string()
+    }
+}
+
+/// Pure core of the attach guard: the app's own resolution order (override, then stored
+/// preference, then OS language) and its own catalog rule, so the answer is what the running
+/// app renders rather than what any one input claims. Blank means unset.
+fn attached_catalog(
+    requested: Option<&str>,
+    stored: Option<&str>,
+    os_tag: &str,
+) -> (String, LocaleSource) {
+    let named = |tag: &str| !tag.trim().is_empty();
+    if let Some(tag) = requested.filter(|tag| named(tag)) {
+        (catalog_of(tag), LocaleSource::Environment)
+    } else if let Some(tag) = stored.filter(|tag| named(tag)) {
+        (catalog_of(tag), LocaleSource::StoredSetting)
+    } else if named(os_tag) {
+        (catalog_of(os_tag), LocaleSource::OsLanguage)
+    } else {
+        (CAPTURE_LOCALE.to_string(), LocaleSource::EnglishFallback)
+    }
+}
+
+/// The app's settings file, where its stored locale lives. `None` when the environment names no
+/// config directory, which is the same state the app reads as "defaults only".
+fn settings_path() -> Option<std::path::PathBuf> {
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+            })
+    }?;
+    Some(base.join("photrez").join("settings.json"))
+}
+
+fn stored_locale() -> Option<String> {
+    let text = std::fs::read_to_string(settings_path()?).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()?
+        .get(LOCALE_SETTING_KEY)?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// The POSIX language tags the app reads, in its documented order. Windows sets none of them,
+/// which is why the fallback arm is the common case there.
+fn os_language_tag() -> String {
+    std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_MESSAGES"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_default()
+}
+
+/// What a window-attach capture is about to see. `expected` is the operator's claim about the
+/// surface, used by the deliberately non-English states; with nothing expected, parity requires
+/// English. The refusal names the input it read, because that is the thing to change.
+pub fn require_attached_locale(expected: Option<&str>) -> Result<(String, LocaleSource), String> {
+    let (catalog, source) = attached_catalog(
+        std::env::var(LOCALE_ENV).ok().as_deref(),
+        stored_locale().as_deref(),
+        &os_language_tag(),
+    );
+    let wanted = match expected {
+        None => CAPTURE_LOCALE.to_string(),
+        Some(tag) => catalog_of(tag),
+    };
+    if wanted != catalog {
+        return Err(format!(
+            "the attached app renders the `{catalog}` catalog, decided by {}, while this \
+             capture expects `{wanted}`. Re-launch the app in `{wanted}`, or pass \
+             `--expect-locale {catalog}` to capture what is on screen.",
+            source.label()
+        ));
+    }
+    Ok((catalog, source))
+}
+
 // ---------------------------------------------------------------------------
 // capture (Windows-only)
 // ---------------------------------------------------------------------------

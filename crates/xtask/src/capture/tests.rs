@@ -1,7 +1,9 @@
 #[cfg(windows)]
 use super::assert_capture_environment;
+use super::attached_catalog;
 use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
+use super::LocaleSource;
 
 /// 2x2 bottom-up BGRA buffer:
 ///
@@ -50,6 +52,41 @@ fn locale_request_accepts_only_english() {
     let err = locale_request_ok(Some("id")).expect_err("id must be refused");
     assert!(err.contains("PHOTREZ_LOCALE"), "names the variable: {err}");
     assert!(err.contains("id"), "names the value: {err}");
+}
+
+/// The attach guard follows the app's own order: override, then stored preference, then OS
+/// language, then the English fallback. A blank value is unset, not a choice.
+#[test]
+fn attached_catalog_follows_the_apps_resolution_order() {
+    assert_eq!(
+        attached_catalog(Some("id"), Some("en"), "fr_FR"),
+        ("id".to_string(), LocaleSource::Environment)
+    );
+    assert_eq!(
+        attached_catalog(None, Some("id"), "fr_FR"),
+        ("id".to_string(), LocaleSource::StoredSetting)
+    );
+    assert_eq!(
+        attached_catalog(Some("   "), Some("id"), ""),
+        ("id".to_string(), LocaleSource::StoredSetting)
+    );
+    assert_eq!(
+        attached_catalog(None, None, "id_ID.UTF-8"),
+        ("id".to_string(), LocaleSource::OsLanguage)
+    );
+    assert_eq!(
+        attached_catalog(None, None, ""),
+        ("en".to_string(), LocaleSource::EnglishFallback)
+    );
+}
+
+/// A language the app has no catalog for renders English, so it must not be refused: the guard
+/// asks what the app shows, not what the machine claims.
+#[test]
+fn a_language_without_a_catalog_captures_english() {
+    assert_eq!(attached_catalog(None, None, "de_DE@euro").0, "en");
+    assert_eq!(attached_catalog(Some("EN"), None, "id").0, "en");
+    assert_eq!(attached_catalog(None, Some("en"), "id").0, "en");
 }
 
 #[test]
