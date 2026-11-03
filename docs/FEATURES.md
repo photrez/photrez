@@ -39,7 +39,7 @@ because it has not been built yet.
 
 | Status | Capability |
 | --- | --- |
-| Shipped | Layers panel: add, delete, double-click rename, duplicate, merge down, merge selected, flatten, stamp visible, reorder, visibility eye, lock toggle, opacity, blend mode and live row thumbnails. |
+| Shipped | Layers panel: add, delete, double-click rename, duplicate, merge down, merge selected, flatten, stamp visible, reorder, visibility eye, lock toggle with a badge on the locked row, opacity, blend mode and live row thumbnails. A dragged row carries its icon tile. |
 | Shipped | Twelve blend modes (normal, multiply, screen, overlay, darken, lighten, colour dodge/burn, soft/hard light, difference, exclusion) composite identically on screen, save, print and export. |
 | Shipped | Multi-layer selection by Ctrl-toggle and Shift-range in the panel or by marquee drag on empty canvas; batch delete/duplicate/merge and simultaneous canvas drag. |
 | Shipped | Background-layer rules: pinned to the bottom, position/rotation locked, delete refused, renaming converts it to a normal layer. |
@@ -92,9 +92,10 @@ because it has not been built yet.
 | Status | Capability |
 | --- | --- |
 | Shipped | Print dialog and inspector (`Ctrl+P`): paper preview with dashed page, Printer Setup / Color Management / Position and Size sections, 10-400% scale track and Show Paper White option. |
-| Shipped | On Windows the composite is sent through the platform print service using the system default printer and paper settings. |
+| Shipped | On Windows the composite is sent through the platform print service to the printer chosen in the dialog, with the copies, orientation and paper size selected there. |
+| Partial | The printer list comes from the system spooler, and a failed enumeration is reported with its reason instead of an empty list. Paper sizes come from a built-in table, and margins are typed rather than read from the driver. |
 | Not implemented | Printing on macOS and Linux returns a typed unsupported-platform error instead of spooling. |
-| Not implemented | Printer selection, print-properties UI and margin queries inside the dialog. |
+| Not implemented | Print-properties (device-mode) UI, the selected printer's own paper list, and its hardware minimum margins. |
 
 ## Shell and input
 
@@ -102,8 +103,8 @@ because it has not been built yet.
 | --- | --- |
 | Shipped | Title bar and eight top-level menus that open at fixed origins, dismiss on outside click, and enable/disable rows from live document state; the canvas and layer context menus follow the same gates. |
 | Shipped | Right dock with Properties, Adjustments, Layers and History panels plus the Navigator, filling the window at any size. |
-| Shipped | Status bar reads canvas size, zoom percent, active tool, hint, selected layer and frame timing. |
-| Shipped | Tool option bars reflow against their real width and fold secondary controls into an overflow panel when the window narrows. |
+| Shipped | Status bar reads canvas size, zoom percent, active tool, hint, selected layer and frame timing, and marks the autosave state with its colour dot beside the words. |
+| Partial | Tool option bars reflow against their real width. Some bars show a trigger for an overflow panel. The Move, Transform and Text panels are not ported yet, so those triggers open no controls. |
 | Shipped | Document tabs: create, switch, reorder, and close through a Save/Discard/Cancel prompt when dirty. |
 | Shipped | Tooltips on controls and a toast host for warnings such as locked or missing layers. |
 | Shipped | The window reopens at the remembered position, size and maximized state; a record that no longer lands on a connected display falls back to the centered default. |
