@@ -7,31 +7,106 @@ pub(super) use text::*;
 
 // ── Move-variant parts ────────────────────────────────────────────────────────
 
-/// A non-shrinking, centred row (the shared inner gap) around the X and Y
+/// One Move-bar transform cell. With a live layer it shows the layer's own
+/// number: editable for X/Y/R, read-only for the size pair. A locked layer
+/// keeps the reference's disabled look, and no layer at all falls back to the
+/// inert placeholder.
+#[allow(clippy::too_many_arguments)] // one cell: its box, value and edit session stay positional
+pub(super) fn transform_cell(
+    id: &'static str,
+    label: &'static str,
+    width: f32,
+    value: Option<f64>,
+    locked: bool,
+    suffix: &'static str,
+    editing: Option<String>,
+    focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+) -> gpui_kit::AnyElement {
+    match value {
+        Some(value) if !locked => transform_field(
+            id,
+            label,
+            width,
+            super::variants::selection_field_value(value),
+            suffix,
+            editing,
+            focus,
+            cx,
+        )
+        .into_any_element(),
+        Some(value) => dimmed(editable_field_text(
+            id,
+            label,
+            width,
+            super::variants::selection_field_value(value),
+            suffix,
+        ))
+        .into_any_element(),
+        None => dimmed(editable_field(id, label, width, "0", suffix)).into_any_element(),
+    }
+}
+
+/// A non-shrinking, centred row (the shared inner gap) around the live X and Y
 /// fields.
-///
-/// Both are identity-transform zeros in the capture: X=0, Y=0.
-pub(super) fn position_group() -> impl IntoElement {
+pub(super) fn position_group(
+    readout: Option<crate::state::LayerTransformReadout>,
+    editing: impl Fn(&'static str) -> Option<String>,
+    focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let locked = readout.is_some_and(|readout| readout.locked);
     h_flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(ITEM_GAP))
-        .child(editable_field("num-x", "X", FIELD_W_XY, "0", "px")) // i18n-exempt: technical token (field label glyph)
-        .child(editable_field("num-y", "Y", FIELD_W_XY, "0", "px")) // i18n-exempt: technical token (field label glyph)
+        .child(transform_cell(
+            "num-x",
+            "X", // i18n-exempt: technical token (field label glyph)
+            FIELD_W_XY,
+            readout.map(|readout| readout.x),
+            locked,
+            "px", // i18n-exempt: technical token (field label glyph)
+            editing("num-x"),
+            focus.clone(),
+            cx,
+        ))
+        .child(transform_cell(
+            "num-y",
+            "Y", // i18n-exempt: technical token (field label glyph)
+            FIELD_W_XY,
+            readout.map(|readout| readout.y),
+            locked,
+            "px", // i18n-exempt: technical token (field label glyph)
+            editing("num-y"),
+            focus,
+            cx,
+        ))
 }
 
 /// A non-shrinking, centred row (the shared inner gap) around the W and H
-/// fields.
-///
-/// The capture fixture builds an 800x600 document, so the background
-/// layer's scaled size reads 800 and 600 — the two values in the baseline.
-pub(super) fn size_group() -> impl IntoElement {
+/// fields. The reference keeps these two read-only: they are the layer's
+/// scaled frame, and the size changes by dragging the frame, not by typing.
+pub(super) fn size_group(readout: Option<crate::state::LayerTransformReadout>) -> impl IntoElement {
+    let size = |value: Option<f64>| {
+        value.map_or_else(|| "0".to_string(), |value| format!("{}", value.round()))
+    };
     h_flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(ITEM_GAP))
-        .child(num_field("W", FIELD_W_WH, "800", "px")) // i18n-exempt: technical token (field label glyph)
-        .child(num_field("H", FIELD_W_WH, "600", "px")) // i18n-exempt: technical token (field label glyph)
+        .child(num_field(
+            "W",
+            FIELD_W_WH,
+            size(readout.map(|r| r.width)),
+            "px",
+        )) // i18n-exempt: technical token (field label glyph)
+        .child(num_field(
+            "H",
+            FIELD_W_WH,
+            size(readout.map(|r| r.height)),
+            "px",
+        )) // i18n-exempt: technical token (field label glyph)
 }
 
 /// The brush size slider, gated behind `PAINT_SIZE_SLIDER`.
@@ -79,7 +154,7 @@ pub(super) fn hex_badge() -> impl IntoElement {
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(color::WHITE)
-        .child(value_text("#E15A17"))
+        .child(value_text("#E15A17".to_string()))
         .child(
             Icon::default()
                 .data(icons::with_stroke(icons::COPY, 2.0))
@@ -1228,6 +1303,7 @@ pub(super) fn radius_field(
 /// whose commit rewrites that one dimension through core history.
 // Display and edit inputs stay explicit to preserve per-field selection behavior.
 #[allow(clippy::too_many_arguments)]
+/// Opens one of the selection bar's five fields on click.
 pub(super) fn selection_field(
     id: &'static str,
     label: &str,
@@ -1236,6 +1312,64 @@ pub(super) fn selection_field(
     suffix: &'static str,
     editing: Option<String>,
     focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    numeric_field(
+        id,
+        label,
+        width,
+        value,
+        suffix,
+        editing,
+        focus,
+        crate::app::App::begin_selection_field,
+        cx,
+    )
+}
+
+/// One of the Move bar's editable transform fields (X, Y, R).
+#[allow(clippy::too_many_arguments)] // the field box, its value and its edit session stay positional
+pub(super) fn transform_field(
+    id: &'static str,
+    label: &str,
+    width: f32,
+    value: String,
+    suffix: &'static str,
+    editing: Option<String>,
+    focus: Option<gpui_kit::FocusHandle>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    numeric_field(
+        id,
+        label,
+        width,
+        value,
+        suffix,
+        editing,
+        focus,
+        crate::app::App::begin_transform_field,
+        cx,
+    )
+}
+
+/// The shared live numeric field: click opens the edit session `open` seeds,
+/// the ring cue marks the active one, and the caret run stands in for the
+/// buffer while typing.
+#[allow(clippy::too_many_arguments)] // geometry, value, session and opener of one box
+pub(super) fn numeric_field(
+    id: &'static str,
+    label: &str,
+    width: f32,
+    value: String,
+    suffix: &'static str,
+    editing: Option<String>,
+    focus: Option<gpui_kit::FocusHandle>,
+    open: fn(
+        &mut crate::app::App,
+        &'static str,
+        &mut gpui_kit::Window,
+        &mut gpui_kit::Context<crate::app::App>,
+    ),
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let active = editing.is_some();
@@ -1262,7 +1396,7 @@ pub(super) fn selection_field(
         .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
-                app.begin_selection_field(id, window, cx);
+                open(app, id, window, cx);
             }),
         )
         .child(dim_span(label))

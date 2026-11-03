@@ -83,6 +83,7 @@ pub(crate) fn render(
     can_undo: bool,
     can_redo: bool,
     committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
     // One read of the live state; every field the shell branches on is `Copy`.
@@ -221,6 +222,7 @@ pub(crate) fn render(
                                                 - RAIL_W
                                                 - if dock_open { dock_w } else { 0.0 },
                                             committed_selection,
+                                            transform_readout,
                                             cx,
                                         )),
                                     )

@@ -1754,6 +1754,7 @@ impl Render for App {
         let can_undo = self.can_undo_document(cx);
         let can_redo = self.can_redo_document(cx);
         let committed_selection = self.committed_selection();
+        let transform_readout = self.transform_readout(cx);
         // The demo canvas paints only while a document is on screen; after
         // the last tab closes the workspace is empty, so no canvas may leak
         // into the navigator, status bar or canvas slot.
@@ -1791,6 +1792,7 @@ impl Render for App {
             can_undo,
             can_redo,
             committed_selection,
+            transform_readout,
             cx,
         )
     }

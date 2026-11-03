@@ -745,3 +745,110 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
     })
     .expect("test window remains open");
 }
+
+/// What the Move bar's transform cells are showing: the app's own readout for
+/// the layer on screen.
+fn move_bar_readout(
+    content: &Entity<App>,
+    cx: &gpui_kit::App,
+) -> crate::state::LayerTransformReadout {
+    content
+        .read(cx)
+        .transform_readout(cx)
+        .expect("a layer is on screen")
+}
+
+/// The Move bar's transform cells read and edit the layer the canvas is
+/// holding: X and R submit, and Escape puts back the value the edit started
+/// from, exactly as the reference's fields do.
+#[gpui_kit::test]
+fn the_move_bar_transform_fields_describe_and_edit_the_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        let resting = move_bar_readout(&content, cx);
+        assert_eq!(
+            (resting.x, resting.y, resting.width, resting.height),
+            (0.0, 0.0, 2.0, 1.0),
+            "the readout is the fixture's own 2x1 layer, not a painted constant"
+        );
+
+        window.click("num-x", cx);
+        window.press("4", cx);
+        window.press("2", cx);
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let moved = move_bar_readout(&content, cx);
+        assert_eq!(moved.x, 42.0, "the X field submits the position");
+        assert_eq!(
+            (moved.width, moved.height),
+            (2.0, 1.0),
+            "an X edit leaves the frame size alone"
+        );
+
+        window.click("num-y", cx);
+        window.render_frame(cx);
+        window.press("9", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            move_bar_readout(&content, cx).y,
+            9.0,
+            "the field commits as the digits land"
+        );
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            move_bar_readout(&content, cx).y,
+            0.0,
+            "Escape restores the value the edit started from"
+        );
+
+        window.click("num-r", cx);
+        window.press("3", cx);
+        window.press("0", cx);
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let turned = move_bar_readout(&content, cx);
+        assert_eq!(turned.rotation, 30.0, "the R field submits the rotation");
+        assert_eq!(turned.x, 42.0, "a rotation edit leaves the position alone");
+    })
+    .expect("test window remains open");
+}
+
+/// A locked layer keeps the reference's disabled fields: the click opens no
+/// edit and the value cannot move.
+#[gpui_kit::test]
+fn a_locked_layer_keeps_the_move_bar_transform_fields_inert(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        content.update(cx, |app, cx| app.add_empty_layer(cx));
+        let core_id = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the new layer is selected")
+            .1
+            .id;
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+        window.render_frame(cx);
+        assert!(
+            move_bar_readout(&content, cx).locked,
+            "the readout carries the layer's own lock flag"
+        );
+
+        window.click("num-x", cx);
+        window.press("4", cx);
+        window.press("2", cx);
+        window.press("enter", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            move_bar_readout(&content, cx).x,
+            0.0,
+            "a locked layer answers no transform edit"
+        );
+    })
+    .expect("test window remains open");
+}

@@ -84,6 +84,29 @@ impl App {
         self.begin_num_field(id, value, window, cx);
     }
 
+    /// Opens one of the Move bar's editable transform fields. A locked layer
+    /// keeps the reference's disabled state, so the click does nothing.
+    pub(crate) fn begin_transform_field(
+        &mut self,
+        id: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(readout) = self.transform_readout(cx) else {
+            return;
+        };
+        if readout.locked {
+            return;
+        }
+        let value = match id {
+            "num-x" => readout.x,
+            "num-y" => readout.y,
+            "num-r" => readout.rotation,
+            _ => return,
+        };
+        self.begin_num_field(id, value, window, cx);
+    }
+
     pub(crate) fn begin_text_stroke_width_field(
         &mut self,
         window: &mut Window,
@@ -225,6 +248,7 @@ impl App {
             "sel-x" | "sel-y" | "sel-w" | "sel-h" | "sel-r" => {
                 self.set_selection_field(id, value, cx)
             }
+            "num-x" | "num-y" | "num-r" => self.set_transform_field(id, value, cx),
             "opt-brush-size" => {
                 self.set_brush_value(crate::app::tool_settings::BrushField::Size, value, cx);
                 Ok(())

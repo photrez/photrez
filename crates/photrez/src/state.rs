@@ -159,6 +159,19 @@ pub struct LayerFlags {
     pub is_background: bool,
 }
 
+/// What the Move bar's five transform fields show: the selected layer's
+/// position and rotation, plus its size in document pixels. The size is the
+/// scaled frame, so a layer at half scale reads half its source width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayerTransformReadout {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub rotation: f64,
+    pub locked: bool,
+}
+
 /// One open-document tab in the strip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TabRow {

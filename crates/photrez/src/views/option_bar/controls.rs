@@ -133,6 +133,17 @@ pub(super) fn editable_field(
     value: &'static str,
     suffix: &'static str,
 ) -> impl IntoElement {
+    editable_field_text(id, label, width, value.to_string(), suffix)
+}
+
+/// The inert field shell behind [`editable_field`]: same box, live value text.
+pub(super) fn editable_field_text(
+    id: &'static str,
+    label: &str,
+    width: f32,
+    value: String,
+    suffix: &'static str,
+) -> impl IntoElement {
     div()
         .id(id)
         .test_support()
@@ -156,7 +167,7 @@ pub(super) fn editable_field(
 pub(super) fn num_field(
     label: &str,
     width: f32,
-    value: &'static str,
+    value: String,
     suffix: &'static str,
 ) -> impl IntoElement {
     h_flex()
@@ -175,7 +186,7 @@ pub(super) fn num_field(
 }
 
 /// Value run: 11px monospace, semibold, white.
-pub(super) fn value_text(value: &'static str) -> impl IntoElement {
+pub(super) fn value_text(value: String) -> impl IntoElement {
     div()
         .font_family(ui::FONT_MONO)
         .text_size(px(TEXT_SM))

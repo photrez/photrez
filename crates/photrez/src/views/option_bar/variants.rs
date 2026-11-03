@@ -8,11 +8,12 @@ pub(super) fn fade_in_row(
     state: &gpui_kit::Entity<AppState>,
     active_tool: &ToolId,
     committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let row = h_flex().items_center().gap(px(GAP));
     let row = match active_tool {
-        ToolId::Move => move_items(state, row, cx),
+        ToolId::Move => move_items(state, row, readout, cx),
         ToolId::Selection => selection_items(state, row, committed_selection, cx),
         ToolId::Crop => crop_items(state, row, cx),
         ToolId::Brush => brush_items(state, row, false, cx),
@@ -41,24 +42,35 @@ pub(super) fn fade_in_row(
 
 /// The `Move` variant.
 ///
-/// State assumptions: a layer is selected (the fields show identity
-/// transform on the 800x600 background), nothing is hovered, and
+/// The transform cells read the layer the canvas is holding, so the numbers
+/// describe the same layer the frame, the align group and Reset act on.
+/// State assumptions for the rest of the bar: nothing is hovered, and
 /// move-auto-select is on.
-fn move_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::app::App>) -> Div {
-    let (snap_focus, auto_select_focus, transform_focus, more_open, selected_locked) = {
+fn move_items(
+    state: &gpui_kit::Entity<AppState>,
+    row: Div,
+    readout: Option<crate::state::LayerTransformReadout>,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (snap_focus, auto_select_focus, transform_focus, more_open) = {
         let s = state.read(cx);
         (
             s.move_snap_focus.clone(),
             s.move_auto_select_focus.clone(),
             s.move_transform_focus.clone(),
             s.more_open,
-            s.layers
-                .iter()
-                .position(|row| row.id == s.selected_layer)
-                .and_then(|index| s.layer_flags.get(index))
-                .is_some_and(|flags| flags.locked),
         )
     };
+    let editing = |id: &'static str| {
+        state
+            .read(cx)
+            .num_field
+            .as_ref()
+            .filter(|field| field.id == id)
+            .map(|field| field.buffer.clone())
+    };
+    let num_focus = state.read(cx).num_field_focus.clone();
+    let locked = readout.is_some_and(|readout| readout.locked);
     row.child(tool_pill(
         icons::with_stroke(icons::CURSOR, STROKE_PILL),
         t(PILL_LABEL_MOVE_KEY),
@@ -111,14 +123,24 @@ fn move_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::
         ),
     ))
     .child(divider())
-    .child(position_group())
-    .child(size_group())
-    .child(editable_field("num-r", "R", FIELD_W_R, "0", "\u{b0}")) // i18n-exempt: technical token (field label glyph)
+    .child(position_group(readout, &editing, num_focus.clone(), cx))
+    .child(size_group(readout))
+    .child(transform_cell(
+        "num-r",
+        "R", // i18n-exempt: technical token (field label glyph)
+        FIELD_W_R,
+        readout.map(|readout| readout.rotation),
+        locked,
+        "\u{b0}", // i18n-exempt: technical token (field label glyph)
+        editing("num-r"),
+        num_focus,
+        cx,
+    ))
     .when(show_main_controls(), |el| {
-        el.child(main_controls(selected_locked, cx))
+        el.child(main_controls(locked, cx))
     })
     .when(show_more_dropdown(), |el| {
-        el.child(move_more_dropdown(state, more_open, selected_locked, cx))
+        el.child(move_more_dropdown(state, more_open, locked, cx))
     })
 }
 
@@ -232,7 +254,7 @@ fn overflow_section(caption: Div, body: impl IntoElement, locked: bool) -> Div {
 
 /// `EditableNumField`'s `Math.round(val * 100) / 100` display: two decimals
 /// at most, trailing zeros trimmed.
-fn selection_field_value(value: f64) -> String {
+pub(super) fn selection_field_value(value: f64) -> String {
     let rounded = format!("{value:.2}");
     let trimmed = rounded.trim_end_matches('0').trim_end_matches('.');
     trimmed.to_string()

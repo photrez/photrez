@@ -11,6 +11,7 @@ use crate::app::transform_geometry::{
     apply_resize_handle, apply_rotation_drag, detect_press_handle, document_to_layer_local,
     layer_center, layer_corners, Handle, Point,
 };
+use crate::state::LayerTransformReadout;
 
 use super::App;
 
@@ -115,6 +116,66 @@ pub(crate) struct TransformDragUpdate {
 }
 
 impl App {
+    /// The Move bar's live transform readout: the same layer the transform
+    /// frame, the align group and Reset all act on, so the five numbers always
+    /// describe what the canvas is holding.
+    pub(crate) fn transform_readout(
+        &self,
+        cx: &gpui_kit::App,
+    ) -> Option<crate::state::LayerTransformReadout> {
+        let (_, layer) = self.selected_layer_for_cursor(cx).ok()?;
+        Some(LayerTransformReadout {
+            x: layer.transform.x,
+            y: layer.transform.y,
+            width: layer.width * layer.transform.scale_x,
+            height: layer.height * layer.transform.scale_y,
+            rotation: layer.transform.rotation,
+            locked: layer.locked,
+        })
+    }
+
+    /// Commits one Move-bar transform field. The patch carries the whole
+    /// transform because `TransformLayer` is absolute; the two flip flags stay
+    /// `None` so the layer's mirrored state survives the edit.
+    pub(crate) fn set_transform_field(
+        &mut self,
+        id: &'static str,
+        value: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
+        if layer.locked || !value.is_finite() {
+            return Ok(());
+        }
+        let transform = TransformPatch {
+            x: match id {
+                "num-x" => value,
+                _ => layer.transform.x,
+            },
+            y: match id {
+                "num-y" => value,
+                _ => layer.transform.y,
+            },
+            scale_x: layer.transform.scale_x,
+            scale_y: layer.transform.scale_y,
+            rotation: match id {
+                "num-r" => value,
+                _ => layer.transform.rotation,
+            },
+            flip_h: None,
+            flip_v: None,
+        };
+        self.apply_core_command(
+            &doc_id,
+            Command::TransformLayer {
+                id: layer.id,
+                transform,
+            },
+            true,
+            cx,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn selected_transform_for_test(
         &self,
@@ -1189,7 +1250,7 @@ impl App {
     /// The selected layer regardless of its type, for the transform frame.
     pub(crate) fn selected_layer_for_cursor(
         &self,
-        cx: &Context<Self>,
+        cx: &gpui_kit::App,
     ) -> Result<(String, photrez_core::ptz::content::PtzLayer), String> {
         let doc_id = self
             .active_document

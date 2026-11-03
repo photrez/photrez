@@ -400,6 +400,7 @@ pub fn render(
     state: &gpui_kit::Entity<AppState>,
     width: f32,
     committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     set_bar_width(width);
@@ -416,7 +417,13 @@ pub fn render(
         .bg(color::TOOLBAR)
         .px(px(BAR_PX))
         .font_family(ui::FONT_UI)
-        .child(fade_in_row(state, &active_tool, committed_selection, cx))
+        .child(fade_in_row(
+            state,
+            &active_tool,
+            committed_selection,
+            transform_readout,
+            cx,
+        ))
 }
 
 // ── Crop ─────────────────────────────────────────────────────────────────────
