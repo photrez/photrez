@@ -838,3 +838,42 @@ fn crop_ratio_open_latency(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// The stored comparison image of the crop bar paints two narrow field-filled boxes
+/// near the left that this build's resting capture no longer shows, which could mean a
+/// control was lost at that width. Enumerate the bar at the capture's own width
+/// (1536 CSS) instead of reading the answer back off pixels.
+#[gpui_kit::test]
+fn crop_bar_keeps_every_control_at_the_capture_width(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        window.render_frame(cx);
+
+        let ids = [
+            "crop-ratio",
+            "opt-crop-delete",
+            "opt-crop-fill",
+            "opt-cancel",
+            "opt-apply",
+        ];
+        let missing: Vec<&str> = ids
+            .iter()
+            .copied()
+            .filter(|id| window.try_find(*id).is_none())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "the crop bar dropped controls at the capture width: {missing:?}"
+        );
+        for id in ids {
+            let bounds = window.find(id).bounds();
+            assert!(
+                f32::from(bounds.size.width) > 0.0 && f32::from(bounds.size.height) > 0.0,
+                "{id} is laid out with no area at the capture width"
+            );
+        }
+    })
+    .expect("test window remains open");
+}
