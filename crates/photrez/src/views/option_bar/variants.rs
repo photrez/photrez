@@ -1460,7 +1460,7 @@ pub(super) fn crop_ratio_list(
         .rounded(px(6.0))
         .border_1()
         .border_color(color::BORDER)
-        .bg(color::PANEL)
+        .bg(color::MENU_LIST)
         .py(px(4.0))
         .max_h(px(300.0))
         .overflow_y_scroll()
@@ -1834,7 +1834,7 @@ pub(super) fn crop_unit_list(
         .rounded(px(RADIUS))
         .border_1()
         .border_color(color::BORDER)
-        .bg(color::PANEL)
+        .bg(color::MENU_LIST)
         .py(px(4.0));
     for candidate in crate::crop_aspect::CropSizeUnit::ALL {
         list = list.child(crop_ratio_preset_row(

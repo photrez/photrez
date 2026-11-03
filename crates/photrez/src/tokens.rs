@@ -165,6 +165,15 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `#1B1D22` = rgb(27, 29, 34): the dropdown and option lists. Darker than
+    /// the panel it opens from, with a blue cast.
+    pub const MENU_LIST: Hsla = Hsla {
+        h: 0.619,
+        s: 0.1148,
+        l: 0.1196,
+        a: 1.0,
+    };
+
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     pub const ROW_ACTIVE: Hsla = Hsla {
         h: 0.0,
@@ -413,6 +422,14 @@ mod tests {
     fn bar_popover_paints_the_reference_popover_fill() {
         assert_eq!(hsla_to_rgb(color::BAR_POPOVER), (29, 32, 38));
         assert_eq!(hsla_to_rgb(color::TOOLBAR), (27, 27, 27));
+    }
+
+    /// The lists sit a step below the panel they open from, so the neutral panel
+    /// colour is not an acceptable substitute.
+    #[test]
+    fn menu_list_paints_the_reference_dropdown_fill() {
+        assert_eq!(hsla_to_rgb(color::MENU_LIST), (27, 29, 34));
+        assert_eq!(hsla_to_rgb(color::PANEL), (30, 30, 30));
     }
 
     /// ACCENT (`oklch(0.74 0.15 55)`) and BRAND (`oklch(0.62 0.2 36)`) carry

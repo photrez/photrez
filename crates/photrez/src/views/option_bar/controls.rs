@@ -525,7 +525,7 @@ pub(super) fn live_select(
             .rounded(px(RADIUS))
             .border_1()
             .border_color(color::BORDER)
-            .bg(color::TOOLBAR)
+            .bg(color::MENU_LIST)
             .py(px(4.0))
             .occlude()
             .shadow(vec![
