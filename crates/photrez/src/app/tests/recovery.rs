@@ -623,3 +623,60 @@ fn an_older_archive_of_the_open_document_is_not_offered(cx: &mut gpui_kit::TestA
         "suppressing the offer leaves the archive on disk, where only the 7-day cleanup bounds it"
     );
 }
+
+/// The contract's other half: when recency cannot be established at all, the
+/// archive is not the thing that is uncertain, so the offer stands and the
+/// document on screen keeps its tab.
+#[gpui_kit::test]
+fn an_archive_without_a_timestamp_is_still_offered_for_an_open_document(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("named.ptz");
+    std::fs::write(&source, super::commands::multi_layer_archive_with(false))
+        .expect("the named archive is written");
+    let file_io = LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
+        .expect("the file boundary opens");
+    file_io
+        .approve_path(&source)
+        .expect("the named archive is approved");
+    let io: Arc<dyn FileIo> = Arc::new(file_io);
+
+    let cache = directory.path().join("unstamp-cache");
+    let autosave = cache.join("autosave");
+    std::fs::create_dir_all(&autosave).expect("the autosave directory");
+    std::fs::write(
+        autosave.join("multi-doc.ptz"),
+        super::commands::multi_layer_archive_with(true),
+    )
+    .expect("the unstamped autosave archive is written");
+    std::fs::write(
+        autosave.join("manifest.json"),
+        r#"{"multi-doc":"Undated edits"}"#,
+    )
+    .expect("a manifest with no timestamp is written");
+
+    let (window, content) = mount_app_with_cache_root(cx, source, io, cache.clone());
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let app = content.read(cx);
+        let state = app.state_for_test().read(cx);
+        assert_eq!(
+            state.active_dialog,
+            Some(crate::state::DialogId::Recovery),
+            "an archive whose age cannot be read is not silently dropped"
+        );
+        assert_eq!(
+            state.recovery_entries.len(),
+            1,
+            "the undated archive stays offered until the user decides"
+        );
+        assert_eq!(app.open_tab_ids_for_test(), vec!["multi-doc"]);
+    })
+    .expect("test window remains open");
+
+    assert!(
+        cache.join("autosave").join("multi-doc.ptz").exists(),
+        "keeping the offer leaves the archive in place"
+    );
+}
