@@ -47,14 +47,19 @@ pub fn cmd(args: &[String]) -> i32 {
     let opts = SurfaceOpts {
         inventory,
         surfaces,
-        bundles: flag_path(args, "--bundles")
-            .unwrap_or_else(|| PathBuf::from(".slim/deepwork/parity-evidence")),
+        bundles: bundle_root(args),
         oracle_commit: flag(args, "--oracle-commit")
             .unwrap_or_default()
             .to_string(),
         build_id: flag(args, "--build-id").unwrap_or_default().to_string(),
     };
     validate(&opts)
+}
+
+/// The root that holds the per-surface evidence bundles. `--bundles` overrides
+/// it; the default is the tree the inventory and matrix CSVs live beside.
+fn bundle_root(args: &[String]) -> PathBuf {
+    flag_path(args, "--bundles").unwrap_or_else(|| PathBuf::from(".slim/deepwork/78-evidence"))
 }
 
 fn has_flag(args: &[String], name: &str) -> bool {
@@ -837,6 +842,20 @@ mod tests {
     use std::io::Write;
 
     type FailureCase = (&'static str, &'static str, Box<dyn FnOnce(&Path)>);
+
+    #[test]
+    fn bundle_root_names_the_evidence_tree_and_obeys_the_override() {
+        assert_eq!(
+            bundle_root(&[]),
+            PathBuf::from(".slim/deepwork/78-evidence"),
+            "a run with no flags looks in the tree that holds the bundles"
+        );
+        assert_eq!(
+            bundle_root(&["--bundles".to_string(), "somewhere-else".to_string()]),
+            PathBuf::from("somewhere-else"),
+            "an explicit root is respected"
+        );
+    }
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
