@@ -1,6 +1,18 @@
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 
+/// A control's frame as four floats, so a failure message can say where the
+/// element actually was when the click missed it.
+fn row_frame(window: &mut gpui_kit::Window, id: &'static str) -> [f32; 4] {
+    let bounds = window.find(id).bounds();
+    [
+        f32::from(bounds.origin.x),
+        f32::from(bounds.origin.y),
+        f32::from(bounds.size.width),
+        f32::from(bounds.size.height),
+    ]
+}
+
 /// Open the Print dialog with a pinned printer list. `print_document_action`
 /// enumerates this machine's spooler, and a host with no printers gets the
 /// warning row in place of the picker, so the inspector's contents would depend
@@ -57,9 +69,24 @@ fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestApp
             assert!(state.print_landscape);
             assert_eq!(state.print_copies, 2);
             assert_eq!(state.print_unit, "cm");
-            assert!(!state.print_center_on_page, "Center on Page toggles");
-            assert!(!state.print_scale_to_fit, "Scale to Fit toggles");
-            assert!(!state.print_show_paper_white, "Show Paper White toggles");
+            // This test failed once under full parallel load with no clue about why.
+            // The row's own frame travels with the message so the next occurrence says
+            // whether the click landed where the row actually was.
+            assert!(
+                !state.print_center_on_page,
+                "Center on Page toggles; row frame {:?}",
+                row_frame(window, "print-center")
+            );
+            assert!(
+                !state.print_scale_to_fit,
+                "Scale to Fit toggles; row frame {:?}",
+                row_frame(window, "print-scale-fit")
+            );
+            assert!(
+                !state.print_show_paper_white,
+                "Show Paper White toggles; row frame {:?}",
+                row_frame(window, "print-paper-white")
+            );
         }
         window.click("print-cancel", cx);
         window.render_frame(cx);

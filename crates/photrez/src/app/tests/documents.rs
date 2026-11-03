@@ -1662,3 +1662,45 @@ fn document_tab_drag_ghost_renders_during_active_drag(cx: &mut gpui_kit::TestApp
     })
     .expect("test window remains open");
 }
+
+/// Tab traversal reaches content inside an open dialog: this track is a tab stop even
+/// while the Export dialog is up, and the keys then write through it. What this does
+/// NOT cover is the dialog's own fields, which carry no handle at all and so never
+/// enter the tab order.
+#[gpui_kit::test]
+fn the_export_quality_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.export_document_action(&crate::app::ExportDocument, cx);
+        });
+        window.render_frame(cx);
+        window.click("export-format-trigger", cx);
+        window.render_frame(cx);
+        window.click("export-format-jpg", cx);
+        window.render_frame(cx);
+        crate::app::tests::input::tab_to_canvas(window, cx);
+
+        let mut reached = false;
+        for _ in 0..40 {
+            window.press("tab", cx);
+            window.render_frame(cx);
+            if window.find("export-quality").focused() == Some(true) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab must reach the track inside the open dialog");
+
+        let before = content.read(cx).state_for_test().read(cx).export_quality;
+        window.press("right", cx);
+        window.press("right", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).export_quality,
+            before + 2,
+            "arrows step the dialog track that Tab focused"
+        );
+    })
+    .expect("test window remains open");
+}

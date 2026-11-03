@@ -86,7 +86,7 @@ because it has not been built yet.
 | Shipped | Settings dialog chooses the UI language and persists it; About dialog shows the native stack, version and locale line. |
 | Shipped | Save (`Ctrl+S`) and Save As (`Ctrl+Shift+S`) write `.ptz` projects; an imported flat image routes Save to Save As. |
 | Shipped | Export dialog (`Ctrl+Alt+E`) writes the composite as PNG, JPEG or WebP with a quality slider for lossy formats; WebP export is currently the lossless path (quality is ignored) — a documented deviation. |
-| Shipped | Autosave writes dirty documents to the app cache on a 60-second timer, and a startup recovery pass offers them again after an abnormal exit. |
+| Shipped | Autosave writes dirty documents to the app cache on a 60-second timer, and a startup recovery pass offers them again after an abnormal exit. An archive is skipped when it belongs to the document already open and is no newer than the file on disk; anything uncertain still offers. |
 
 ## Print
 
@@ -109,6 +109,7 @@ because it has not been built yet.
 | Partial | The Crop bar still shows its More trigger without a panel: the reference's crop overflow holds the composition-guide selector and the classic interaction mode, and neither exists natively, so the advanced group stays open above. |
 | Shipped | The right dock's Properties transform rows read the selected layer: X, Y, W, H and R show its frame and commit through core history, Scale shows the percentage that produced that frame, and the link decides whether a size edit moves one axis or both. |
 | Shipped | Every track takes the keyboard: the Paint Bucket tolerance, the text stroke, the brush menu's size, hardness and strength, export quality, the three adjustment channels, the print scale and the Properties opacity track answer arrows, Home and End within their own range, each is a tab stop, and one reached by keyboard carries the same inset accent band the option-bar toggles use. |
+| Partial | Dialog input is session-driven rather than focus-driven: the New Document name and size boxes carry no focus handle at all, and the modal overlays route keys to whichever field a click opened, so Tab never lands on a dialog field. The exception is a slider inside a dialog, which is a tab stop and steps with arrows once focused. Making the fields themselves tabbable changes how every dialog takes input and stays an open item. |
 | Partial | The Move bar takes no typed size where the reference types one during an active transform session: this app has no transform session to gate the edit on, and the same value is editable in the Properties panel. |
 | Partial | The tab strip's layout toggle is painted but does nothing: the reference switches the right dock to a stacked layout and the app ships one. Its Export button opens the Export dialog instead of the reference's quick-export menu, which writes a PNG, JPG or WebP straight to disk without asking for a path. |
 | Shipped | Document tabs: create from the strip's plus button or the File menu, switch, reorder, and close through a Save/Discard/Cancel prompt when dirty; the strip's Export button opens the Export dialog. |
