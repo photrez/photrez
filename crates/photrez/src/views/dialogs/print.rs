@@ -11,6 +11,13 @@
 use super::*;
 use gpui_kit::AnyElement;
 
+mod geometry;
+mod quality;
+mod widgets;
+use geometry::*;
+pub(super) use quality::{effective_ppi, ppi_quality, printer_notice};
+use widgets::*;
+
 const DIALOG_W: f32 = 1040.0;
 const DIALOG_H: f32 = 660.0;
 const TITLE_H: f32 = 36.0;
@@ -22,259 +29,6 @@ const ROW_H: f32 = 26.0;
 const HEADER_H: f32 = 38.0;
 /// The print resolution the dialog treats as optimal: 300 PPI.
 const PRINT_PPI: f64 = 300.0;
-
-/// What the printer cell reports. A failed enumeration says why, because an
-/// unreadable spool and a machine with no printers otherwise look identical;
-/// an empty list says there is nothing to print to; a populated list says
-/// nothing.
-pub(super) fn printer_notice(error: Option<&str>, printer_count: usize) -> Option<String> {
-    match error {
-        Some(message) => Some(message.to_string()),
-        None if printer_count == 0 => Some(t("dialogs.print.noPrinters").to_string()),
-        None => None,
-    }
-}
-
-/// The resolution a document actually lands at once it is laid out on paper:
-/// pixels per inch on each axis, and the worse of the two is what the eye
-/// judges. A size that has not been worked out yet reads as zero rather than
-/// as an infinitely good print.
-pub(super) fn effective_ppi(doc_px: (f64, f64), print_mm: (f64, f64)) -> u32 {
-    const MM_PER_INCH: f64 = 25.4;
-    if print_mm.0 <= 0.0 || print_mm.1 <= 0.0 {
-        return 0;
-    }
-    let per_axis = |px: f64, mm: f64| px / (mm / MM_PER_INCH);
-    per_axis(doc_px.0, print_mm.0)
-        .min(per_axis(doc_px.1, print_mm.1))
-        .round() as u32
-}
-
-/// The badge tier for an effective resolution, cut where the design cuts it.
-/// The copy is the reference's own literal, which it never runs through the
-/// catalog.
-pub(super) fn ppi_quality(ppi: u32) -> (&'static str, Hsla, Hsla) {
-    if ppi >= 300 {
-        ("Optimal (300+ PPI)", color::EMERALD_400, color::EMERALD_950)
-    } else if ppi >= 150 {
-        (
-            "Acceptable (150-299 PPI)",
-            color::AMBER_400,
-            color::AMBER_950,
-        )
-    } else {
-        (
-            "Low resolution (min 150 PPI recommended)",
-            color::ROSE_400,
-            color::ROSE_950,
-        )
-    }
-}
-
-fn label(text: &str) -> Div {
-    div()
-        .w(px(LABEL_W))
-        .flex_none()
-        .text_size(px(11.0))
-        .text_color(color::TEXT_DIM)
-        .child(text.to_string())
-}
-
-fn header_row(title: &str, trailing: &str) -> Div {
-    h_flex()
-        .h(px(HEADER_H))
-        .w_full()
-        .items_center()
-        .justify_between()
-        .child(
-            h_flex()
-                .items_center()
-                .gap(px(6.0))
-                .child(
-                    Icon::default()
-                        .data(icons::CHEVRON_DOWN)
-                        .size(px(10.0))
-                        .text_color(color::TEXT_DIM),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight(500.))
-                        .text_color(color::TEXT)
-                        .child(title.to_string()),
-                ),
-        )
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(color::TEXT_DIM)
-                .child(trailing.to_string()),
-        )
-}
-
-fn field<F>(id: &str, value: String, cx: &Context<crate::app::App>, handler: F) -> impl IntoElement
-where
-    F: Fn(
-            &mut crate::app::App,
-            &gpui_kit::ClickEvent,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) + 'static,
-{
-    div()
-        .id(id.to_string())
-        .test_support()
-        .h(px(ROW_H))
-        .w_full()
-        .flex()
-        .items_center()
-        .justify_between()
-        .px(px(8.0))
-        .rounded(px(4.0))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::FIELD)
-        .text_size(px(11.5))
-        .text_color(color::TEXT)
-        .cursor_pointer()
-        .on_click(cx.listener(handler))
-        .child(div().child(value))
-        .child(
-            Icon::default()
-                .data(icons::CHEVRON_DOWN)
-                .size(px(11.0))
-                .text_color(color::TEXT_DIM),
-        )
-}
-
-fn checkbox<F>(
-    id: &str,
-    text: &str,
-    checked: bool,
-    cx: &Context<crate::app::App>,
-    handler: F,
-) -> impl IntoElement
-where
-    F: Fn(
-            &mut crate::app::App,
-            &gpui_kit::ClickEvent,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) + 'static,
-{
-    div()
-        .id(id.to_string())
-        .test_support()
-        .h(px(20.0))
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .cursor_pointer()
-        .child(
-            div()
-                .w(px(14.0))
-                .h(px(14.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(if checked {
-                    color::ACCENT
-                } else {
-                    color::FIELD_BORDER
-                })
-                .bg(if checked { color::ACCENT } else { color::FIELD })
-                .when(checked, |box_| {
-                    box_.child(
-                        Icon::default()
-                            .data(icons::CHECK)
-                            .size(px(10.0))
-                            .text_color(color::BG),
-                    )
-                }),
-        )
-        .child(
-            div()
-                .text_size(px(11.5))
-                .text_color(color::TEXT)
-                .child(text.to_string()),
-        )
-        .on_click(cx.listener(handler))
-}
-
-fn toggle<F>(
-    id: &str,
-    text: &str,
-    on: bool,
-    cx: &Context<crate::app::App>,
-    handler: F,
-) -> impl IntoElement
-where
-    F: Fn(
-            &mut crate::app::App,
-            &gpui_kit::ClickEvent,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) + 'static,
-{
-    div()
-        .id(id.to_string())
-        .test_support()
-        .h(px(28.0))
-        .flex_1()
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(6.0))
-        .rounded(px(4.0))
-        .border_1()
-        .border_color(if on {
-            color::ACCENT
-        } else {
-            color::FIELD_BORDER
-        })
-        .bg(if on { color::ACCENT } else { color::FIELD })
-        .text_size(px(11.5))
-        .text_color(if on { color::BG } else { color::TEXT })
-        .cursor_pointer()
-        .on_click(cx.listener(handler))
-        .child(text.to_string())
-}
-
-fn unit_label(unit: &str) -> String {
-    match unit {
-        "cm" => t("dialogs.print.centimeters"),
-        "in" => t("dialogs.print.inches"),
-        "px" => t("dialogs.print.pixels"),
-        _ => t("dialogs.print.millimeters"),
-    }
-}
-
-fn to_unit(mm: f64, unit: &str) -> f64 {
-    match unit {
-        "cm" => mm / 10.0,
-        "in" => mm / 25.4,
-        "px" => mm / 25.4 * PRINT_PPI,
-        _ => mm,
-    }
-}
-
-fn unit_suffix(unit: &str) -> &'static str {
-    match unit {
-        "cm" => "cm",
-        "in" => "in",
-        "px" => "px",
-        _ => "mm",
-    }
-}
-
-fn paper_label(index: usize) -> String {
-    use crate::app::PRINT_PAPERS;
-    let (name, _, w, h) = PRINT_PAPERS[index.min(PRINT_PAPERS.len() - 1)];
-    format!("{name} ({w:.0} \u{00d7} {h:.0} mm) (not listed on this printer)") // i18n-exempt: copy not in catalog
-}
 
 pub(super) fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
@@ -316,28 +70,22 @@ pub(super) fn render(
         (paper_w_mm, paper_h_mm)
     };
 
-    // Paper preview geometry: a 440 px tall page keeps the paper's ratio.
-    let page_h = 440.0_f32;
-    let page_w = page_h * (page_w_mm as f32) / (page_h_mm as f32);
-    let fit = ((page_w - 2.0 * margins as f32) / doc_w as f32)
-        .min((page_h - 2.0 * margins as f32) / doc_h as f32);
-    let doc_scale = if scale_to_fit {
-        fit
-    } else {
-        fit * (scale as f32 / 100.0)
-    };
-    let doc_px_w = (doc_w as f32 * doc_scale).max(8.0);
-    let doc_px_h = (doc_h as f32 * doc_scale).max(8.0);
-    let doc_x = if center {
-        (page_w - doc_px_w) / 2.0
-    } else {
-        margins as f32
-    };
-    let doc_y = if center {
-        (page_h - doc_px_h) / 2.0
-    } else {
-        margins as f32
-    };
+    let PagePreview {
+        page_w,
+        page_h,
+        doc_scale,
+        doc_px_w,
+        doc_px_h,
+        doc_x,
+        doc_y,
+    } = page_preview(
+        (page_w_mm, page_h_mm),
+        (doc_w, doc_h),
+        margins,
+        center,
+        scale_to_fit,
+        scale,
+    );
 
     let card = h_flex()
         .w_full()

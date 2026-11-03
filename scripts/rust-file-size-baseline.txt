@@ -34,7 +34,15 @@
 # so not listed), taking that file from 1939 to 1664. The Export tests then left it
 # for `app/tests/export.rs` (269 lines, also unlisted), because one added keyboard
 # test pushed the file back past its entry: 1664 to 1441 on this side of that move.
-# The rest still owe theirs.
+#
+# A second split paid, and the first to clear a file entirely: the Print dialog's
+# row widgets (`print/widgets.rs`, 214), paper maths (`print/geometry.rs`, 90, with
+# its own unit tests) and resolution helpers (`print/quality.rs`, 52) left
+# `views/dialogs/print.rs` for sibling modules, taking it from 1210 to 956 - under
+# the cap, so its entry is deleted rather than re-recorded. The move was checked
+# token-by-token against the previous revision: nothing was lost, and the only code
+# token that changed shape is the `center` condition, where two identical `if`
+# blocks became one. The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -51,7 +59,6 @@
 1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
-1210 crates/photrez/src/views/dialogs/print.rs
 2108 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
