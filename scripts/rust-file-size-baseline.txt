@@ -27,7 +27,11 @@
 # replaces the two per-slider focus fields with one table plus an index
 # (1577 to 1604), and `views/dialogs.rs` (2102 to 2108), `views/dialogs/print.rs`
 # (1192 to 1210) and `app/tests/documents.rs` (1864 to 1939) carry the new focus
-# wiring and its tests. Four more entries now owe a split; none is done here.
+# wiring and its tests.
+#
+# One split was actually paid, the same day: the Print tests left
+# `app/tests/documents.rs` for `app/tests/print.rs` (289 lines, under the cap and
+# so not listed), taking that file from 1939 to 1664. The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -35,7 +39,7 @@
 2663 crates/photrez/src/app/input.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
-1939 crates/photrez/src/app/tests/documents.rs
+1664 crates/photrez/src/app/tests/documents.rs
 3506 crates/photrez/src/app/tests/input.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs

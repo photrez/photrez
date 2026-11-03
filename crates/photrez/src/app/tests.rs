@@ -387,6 +387,9 @@ mod brush_menu;
 #[path = "tests/documents.rs"]
 mod documents;
 
+#[path = "tests/print.rs"]
+mod print;
+
 #[path = "tests/recovery.rs"]
 mod recovery;
 
