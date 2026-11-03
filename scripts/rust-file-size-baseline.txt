@@ -31,7 +31,10 @@
 #
 # One split was actually paid, the same day: the Print tests left
 # `app/tests/documents.rs` for `app/tests/print.rs` (289 lines, under the cap and
-# so not listed), taking that file from 1939 to 1664. The rest still owe theirs.
+# so not listed), taking that file from 1939 to 1664. The Export tests then left it
+# for `app/tests/export.rs` (269 lines, also unlisted), because one added keyboard
+# test pushed the file back past its entry: 1664 to 1441 on this side of that move.
+# The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -39,7 +42,7 @@
 2663 crates/photrez/src/app/input.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
-1664 crates/photrez/src/app/tests/documents.rs
+1441 crates/photrez/src/app/tests/documents.rs
 3506 crates/photrez/src/app/tests/input.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs

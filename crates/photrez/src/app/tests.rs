@@ -390,6 +390,9 @@ mod documents;
 #[path = "tests/print.rs"]
 mod print;
 
+#[path = "tests/export.rs"]
+mod export;
+
 #[path = "tests/recovery.rs"]
 mod recovery;
 
