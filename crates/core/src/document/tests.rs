@@ -16,5 +16,6 @@ mod history_stream;
 mod reorder;
 mod reorder_history;
 mod seed;
+mod selection_commands;
 mod snapshot;
 mod structural;
