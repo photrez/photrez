@@ -16,10 +16,10 @@ const DIALOG_H: f32 = 660.0;
 const TITLE_H: f32 = 36.0;
 const FOOTER_H: f32 = 44.0;
 const LEFT_W: f32 = 657.0;
-const PAD: f32 = 16.0;
+const PAD: f32 = 14.0;
 const LABEL_W: f32 = 72.0;
 const ROW_H: f32 = 26.0;
-const HEADER_H: f32 = 30.0;
+const HEADER_H: f32 = 38.0;
 /// The print resolution the dialog treats as optimal: 300 PPI.
 const PRINT_PPI: f64 = 300.0;
 
@@ -392,7 +392,7 @@ pub(super) fn render(
         .border_l(px(1.0))
         .border_color(color::BORDER)
         .px(px(PAD))
-        .py(px(6.0));
+        .gap(px(12.0));
 
     inspector = inspector.child(header_row(
         &t("dialogs.print.printerSetup"),
@@ -785,7 +785,7 @@ pub(super) fn render(
                 .w_full()
                 .items_center()
                 .gap(px(8.0))
-                .py(px(5.0))
+                .h(px(ROW_H))
                 .child(label(&t("dialogs.print.paperSize")))
                 .child(div().flex_1().child(field(
                     "print-paper",
@@ -841,7 +841,7 @@ pub(super) fn render(
                 .w_full()
                 .items_center()
                 .gap(px(8.0))
-                .py(px(5.0))
+                .h(px(ROW_H))
                 .child(label(&t("dialogs.print.margins")))
                 .child(div().flex_1())
                 .child(
@@ -936,7 +936,7 @@ pub(super) fn render(
                 .w_full()
                 .items_center()
                 .gap(px(8.0))
-                .py(px(4.0))
+                .h(px(ROW_H))
                 .child(
                     div()
                         .w(px(42.0))
@@ -983,7 +983,7 @@ pub(super) fn render(
                 .w_full()
                 .items_center()
                 .gap(px(8.0))
-                .py(px(4.0))
+                .h(px(ROW_H))
                 .child(
                     div()
                         .w(px(42.0))
