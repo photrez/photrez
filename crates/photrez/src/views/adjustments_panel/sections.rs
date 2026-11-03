@@ -365,7 +365,17 @@ fn status_hint(message: &str) -> Div {
 /// 42px row, 16px icon box, 15px icon, 8px gap, 12.5px regular label,
 /// and 16px chevron. Closed sections omit descriptions and use
 /// `chevron-right` rather than the expanded `chevron-up`.
-pub(super) fn coming_soon_section(icon: &'static [u8], icon_colour: Hsla, label: &str) -> Div {
+/// A not-yet-built adjustment group. Collapsed it is the 42px header row;
+/// expanded it adds the reference's dashed In Development card, which is the
+/// only place the panel says these tools are unfinished.
+pub(super) fn coming_soon_section(
+    id: &'static str,
+    icon: &'static [u8],
+    icon_colour: Hsla,
+    label: &str,
+    open: bool,
+    cx: &Context<crate::app::App>,
+) -> Div {
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -373,12 +383,20 @@ pub(super) fn coming_soon_section(icon: &'static [u8], icon_colour: Hsla, label:
         .border_color(color::BORDER)
         .child(
             div()
+                .id(id)
+                .test_support()
                 .h(px(COLLAPSE_H))
                 .w_full()
                 .flex()
                 .items_center()
                 .justify_between()
                 .px(px(COLLAPSE_PX))
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        app.toggle_adjustment_section(id, cx);
+                    }),
+                )
                 .child(
                     h_flex()
                         .items_center()
@@ -407,12 +425,77 @@ pub(super) fn coming_soon_section(icon: &'static [u8], icon_colour: Hsla, label:
                                 .child(label.to_string()),
                         ),
                 )
-                // `icons::CHEVRON_RIGHT` is pinned to stroke width 1.75.
                 .child(
                     Icon::default()
-                        .data(icons::CHEVRON_RIGHT)
+                        .data(if open {
+                            icons::CHEVRON_UP
+                        } else {
+                            // `icons::CHEVRON_RIGHT` is pinned to stroke width 1.75.
+                            icons::CHEVRON_RIGHT
+                        })
                         .size(px(CHEVRON))
                         .text_color(color::TEXT_DIM),
+                ),
+        )
+        .when(open, |section| section.child(in_development_card(id)))
+}
+
+/// The card the reference expands under every unfinished adjustment group: a
+/// dashed well holding the In Development eyebrow and one description line.
+/// `bg-white/[0.015]` is the well's fill; the runtime expresses no
+/// letter-spacing, so the uppercase eyebrow runs untracked.
+fn in_development_card(id: &'static str) -> impl IntoElement {
+    const CARD_FILL: Hsla = Hsla {
+        h: 0.0,
+        s: 0.0,
+        l: 1.0,
+        a: 0.015,
+    };
+    const EYEBROW_OPACITY: f32 = 0.7;
+    v_flex()
+        .id(format!("adj-card-{id}"))
+        .test_support()
+        .w_full()
+        .flex_shrink_0()
+        .px(px(16.0))
+        .pt(px(8.0))
+        .pb(px(20.0))
+        .child(
+            v_flex()
+                .w_full()
+                .gap(px(8.0))
+                .rounded(px(6.0))
+                .border_1()
+                .border_dashed()
+                .border_color(color::FIELD_BORDER)
+                .bg(CARD_FILL)
+                .p(px(12.0))
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            Icon::default()
+                                .data(icons::SPARKLES)
+                                .size(px(12.0))
+                                .text_color(color::TEXT_DIM.opacity(EYEBROW_OPACITY)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .font_family(ui::FONT_UI)
+                                .font_weight(FontWeight(700.))
+                                .text_color(color::TEXT_DIM)
+                                .child(t("adjustments.inDevelopment").to_uppercase()),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .font_family(ui::FONT_UI)
+                        .line_height(relative(1.625))
+                        .text_color(color::TEXT_DIM)
+                        .child(t("adjustments.defaultInDevDesc")),
                 ),
         )
 }

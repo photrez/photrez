@@ -255,6 +255,8 @@ pub fn render(
             s.active_layer_height,
         )
     };
+    let open_sections = state.read(cx).open_adjustment_sections.clone();
+    let is_open = |id: &str| open_sections.iter().any(|open| open == id);
     v_flex()
         .w_full()
         .h_full()
@@ -274,32 +276,47 @@ pub fn render(
                     layer_h,
                 ))
                 .child(basic_section(state, cx))
-                // All five not-yet-available sections are collapsed in the
-                // capture, so only their header rows render.
+                // Each group starts collapsed, as in the capture, and opens on
+                // its own header to the In Development card.
                 .child(coming_soon_section(
+                    "adj-tone-curve",
                     icons::with_stroke(icons::SPLINE, 1.75),
                     color::TEXT_DIM,
                     &t("adjustments.toneCurve"),
+                    is_open("adj-tone-curve"),
+                    cx,
                 ))
                 .child(coming_soon_section(
+                    "adj-hsl-color",
                     icons::with_stroke(icons::PALETTE, 1.75),
                     SKY_400,
                     &t("adjustments.hslColor"),
+                    is_open("adj-hsl-color"),
+                    cx,
                 ))
                 .child(coming_soon_section(
+                    "adj-color-grading",
                     icons::with_stroke(icons::SWATCH, 1.75),
                     AMBER_400,
                     &t("adjustments.colorGrading"),
+                    is_open("adj-color-grading"),
+                    cx,
                 ))
                 .child(coming_soon_section(
+                    "adj-detail",
                     icons::with_stroke(icons::SPARKLES, 1.75),
                     SKY_300,
                     &t("adjustments.detail"),
+                    is_open("adj-detail"),
+                    cx,
                 ))
                 .child(coming_soon_section(
+                    "adj-lens-corrections",
                     icons::with_stroke(icons::APERTURE, 1.75),
                     EMERALD_400,
                     &t("adjustments.lensCorrections"),
+                    is_open("adj-lens-corrections"),
+                    cx,
                 )),
         )
 }

@@ -45,6 +45,7 @@ because it has not been built yet.
 | Shipped | Background-layer rules: pinned to the bottom, position/rotation locked, delete refused, renaming converts it to a normal layer. |
 | Shipped | Undo/redo (`Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z`) executed by the core history, one entry per stroke or drag gesture; the History panel lists labelled rows and jumps to any point. |
 | Shipped | Per-layer Basic Adjustments (brightness, contrast, saturation) whose sliders commit one history entry per drag through the core command. |
+| Shipped | The five undeveloped adjustment groups (Tone Curve, HSL, Color Grading, Detail, Lens Corrections) open and close on their header, each independently, and the opened group shows the dashed In Development card with its description. |
 
 ## Selection and transform
 

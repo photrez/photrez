@@ -860,6 +860,9 @@ pub struct AppState {
     pub move_auto_select: bool,
     /// Draw the interactive transform frame/handles.
     pub show_transform_controls: bool,
+    /// Which not-yet-built adjustment groups are expanded, by section id. The
+    /// reference opens each one independently and shows its In Development card.
+    pub open_adjustment_sections: Vec<String>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
     /// Mini undo/redo for the crop frame.
@@ -1112,6 +1115,7 @@ impl Default for AppState {
             snap_enabled: true,
             move_auto_select: true,
             show_transform_controls: true,
+            open_adjustment_sections: Vec::new(),
             crop_rect: None,
             crop_history: Vec::new(),
             crop_redo: Vec::new(),

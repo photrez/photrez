@@ -410,6 +410,24 @@ impl App {
         cx.notify();
     }
 
+    /// Opens or closes one not-yet-built adjustment group. Groups are
+    /// independent, so opening Curves leaves HSL as it was.
+    pub(crate) fn toggle_adjustment_section(&mut self, id: &'static str, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            let index = state
+                .open_adjustment_sections
+                .iter()
+                .position(|open| open == id);
+            match index {
+                Some(index) => {
+                    state.open_adjustment_sections.remove(index);
+                }
+                None => state.open_adjustment_sections.push(id.to_string()),
+            }
+        });
+        cx.notify();
+    }
+
     pub(crate) fn flip_selected_layer(
         &mut self,
         horizontal: bool,

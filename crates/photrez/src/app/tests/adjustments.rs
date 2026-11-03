@@ -168,3 +168,69 @@ fn adjustment_slider_latency(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// The five not-yet-built adjustment groups are headers that open. Each one
+/// reveals the reference's In Development card, and opening a group is
+/// independent of the others.
+#[gpui_kit::test]
+fn undeveloped_adjustment_groups_open_their_in_development_card(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        // The dock shows the panel once the Adjustments tab is active.
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+        assert!(
+            window.try_find("adj-card-adj-tone-curve").is_none(),
+            "a collapsed group shows its header only"
+        );
+
+        window.click("adj-tone-curve", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("adj-card-adj-tone-curve").is_some(),
+            "the header opens the In Development card"
+        );
+        let card = window.find("adj-card-adj-tone-curve");
+        let height = f32::from(card.bounds().size.height);
+        assert!(
+            height > 60.0,
+            "the expanded card is a real block, not a clipped row: {height}"
+        );
+
+        window.click("adj-hsl-color", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("adj-card-adj-tone-curve").is_some()
+                && window.try_find("adj-card-adj-hsl-color").is_some(),
+            "opening one group leaves the other group's state alone"
+        );
+
+        window.click("adj-tone-curve", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("adj-card-adj-tone-curve").is_none(),
+            "the header closes the group again"
+        );
+        assert!(
+            window.try_find("adj-card-adj-hsl-color").is_some(),
+            "closing one group does not close the other"
+        );
+        let open = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .open_adjustment_sections
+            .clone();
+        assert_eq!(
+            open,
+            vec!["adj-hsl-color".to_string()],
+            "the panel keeps only the group still expanded"
+        );
+    })
+    .expect("test window remains open");
+}
