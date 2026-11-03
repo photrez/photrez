@@ -67,12 +67,19 @@
 # across the six files, and the dispatcher reaches the builders through glob imports
 # instead of changed call sites.
 #
+# A seventh split paid: `app/input.rs` went from 2663 lines to 927 plus six modules
+# under `app/input/` (actions, pointer, brush stroke, selection rotation, tool applies,
+# the test-only accessors). These are inherent `App` methods, so each child carries its
+# own `impl App` block and no call site changed; 72 methods on both sides. Two collisions
+# surfaced on the first compile: a child cannot be named `brush`, because `brush::`
+# already resolves to something else in this module, and a moved method another module
+# calls has to be `pub(super)`.
+#
 # The rest still owe theirs.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
 1168 crates/core/src/render/compositor/tests.rs
-2663 crates/photrez/src/app/input.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
 1441 crates/photrez/src/app/tests/documents.rs
