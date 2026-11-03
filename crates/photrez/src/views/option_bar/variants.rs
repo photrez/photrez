@@ -45,12 +45,18 @@ pub(super) fn fade_in_row(
 /// transform on the 800x600 background), nothing is hovered, and
 /// move-auto-select is on.
 fn move_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::app::App>) -> Div {
-    let (snap_focus, auto_select_focus, transform_focus) = {
+    let (snap_focus, auto_select_focus, transform_focus, more_open, selected_locked) = {
         let s = state.read(cx);
         (
             s.move_snap_focus.clone(),
             s.move_auto_select_focus.clone(),
             s.move_transform_focus.clone(),
+            s.more_open,
+            s.layers
+                .iter()
+                .position(|row| row.id == s.selected_layer)
+                .and_then(|index| s.layer_flags.get(index))
+                .is_some_and(|flags| flags.locked),
         )
     };
     row.child(tool_pill(
@@ -108,8 +114,118 @@ fn move_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::
     .child(position_group())
     .child(size_group())
     .child(editable_field("num-r", "R", FIELD_W_R, "0", "\u{b0}")) // i18n-exempt: technical token (field label glyph)
-    .when(show_main_controls(), |el| el.child(main_controls()))
-    .when(show_more_dropdown(), |el| el.child(more_dropdown_button()))
+    .when(show_main_controls(), |el| {
+        el.child(main_controls(selected_locked, cx))
+    })
+    .when(show_more_dropdown(), |el| {
+        el.child(move_more_dropdown(state, more_open, selected_locked, cx))
+    })
+}
+
+/// The Move bar's `MoreDropdown` body: the Align and Flip groups and
+/// Reset Transform, the controls the reference folds below 880 px. A locked
+/// selection keeps the design's inert look: dimmed sections, clickable nothing.
+fn move_more_dropdown(
+    state: &gpui_kit::Entity<AppState>,
+    open: bool,
+    locked: bool,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let align_section = overflow_section(
+        overflow_caption(&t("properties.align")),
+        overflow_group_row()
+            .child(overflow_icon_button(
+                "opt-move-align-left",
+                icons::ALIGN_LEFT,
+                !locked,
+                cx,
+                align_clicked(0),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-align-center-h",
+                icons::ALIGN_H,
+                !locked,
+                cx,
+                align_clicked(1),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-align-right",
+                icons::ALIGN_RIGHT,
+                !locked,
+                cx,
+                align_clicked(2),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-align-top",
+                icons::ALIGN_TOP,
+                !locked,
+                cx,
+                align_clicked(3),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-align-center-v",
+                icons::ALIGN_V,
+                !locked,
+                cx,
+                align_clicked(4),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-align-bottom",
+                icons::ALIGN_BOTTOM,
+                !locked,
+                cx,
+                align_clicked(5),
+            )),
+        locked,
+    );
+    let flip_section = overflow_section(
+        overflow_caption(&t("properties.flip")),
+        overflow_group_row()
+            .child(overflow_icon_button(
+                "opt-move-flip-h",
+                icons::FLIP_H,
+                !locked,
+                cx,
+                flip_clicked(true),
+            ))
+            .child(overflow_icon_button(
+                "opt-move-flip-v",
+                icons::FLIP_V,
+                !locked,
+                cx,
+                flip_clicked(false),
+            )),
+        locked,
+    );
+    let body = gpui_kit::base::v_flex()
+        .gap(px(ITEM_GAP))
+        .child(align_section)
+        .child(flip_section)
+        .child(overflow_divider())
+        .child(overflow_action_button(
+            "opt-move-reset",
+            t("properties.resetTransform"),
+            None,
+            !locked,
+            true,
+            cx,
+            reset_transform_clicked,
+        ));
+    more_dropdown_overflow(open, state, cx, body)
+}
+
+/// One labelled overflow group: the reference's caption-plus-row section,
+/// dimmed as a whole while the selection is locked.
+fn overflow_section(caption: Div, body: impl IntoElement, locked: bool) -> Div {
+    let section = gpui_kit::base::v_flex()
+        .gap(px(ITEM_GAP))
+        .child(caption)
+        .child(body);
+    if locked {
+        section.opacity(0.3)
+    } else {
+        section
+    }
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────
@@ -133,9 +249,14 @@ fn selection_items(
     committed: Option<photrez_core::ptz::content::SelectionState>,
     cx: &Context<crate::app::App>,
 ) -> Div {
-    let (shape, open, cursor) = {
+    let (shape, open, cursor, more_open) = {
         let s = state.read(cx);
-        (s.selection_shape, s.open_select, s.select_cursor)
+        (
+            s.selection_shape,
+            s.open_select,
+            s.select_cursor,
+            s.more_open,
+        )
     };
     let elliptical = shape == crate::state::SelectionShape::Ellipse;
     let editing = |id: &'static str| {
@@ -258,7 +379,114 @@ fn selection_items(
             "sel-r", "R", FIELD_W_R, "0", "\u{b0}",
         ))) // i18n-exempt: technical token (field label glyph)
     })
-    .when(show_more_dropdown(), |el| el.child(more_dropdown_button()))
+    .when(show_more_dropdown(), |el| {
+        el.child(selection_more_dropdown(
+            state,
+            more_open,
+            committed.is_some(),
+            cx,
+        ))
+    })
+}
+
+/// The Selection bar's `MoreDropdown`: the clipboard grid the reference folds
+/// at narrow widths. Without a committed
+/// selection every row keeps the reference's inert `pointer-events-none`
+/// state. The reference's first row, the Transform toggle, is not ported: the
+/// native edit mode is only reachable through `ToggleSelectionEditModeAction`,
+/// whose type stays inside the private `app::selection` module, so a bar click
+/// has no entry point yet.
+fn selection_more_dropdown(
+    state: &gpui_kit::Entity<AppState>,
+    open: bool,
+    has_selection: bool,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    use crate::app::{
+        CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
+        PasteSelectionAction,
+    };
+    let grid = gpui_kit::base::v_flex()
+        .gap(px(ITEM_GAP))
+        .child(
+            h_flex()
+                .gap(px(ITEM_GAP))
+                .child(overflow_action_button(
+                    "opt-sel-cut",
+                    t("menus.items.cut"),
+                    Some(icons::SLICE),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| app.cut_selection_action(&CutSelectionAction, cx),
+                ))
+                .child(overflow_action_button(
+                    "opt-sel-copy",
+                    t("menus.items.copy"),
+                    Some(icons::COPY),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| app.copy_selection_action(&CopySelectionAction, cx),
+                )),
+        )
+        .child(
+            h_flex()
+                .gap(px(ITEM_GAP))
+                .child(overflow_action_button(
+                    "opt-sel-paste",
+                    t("menus.items.paste"),
+                    Some(icons::SQUARE_DASHED),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| app.paste_selection_action(&PasteSelectionAction, cx),
+                ))
+                .child(overflow_action_button(
+                    "opt-sel-invert",
+                    t("menus.items.invertSelection"),
+                    Some(icons::FLIP_H),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| app.invert_selection_action(&InvertSelectionAction, cx),
+                )),
+        )
+        .child(
+            h_flex()
+                .gap(px(ITEM_GAP))
+                .child(overflow_action_button(
+                    "opt-sel-delete",
+                    t("layers.deleteLayer"),
+                    Some(icons::TRASH),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| {
+                        // Same body as `App::delete_selection_action`, whose
+                        // action type is not reachable from the views tree.
+                        // `set_status_error` notifies like the action wrapper.
+                        match app.delete_selection(cx) {
+                            Ok(()) => app.set_status_error(None, cx),
+                            Err(error) => app.set_status_error(Some(error), cx),
+                        }
+                    },
+                ))
+                .child(overflow_action_button(
+                    "opt-sel-deselect",
+                    t("menus.items.deselect"),
+                    Some(icons::X),
+                    has_selection,
+                    true,
+                    cx,
+                    |app, cx| app.deselect_action(&DeselectAction, cx),
+                )),
+        );
+    let body = gpui_kit::base::v_flex()
+        .gap(px(ITEM_GAP))
+        .child(overflow_caption(&t("tools.options.moreOptions")))
+        .child(grid);
+    more_dropdown_overflow(open, state, cx, body)
 }
 /// Resting crop bar: `cropMode="free"` → ratio reads "Free"; both `Delete` and
 /// `Fill BG` ship checked; the fill colour block is visible (`fill_enabled`).
@@ -1332,7 +1560,14 @@ fn text_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::
             )),
     )
     .child(divider())
-    .child(box_mode_button())
+    .child(tooltip(
+        state,
+        "opt-box-mode",
+        t("tools.options.boxModeDesc"),
+        None,
+        cx,
+        box_mode_control(state, cx),
+    ))
     .child(tooltip(
         state,
         "opt-text-color",

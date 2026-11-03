@@ -197,54 +197,109 @@ pub(super) fn suffix_span(s: &'static str) -> impl IntoElement {
     dim_span(s)
 }
 
-/// The group shown at ≥880 px: divider, align, divider, flip, divider, reset.
-pub(super) fn main_controls() -> impl IntoElement {
+/// The group shown at >=880 px: divider, align, divider, flip, divider, reset.
+/// A locked selection takes the reference's inert treatment: the groups dim
+/// and the handlers refuse the edit.
+pub(super) fn main_controls(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(GAP))
         .child(divider())
-        .child(align_group())
+        .child(align_group(locked, cx))
         .child(divider())
-        .child(flip_group())
+        .child(flip_group(locked, cx))
         .child(divider())
-        .child(reset_button())
+        .child(reset_button(locked, cx))
 }
 
-pub(super) fn align_group() -> impl IntoElement {
-    h_flex()
+pub(super) fn align_group(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let mut group = h_flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
         .when(show_field_labels(), |el| {
             el.child(group_label(&t("properties.align")))
         })
-        .child(square_icon_button("Align left", icons::ALIGN_LEFT))
+        .child(square_icon_button(
+            "Align left",
+            icons::ALIGN_LEFT,
+            cx,
+            align_clicked(0),
+        ))
         .child(square_icon_button(
             "Align center horizontal",
             icons::ALIGN_H,
+            cx,
+            align_clicked(1),
         ))
-        .child(square_icon_button("Align right", icons::ALIGN_RIGHT))
-        .child(square_icon_button("Align top", icons::ALIGN_TOP))
-        .child(square_icon_button("Align center vertical", icons::ALIGN_V))
-        .child(square_icon_button("Align bottom", icons::ALIGN_BOTTOM))
+        .child(square_icon_button(
+            "Align right",
+            icons::ALIGN_RIGHT,
+            cx,
+            align_clicked(2),
+        ))
+        .child(square_icon_button(
+            "Align top",
+            icons::ALIGN_TOP,
+            cx,
+            align_clicked(3),
+        ))
+        .child(square_icon_button(
+            "Align center vertical",
+            icons::ALIGN_V,
+            cx,
+            align_clicked(4),
+        ))
+        .child(square_icon_button(
+            "Align bottom",
+            icons::ALIGN_BOTTOM,
+            cx,
+            align_clicked(5),
+        ));
+    if locked {
+        group = group.opacity(0.3);
+    }
+    group
 }
 
-pub(super) fn flip_group() -> impl IntoElement {
-    h_flex()
+pub(super) fn flip_group(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let mut group = h_flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(ICON_GAP))
         .when(show_field_labels(), |el| {
             el.child(group_label(&t("properties.flip")))
         })
-        .child(square_icon_button("Flip horizontal", icons::FLIP_H))
-        .child(square_icon_button("Flip vertical", icons::FLIP_V))
+        .child(square_icon_button(
+            "Flip horizontal",
+            icons::FLIP_H,
+            cx,
+            flip_clicked(true),
+        ))
+        .child(square_icon_button(
+            "Flip vertical",
+            icons::FLIP_V,
+            cx,
+            flip_clicked(false),
+        ));
+    if locked {
+        group = group.opacity(0.3);
+    }
+    group
 }
 
-pub(super) fn square_icon_button(id: &'static str, icon: &'static [u8]) -> impl IntoElement {
+/// A 24px icon button with a live click handler — the Move bar's inline
+/// align/flip group.
+pub(super) fn square_icon_button(
+    id: &'static str,
+    icon: &'static [u8],
+    cx: &Context<crate::app::App>,
+    on_click: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
+) -> impl IntoElement {
     div()
         .id(id)
+        .test_support()
         .h_flex()
         .size(px(BTN))
         .items_center()
@@ -253,7 +308,9 @@ pub(super) fn square_icon_button(id: &'static str, icon: &'static [u8]) -> impl 
         .border_1()
         .border_color(color::BORDER)
         .bg(FIELD_40)
+        .cursor_pointer()
         .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
+        .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(
             Icon::default()
                 .data(icon)
@@ -266,9 +323,12 @@ pub(super) fn group_label(text: &str) -> Div {
     div().mr(px(MR_LABEL)).child(dim_span(text))
 }
 
-pub(super) fn reset_button() -> impl IntoElement {
-    div()
+/// The inline Reset button: locked layers keep the reference's disabled look
+/// (no border tint, no pointer affordance).
+pub(super) fn reset_button(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let mut button = div()
         .id("opt-reset")
+        .test_support()
         .h_flex()
         .h(px(CTRL_H))
         .flex_shrink_0()
@@ -280,9 +340,71 @@ pub(super) fn reset_button() -> impl IntoElement {
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
-        .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
         .text_color(ZINC)
-        .child(t("common.reset"))
+        .child(t("common.reset"));
+    if locked {
+        button = button.opacity(0.3);
+    } else {
+        button = button
+            .cursor_pointer()
+            .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
+            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                reset_transform_clicked(app, cx)
+            }));
+    }
+    button
+}
+
+/// The `handleAlign` click body: a locked layer is inert (the reference's
+/// `isLocked()` guard), the command writes nothing else, and a failed edit
+/// surfaces as a status error instead of a silent no-op.
+pub(super) fn align_clicked(
+    mode: u8,
+) -> impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) {
+    move |app, cx| {
+        if selected_core_layer_is_locked(app, cx) {
+            return;
+        }
+        if let Err(error) = app.align_selected_layers(mode, cx) {
+            app.set_status_error(Some(format!("Align: {error}")), cx);
+        }
+    }
+}
+
+/// The `handleFlip` click body, same lock guard as the reference.
+pub(super) fn flip_clicked(
+    horizontal: bool,
+) -> impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) {
+    move |app, cx| {
+        if selected_core_layer_is_locked(app, cx) {
+            return;
+        }
+        if let Err(error) = app.flip_selected_layer(horizontal, cx) {
+            app.set_status_error(Some(format!("Flip: {error}")), cx);
+        }
+    }
+}
+
+/// The `handleResetTransform` click body shared by the inline button and the
+/// overflow panel row.
+pub(super) fn reset_transform_clicked(
+    app: &mut crate::app::App,
+    cx: &mut Context<crate::app::App>,
+) {
+    if selected_core_layer_is_locked(app, cx) {
+        return;
+    }
+    if let Err(error) = app.reset_selected_transform(cx) {
+        app.set_status_error(Some(format!("Transform: {error}")), cx);
+    }
+}
+
+/// The selected layer's core lock flag, read the same way the reference's
+/// `isLocked()` reads it from the engine before any transform click.
+fn selected_core_layer_is_locked(app: &crate::app::App, cx: &Context<crate::app::App>) -> bool {
+    app.selected_layer_for_cursor(cx)
+        .map(|(_, layer)| layer.locked)
+        .unwrap_or(false)
 }
 
 /// The overflow button (`MoreDropdown`) — 24px square, 3px corner radius.
@@ -306,6 +428,186 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
                 .size(px(ICON_LG))
                 .text_color(ZINC),
         )
+}
+
+/// The field background at 30% opacity — the tint of the reference's
+/// overflow group rows (`bg-editor-field/30`); it composites to the census
+/// pixel over [`color::BAR_POPOVER`].
+const FIELD_30: Hsla = Hsla {
+    h: color::FIELD.h,
+    s: color::FIELD.s,
+    l: color::FIELD.l,
+    a: 0.30,
+};
+
+/// The shared `MoreDropdown`: a trigger that toggles the bar-wide overflow
+/// state and, while open, the panel painted under it.
+///
+/// The panel goes through `gpui_kit::deferred` + [`SelectPanelSurface`], the
+/// shape every working option-bar dropdown uses: the deferred pass paints it
+/// after the canvas, so its `occlude()` removes the canvas hitbox from the
+/// dispatch path and a row press cannot also start a canvas gesture; and the
+/// surface publishes the panel rect, which is what tells a click-away from an
+/// inside-panel click. Anchored to the bar's right edge, a folded trigger near
+/// the column edge keeps the whole panel inside the clipped canvas column.
+pub(super) fn more_dropdown_overflow(
+    open: bool,
+    state: &gpui_kit::Entity<AppState>,
+    cx: &Context<crate::app::App>,
+    panel_body: impl IntoElement,
+) -> Div {
+    let trigger =
+        div()
+            .id("opt-more")
+            .test_support()
+            .flex_shrink_0()
+            .cursor_pointer()
+            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+                app.toggle_more_menu(window, cx)
+            }))
+            .child(more_dropdown_button());
+    let mut wrapper = div().relative().flex_shrink_0().child(trigger);
+    if open {
+        let panel = div()
+            .id("opt-more-panel")
+            .test_support()
+            .absolute()
+            .top(px(CTRL_H + 4.0))
+            .right(px(0.0))
+            .min_w(px(150.0))
+            .flex()
+            .flex_col()
+            .gap(px(PILL_PX))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(color::BORDER)
+            .bg(color::BAR_POPOVER)
+            .p(px(PILL_PX))
+            .occlude()
+            .shadow(vec![
+                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+            ])
+            .child(panel_body);
+        wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(
+            panel,
+            state.read(cx).more_panel_bounds.clone(),
+        )));
+    }
+    wrapper
+}
+
+/// The overflow panel's 10px bold uppercase group caption.
+pub(super) fn overflow_caption(label: &str) -> Div {
+    div()
+        .text_size(px(TEXT_XS))
+        .font_weight(FontWeight(700.))
+        .text_color(color::TEXT_DIM)
+        .child(label.to_uppercase())
+}
+
+/// One overflow group row: the reference's `bg-editor-field/30` container
+/// with a field border around the icon buttons.
+pub(super) fn overflow_group_row() -> Div {
+    h_flex()
+        .items_center()
+        .gap(px(PILL_PX))
+        .p(px(FIELD_PX))
+        .rounded(px(RADIUS))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(FIELD_30)
+}
+
+/// A borderless icon button inside an overflow group row (16px icon, 3px
+/// radius, 2px padding — the reference's `p-0.5` treatment). Disabled rows
+/// keep the reference's `pointer-events-none`: no cursor, no click.
+pub(super) fn overflow_icon_button(
+    id: &'static str,
+    icon: &'static [u8],
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    on_click: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
+) -> impl IntoElement {
+    let mut button = div()
+        .id(id)
+        .test_support()
+        .h_flex()
+        .p(px(2.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(RADIUS_SM))
+        .text_color(ZINC)
+        .child(
+            Icon::default()
+                .data(icons::with_stroke(icon, STROKE_ICON))
+                .size(px(ICON_LG))
+                .text_color(ZINC),
+        );
+    if enabled {
+        button = button
+            .cursor_pointer()
+            .hover(|s| s.text_color(color::WHITE))
+            .on_click(
+                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)),
+            );
+    }
+    button
+}
+
+/// A labelled action button inside the overflow panel (24px tall, 3px
+/// radius, field border and fill). `enabled` is the reference gate: a
+/// missing selection or a locked layer leaves the row inert and dimmed.
+pub(super) fn overflow_action_button(
+    id: &'static str,
+    label: String,
+    icon: Option<&'static [u8]>,
+    enabled: bool,
+    full_width: bool,
+    cx: &Context<crate::app::App>,
+    on_click: impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) + 'static,
+) -> impl IntoElement {
+    let mut button = div()
+        .id(id)
+        .test_support()
+        .h(px(CTRL_H))
+        .flex_shrink_0()
+        .h_flex()
+        .items_center()
+        .justify_center()
+        .gap(px(ITEM_GAP))
+        .rounded(px(RADIUS_SM))
+        .px(px(FIELD_PX))
+        .text_size(px(TEXT_SM))
+        .font_weight(FontWeight(500.))
+        .text_color(if enabled { color::TEXT } else { ZINC })
+        .when(full_width, |el| el.w_full());
+    if enabled {
+        button = button
+            .border_1()
+            .border_color(color::BORDER)
+            .bg(color::FIELD)
+            .cursor_pointer()
+            .hover(|s| s.bg(FIELD_80))
+            .on_click(
+                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)),
+            );
+    } else {
+        button = button.opacity(0.3);
+    }
+    if let Some(data) = icon {
+        button = button.child(
+            Icon::default()
+                .data(icons::with_stroke(data, STROKE_ICON))
+                .size(px(ICON_SM))
+                .text_color(if enabled { color::TEXT } else { ZINC }),
+        );
+    }
+    button.child(div().child(label))
+}
+
+/// The overflow panel's 1px section divider (`h-px bg-editor-divider my-1`).
+pub(super) fn overflow_divider() -> Div {
+    div().w_full().h(px(1.0)).my(px(4.0)).bg(color::DIVIDER)
 }
 
 /// The eraser's full-strength helper (labelled `Hard 100`):

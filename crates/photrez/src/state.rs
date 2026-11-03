@@ -905,6 +905,10 @@ pub struct AppState {
     /// Laid-out bounds of the open option-bar dropdown panel (click-away).
     pub select_panel_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// Laid-out bounds of the overflow panel itself (click-away). Held apart
+    /// from the dropdown cell because a preset list opens inside the overflow
+    /// and would otherwise leave a stale rect behind to judge the panel with.
+    pub more_panel_bounds: std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// The option-bar dropdown currently open, if any.
     pub open_select: Option<&'static str>,
     /// The option bar's overflow (`MoreDropdown`) panel, independent of
@@ -1124,6 +1128,7 @@ impl Default for AppState {
             tolerance_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             slider_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
             select_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
+            more_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             stroke_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             open_select: None,
             more_open: false,

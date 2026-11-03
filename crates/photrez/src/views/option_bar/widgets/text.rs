@@ -1,5 +1,8 @@
 use super::*;
 
+/// The box-mode list's fixed-box label.
+const BOX_MODE_AREA: &str = "Fixed Box"; // i18n-exempt: not in catalog
+
 // ── Text ───────────────────────────────────────────────────────────────────────
 
 /// The text bar's font-family trigger.
@@ -146,10 +149,30 @@ pub(in super::super) fn text_icon_action(
         )
 }
 
-/// The text bar's box-mode trigger, resting at "Auto Width".
-pub(in super::super) fn box_mode_button() -> Stateful<Div> {
-    div()
+/// The text bar's box-mode control: the trigger plus the reference's
+/// two-item list. Opening routes through the bar's
+/// single-open select slot, so Escape and an outside click dismiss it like
+/// the other dropdowns. The current mode is read from the live text-edit
+/// session; with no session the resting point mode is shown, matching the
+/// reference fallback.
+pub(in super::super) fn box_mode_control(
+    state: &gpui_kit::Entity<AppState>,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    use photrez_core::ptz::layer_params::TextBoxMode;
+    let (open, area_active) = {
+        let s = state.read(cx);
+        (
+            s.open_select == Some("opt-box-mode"),
+            s.text_edit
+                .as_ref()
+                .is_some_and(|session| session.data.box_mode == TextBoxMode::Area),
+        )
+    };
+    let label = if area_active { BOX_MODE_AREA } else { BOX_MODE };
+    let trigger = div()
         .id("opt-box-mode")
+        .test_support()
         .h(px(CTRL_H))
         .flex_shrink_0()
         .h_flex()
@@ -163,8 +186,137 @@ pub(in super::super) fn box_mode_button() -> Stateful<Div> {
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
-        .child(div().text_color(color::WHITE).child(BOX_MODE))
-        .child(chevron_175())
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
+                app.toggle_select("opt-box-mode", usize::from(area_active), 2, window, cx);
+            }),
+        )
+        .child(div().text_color(color::WHITE).child(label))
+        .child(chevron_175());
+    let mut wrapper = div().relative().flex_shrink_0().child(trigger);
+    if open {
+        wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(
+            box_mode_list(area_active, state, cx),
+            state.read(cx).select_panel_bounds.clone(),
+        )));
+    }
+    wrapper
+}
+
+/// The list itself: the reference's `#1D2026` popover with Auto Width and
+/// Fixed Box; the current mode carries the accent tint and check.
+fn box_mode_list(
+    area_active: bool,
+    state: &gpui_kit::Entity<AppState>,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    gpui_kit::base::v_flex()
+        .id("opt-box-mode-panel")
+        .test_support()
+        .absolute()
+        .top(px(CTRL_H + 6.0))
+        .left(px(0.0))
+        .w(px(112.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(color::BAR_POPOVER)
+        .py(px(4.0))
+        .occlude()
+        .shadow(vec![
+            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+        ])
+        .child(box_mode_row(
+            "opt-box-mode-point",
+            BOX_MODE,
+            !area_active,
+            false,
+            state,
+            cx,
+        ))
+        .child(box_mode_row(
+            "opt-box-mode-area",
+            BOX_MODE_AREA,
+            area_active,
+            true,
+            state,
+            cx,
+        ))
+}
+
+/// One box-mode row. The click mirrors `setBoxMode`: the selected text
+/// layer and the live edit session both take the mode, then the list closes.
+/// With neither present the reference writes nothing, and neither does this.
+fn box_mode_row(
+    id: &'static str,
+    label: &'static str,
+    active: bool,
+    area: bool,
+    state: &gpui_kit::Entity<AppState>,
+    cx: &gpui_kit::Context<crate::app::App>,
+) -> impl IntoElement {
+    let state = state.clone();
+    div()
+        .id(id)
+        .test_support()
+        .w_full()
+        .h_flex()
+        .items_center()
+        .justify_between()
+        .px(px(10.0))
+        .py(px(6.0))
+        .text_size(px(TEXT_SM))
+        .text_color(if active { color::WHITE } else { ZINC })
+        .font_weight(if active {
+            FontWeight(600.)
+        } else {
+            FontWeight(400.)
+        })
+        .when(active, |el| el.bg(ACCENT_20))
+        .cursor_pointer()
+        .hover(|s| s.bg(color::WHITE_10))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                // Mirror `applyEdit({ boxMode, ... })`: a selected text layer
+                // rewrites through core history.
+                let _ = app.edit_selected_text(cx, |data| apply_box_mode(data, area));
+                // Mirror `setTextEditSession`: the live editor takes the same
+                // patch while a text edit is open.
+                state.update(cx, |state, _| {
+                    if let Some(session) = state.text_edit.as_mut() {
+                        apply_box_mode(&mut session.data, area);
+                    }
+                });
+                app.close_select(cx);
+            }),
+        )
+        .child(div().child(label))
+        .when(active, |el| {
+            el.child(
+                Icon::default()
+                    .data(icons::CHECK)
+                    .size(px(ICON_SM))
+                    .text_color(color::ACCENT),
+            )
+        })
+}
+
+/// The reference's `setBoxMode` value patch: point mode clears the box
+/// dimensions; area mode keeps a positive width and seeds the 200 px the
+/// reference uses for a layer that never had one.
+fn apply_box_mode(data: &mut photrez_core::ptz::layer_params::TextData, area: bool) {
+    use photrez_core::ptz::layer_params::TextBoxMode;
+    if area {
+        data.box_mode = TextBoxMode::Area;
+        if data.box_width <= 0.0 {
+            data.box_width = 200.0;
+        }
+    } else {
+        data.box_mode = TextBoxMode::Point;
+        data.box_width = 0.0;
+        data.box_height = 0.0;
+    }
 }
 
 /// The text bar's colour swatch: the selected text layer's colour in edit

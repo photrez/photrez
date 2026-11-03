@@ -350,6 +350,21 @@ impl App {
             }
             return;
         }
+        if self.state.read(cx).more_open {
+            // The panel publishes its own rect. A press outside it dismisses the
+            // panel and stops there, exactly as an open dropdown behaves; a press
+            // inside belongs to the panel's own rows, so the canvas must not also
+            // act on it. With no rect published there is nothing to judge, and the
+            // press is handled as it was before this panel existed.
+            let published = self.state.read(cx).more_panel_bounds.get();
+            if let Some(bounds) = published {
+                if !bounds.contains(&event.position) {
+                    self.state.update(cx, |state, _| state.more_open = false);
+                    cx.notify();
+                }
+                return;
+            }
+        }
         if self.begin_pan(event, cx) {
             return;
         }
