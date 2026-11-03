@@ -383,6 +383,96 @@ fn recovery_prompt_buttons_reach_their_actions(cx: &mut gpui_kit::TestAppContext
 /// protect, driven through the production constructor with the cache root
 /// injected, which is what `use_autosave_cache_root_for_test` could not do.
 #[gpui_kit::test]
+fn recovering_the_document_that_is_already_open_swaps_its_tab(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("named.ptz");
+    std::fs::write(&source, super::commands::multi_layer_archive_with(false))
+        .expect("the named archive is written");
+    let file_io = LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
+        .expect("the file boundary opens");
+    file_io
+        .approve_path(&source)
+        .expect("the named archive is approved");
+    let io: Arc<dyn FileIo> = Arc::new(file_io);
+
+    let cache = directory.path().join("same-doc-cache");
+    let autosave = cache.join("autosave");
+    std::fs::create_dir_all(&autosave).expect("the autosave directory");
+    std::fs::write(
+        autosave.join("multi-doc.ptz"),
+        super::commands::multi_layer_archive_with(false),
+    )
+    .expect("the autosave of the same document is written");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    std::fs::write(
+        autosave.join("manifest.json"),
+        format!(r#"{{"multi-doc":"Unsaved edits|{now_ms}"}}"#),
+    )
+    .expect("the manifest is written");
+
+    let (window, content) = mount_app_with_cache_root(cx, source, io, cache.clone());
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let (offered, tab_count) = {
+            let app = content.read(cx);
+            let state = app.state_for_test().read(cx);
+            (
+                state
+                    .recovery_entries
+                    .iter()
+                    .map(|row| row.doc_id.clone())
+                    .collect::<Vec<_>>(),
+                state.tabs.len(),
+            )
+        };
+        assert_eq!(
+            offered,
+            vec!["multi-doc".to_string()],
+            "an autosave of the document on screen is still offered, because it can hold work \
+             newer than the file"
+        );
+        assert_eq!(tab_count, 1, "the named document is one tab");
+
+        content.update(cx, |app, cx| {
+            app.restore_autosaves_from(&cache, cx);
+            assert_eq!(
+                app.active_document_id_for_test().as_deref(),
+                Some("multi-doc"),
+                "the recovered document is the one on screen"
+            );
+            let state = app.state_for_test().read(cx);
+            assert_eq!(
+                state.tabs.len(),
+                1,
+                "recovering the open document swaps its session instead of adding a second tab"
+            );
+            assert_eq!(
+                state.active_dialog, None,
+                "the recovery prompt closes once the archive is opened"
+            );
+            assert_eq!(
+                state.status_error, None,
+                "the swap succeeds, so recovery reports no failure"
+            );
+        });
+    })
+    .expect("test window remains open");
+
+    let archive = directory
+        .path()
+        .join("same-doc-cache")
+        .join("autosave")
+        .join("multi-doc.ptz");
+    assert!(
+        !archive.exists(),
+        "the restored archive leaves the store so the next start does not offer it again"
+    );
+}
+
+#[gpui_kit::test]
 fn explicit_open_and_startup_recovery_coexist_at_startup(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let source = directory.path().join("named.ptz");

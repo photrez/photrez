@@ -33,9 +33,9 @@ pub(crate) enum CursorPolicy {
     NotAllowed,
 }
 
-/// The reachable native cursor inputs. Handles, rotate and pan have no native
-/// implementation yet, so they are not inputs here; their unsupported branches
-/// are recorded as 40/50 obligations.
+/// The tool-level cursor inputs. Handle and rotate cursors are not decided here:
+/// `App::canvas_cursor_policy` hit-tests the crop and transform handles and
+/// replaces this value with the matching resize or crosshair variant.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CursorContext {
     pub tool: ToolId,

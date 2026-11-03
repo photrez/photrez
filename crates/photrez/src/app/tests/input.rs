@@ -1400,6 +1400,96 @@ fn alt_during_a_live_move_drag_shows_the_copy_cursor(cx: &mut gpui_kit::TestAppC
 }
 
 #[gpui_kit::test]
+fn hovering_the_crop_frame_paints_the_direction_resize_cursors(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::{Modifiers, MouseMoveEvent, PlatformInput};
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("blank document");
+            app.state_for_test().update(cx, |state, _| {
+                state.active_tool = ToolId::Crop;
+                state.crop_rect = Some([40.0, 30.0, 120.0, 90.0]);
+            });
+        });
+        window.render_frame(cx);
+        let (bounds, placement) = page(window, (200, 150));
+
+        let hover = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App, doc: (f32, f32)| {
+            dispatch_pointer_event(
+                window,
+                PlatformInput::MouseMove(MouseMoveEvent {
+                    position: window_point(bounds, placement, (200, 150), doc.0, doc.1),
+                    modifiers: Modifiers::default(),
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+        };
+
+        for (doc, expected, note) in [
+            (
+                (40.0, 30.0),
+                crate::input::CursorPolicy::ResizeNwse,
+                "NW corner",
+            ),
+            (
+                (160.0, 30.0),
+                crate::input::CursorPolicy::ResizeNesw,
+                "NE corner",
+            ),
+            (
+                (40.0, 120.0),
+                crate::input::CursorPolicy::ResizeNesw,
+                "SW corner",
+            ),
+            (
+                (160.0, 120.0),
+                crate::input::CursorPolicy::ResizeNwse,
+                "SE corner",
+            ),
+            (
+                (40.0, 75.0),
+                crate::input::CursorPolicy::ResizeEw,
+                "west edge",
+            ),
+            (
+                (160.0, 75.0),
+                crate::input::CursorPolicy::ResizeEw,
+                "east edge",
+            ),
+            (
+                (100.0, 30.0),
+                crate::input::CursorPolicy::ResizeNs,
+                "north edge",
+            ),
+            (
+                (100.0, 120.0),
+                crate::input::CursorPolicy::ResizeNs,
+                "south edge",
+            ),
+            (
+                (100.0, 75.0),
+                crate::input::CursorPolicy::SystemDefault,
+                "frame interior",
+            ),
+        ] {
+            hover(window, cx, doc);
+            content.update(cx, |app, cx| {
+                assert_eq!(
+                    app.canvas_cursor_policy(cx),
+                    expected,
+                    "the pointer at the {note} asks the matching resize cursor"
+                );
+            });
+        }
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn escape_cancels_group_move_preview_and_preserves_selection(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
