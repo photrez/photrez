@@ -104,7 +104,8 @@ because it has not been built yet.
 | Shipped | Title bar and eight top-level menus that open at fixed origins, dismiss on outside click, and enable/disable rows from live document state; the canvas and layer context menus follow the same gates. |
 | Shipped | Right dock with Properties, Adjustments, Layers and History panels plus the Navigator, filling the window at any size. |
 | Shipped | Status bar reads canvas size, zoom percent, active tool, hint, selected layer and frame timing, and marks the autosave state with its colour dot beside the words. |
-| Partial | Tool option bars reflow against their real width. Some bars show a trigger for an overflow panel. The Move, Transform and Text panels are not ported yet, so those triggers open no controls. |
+| Shipped | Tool option bars reflow against their real width, and every More trigger opens a panel holding the controls the bar folds away. The Move bar's transform cells read the selected layer: X, Y and rotation are editable and commit through core history, W and H show its scaled frame, and a locked layer answers no edit. |
+| Partial | The right dock's Properties transform rows still carry fixed specimen numbers, and its constrain toggle paints without a state behind it, so they describe the capture fixture rather than the selected layer. |
 | Shipped | Document tabs: create, switch, reorder, and close through a Save/Discard/Cancel prompt when dirty. |
 | Shipped | Tooltips on controls and a toast host for warnings such as locked or missing layers. |
 | Shipped | The window reopens at the remembered position, size and maximized state; a record that no longer lands on a connected display falls back to the centered default. |
