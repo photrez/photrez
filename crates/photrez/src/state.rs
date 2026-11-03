@@ -564,6 +564,30 @@ pub enum SliderTarget {
     LayerOpacity,
 }
 
+impl SliderTarget {
+    /// How many tracks exist, so the focus table can be built once and checked.
+    pub const COUNT: usize = 11;
+
+    /// The track's slot in `AppState::slider_foci`. Spelled out rather than
+    /// derived from the enum order, so adding a variant cannot silently point a
+    /// host at another track's handle.
+    pub const fn index(self) -> usize {
+        match self {
+            SliderTarget::Tolerance => 0,
+            SliderTarget::TextStrokeWidth => 1,
+            SliderTarget::BrushMenuSize => 2,
+            SliderTarget::BrushMenuHardness => 3,
+            SliderTarget::BrushMenuStrength => 4,
+            SliderTarget::ExportQuality => 5,
+            SliderTarget::AdjustmentBrightness => 6,
+            SliderTarget::AdjustmentContrast => 7,
+            SliderTarget::AdjustmentSaturation => 8,
+            SliderTarget::PrintScale => 9,
+            SliderTarget::LayerOpacity => 10,
+        }
+    }
+}
+
 /// Which control of the picker a pointer drag drives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickerArea {
@@ -936,10 +960,9 @@ pub struct AppState {
     pub num_field: Option<NumFieldSession>,
     /// Focus target for inline numeric edits, installed at App construction.
     pub num_field_focus: Option<gpui_kit::FocusHandle>,
-    /// Focus target for the option-bar slider, installed at App construction.
-    pub slider_focus: Option<gpui_kit::FocusHandle>,
-    /// Focus target for the Properties panel's opacity track.
-    pub opacity_slider_focus: Option<gpui_kit::FocusHandle>,
+    /// One tabbable focus handle per slider track, indexed by
+    /// `SliderTarget::index` and installed at App construction.
+    pub slider_foci: Vec<gpui_kit::FocusHandle>,
     /// Focus targets for the Move bar toggles, installed at App construction.
     pub move_snap_focus: Option<gpui_kit::FocusHandle>,
     pub move_auto_select_focus: Option<gpui_kit::FocusHandle>,
@@ -1173,8 +1196,7 @@ impl Default for AppState {
             rename_layer: None,
             num_field: None,
             num_field_focus: None,
-            slider_focus: None,
-            opacity_slider_focus: None,
+            slider_foci: Vec::new(),
             move_snap_focus: None,
             move_auto_select_focus: None,
             move_transform_focus: None,
@@ -1204,6 +1226,11 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// The handle a track takes so it can be tabbed to and stepped with arrows.
+    pub fn slider_focus_for(&self, target: SliderTarget) -> Option<gpui_kit::FocusHandle> {
+        self.slider_foci.get(target.index()).cloned()
+    }
+
     /// A `--shot` launch seeds the demo document without a session, so the tab
     /// strip's projection from real sessions would be empty while the document
     /// is on screen. Seed the display-only tab row that the captured shell

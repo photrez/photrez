@@ -614,6 +614,74 @@ fn print_scale_track_writes_the_percentage(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+/// The Scale track takes a click as a focus, and from there the keyboard covers
+/// the same 10..=400 range the pointer path maps, clearing Scale to Fit.
+#[gpui_kit::test]
+fn the_print_scale_track_answers_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.print_document_action(&crate::app::PrintDocument, cx);
+        });
+        window.render_frame(cx);
+
+        let bounds = window.find("print-scale-track").bounds();
+        window.click_at(
+            "print-scale-track",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        let centre = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .print_scale_percent;
+        assert!(
+            (195..=215).contains(&centre),
+            "the click that focuses the track maps to about 205 %, got {centre}"
+        );
+
+        window.press("right", cx);
+        window.press("up", cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .print_scale_percent,
+            centre + 2,
+            "arrows step the scale up one percent each"
+        );
+        window.press("home", cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .print_scale_percent,
+            10,
+            "Home reaches the track's 10 % floor"
+        );
+        window.press("end", cx);
+        let state = content.read(cx).state_for_test();
+        assert_eq!(
+            state.read(cx).print_scale_percent,
+            400,
+            "End reaches the track's 400 % ceiling"
+        );
+        assert!(
+            !state.read(cx).print_scale_to_fit,
+            "keyboard steps leave Fit cleared, as a drag does"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
 fn print_dialog_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -997,6 +1065,61 @@ fn export_dialog_switches_format_and_quality(cx: &mut gpui_kit::TestAppContext) 
         assert!(
             window.try_find("export-quality").is_none(),
             "PNG hides the track again"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The quality track answers the keyboard once a click has focused it: arrows
+/// step one percent and Home/End reach the 1..=100 ends of the range input.
+#[gpui_kit::test]
+fn the_export_quality_track_answers_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.export_document_action(&crate::app::ExportDocument, cx);
+        });
+        window.render_frame(cx);
+        window.click("export-format-trigger", cx);
+        window.render_frame(cx);
+        window.click("export-format-jpg", cx);
+        window.render_frame(cx);
+
+        let bounds = window.find("export-quality").bounds();
+        window.click_at(
+            "export-quality",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        let centre = content.read(cx).state_for_test().read(cx).export_quality;
+        assert!(
+            (45..=55).contains(&centre),
+            "the click that focuses the track maps to about 51 %, got {centre}"
+        );
+
+        window.press("right", cx);
+        window.press("up", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).export_quality,
+            centre + 2,
+            "arrows step the quality up one percent each"
+        );
+        window.press("home", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).export_quality,
+            1,
+            "Home reaches the track's lowest quality"
+        );
+        window.press("end", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).export_quality,
+            100,
+            "End reaches full quality"
         );
     })
     .expect("test window remains open");

@@ -1413,7 +1413,7 @@ fn text_items(state: &gpui_kit::Entity<AppState>, row: Div, cx: &Context<crate::
             s.text_stroke_panel_bounds.clone(),
             s.text_stroke_slider_bounds.clone(),
             s.slider_capture.clone(),
-            s.slider_focus.clone(),
+            s.slider_focus_for(crate::state::SliderTarget::TextStrokeWidth),
         )
     };
     row.child(tool_pill(

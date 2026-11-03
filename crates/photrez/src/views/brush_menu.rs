@@ -99,6 +99,30 @@ pub(crate) fn render(
          target: SliderTarget,
          bounds: std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>|
          -> Div {
+            // A click focuses the track and arrows step the same 0..=100
+            // position a drag sets.
+            let focus = state.read(cx).slider_focus_for(target);
+            let mut track = div()
+                .id(id)
+                .test_support()
+                .w_full()
+                .h(px(SLIDER_H))
+                .aria_label(label.clone());
+            if let Some(handle) = focus.as_ref() {
+                track = track.track_focus(handle).on_key_down(cx.listener(
+                    move |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                        app.slider_key(target, event, cx);
+                    },
+                ));
+            }
+            let track = track.child(BarSliderSurface::new(
+                visual,
+                cx.entity().downgrade(),
+                target,
+                bounds,
+                capture.clone(),
+                focus,
+            ));
             v_flex()
                 .w_full()
                 .gap(px(BLOCK_GAP))
@@ -111,18 +135,13 @@ pub(crate) fn render(
                         .text_color(color::TEXT_DIM)
                         .child(label),
                 )
-                .child(h_flex().w_full().h(px(SLIDER_H)).items_center().child(
-                    div().id(id).test_support().w_full().h(px(SLIDER_H)).child(
-                        BarSliderSurface::new(
-                            visual,
-                            cx.entity().downgrade(),
-                            target,
-                            bounds,
-                            capture.clone(),
-                            None,
-                        ),
-                    ),
-                ))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .h(px(SLIDER_H))
+                        .items_center()
+                        .child(track),
+                )
         };
 
     let mut presets = v_flex().w_full().gap(px(BLOCK_GAP));

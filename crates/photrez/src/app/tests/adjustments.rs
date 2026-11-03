@@ -234,3 +234,96 @@ fn undeveloped_adjustment_groups_open_their_in_development_card(cx: &mut gpui_ki
     })
     .expect("test window remains open");
 }
+
+/// A click focuses a track, and from there the arrows step one point and
+/// Home/End reach the -100/+100 ends the pointer path maps to.
+#[gpui_kit::test]
+fn the_adjustment_tracks_answer_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+
+        let bounds = window.find("adj-bright-track").bounds();
+        window.click_at(
+            "adj-bright-track",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        let centre = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .adjustment_brightness;
+        assert!(
+            centre.abs() <= 2.0,
+            "the click that focuses the track sits at its centre, got {centre}"
+        );
+
+        window.press("right", cx);
+        window.press("up", cx);
+        let raised = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .adjustment_brightness;
+        assert!(
+            (raised - centre - 2.0).abs() <= 0.01,
+            "arrows step the channel up by two points, got {raised} from {centre}"
+        );
+
+        window.press("home", cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .adjustment_brightness,
+            -100.0,
+            "Home drives Bright to its low end"
+        );
+        window.press("end", cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .adjustment_brightness,
+            100.0,
+            "End drives Bright to its high end"
+        );
+
+        let bounds = window.find("adj-saturate-track").bounds();
+        window.click_at(
+            "adj-saturate-track",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        window.press("end", cx);
+        let state = content.read(cx).state_for_test();
+        assert_eq!(
+            state.read(cx).adjustment_saturation,
+            100.0,
+            "the second channel has its own handle"
+        );
+        assert_eq!(
+            state.read(cx).adjustment_brightness,
+            100.0,
+            "stepping Saturate leaves Bright where End put it"
+        );
+    })
+    .expect("test window remains open");
+}

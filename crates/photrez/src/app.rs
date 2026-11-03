@@ -956,8 +956,9 @@ impl App {
         });
 
         let field_focus = cx.focus_handle();
-        let slider_focus = cx.focus_handle();
-        let opacity_slider_focus = cx.focus_handle().tab_stop(true);
+        let slider_foci: Vec<_> = (0..crate::state::SliderTarget::COUNT)
+            .map(|_| cx.focus_handle().tab_stop(true))
+            .collect();
         let move_snap_focus = cx.focus_handle().tab_stop(true);
         let move_auto_select_focus = cx.focus_handle().tab_stop(true);
         let move_transform_focus = cx.focus_handle().tab_stop(true);
@@ -965,8 +966,7 @@ impl App {
             state: cx.new(|_| {
                 let mut state = state;
                 state.num_field_focus = Some(field_focus);
-                state.slider_focus = Some(slider_focus);
-                state.opacity_slider_focus = Some(opacity_slider_focus);
+                state.slider_foci = slider_foci;
                 state.move_snap_focus = Some(move_snap_focus);
                 state.move_auto_select_focus = Some(move_auto_select_focus);
                 state.move_transform_focus = Some(move_transform_focus);

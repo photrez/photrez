@@ -266,7 +266,7 @@ pub(super) fn tolerance_slider(
             (s.fill_tolerance as f32 / 255.0) * 100.0,
             s.tolerance_slider_bounds.clone(),
             s.slider_capture.clone(),
-            s.slider_focus.clone(),
+            s.slider_focus_for(crate::state::SliderTarget::Tolerance),
         )
     };
     let mut visual = h_flex()
@@ -280,7 +280,7 @@ pub(super) fn tolerance_slider(
     if let Some(handle) = focus.as_ref() {
         visual = visual.track_focus(handle).on_key_down(cx.listener(
             |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.slider_key(event, cx);
+                app.slider_key(crate::state::SliderTarget::Tolerance, event, cx);
             },
         ));
     }
@@ -1117,7 +1117,7 @@ fn text_stroke_width_slider(
     if let Some(handle) = focus.as_ref() {
         visual = visual.track_focus(handle).on_key_down(cx.listener(
             |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.text_stroke_slider_key(event, cx);
+                app.slider_key(crate::state::SliderTarget::TextStrokeWidth, event, cx);
             },
         ));
     }

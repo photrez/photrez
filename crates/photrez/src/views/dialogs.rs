@@ -1009,11 +1009,12 @@ fn export_body(
                         .bg(color::ACCENT),
                 ),
         );
-        let (bounds, capture) = {
+        let (bounds, capture, focus) = {
             let s = state.read(cx);
             (
                 s.export_quality_slider_bounds.clone(),
                 s.slider_capture.clone(),
+                s.slider_focus_for(SliderTarget::ExportQuality),
             )
         };
         let quality_text = match quality {
@@ -1021,6 +1022,29 @@ fn export_body(
             70..=89 => t("dialogs.export.qualities.high"),
             _ => t("dialogs.export.qualities.medium"),
         };
+        // The surface focuses this wrapper on a click; arrows step the quality
+        // across the same 1..=100 range the pointer maps.
+        let mut quality_track = div()
+            .id("export-quality")
+            .test_support()
+            .w_full()
+            .h(px(14.0))
+            .aria_label(t("dialogs.export.quality"));
+        if let Some(handle) = focus.as_ref() {
+            quality_track = quality_track.track_focus(handle).on_key_down(cx.listener(
+                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                    app.slider_key(crate::state::SliderTarget::ExportQuality, event, cx);
+                },
+            ));
+        }
+        quality_track = quality_track.child(BarSliderSurface::new(
+            track,
+            cx.entity().downgrade(),
+            SliderTarget::ExportQuality,
+            bounds,
+            capture,
+            focus,
+        ));
         body = body.child(
             v_flex()
                 .w_full()
@@ -1048,21 +1072,7 @@ fn export_body(
                                 .child(format!("{quality}%")),
                         ),
                 )
-                .child(
-                    div()
-                        .id("export-quality")
-                        .test_support()
-                        .w_full()
-                        .h(px(14.0))
-                        .child(BarSliderSurface::new(
-                            track,
-                            cx.entity().downgrade(),
-                            SliderTarget::ExportQuality,
-                            bounds,
-                            capture,
-                            None,
-                        )),
-                )
+                .child(quality_track)
                 .child(
                     div()
                         .text_size(px(11.0))

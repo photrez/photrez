@@ -72,7 +72,7 @@ pub(super) fn section(
             s.layer_opacity,
             s.opacity_slider_bounds.clone(),
             s.slider_capture.clone(),
-            s.opacity_slider_focus.clone(),
+            s.slider_focus_for(crate::state::SliderTarget::LayerOpacity),
         )
     };
     let editing = |id: &'static str| {
@@ -100,7 +100,7 @@ pub(super) fn section(
     if let Some(handle) = track_focus.as_ref() {
         track = track.track_focus(handle).on_key_down(cx.listener(
             |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.opacity_slider_key(event, cx);
+                app.slider_key(crate::state::SliderTarget::LayerOpacity, event, cx);
             },
         ));
     }

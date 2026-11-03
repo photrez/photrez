@@ -1,10 +1,12 @@
-//! Option-bar slider input: click and drag map the pointer's x position over
-//! the laid-out track to a value.
+//! Slider input for every track host: click and drag map the pointer's x
+//! position over the laid-out track to a value, and the arrow keys step that
+//! value in its own units.
 
 use gpui_kit::{Context, KeyDownEvent};
 
-use crate::state::SliderTarget;
+use crate::state::{SliderTarget, ToolId};
 
+use super::brush_menu::paint_size_to_slider;
 use super::App;
 
 impl App {
@@ -33,92 +35,148 @@ impl App {
         self.slider_dragging = false;
     }
 
-    pub(crate) fn slider_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
-        self.slider_key_for(SliderTarget::Tolerance, event, cx)
-    }
-
-    pub(crate) fn text_stroke_slider_key(
-        &mut self,
-        event: &KeyDownEvent,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        self.slider_key_for(SliderTarget::TextStrokeWidth, event, cx)
-    }
-
-    fn slider_key_for(
+    /// The keyboard path for a track. Each target reads its own current value
+    /// and writes through the setter the pointer path uses.
+    pub(crate) fn slider_key(
         &mut self,
         target: SliderTarget,
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
+        let key = event.keystroke.key.as_str();
         match target {
             SliderTarget::Tolerance => {
                 let current = self.state.read(cx).fill_tolerance as f64;
-                let value = match event.keystroke.key.as_str() {
-                    "left" | "down" => current - 1.0,
-                    "right" | "up" => current + 1.0,
-                    "home" => 0.0,
-                    "end" => 255.0,
-                    _ => return false,
+                let Some(value) = Self::stepped(current, key, 0.0, 255.0) else {
+                    return false;
                 };
                 let result = self.set_fill_tolerance(value, cx);
-                match result {
-                    Ok(()) => self.set_status_error(None, cx),
-                    Err(error) => self.set_status_error(Some(format!("Tolerance: {error}")), cx),
-                }
+                self.report_slider_write("Tolerance", result, cx);
             }
             SliderTarget::TextStrokeWidth => {
                 let current = self.effective_text_stroke_width(cx);
-                let value = match event.keystroke.key.as_str() {
-                    "left" | "down" => current - 1.0,
-                    "right" | "up" => current + 1.0,
-                    "home" => 1.0,
-                    "end" => 100.0,
-                    _ => return false,
+                let Some(value) = Self::stepped(current, key, 1.0, 100.0) else {
+                    return false;
                 };
-                let result = self.set_text_stroke_width(value.clamp(1.0, 100.0), cx);
-                match result {
-                    Ok(()) => self.set_status_error(None, cx),
-                    Err(error) => self.set_status_error(Some(format!("Text: {error}")), cx),
-                }
+                let result = self.set_text_stroke_width(value, cx);
+                self.report_slider_write("Text", result, cx);
             }
-            // Range inputs of this kind take pointer input only here.
             SliderTarget::BrushMenuSize
             | SliderTarget::BrushMenuHardness
-            | SliderTarget::BrushMenuStrength
-            | SliderTarget::ExportQuality
-            | SliderTarget::AdjustmentBrightness
+            | SliderTarget::BrushMenuStrength => {
+                // The menu's three tracks are 0..=100 positions; Size converts
+                // through the same curve the pointer path uses, so a key and a
+                // drag of the same position land on the same pixel width.
+                let eraser = self.state.read(cx).active_tool == ToolId::Eraser;
+                let current = {
+                    let state = self.state.read(cx);
+                    match target {
+                        SliderTarget::BrushMenuSize => paint_size_to_slider(if eraser {
+                            state.eraser_size
+                        } else {
+                            state.brush_size
+                        }),
+                        SliderTarget::BrushMenuHardness => {
+                            100.0
+                                * if eraser {
+                                    state.eraser_hardness
+                                } else {
+                                    state.brush_hardness
+                                }
+                        }
+                        _ => {
+                            100.0
+                                * if eraser {
+                                    state.eraser_opacity
+                                } else {
+                                    state.brush_opacity
+                                }
+                        }
+                    }
+                };
+                let Some(position) = Self::stepped(current, key, 0.0, 100.0) else {
+                    return false;
+                };
+                self.brush_menu_set_from_fraction(target, position / 100.0, cx);
+            }
+            SliderTarget::ExportQuality => {
+                let current = self.state.read(cx).export_quality as f64;
+                let Some(value) = Self::stepped(current, key, 1.0, 100.0) else {
+                    return false;
+                };
+                self.state
+                    .update(cx, |state, _| state.export_quality = value.round() as u8);
+                cx.notify();
+            }
+            SliderTarget::AdjustmentBrightness
             | SliderTarget::AdjustmentContrast
-            | SliderTarget::AdjustmentSaturation
-            | SliderTarget::PrintScale
-            // The opacity track has its own handler; this match only carries the
-            // targets whose keys map onto option-bar state.
-            | SliderTarget::LayerOpacity => return false,
+            | SliderTarget::AdjustmentSaturation => {
+                let channel = match target {
+                    SliderTarget::AdjustmentBrightness => 0,
+                    SliderTarget::AdjustmentContrast => 1,
+                    _ => 2,
+                };
+                let current = {
+                    let state = self.state.read(cx);
+                    match channel {
+                        0 => state.adjustment_brightness,
+                        1 => state.adjustment_contrast,
+                        _ => state.adjustment_saturation,
+                    }
+                };
+                let Some(value) = Self::stepped(current, key, -100.0, 100.0) else {
+                    return false;
+                };
+                let result = self.set_selected_adjustment(channel, value, cx);
+                self.report_slider_write("Adjust", result, cx);
+            }
+            SliderTarget::PrintScale => {
+                let current = self.state.read(cx).print_scale_percent as f64;
+                let Some(value) = Self::stepped(current, key, 10.0, 400.0) else {
+                    return false;
+                };
+                self.state.update(cx, |state, _| {
+                    state.print_scale_percent = value.round() as u32;
+                    state.print_scale_to_fit = false;
+                });
+                cx.notify();
+            }
+            SliderTarget::LayerOpacity => {
+                let current = self.state.read(cx).layer_opacity * 100.0;
+                let Some(value) = Self::stepped(current, key, 0.0, 100.0) else {
+                    return false;
+                };
+                let result = self.set_selected_layer_opacity(value / 100.0, cx);
+                self.report_slider_write("Opacity", result, cx);
+            }
         }
         true
     }
 
-    /// The Properties panel's opacity track: arrows step one percent, Home and
-    /// End go to the ends.
-    pub(crate) fn opacity_slider_key(
+    /// One key on a `min..=max` track, in that track's own units: arrows step
+    /// one unit and Home/End go to the ends, as a range input does.
+    fn stepped(current: f64, key: &str, min: f64, max: f64) -> Option<f64> {
+        match key {
+            "left" | "down" => Some((current - 1.0).clamp(min, max)),
+            "right" | "up" => Some((current + 1.0).clamp(min, max)),
+            "home" => Some(min),
+            "end" => Some(max),
+            _ => None,
+        }
+    }
+
+    /// A rejected track write becomes a status line; an accepted one clears the
+    /// previous warning.
+    fn report_slider_write(
         &mut self,
-        event: &KeyDownEvent,
+        label: &str,
+        result: Result<(), String>,
         cx: &mut Context<Self>,
-    ) -> bool {
-        let current = self.state.read(cx).layer_opacity * 100.0;
-        let value = match event.keystroke.key.as_str() {
-            "left" | "down" => current - 1.0,
-            "right" | "up" => current + 1.0,
-            "home" => 0.0,
-            "end" => 100.0,
-            _ => return false,
-        };
-        let result = self.set_selected_layer_opacity(value.clamp(0.0, 100.0) / 100.0, cx);
+    ) {
         match result {
             Ok(()) => self.set_status_error(None, cx),
-            Err(error) => self.set_status_error(Some(format!("Opacity: {error}")), cx),
+            Err(error) => self.set_status_error(Some(format!("{label}: {error}")), cx),
         }
-        true
     }
 
     fn set_slider_from_x(&mut self, target: SliderTarget, x: f32, cx: &mut Context<Self>) {

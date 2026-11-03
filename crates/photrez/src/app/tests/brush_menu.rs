@@ -294,3 +294,77 @@ fn escape_and_click_away_close_the_brush_menu(cx: &mut gpui_kit::TestAppContext)
     })
     .expect("test window remains open");
 }
+
+/// The menu's Size and Hardness tracks take a click as a focus, and from there
+/// the keyboard reaches the same ends the pointer path maps to.
+#[gpui_kit::test]
+fn the_brush_menu_tracks_answer_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Brush, 20.0);
+        window.render_frame(cx);
+        let position = window.find("canvas-hitbox").bounds().center();
+        right_click(window, position, cx);
+        window.render_frame(cx);
+
+        let bounds = window.find("brush-menu-size").bounds();
+        window.click_at(
+            "brush-menu-size",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        let middle = content.read(cx).state_for_test().read(cx).brush_size;
+        assert!(
+            (300.0..=370.0).contains(&middle),
+            "halfway along the Size track is the curve's 334 px, got {middle}"
+        );
+
+        window.press("home", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).brush_size,
+            1.0,
+            "Home shrinks the brush to its smallest dab"
+        );
+        window.press("right", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).brush_size,
+            8.0,
+            "one arrow off the low end widens the dab to the curve's next point"
+        );
+        window.press("end", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).brush_size,
+            2000.0,
+            "End gives the full 2000 px the drag path can set"
+        );
+
+        let bounds = window.find("brush-menu-hardness").bounds();
+        window.click_at(
+            "brush-menu-hardness",
+            gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) * 0.5),
+                gpui_kit::px(f32::from(bounds.size.height) * 0.5),
+            ),
+            cx,
+        );
+        window.render_frame(cx);
+        window.press("home", cx);
+        let state = content.read(cx).state_for_test();
+        assert_eq!(
+            state.read(cx).brush_hardness,
+            0.0,
+            "the hardness track has its own handle and reaches its low end"
+        );
+        assert_eq!(
+            state.read(cx).brush_size,
+            2000.0,
+            "stepping Hardness leaves the Size the keyboard set"
+        );
+    })
+    .expect("test window remains open");
+}

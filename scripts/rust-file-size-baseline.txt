@@ -22,6 +22,12 @@
 # `state.rs` takes a bounds cell and a focus handle (1574 to 1577) and
 # `app.rs` installs that handle (1803 to 1805). Both are small additions to
 # large files that were already over the cap; the split obligation stands.
+#
+# Fourth amendment, for keyboard input on the remaining eight tracks: `state.rs`
+# replaces the two per-slider focus fields with one table plus an index
+# (1577 to 1604), and `views/dialogs.rs` (2102 to 2108), `views/dialogs/print.rs`
+# (1192 to 1210) and `app/tests/documents.rs` (1864 to 1939) carry the new focus
+# wiring and its tests. Four more entries now owe a split; none is done here.
 1060 crates/core/src/document/tests/commands.rs
 1006 crates/core/src/document/tests/structural.rs
 1100 crates/core/src/pixel/store/tests.rs
@@ -29,7 +35,7 @@
 2663 crates/photrez/src/app/input.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
-1864 crates/photrez/src/app/tests/documents.rs
+1939 crates/photrez/src/app/tests/documents.rs
 3506 crates/photrez/src/app/tests/input.rs
 1181 crates/photrez/src/app/tests/layers_panel.rs
 1484 crates/photrez/src/app/tests/selection.rs
@@ -37,9 +43,9 @@
 1442 crates/photrez/src/app/transform_move.rs
 1805 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
-1577 crates/photrez/src/state.rs
-1192 crates/photrez/src/views/dialogs/print.rs
-2102 crates/photrez/src/views/dialogs.rs
+1604 crates/photrez/src/state.rs
+1210 crates/photrez/src/views/dialogs/print.rs
+2108 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
 1349 crates/photrez/src/views/properties_panel.rs

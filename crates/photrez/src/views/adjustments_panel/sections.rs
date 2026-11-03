@@ -132,9 +132,6 @@ pub(super) fn basic_section(
                 || s.adjustment_saturation != 0.0,
         )
     };
-    let bounds: Vec<std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>> =
-        state.read(cx).adjustment_slider_bounds.to_vec();
-    let capture = state.read(cx).slider_capture.clone();
     let mut reset = reset_button().id("adj-reset").test_support();
     if has_pending {
         reset = reset.cursor_pointer().opacity(1.0);
@@ -175,8 +172,8 @@ pub(super) fn basic_section(
                     ui::SliderKind::Brightness,
                     bright,
                     crate::state::SliderTarget::AdjustmentBrightness,
-                    &capture,
-                    &bounds[0],
+                    "adj-bright-track",
+                    state,
                     cx,
                 ))
                 .child(slider_row(
@@ -184,8 +181,8 @@ pub(super) fn basic_section(
                     ui::SliderKind::Contrast,
                     contrast,
                     crate::state::SliderTarget::AdjustmentContrast,
-                    &capture,
-                    &bounds[1],
+                    "adj-contrast-track",
+                    state,
                     cx,
                 ))
                 .child(slider_row(
@@ -193,8 +190,8 @@ pub(super) fn basic_section(
                     ui::SliderKind::Saturation,
                     saturate,
                     crate::state::SliderTarget::AdjustmentSaturation,
-                    &capture,
-                    &bounds[2],
+                    "adj-saturate-track",
+                    state,
                     cx,
                 ))
                 .child(
@@ -225,13 +222,50 @@ fn slider_row(
     kind: ui::SliderKind,
     value: i32,
     target: crate::state::SliderTarget,
-    capture: &std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
-    bounds: &std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    id: &'static str,
+    state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     use crate::views::option_bar::slider_surface::BarSliderSurface;
+    let (capture, bounds, focus) = {
+        let s = state.read(cx);
+        // The same channel numbering the drag path and core command use.
+        let channel = match target {
+            crate::state::SliderTarget::AdjustmentBrightness => 0,
+            crate::state::SliderTarget::AdjustmentContrast => 1,
+            _ => 2,
+        };
+        (
+            s.slider_capture.clone(),
+            s.adjustment_slider_bounds[channel].clone(),
+            s.slider_focus_for(target),
+        )
+    };
     // Centre-origin: 0 sits at 50 %, the ends are -100 / +100.
     let percent = ((f64::from(value) + 100.0) / 2.0) as f32;
+    let mut track = div()
+        .id(id)
+        .test_support()
+        .flex_1()
+        .h(px(SLIDER_WRAP_H))
+        .aria_label(label.to_string());
+    if let Some(handle) = focus.as_ref() {
+        track = track.track_focus(handle).on_key_down(cx.listener(
+            move |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                app.slider_key(target, event, cx);
+            },
+        ));
+    }
+    let track = track.child(BarSliderSurface::new(
+        // Centre-origin: no fill, the centre tick and
+        // thumb; accent is unused by these kinds.
+        ui::slider(percent, Some(0.0), kind, true),
+        cx.entity().downgrade(),
+        target,
+        bounds,
+        capture,
+        focus,
+    ));
     h_flex()
         .min_h(px(SLIDER_ROW_H))
         .items_center()
@@ -255,21 +289,7 @@ fn slider_row(
                 .gap(px(ROW_GAP))
                 // The source's invisible range input needs this wrapper;
                 // it centers the 4px slider in 18px.
-                .child(
-                    div()
-                        .flex_1()
-                        .h(px(SLIDER_WRAP_H))
-                        .child(BarSliderSurface::new(
-                            // Centre-origin: no fill, the centre tick and
-                            // thumb; accent is unused by these kinds.
-                            ui::slider(percent, Some(0.0), kind, true),
-                            cx.entity().downgrade(),
-                            target,
-                            bounds.clone(),
-                            capture.clone(),
-                            None,
-                        )),
-                )
+                .child(track)
                 .child(value_box(&format_display_value(value))),
         )
 }

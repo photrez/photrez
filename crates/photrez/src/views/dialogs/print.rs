@@ -305,6 +305,7 @@ pub(super) fn render(
     let color_open = s.print_color_open;
     let scale_bounds = s.print_scale_slider_bounds.clone();
     let capture = s.slider_capture.clone();
+    let scale_focus = s.slider_focus_for(SliderTarget::PrintScale);
 
     let (doc_w, doc_h) = document_size.unwrap_or((800, 600));
     let paper_name = PRINT_PAPERS[paper].0;
@@ -964,6 +965,29 @@ pub(super) fn render(
                         .bg(color::ACCENT),
                 ),
         );
+        // The surface focuses this wrapper on a click; arrows step one percent
+        // across the same 10..=400 range and clear Scale to Fit.
+        let mut scale_track = div()
+            .id("print-scale-track")
+            .test_support()
+            .flex_1()
+            .h(px(14.0))
+            .aria_label(t("dialogs.print.scale"));
+        if let Some(handle) = scale_focus.as_ref() {
+            scale_track = scale_track.track_focus(handle).on_key_down(cx.listener(
+                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
+                    app.slider_key(crate::state::SliderTarget::PrintScale, event, cx);
+                },
+            ));
+        }
+        scale_track = scale_track.child(BarSliderSurface::new(
+            track,
+            cx.entity().downgrade(),
+            SliderTarget::PrintScale,
+            scale_bounds,
+            capture,
+            scale_focus,
+        ));
         inspector = inspector.child(
             h_flex()
                 .w_full()
@@ -977,14 +1001,7 @@ pub(super) fn render(
                         .text_color(color::TEXT_DIM)
                         .child(t("dialogs.print.scale")),
                 )
-                .child(div().flex_1().h(px(14.0)).child(BarSliderSurface::new(
-                    track,
-                    cx.entity().downgrade(),
-                    SliderTarget::PrintScale,
-                    scale_bounds,
-                    capture,
-                    None,
-                )))
+                .child(scale_track)
                 .child(
                     div()
                         .w(px(44.0))
