@@ -157,7 +157,8 @@ pub(super) fn editable_field_text(
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .hover(|s| s.border_color(HOVER_BORDER_LOCAL))
+        // No hover edge: the reference's unlayered `* { border-color }` rule beats its own
+        // `hover:border-*` utility, so these fields keep their rest border under the pointer.
         .when(show_field_labels(), |el| el.child(dim_span(label)))
         .child(div().flex_1().min_w(px(0.)).child(value_text(value)))
         .child(suffix_span(suffix))
@@ -431,7 +432,9 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         .border_1()
         .border_color(color::BORDER)
         .bg(color::FIELD)
-        .hover(|s| s.border_color(HOVER_BORDER_LOCAL).text_color(color::WHITE))
+        // The reference's only hover change here is the glyph brightening to white; its border
+        // stays grey for the same reason as the fields above.
+        .hover(|s| s.text_color(color::WHITE))
         .text_color(ZINC)
         .child(
             Icon::default()

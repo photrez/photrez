@@ -1421,9 +1421,10 @@ pub(super) fn numeric_field(
     field
 }
 
-// ── Shared hover colour ───────────────────────────────────────────────────────
-
-/// `#4B515D` — the hover border for editable fields and the overflow button.
+/// `#4B515D` — the edge a stroke pill takes while its popover is open.
+///
+/// It is not a hover colour: the reference paints no hover border at all, because its unlayered
+/// border rule beats every `hover:border-*` utility it declares.
 pub(super) const HOVER_BORDER_LOCAL: Hsla = Hsla {
     h: 0.611111,
     s: 0.107143,
