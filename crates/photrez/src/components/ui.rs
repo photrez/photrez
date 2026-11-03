@@ -222,6 +222,49 @@ pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
         .inset()
 }
 
+/// The same spread with no `.inset()`: a halo that grows *outside* the box,
+/// which is what a plain `ring-1` is. [`inset_ring`] and this are not
+/// interchangeable — the reference uses the inset form for layer rows and the
+/// outset form for field halos, and they land on different pixels.
+pub fn outset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(0.), colour).spread_radius(px(1.))
+}
+
+/// An inset accent band approximating the focus outline declared in the pinned
+/// reference source. Its compiled cascade and pointer-focus behavior are
+/// unverified. GPUI has no outline property, so this uses an inset spread.
+pub fn focus_band(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
+    gpui_kit::BoxShadow::new(px(0.), px(0.), colour)
+        .spread_radius(px(1.5))
+        .inset()
+}
+
+/// The layers a bare numeric field carries while it is being edited.
+///
+/// The pinned reference source declares a focus outline for number inputs, but
+/// the compiled cascade and pointer-focus behavior are unverified. The edge
+/// stays [`color::BORDER`] at the call site; the accent is a shadow.
+pub fn outline_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
+    if active {
+        vec![focus_band(color::ACCENT.opacity(0.7))]
+    } else {
+        Vec::new()
+    }
+}
+
+/// The layers a labelled number field carries while it is being edited.
+///
+/// The reference wraps the input in a box that grows a 1px accent/70 halo
+/// outside its border, so unlike [`outline_cue`] the cue follows the wrapper
+/// rather than the text control inside it.
+pub fn ring_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
+    if active {
+        vec![outset_ring(color::ACCENT.opacity(0.7))]
+    } else {
+        Vec::new()
+    }
+}
+
 pub fn menu_row(
     label: &str,
     shortcut: Option<&str>,
@@ -456,5 +499,52 @@ mod tests {
         assert_eq!(ring.blur_radius, px(0.));
         assert_eq!(ring.spread_radius, px(1.));
         assert_eq!(ring.color, tint);
+    }
+
+    /// The halo is the inset ring's mirror: same 1px spread, no offset or blur,
+    /// but drawn outside the box.
+    /// RED proof: add `.inset()` or change the spread and the assertions fail.
+    #[test]
+    fn outset_ring_is_a_one_pixel_halo_outside_the_box() {
+        use gpui_kit::{hsla, px};
+
+        let ring = super::outset_ring(hsla(0.08, 0.9, 0.6, 0.7));
+        assert!(!ring.inset, "a plain ring grows outside the box");
+        assert_eq!((ring.offset.x, ring.offset.y), (px(0.), px(0.)));
+        assert_eq!(ring.blur_radius, px(0.));
+        assert_eq!(ring.spread_radius, px(1.));
+    }
+
+    /// The focus band keeps the reference's 1.5px width and its inset side.
+    /// RED proof: round the spread to 1px or drop `.inset()` and it fails.
+    #[test]
+    fn focus_band_is_a_one_and_a_half_pixel_inset_band() {
+        use gpui_kit::px;
+
+        let band = super::focus_band(crate::tokens::color::ACCENT);
+        assert!(band.inset, "the outline sits inside the edge");
+        assert_eq!(band.spread_radius, px(1.5));
+        assert_eq!(band.blur_radius, px(0.));
+    }
+
+    /// Both field cues are the accent at 70% and only exist while the field is
+    /// being edited; the edge they replace is a colour the site keeps itself.
+    /// RED proof: make a cue return the full accent, or give an inactive field a
+    /// layer, and these fail.
+    #[test]
+    fn field_cues_are_accent_seventy_and_only_while_active() {
+        use crate::tokens::color;
+
+        for cue in [super::ring_cue(false), super::outline_cue(false)] {
+            assert!(cue.is_empty(), "an idle field carries no accent layer");
+        }
+
+        let ring = &super::ring_cue(true)[0];
+        assert_eq!(ring.color, color::ACCENT.opacity(0.7));
+        assert!(!ring.inset, "the wrapper's halo grows outside its edge");
+
+        let band = &super::outline_cue(true)[0];
+        assert_eq!(band.color, color::ACCENT.opacity(0.7));
+        assert!(band.inset, "the input's outline sits inside its edge");
     }
 }

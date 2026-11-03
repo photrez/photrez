@@ -78,7 +78,10 @@ pub(super) fn option_checkbox_action(
         el = el
             .track_focus(&handle)
             .focusable()
-            .focus(|style| style.border_color(color::ACCENT));
+            .focus_visible(|mut style| {
+                style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
+                style
+            });
     }
     el
 }
@@ -602,6 +605,9 @@ pub(super) fn ring_white_20() -> BoxShadow {
 
 /// A brush-bar numeric field. Clicking starts an inline edit; valid keystrokes
 /// commit live, Enter ends, Escape restores the value.
+///
+/// The pinned reference source asks for an accent focus outline, but its
+/// compiled cascade and pointer-focus behavior have not been verified.
 #[allow(clippy::too_many_arguments)] // flat args mirror the paint field's many props
 pub(super) fn brush_field(
     id: &'static str,
@@ -628,7 +634,8 @@ pub(super) fn brush_field(
         .gap(px(ITEM_GAP))
         .rounded(px(RADIUS))
         .border_1()
-        .border_color(if active { color::ACCENT } else { color::BORDER })
+        .border_color(color::BORDER)
+        .shadow(ui::outline_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
         .cursor_pointer()

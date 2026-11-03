@@ -1585,7 +1585,7 @@ fn crop_ratio_action_row(
         })
         .when(active, |el| {
             el.border_l(px(2.0))
-                .border_color(color::ACCENT)
+                .border_color(color::BORDER)
                 .bg(color::ACCENT.opacity(0.2))
         });
     if let Some(icon) = icon {
