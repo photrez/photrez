@@ -40,3 +40,44 @@ fn quick_icons_match_reference() {
     assert_eq!(QUICK_ICONS[2], icons::SWAP);
     assert_eq!(QUICK_ICONS[3], icons::BOX);
 }
+
+/// A canvas action row lifts to its own border tier on hover, and the delete
+/// row keeps the red pair the design gives it: 10% at rest, 20% hovered, with
+/// the lighter red label and glyph.
+#[test]
+fn canvas_action_rows_carry_their_hover_and_label_tiers() {
+    let (fill, hover, text, icon) = ActionTone::Field.colours();
+    assert_eq!(fill, color::FIELD);
+    assert_eq!(
+        hover,
+        color::FIELD_BORDER,
+        "a field row hovers to its own border tier"
+    );
+    assert_eq!(text, color::TEXT);
+    assert_eq!(icon, color::TEXT_DIM);
+
+    let (fill, hover, text, icon) = ActionTone::Destructive.colours();
+    let panel = crate::tokens::hsla_to_rgb(color::PANEL);
+    let over = |tint: gpui_kit::Hsla| {
+        let rgb = crate::tokens::hsla_to_rgb(tint);
+        let mix =
+            |t: u8, base: u8| (t as f32 * tint.a + base as f32 * (1.0 - tint.a)).round() as u8;
+        (
+            mix(rgb.0, panel.0),
+            mix(rgb.1, panel.1),
+            mix(rgb.2, panel.2),
+        )
+    };
+    assert_eq!(
+        over(fill),
+        (52, 31, 32),
+        "the resting delete row is red at 10% over the panel"
+    );
+    assert_eq!(
+        over(hover),
+        (74, 33, 35),
+        "the hovered delete row is red at 20% over the panel"
+    );
+    assert_eq!(crate::tokens::hsla_to_rgb(text), (248, 113, 113));
+    assert_eq!(icon, text, "the trash glyph takes the label's red");
+}

@@ -378,7 +378,7 @@ fn canvas_properties(
                             "canvas-action-fit",
                             icons::MAXIMIZE,
                             &t("canvasProps.fitToScreen"),
-                            color::FIELD,
+                            ActionTone::Field,
                             cx,
                             |app, _window, cx| {
                                 app.fit_to_screen(cx);
@@ -389,7 +389,7 @@ fn canvas_properties(
                             "canvas-action-resize",
                             icons::CROP,
                             &t("menus.items.resizeCanvas"),
-                            color::FIELD,
+                            ActionTone::Field,
                             cx,
                             |app, window, cx| app.begin_resize_canvas(window, cx),
                         )),
@@ -455,11 +455,48 @@ fn canvas_property_button(
         )
 }
 
+/// The two tones a canvas action row comes in. Each carries the resting fill,
+/// the hovered fill and the label and icon colours the design pairs with them,
+/// so the hover state is a property of the row rather than of one caller.
+#[derive(Clone, Copy)]
+pub(crate) enum ActionTone {
+    Field,
+    Destructive,
+}
+
+impl ActionTone {
+    /// A function rather than inline styling so the four tiers are assertable
+    /// without a window.
+    pub(crate) fn colours(
+        self,
+    ) -> (
+        gpui_kit::Hsla,
+        gpui_kit::Hsla,
+        gpui_kit::Hsla,
+        gpui_kit::Hsla,
+    ) {
+        match self {
+            Self::Field => (
+                color::FIELD,
+                color::FIELD_BORDER,
+                color::TEXT,
+                color::TEXT_DIM,
+            ),
+            Self::Destructive => (
+                color::DESTRUCTIVE.opacity(0.1),
+                color::DESTRUCTIVE.opacity(0.2),
+                color::RED_400,
+                color::RED_400,
+            ),
+        }
+    }
+}
+
 fn canvas_action_button(
     id: &'static str,
     icon: &'static [u8],
     label: &str,
-    fill: gpui_kit::Hsla,
+    tone: ActionTone,
     cx: &Context<crate::app::App>,
     action: impl Fn(
             &mut crate::app::App,
@@ -468,6 +505,7 @@ fn canvas_action_button(
         ) -> Result<(), String>
         + 'static,
 ) -> impl IntoElement {
+    let (fill, hover, text, icon_text) = tone.colours();
     h_flex()
         .id(id)
         .test_support()
@@ -479,10 +517,11 @@ fn canvas_action_button(
         .border(px(1.0))
         .border_color(color::FIELD_BORDER)
         .bg(fill)
+        .hover(|style| style.bg(hover))
         .px(px(10.0))
         .text_size(px(12.0))
         .font_family(ui::FONT_UI)
-        .text_color(color::TEXT)
+        .text_color(text)
         .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
@@ -497,7 +536,7 @@ fn canvas_action_button(
             Icon::default()
                 .data(icon)
                 .size(px(14.0))
-                .text_color(color::TEXT_DIM),
+                .text_color(icon_text),
         )
         .child(label.to_string())
 }
@@ -1338,7 +1377,7 @@ fn multi_layers_section(
                         "prop-merge-selected",
                         icons::LAYERS,
                         &t("properties.mergeSelectedLayers"),
-                        color::FIELD,
+                        ActionTone::Field,
                         cx,
                         |app, _window, cx| app.merge_selected_layers(cx),
                     ))
@@ -1350,7 +1389,7 @@ fn multi_layers_section(
                                 "prop-duplicate",
                                 icons::COPY,
                                 &t("layers.duplicateLayer"),
-                                color::FIELD,
+                                ActionTone::Field,
                                 cx,
                                 |app, _window, cx| app.duplicate_selected_layer_id(cx).map(|_| ()),
                             ))
@@ -1358,7 +1397,7 @@ fn multi_layers_section(
                                 "prop-delete",
                                 icons::TRASH,
                                 &t("layers.deleteLayer"),
-                                color::DESTRUCTIVE.opacity(0.1),
+                                ActionTone::Destructive,
                                 cx,
                                 |app, _window, cx| {
                                     app.delete_selected_layer(cx);
