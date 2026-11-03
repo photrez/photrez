@@ -521,7 +521,7 @@ fn stroke_popover(
         .rounded(px(RADIUS))
         .border_1()
         .border_color(color::BORDER)
-        .bg(color::TOOLBAR)
+        .bg(color::BAR_POPOVER)
         .p(px(PILL_PX))
         .occlude()
         .shadow(vec![
@@ -887,7 +887,7 @@ fn text_stroke_popover(
         .rounded(px(RADIUS))
         .border_1()
         .border_color(color::BORDER)
-        .bg(color::TOOLBAR)
+        .bg(color::BAR_POPOVER)
         .p(px(PILL_PX))
         .occlude()
         .shadow(vec![

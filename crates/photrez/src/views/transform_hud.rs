@@ -63,10 +63,11 @@ const SNAP_BORDER: Hsla = Hsla {
     l: 0.2922,
     a: 0.6,
 };
+/// `rgb(0, 44, 34)` at 80%: the deep-green badge fill over [`HUD_BG`].
 const SNAP_FILL: Hsla = Hsla {
-    h: 0.4603,
-    s: 0.2009,
-    l: 0.0902,
+    h: 0.4621,
+    s: 1.0,
+    l: 0.0863,
     a: 0.8,
 };
 const SNAP_TEXT: Hsla = Hsla {
@@ -284,6 +285,27 @@ mod tests {
             scale_percent: 100.0,
             snap,
         }
+    }
+
+    /// The badge is the deep-green tier at 80%. A desaturated triple reads
+    /// 14/13/8 below the pixel the design paints.
+    #[test]
+    fn snap_badge_is_the_deep_green_tier() {
+        let tint = crate::tokens::hsla_to_rgb(SNAP_FILL);
+        assert_eq!(tint, (0, 44, 34));
+        let hud = crate::tokens::hsla_to_rgb(HUD_BG);
+        let blend = |t: u8, base: u8| {
+            (t as f32 * SNAP_FILL.a + base as f32 * (1.0 - SNAP_FILL.a)).round() as u8
+        };
+        assert_eq!(
+            (
+                blend(tint.0, hud.0),
+                blend(tint.1, hud.1),
+                blend(tint.2, hud.2)
+            ),
+            (5, 40, 33),
+            "the composited badge is what a capture compares"
+        );
     }
 
     /// The badge sits on the second row only (move/resize), the scale percent

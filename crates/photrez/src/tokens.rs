@@ -156,6 +156,15 @@ pub mod color {
         a: 1.0,
     };
 
+    /// `#1D2026` = rgb(29, 32, 38): the option bar's own overflow and popover
+    /// panels. The shared dropdown list uses a different, darker fill.
+    pub const BAR_POPOVER: Hsla = Hsla {
+        h: 0.6111,
+        s: 0.1343,
+        l: 0.1314,
+        a: 1.0,
+    };
+
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     pub const ROW_ACTIVE: Hsla = Hsla {
         h: 0.0,
@@ -358,9 +367,53 @@ pub mod dim {
     pub const MENU_ICON: f32 = 16.0;
 }
 
+/// Test-only HSL to 8-bit RGB. The palette stores HSL, so this reproduces the
+/// pixel a capture compares.
+#[cfg(test)]
+pub(crate) fn hsla_to_rgb(colour: gpui_kit::Hsla) -> (u8, u8, u8) {
+    fn sector(p: f32, q: f32, mut t: f32) -> f32 {
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        if t < 1.0 / 6.0 {
+            return p + (q - p) * 6.0 * t;
+        }
+        if t < 0.5 {
+            return q;
+        }
+        if t < 2.0 / 3.0 {
+            return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+        }
+        p
+    }
+    let gpui_kit::Hsla { h, s, l, a: _ } = colour;
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    (
+        (sector(p, q, h + 1.0 / 3.0) * 255.0).round() as u8,
+        (sector(p, q, h) * 255.0).round() as u8,
+        (sector(p, q, h - 1.0 / 3.0) * 255.0).round() as u8,
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{color, dim, title};
+    use super::{color, dim, hsla_to_rgb, title};
+
+    /// The bar's own popovers paint `#1D2026`, one step above the bar itself and
+    /// a different fill again from the shared dropdown list.
+    #[test]
+    fn bar_popover_paints_the_reference_popover_fill() {
+        assert_eq!(hsla_to_rgb(color::BAR_POPOVER), (29, 32, 38));
+        assert_eq!(hsla_to_rgb(color::TOOLBAR), (27, 27, 27));
+    }
 
     /// ACCENT (`oklch(0.74 0.15 55)`) and BRAND (`oklch(0.62 0.2 36)`) carry
     /// chroma that sits marginally outside sRGB, so the previous renderer clips

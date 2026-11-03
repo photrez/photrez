@@ -630,7 +630,7 @@ fn brush_more_dropdown(
             .rounded(px(RADIUS))
             .border_1()
             .border_color(color::BORDER)
-            .bg(color::TOOLBAR)
+            .bg(color::BAR_POPOVER)
             .p(px(8.0))
             .occlude()
             .child(brush_field(
