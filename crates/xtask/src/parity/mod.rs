@@ -12,6 +12,7 @@
 //! percentages, camelCase JSON keys, per-region `anchoredTo`, hard spots
 //! capped at 40 per region.
 
+pub mod bands;
 pub mod classify;
 pub mod coverage;
 pub mod crosscheck;

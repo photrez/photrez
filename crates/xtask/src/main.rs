@@ -55,6 +55,8 @@ fn main() {
                 cmd_parity_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("perceptual-diff") {
                 cmd_parity_perceptual_diff(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("band-diff") {
+                cmd_parity_band_diff(&args[2..])
             } else {
                 cmd_parity(&args[1..])
             }
@@ -214,6 +216,142 @@ fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
         });
         if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
             eprintln!("xtask parity perceptual-diff: writing {out}: {e}");
+            return 2;
+        }
+    }
+    0
+}
+
+/// `xtask parity band-diff --a <png> --b <png> [--threshold <f>] [--band-height <px>]
+///                      [--max-shift <px>] [--tiers <n>] [--out <json>]`
+///
+/// The per-band view of the same pair: how much differs in each band, whether a shift
+/// explains it, and which exact colours each side is made of. It ratifies nothing and
+/// exits 0 unless `--max-band` is given and a band exceeds it.
+fn cmd_parity_band_diff(args: &[String]) -> i32 {
+    let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
+        eprintln!("xtask parity band-diff: --a <png> and --b <png> are required");
+        return 2;
+    };
+    let number = |name: &str, default: f64| -> Result<f64, i32> {
+        match flag(args, name) {
+            None => Ok(default),
+            Some(v) => v.parse::<f64>().map_err(|_| {
+                eprintln!("xtask parity band-diff: {name} must be a number, got `{v}`");
+                2
+            }),
+        }
+    };
+    let threshold = match number("--threshold", parity::perceptual::DEFAULT_THRESHOLD) {
+        Ok(v) => v,
+        Err(code) => return code,
+    };
+    let band_height = match number("--band-height", 40.0) {
+        Ok(v) => v.max(1.0) as u32,
+        Err(code) => return code,
+    };
+    let max_shift = match number("--max-shift", 8.0) {
+        Ok(v) => v as i32,
+        Err(code) => return code,
+    };
+    let tiers = match number("--tiers", 4.0) {
+        Ok(v) => v.max(1.0) as usize,
+        Err(code) => return code,
+    };
+    let max_band: Option<f64> = match number("--max-band", -1.0) {
+        Ok(v) if v < 0.0 => None,
+        Ok(v) => Some(v),
+        Err(code) => return code,
+    };
+    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity band-diff: {e}");
+            return 2;
+        }
+    };
+    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity band-diff: {e}");
+            return 2;
+        }
+    };
+    let report =
+        match parity::bands::report(&img_a, &img_b, threshold, band_height, max_shift, tiers) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("xtask parity band-diff: {e}");
+                return 1;
+            }
+        };
+    println!(
+        "band diff {}x{}, threshold {}, bands of {} px, shift +-{} px:",
+        report.width, report.height, report.threshold, report.band_height, report.max_shift
+    );
+    println!(
+        "  horizontal: dx {}, {} px differ, residue at that shift {} px",
+        report.horizontal.best_dx,
+        report.horizontal.changed_pixels,
+        report.horizontal.residual_at_best_dx
+    );
+    println!(
+        "  bands below are measured on the aligned {} px width",
+        report.aligned_width
+    );
+    let mut worst = 0.0;
+    for band in &report.bands {
+        let verdict = if band.best_dy != 0 && band.residual_at_best_dy * 2 < band.changed_pixels {
+            "shift"
+        } else if band.changed_pixels == 0 {
+            "same"
+        } else {
+            "content"
+        };
+        println!(
+            "  y {:>4}..{:<4} {:>6} px differ ({:.3}%), dy {:>3}, residue {}, {}",
+            band.y0,
+            band.y1,
+            band.changed_pixels,
+            band.changed_pct,
+            band.best_dy,
+            band.residual_at_best_dy,
+            verdict
+        );
+        println!(
+            "      a: {} | b: {}",
+            band.tiers_a
+                .iter()
+                .map(|(c, n)| format!("{c} x{n}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            band.tiers_b
+                .iter()
+                .map(|(c, n)| format!("{c} x{n}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        if band.changed_pct > worst {
+            worst = band.changed_pct;
+        }
+    }
+    println!("worst band: {worst:.3}%");
+    if let Some(max) = max_band {
+        if worst > max {
+            eprintln!("xtask parity band-diff: FAIL worst band {worst:.3}% > {max:.3}%");
+            return 1;
+        }
+    }
+    if let Some(out) = flag(args, "--out") {
+        let payload = serde_json::json!({
+            "a": a,
+            "b": b,
+            "rule": "per-band YIQ distance with the shift search; tiers are exact colour counts",
+            "report": report,
+            "max_band": max_band,
+        });
+        if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
+            eprintln!("xtask parity band-diff: writing {out}: {e}");
             return 2;
         }
     }
