@@ -703,6 +703,10 @@ impl FileIo for StartupFileIo {
             "save authorization is unused".into(),
         ))
     }
+
+    fn modified_ms(&self, _raw_path: &Path) -> Result<u64, ServiceError> {
+        Err(ServiceError::Internal("timestamps are unused".into()))
+    }
 }
 
 struct StartupTestFiles(PathBuf);

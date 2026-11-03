@@ -50,6 +50,11 @@ pub trait FileIo: Send + Sync {
     /// Read a bounded file only when its exact path has been approved.
     fn read_approved(&self, raw_path: &Path, max_bytes: u64) -> Result<Vec<u8>, ServiceError>;
 
+    /// Return a file's last-modified time as Unix milliseconds, only when its
+    /// exact path has been approved. Startup recovery uses it to tell an archive
+    /// that predates the file on screen from one that holds newer work.
+    fn modified_ms(&self, raw_path: &Path) -> Result<u64, ServiceError>;
+
     /// Return an opaque target only when the normalized path is trusted.
     fn authorize_save_target(&self, raw_path: &Path) -> Result<SaveTarget, ServiceError>;
 }
@@ -174,6 +179,29 @@ impl FileIo for LocalFileIo {
 
         let file = platform_read::open_read_file(&path)?;
         read_bounded_file(file, max_bytes)
+    }
+
+    fn modified_ms(&self, raw_path: &Path) -> Result<u64, ServiceError> {
+        let path = canonical_safe_path(raw_path)?;
+        {
+            let approved = self.approved_paths.lock().map_err(|_| {
+                ServiceError::Internal("Path approval lock was poisoned".to_owned())
+            })?;
+            if !approved.iter().any(|existing| same_path(existing, &path)) {
+                return Err(ServiceError::Validation(
+                    "Timestamp path has not been explicitly approved".to_owned(),
+                ));
+            }
+        }
+
+        let modified = fs::metadata(&path)
+            .map_err(ServiceError::Io)?
+            .modified()
+            .map_err(ServiceError::Io)?;
+        modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .map_err(|_| ServiceError::Validation("File timestamp predates the epoch".to_owned()))
     }
 
     fn authorize_save_target(&self, raw_path: &Path) -> Result<SaveTarget, ServiceError> {

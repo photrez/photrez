@@ -45,6 +45,10 @@ impl FileIo for MemoryFileIo {
     fn authorize_save_target(&self, _raw_path: &Path) -> Result<SaveTarget, ServiceError> {
         Err(ServiceError::Validation("not used by loader tests".into()))
     }
+
+    fn modified_ms(&self, _raw_path: &Path) -> Result<u64, ServiceError> {
+        Err(ServiceError::Validation("not used by loader tests".into()))
+    }
 }
 
 fn load(bytes: Vec<u8>) -> Result<LoadedDocument, ServiceError> {

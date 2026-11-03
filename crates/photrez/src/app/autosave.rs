@@ -111,6 +111,9 @@ impl App {
 
     /// Offer recoverable autosaves at startup. A malformed/empty manifest
     /// shows nothing; reading it never blocks opening a requested document.
+    /// An archive whose document is already on screen, in a state the file was
+    /// written at or after, is not offered: it cannot hold work the user has
+    /// not got in front of them.
     pub(crate) fn prepare_recovery_from(&mut self, cache_root: &Path, cx: &mut Context<Self>) {
         let store = AutosaveStore::new(cache_root);
         let Ok(entries) = store.list() else {
@@ -119,19 +122,53 @@ impl App {
         if entries.is_empty() {
             return;
         }
-        let rows = entries
-            .iter()
-            .map(|entry| TabRow {
+        let mut rows = Vec::new();
+        for entry in entries.iter() {
+            if self.holds_state_of(entry) {
+                continue;
+            }
+            rows.push(TabRow {
                 doc_id: entry.doc_id().to_string(),
                 name: entry.display_name().to_string(),
                 dirty: true,
-            })
-            .collect::<Vec<_>>();
+            });
+        }
+        if rows.is_empty() {
+            return;
+        }
         self.state.update(cx, |state, _| {
             state.recovery_entries = rows;
             state.active_dialog = Some(crate::state::DialogId::Recovery);
         });
         cx.notify();
+    }
+
+    /// True when an open session's own file already carries this archive's
+    /// state or something newer. Identity is the document ID, and recency is
+    /// the file's last-modified time against the archive's write time. Anything
+    /// that cannot be read, including an archive with no recorded time, a
+    /// document with no file behind it, or a timestamp the OS will not give,
+    /// stays offered: a missing signal must never be read as "stale", because
+    /// the archive is the only copy of unsaved work.
+    fn holds_state_of(&mut self, entry: &crate::services::autosave::AutosaveEntry) -> bool {
+        let Some(saved_at) = entry.unix_ms() else {
+            return false;
+        };
+        let Some(source_path) = self
+            .sessions
+            .get(entry.doc_id())
+            .and_then(|session| session.source_path())
+            .map(|path| path.to_path_buf())
+        else {
+            return false;
+        };
+        let Ok(files) = self.ensure_file_io() else {
+            return false;
+        };
+        let Ok(modified_ms) = files.modified_ms(&source_path) else {
+            return false;
+        };
+        saved_at <= modified_ms
     }
 
     /// Open every recoverable autosave as a new unsaved tab and drop the ones

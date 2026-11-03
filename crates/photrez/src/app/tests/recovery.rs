@@ -407,9 +407,11 @@ fn recovering_the_document_that_is_already_open_swaps_its_tab(cx: &mut gpui_kit:
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as u64)
         .unwrap_or(0);
+    // The archive is stamped after the file on screen, so it can hold work the
+    // user has not got in front of them and the offer has to stand.
     std::fs::write(
         autosave.join("manifest.json"),
-        format!(r#"{{"multi-doc":"Unsaved edits|{now_ms}"}}"#),
+        format!(r#"{{"multi-doc":"Unsaved edits|{}"}}"#, now_ms + 60_000),
     )
     .expect("the manifest is written");
 
@@ -559,4 +561,65 @@ fn each_autosave_state_paints_its_status_dot(cx: &mut gpui_kit::TestAppContext) 
         }
     })
     .expect("test window remains open");
+}
+
+/// An archive that predates the file already on screen cannot hold work the user
+/// has not got in front of them, so it is not offered, and suppression leaves the
+/// archive in the store.
+#[gpui_kit::test]
+fn an_older_archive_of_the_open_document_is_not_offered(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("named.ptz");
+    std::fs::write(&source, super::commands::multi_layer_archive_with(false))
+        .expect("the named archive is written");
+    let file_io = LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
+        .expect("the file boundary opens");
+    file_io
+        .approve_path(&source)
+        .expect("the named archive is approved");
+    let io: Arc<dyn FileIo> = Arc::new(file_io);
+
+    let cache = directory.path().join("older-doc-cache");
+    let autosave = cache.join("autosave");
+    std::fs::create_dir_all(&autosave).expect("the autosave directory");
+    std::fs::write(
+        autosave.join("multi-doc.ptz"),
+        super::commands::multi_layer_archive_with(false),
+    )
+    .expect("the older autosave archive is written");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    std::fs::write(
+        autosave.join("manifest.json"),
+        format!(r#"{{"multi-doc":"Older edits|{}"}}"#, now_ms - 60_000),
+    )
+    .expect("the manifest is written");
+
+    let (window, content) = mount_app_with_cache_root(cx, source, io, cache.clone());
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let app = content.read(cx);
+        let state = app.state_for_test().read(cx);
+        assert_eq!(
+            app.active_document_id_for_test().as_deref(),
+            Some("multi-doc"),
+            "the document named on the command line is the one on screen"
+        );
+        assert_eq!(
+            state.active_dialog, None,
+            "an archive older than the file on screen opens no prompt"
+        );
+        assert!(
+            state.recovery_entries.is_empty(),
+            "nothing is offered for a document that is already on screen in a newer state"
+        );
+    })
+    .expect("test window remains open");
+
+    assert!(
+        cache.join("autosave").join("multi-doc.ptz").exists(),
+        "suppressing the offer leaves the archive on disk, where only the 7-day cleanup bounds it"
+    );
 }
