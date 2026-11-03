@@ -1327,7 +1327,6 @@ fn alt_during_a_live_move_drag_shows_the_copy_cursor(cx: &mut gpui_kit::TestAppC
                 .update(cx, |state, _| state.active_tool = ToolId::Move);
         });
         window.render_frame(cx);
-        tab_to_canvas(window, cx);
         let (bounds, placement) = page(window, (200, 150));
         let start = window_point(bounds, placement, (200, 150), 60.0, 60.0);
         let moved = window_point(bounds, placement, (200, 150), 100.0, 90.0);
