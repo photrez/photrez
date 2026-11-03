@@ -119,6 +119,54 @@ fn the_properties_opacity_row_follows_the_layer(cx: &mut gpui_kit::TestAppContex
     .expect("test window remains open");
 }
 
+/// The panel's opacity track is one of the slider hosts: the pointer's x over
+/// the laid-out track maps onto the layer's opacity, and the drag keeps
+/// answering while the pointer travels.
+#[gpui_kit::test]
+fn dragging_the_properties_opacity_track_sets_the_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Properties;
+            });
+        });
+        window.render_frame(cx);
+
+        let bounds = window.find("prop-opacity-track").bounds();
+        let width = f32::from(bounds.size.width);
+        let height = f32::from(bounds.size.height);
+        assert!(width > 0.0 && height > 0.0, "the track is laid out");
+        let mid_y = gpui_kit::px(height * 0.5);
+
+        window.drag(
+            bounds.origin + gpui_kit::point(gpui_kit::px(width * 0.5), mid_y),
+            bounds.origin + gpui_kit::point(gpui_kit::px(width * 0.25), mid_y),
+            cx,
+        );
+        window.render_frame(cx);
+        let dropped = content.read(cx).state_for_test().read(cx).layer_opacity;
+        assert!(
+            (dropped - 0.25).abs() <= 0.03,
+            "dragging to a quarter of the track sets 25 % opacity, got {dropped}"
+        );
+
+        window.drag(
+            bounds.origin + gpui_kit::point(gpui_kit::px(width * 0.25), mid_y),
+            bounds.origin + gpui_kit::point(gpui_kit::px(width * 0.9), mid_y),
+            cx,
+        );
+        window.render_frame(cx);
+        let raised = content.read(cx).state_for_test().read(cx).layer_opacity;
+        assert!(
+            (raised - 0.9).abs() <= 0.03,
+            "a second drag still maps, got {raised}"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn a_position_lock_stops_only_the_properties_position_rows(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

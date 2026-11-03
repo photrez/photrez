@@ -32,7 +32,7 @@
 1442 crates/photrez/src/app/transform_move.rs
 1803 crates/photrez/src/app.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
-1569 crates/photrez/src/state.rs
+1574 crates/photrez/src/state.rs
 1192 crates/photrez/src/views/dialogs/print.rs
 2102 crates/photrez/src/views/dialogs.rs
 2108 crates/photrez/src/views/option_bar/variants.rs

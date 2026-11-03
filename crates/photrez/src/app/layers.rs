@@ -624,6 +624,28 @@ impl App {
         self.report_layer_op(result, cx);
     }
 
+    /// Set the selected layer's opacity outright. The Properties panel's track
+    /// drags to this; a locked layer answers nothing, as in the reference.
+    pub(crate) fn set_selected_layer_opacity(
+        &mut self,
+        opacity: f64,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let (doc_id, layer) = self.selected_layer(cx)?;
+        if layer.locked {
+            return Ok(());
+        }
+        self.apply_core_command(
+            &doc_id,
+            Command::SetOpacity {
+                id: layer.id,
+                opacity: opacity.clamp(0.0, 1.0),
+            },
+            true,
+            cx,
+        )
+    }
+
     /// Cycle the selected layer through the engine's blend modes.
     pub(crate) fn cycle_selected_blend(&mut self, cx: &mut Context<Self>) {
         let result = (|| {

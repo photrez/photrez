@@ -63,13 +63,15 @@ pub(super) fn section(
                 }
             })
     };
-    let (session, focus, constrain, opacity) = {
+    let (session, focus, constrain, opacity, slider_bounds, slider_capture) = {
         let s = state.read(cx);
         (
             s.num_field.clone(),
             s.num_field_focus.clone(),
             s.constrain_ratio,
             s.layer_opacity,
+            s.opacity_slider_bounds.clone(),
+            s.slider_capture.clone(),
         )
     };
     let editing = |id: &'static str| {
@@ -198,16 +200,26 @@ pub(super) fn section(
                         // `h_flex` + `items_center`, not a bare block box: the
                         // wrapper is what centres the 4px track in its 24px row.
                         .child(
-                            h_flex()
-                                .flex_1()
-                                .h(px(24.0))
-                                .items_center()
-                                .child(ui::slider(
-                                    opacity_percent(opacity),
-                                    None,
-                                    ui::SliderKind::Alpha,
-                                    false,
-                                )),
+                            crate::views::option_bar::slider_surface::BarSliderSurface::new(
+                                h_flex()
+                                    .id("prop-opacity-track")
+                                    .test_support()
+                                    .flex_1()
+                                    .h(px(24.0))
+                                    .items_center()
+                                    .aria_label(t("tools.options.opacity"))
+                                    .child(ui::slider(
+                                        opacity_percent(opacity),
+                                        None,
+                                        ui::SliderKind::Alpha,
+                                        false,
+                                    )),
+                                cx.entity().downgrade(),
+                                crate::state::SliderTarget::LayerOpacity,
+                                slider_bounds,
+                                slider_capture,
+                                None,
+                            ),
                         )
                         .child(
                             div()

@@ -560,6 +560,8 @@ pub enum SliderTarget {
     AdjustmentSaturation,
     /// The Print dialog's Scale track, 10..=400 %.
     PrintScale,
+    /// The Properties panel's opacity track, 0..=100 % of the layer.
+    LayerOpacity,
 }
 
 /// Which control of the picker a pointer drag drives.
@@ -943,6 +945,9 @@ pub struct AppState {
     /// Laid-out bounds of the Paint Bucket tolerance slider (pointer mapping).
     pub tolerance_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// Laid-out bounds of the Properties panel's opacity track (pointer mapping).
+    pub opacity_slider_bounds:
+        std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// Pointer capture held by the bar slider while dragging.
     pub slider_capture: std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
     /// Laid-out bounds of the open option-bar dropdown panel (click-away).
@@ -1171,6 +1176,7 @@ impl Default for AppState {
             move_auto_select_focus: None,
             move_transform_focus: None,
             tolerance_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
+            opacity_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             slider_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
             select_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             more_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),

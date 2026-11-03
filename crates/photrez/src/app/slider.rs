@@ -90,7 +90,8 @@ impl App {
             | SliderTarget::AdjustmentBrightness
             | SliderTarget::AdjustmentContrast
             | SliderTarget::AdjustmentSaturation
-            | SliderTarget::PrintScale => return false,
+            | SliderTarget::PrintScale
+            | SliderTarget::LayerOpacity => return false,
         }
         true
     }
@@ -109,6 +110,7 @@ impl App {
                 SliderTarget::AdjustmentContrast => state.adjustment_slider_bounds[1].get(),
                 SliderTarget::AdjustmentSaturation => state.adjustment_slider_bounds[2].get(),
                 SliderTarget::PrintScale => state.print_scale_slider_bounds.get(),
+                SliderTarget::LayerOpacity => state.opacity_slider_bounds.get(),
             }
         };
         let Some(bounds) = bounds else {
@@ -165,6 +167,13 @@ impl App {
                 match result {
                     Ok(()) => self.set_status_error(None, cx),
                     Err(error) => self.set_status_error(Some(format!("Adjust: {error}")), cx),
+                }
+            }
+            SliderTarget::LayerOpacity => {
+                let result = self.set_selected_layer_opacity(fraction, cx);
+                match result {
+                    Ok(()) => self.set_status_error(None, cx),
+                    Err(error) => self.set_status_error(Some(format!("Opacity: {error}")), cx),
                 }
             }
         }
