@@ -635,3 +635,61 @@ fn move_field_widths_match_the_reference(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// The File menu's recent-project rows are live actions, not labels: the row's
+/// id, its ordering, the click that re-opens the file and the menu closing with
+/// its rows are all asserted in one mounted frame. The recorded project's tab
+/// is closed first, so the click has a job that nothing else in the frame does:
+/// with `open_recent_path` neutered the active tab stays where it was and this
+/// fails on the re-open assertion below.
+#[gpui_kit::test]
+fn file_menu_recent_row_opens_the_recorded_project(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            super::documents::open_second_document(app, cx, &directory);
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("multi-doc"),
+                "the recent row points at the project just opened"
+            );
+            assert!(
+                app.close_document_tab("multi-doc", cx),
+                "the recorded project is clean, so closing it asks nothing"
+            );
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("parity-doc"),
+                "the first project is the one left active"
+            );
+            app.state_for_test().update(cx, |state, _| {
+                state.open_menu = Some(crate::state::MenuId::File)
+            });
+        });
+        window.render_frame(cx);
+        assert!(
+            window.try_find("recent-file-0").is_some(),
+            "the File menu lists the recorded project"
+        );
+        window.click("recent-file-0", cx);
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("multi-doc"),
+                "the recent row re-opens the recorded project"
+            );
+            let state = app.state_for_test().read(cx);
+            assert!(
+                state.open_menu.is_none(),
+                "the recent row closes the File menu"
+            );
+        });
+        assert!(
+            window.try_find("recent-file-0").is_none(),
+            "the closed File menu unmounts its rows"
+        );
+    })
+    .expect("test window remains open");
+}
