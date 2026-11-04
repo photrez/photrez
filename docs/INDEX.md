@@ -25,6 +25,13 @@
 | [`reference/design-tokens.md`](reference/design-tokens.md) | Where interface values live now |
 | [`reference/render-export-coverage.md`](reference/render-export-coverage.md) | Where render and export coverage is pinned |
 
+## Measurements and document format
+
+| File | Purpose |
+|---|---|
+| [`frame-pacing-baseline.md`](frame-pacing-baseline.md) | How frame pacing and input latency are measured in the running app |
+| [`ptz-migration.md`](ptz-migration.md) | The `.ptz` format version rule and what a format change must ship |
+
 ---
 
 > Internal material — plans, decisions, specifications and research notes — is
