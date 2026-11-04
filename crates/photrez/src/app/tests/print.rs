@@ -340,16 +340,8 @@ fn the_printer_properties_button_carries_the_catalog_copy(cx: &mut gpui_kit::Tes
 }
 
 /// Reads the open number session, if a field has one.
-fn num_session(
-    content: &Entity<App>,
-    cx: &gpui_kit::App,
-) -> Option<crate::state::NumFieldSession> {
-    content
-        .read(cx)
-        .state_for_test()
-        .read(cx)
-        .num_field
-        .clone()
+fn num_session(content: &Entity<App>, cx: &gpui_kit::App) -> Option<crate::state::NumFieldSession> {
+    content.read(cx).state_for_test().read(cx).num_field.clone()
 }
 
 /// The copies row takes a typed count. The `- 1 +` stepper it replaces is

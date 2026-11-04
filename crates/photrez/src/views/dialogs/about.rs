@@ -1,9 +1,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    div, hsla, px, relative, Div, FontWeight, Hsla, Stateful, TestSupportExt,
-};
+use gpui_kit::{div, hsla, px, relative, Div, FontWeight, Hsla, Stateful, TestSupportExt};
 
 use crate::components::ui;
 use crate::i18n::t;
