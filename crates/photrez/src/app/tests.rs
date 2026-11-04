@@ -387,6 +387,9 @@ mod empty_state;
 #[path = "tests/brush_menu.rs"]
 mod brush_menu;
 
+#[path = "tests/dialogs_locale.rs"]
+mod dialogs_locale;
+
 #[path = "tests/documents.rs"]
 mod documents;
 

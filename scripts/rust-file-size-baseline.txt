@@ -83,7 +83,6 @@
 #
 # The rest still owe theirs.
 1661 crates/photrez/src/app/measurement/driver.rs
-1441 crates/photrez/src/app/tests/documents.rs
 1484 crates/photrez/src/app/tests/selection.rs
 1442 crates/photrez/src/app/transform_move.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
