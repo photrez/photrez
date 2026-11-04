@@ -75,13 +75,7 @@ pub(super) fn option_checkbox_action(
             div().text_color(ZINC).child(label.to_string())
         });
     if let Some(handle) = focus {
-        el = el
-            .track_focus(&handle)
-            .focusable()
-            .focus_visible(|mut style| {
-                style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
-                style
-            });
+        el = ui::tabbable_focus(el, &handle);
     }
     el
 }
@@ -530,7 +524,7 @@ pub(super) fn brush_field(
         )
         .child(dim_span(suffix));
     if let Some(handle) = focus {
-        field = field.track_focus(&handle).on_key_down(cx.listener(
+        field = ui::tabbable_focus(field, &handle).on_key_down(cx.listener(
             move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
                 app.num_field_key_in_row(
                     id,

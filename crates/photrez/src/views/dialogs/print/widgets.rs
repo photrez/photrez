@@ -281,8 +281,7 @@ where
         )
         .child(div().flex_1().child(text));
     match focus {
-        Some(handle) => box_
-            .track_focus(&handle)
+        Some(handle) => ui::tabbable_focus(box_, &handle)
             .on_key_down(
                 cx.listener(move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
                     // `key_begin` carries this row's unit basis, so a keystroke

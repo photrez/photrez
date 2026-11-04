@@ -340,7 +340,7 @@ fn text_stroke_width_field(
                 .child(text),
         );
     if let Some(handle) = focus {
-        field = field.track_focus(&handle).on_key_down(cx.listener(
+        field = ui::tabbable_focus(field, &handle).on_key_down(cx.listener(
             |app, event: &gpui_kit::KeyDownEvent, window, cx| {
                 app.num_field_key_in_row(
                     "opt-text-stroke-width",

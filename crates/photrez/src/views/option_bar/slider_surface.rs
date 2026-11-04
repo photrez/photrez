@@ -18,7 +18,6 @@ use gpui_kit::{
 };
 
 use crate::components::ui;
-use crate::tokens::color;
 use gpui_kit::prelude::*;
 
 pub(crate) struct BarSliderSurface {
@@ -186,16 +185,11 @@ where
     let Some(handle) = focus.as_ref() else {
         return track;
     };
-    track
-        .track_focus(handle)
-        .focusable()
-        .focus_visible(|mut style| {
-            style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
-            style
-        })
-        .on_key_down(cx.listener(move |app, event: &KeyDownEvent, _window, cx| {
+    ui::tabbable_focus(track, handle).on_key_down(cx.listener(
+        move |app, event: &KeyDownEvent, _window, cx| {
             app.slider_key(target, event, cx);
-        }))
+        },
+    ))
 }
 
 fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {

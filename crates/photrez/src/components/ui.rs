@@ -241,6 +241,23 @@ pub fn focus_band(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
         .inset()
 }
 
+/// Follows keyboard focus on a control the Tab key can land on, and paints
+/// [`focus_band`] while the keyboard points at it. A control that is a tab stop but
+/// shows nothing when reached leaves a keyboard user typing blind, so every tabbable
+/// row takes this instead of writing the treatment again.
+pub fn tabbable_focus<E>(field: E, handle: &gpui_kit::FocusHandle) -> E
+where
+    E: gpui_kit::InteractiveElement + gpui_kit::StatefulInteractiveElement,
+{
+    field
+        .track_focus(handle)
+        .focusable()
+        .focus_visible(|mut style| {
+            style.box_shadow = Some(vec![focus_band(color::ACCENT.opacity(0.7))]);
+            style
+        })
+}
+
 /// The layers a bare numeric field carries while it is being edited.
 ///
 /// The pinned reference source declares a focus outline for number inputs, but

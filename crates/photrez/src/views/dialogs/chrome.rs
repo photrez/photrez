@@ -260,11 +260,5 @@ where
     let Some(handle) = focus.as_ref() else {
         return field;
     };
-    field
-        .track_focus(handle)
-        .focusable()
-        .focus_visible(|mut style| {
-            style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
-            style
-        })
+    ui::tabbable_focus(field, handle)
 }
