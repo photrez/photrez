@@ -7,6 +7,14 @@
 //! mapable inventory file appears in a surface, and every surface names real
 //! files. A `VERIFIED` row additionally requires an evidence bundle on disk
 //! with matching provenance (T5).
+//!
+//! What the matrix columns assert, because a `PASS` there is not one claim:
+//! `layout`, `data` and `states` are pixel or projection scores from the
+//! surface's evidence bundle; `input` is wired-and-tested pointer behaviour
+//! from the mounted tests that name the control's handler. It does not mean
+//! keyboard parity. Dialog fields in this app carry no focus handle, so they
+//! never enter the tab order, and that gap is tracked separately; reading an
+//! `input` `PASS` as a keyboard pass would overstate the evidence.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
