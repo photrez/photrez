@@ -37,6 +37,9 @@ const TABBAR_H: f32 = 38.0;
 const OPTIONBAR_H: f32 = 44.0;
 /// Text overlay hint strip width (the captured badge is 270 physical px).
 const HINT_W: f32 = 216.0;
+/// What the edit box's ring adds on each side: a 1px and a 2px band. The
+/// overlay origin and the hint strip's offsets give it back.
+const RING: f32 = 3.0;
 
 /// Render the full shell for one frame.
 ///
@@ -459,30 +462,50 @@ fn text_editor_overlay(
         .id("text-editor")
         .test_support()
         .absolute()
-        .left(px(left))
-        .top(px(top))
+        .left(px(left - RING))
+        .top(px(top - RING))
         .flex()
         .flex_col()
         .items_start()
         .child(
+            // The edit box's double ring, from the reference's two box-shadows.
+            // A GPUI drop shadow fills its rect instead of cutting a ring, and
+            // this box has no fill to hide that, so the bands are borders on two
+            // wrappers around the box. They add RING on every side, so the
+            // overlay's origin and the hint strip's offsets shift back by it.
             div()
-                .w(px(box_w.max(24.0)))
-                .h(px(box_h.max(font_size + 12.0)))
-                .rounded(px(3.0))
-                .border_1()
-                .border_color(color::ACCENT),
+                .border_2()
+                .border_color(gpui_kit::hsla(0., 0., 1., 0.4))
+                .rounded(px(6.0))
+                .child(
+                    div()
+                        .border_1()
+                        .border_color(gpui_kit::hsla(0., 0., 0., 0.8))
+                        .rounded(px(4.0))
+                        .child(
+                            div()
+                                .id("text-editor-box")
+                                .test_support()
+                                .w(px(box_w.max(24.0)))
+                                .h(px(box_h.max(font_size + 12.0)))
+                                .rounded(px(3.0))
+                                .border_1()
+                                .border_color(color::ACCENT),
+                        ),
+                ),
         )
         .child(
             h_flex()
                 .id("text-editor-hint")
                 .test_support()
-                .mt(px(12.0))
+                .mt(px(12.0 - RING))
                 .ml(px((font_size
                     * 0.5
                     * session.content.chars().count() as f32
                     + 12.0
                     - HINT_W)
-                    / 2.0))
+                    / 2.0
+                    + RING))
                 .w(px(HINT_W))
                 .justify_center()
                 .items_center()

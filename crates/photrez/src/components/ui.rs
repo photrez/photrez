@@ -217,7 +217,8 @@ pub fn accent_well() -> gpui_kit::BoxShadow {
 ///
 /// An inset ring and a 1px border put the same line on the same pixel edge, but
 /// only the ring leaves the content box alone, so children stay exactly where
-/// they would sit in the reference.
+/// they would sit in the reference. Two inset spreads cannot stack: both bands
+/// start at the same edge, so the later one overwrites the earlier.
 pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour)
         .spread_radius(px(1.))
@@ -228,6 +229,11 @@ pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
 /// which is what a plain `ring-1` is. [`inset_ring`] and this are not
 /// interchangeable — the reference uses the inset form for layer rows and the
 /// outset form for field halos, and they land on different pixels.
+///
+/// A drop shadow fills its whole dilated rect, and only the background painted
+/// after it hides the inside. So this reads as a ring on an opaque surface and
+/// as an interior tint on a box with no fill; there, use borders outside the
+/// box instead.
 pub fn outset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour).spread_radius(px(1.))
 }

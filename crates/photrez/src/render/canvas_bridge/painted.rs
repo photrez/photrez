@@ -62,6 +62,20 @@ pub(super) fn painted_rotate_cursor(
     }
 }
 
+/// The artboard edge around the page: a 1px white-at-10% border on the page
+/// rect and a 1px black-at-60% ring one pixel outside it.
+///
+/// The reference's third layer, an 8px offset with a 32px blur, is not painted:
+/// this path has no blur primitive, so the deviation ships with the capture.
+pub(super) fn painted_artboard_chrome(window: &mut gpui_kit::Window, page: Bounds<Pixels>) {
+    window.paint_quad(outline(
+        page.dilate(px(1.)),
+        hsla(0., 0., 0., 0.6),
+        BorderStyle::Solid,
+    ));
+    window.paint_quad(outline(page, color::WHITE_10, BorderStyle::Solid));
+}
+
 /// A white square handle with an accent rim, centred on a window point.
 pub(super) fn painted_handle(window: &mut gpui_kit::Window, center: (f32, f32), edge: f32) {
     let bounds = Bounds {

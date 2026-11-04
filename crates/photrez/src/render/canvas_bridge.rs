@@ -40,8 +40,8 @@
 //! - Pan, zoom and the animated fit: `ImageViewer` is absent from the gpui-kit
 //!   build, so the viewport is ours; this landing implements only the default
 //!   fit placement.
-//! - The artboard chrome beyond the page (the viewport overlay's 1px border,
-//!   1px outer ring and 32px soft shadow): it rides the visual close-out.
+//! - The 32px blurred shadow under the page: this paint path has no blur
+//!   primitive, so the artboard ships with its 1px border and 1px ring only.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -417,6 +417,7 @@ fn canvas_element_inner(
                 origin: point(px(page_x), px(page_y)),
                 size: size(px(w), px(h)),
             };
+            painted_artboard_chrome(window, page_bounds);
             if let Some(selection) = overlay.selection {
                 // Selection marching ants: a 1.5 px accent dash
                 // under a 1 px white dash offset by one period, so the marquee
