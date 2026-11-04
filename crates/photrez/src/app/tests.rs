@@ -417,6 +417,12 @@ mod menus;
 #[path = "tests/rail.rs"]
 mod rail;
 
+#[path = "tests/selection_clipboard.rs"]
+mod selection_clipboard;
+
+#[path = "tests/selection_latency.rs"]
+mod selection_latency;
+
 #[path = "tests/selection.rs"]
 mod selection;
 
