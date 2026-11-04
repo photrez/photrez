@@ -35,11 +35,15 @@ use crate::state::{AppState, ToolId};
 use crate::tokens::color;
 
 pub(crate) mod controls;
+mod move_group;
+mod overflow;
 mod select_surface;
 pub(crate) mod slider_surface;
 mod variants;
 mod widgets;
 use self::controls::*;
+use self::move_group::*;
+use self::overflow::*;
 pub(crate) use self::select_surface::SelectPanelSurface;
 pub use self::variants::crop_params;
 use self::variants::fade_in_row;
