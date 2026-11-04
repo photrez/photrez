@@ -81,10 +81,18 @@
 # methods on both sides, nothing missing by token comparison, and the `#[cfg(test)]`
 # attributes travelled with the accessors so both build shapes still compile.
 #
+# A ninth split paid: `views/properties_panel.rs` went from its recorded 1349 (1344 at
+# the cut) to 751 plus two modules under `properties_panel/` - typography.rs (299, the
+# Typography section) and multi_layer.rs (301, the multi-selection branch and its two
+# buttons). The token comparison found nothing absent from the previous revision; the
+# only additions are two `mod` declarations, two child `use super::*;` lines, five
+# `pub(super)` markers and two parent glob imports, so `render` kept its call sites.
+# The 46 non-ASCII bytes all sit in comments the parent kept - the moved code is pure
+# ASCII - and the string literals are identical by multiset, so the entry is deleted.
+#
 # The rest still owe theirs.
 1661 crates/photrez/src/app/measurement/driver.rs
 1442 crates/photrez/src/app/transform_move.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
-1349 crates/photrez/src/views/properties_panel.rs
