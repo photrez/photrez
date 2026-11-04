@@ -118,7 +118,24 @@
 # `crate::app::transform_geometry::{document_to_layer_local,`. The file's zero
 # non-ASCII bytes stayed zero across the four files.
 #
+# A twelfth split paid: the paint primitives, the navigator, the camera maths and
+# the tile grid left `render/canvas_bridge.rs` for `canvas_bridge/painted.rs`
+# (294 lines), `navigator.rs` (218), `camera.rs` (132) and `tiles.rs` (54),
+# taking the parent from its recorded 1629 to 947, so this entry is deleted. The
+# token comparison found nothing absent from the previous revision. Its 136 added
+# tokens are four `mod` lines, four parent imports (three globs, so no call site
+# moved), three child imports, and seventeen `pub(super)` markers: the ten paint
+# helpers that `canvas_element_inner` calls, plus `TileRect` with its four fields,
+# `tile_rects` and `tile_rects_with_size`, which `image.rs` and the unit
+# tests read. `fit_placement`, `Camera`, `camera_placement`, both zoom clamps and
+# `union_rect` kept their `pub`, so the measurement driver, the pointer mapping
+# and the frame-measurement binary needed no change. One signature re-wrapped
+# when its marker pushed it past the width limit, which added one trailing comma;
+# no other code token changed shape. The file's three non-ASCII bytes (one dash
+# in a comment the parent kept) stayed in the parent, and the moved code is pure
+# ASCII. At 947 lines the file is under the hard cap but still prints in the
+# 900-line warning band, which does not fail the check.
+#
 # The rest still owe theirs.
 1661 crates/photrez/src/app/measurement/driver.rs
-1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
