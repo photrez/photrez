@@ -135,10 +135,16 @@ fn has_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
-/// `xtask parity inventory [--oracle-root <dir>] [--head-root <dir>] [--out <csv>]`
+/// `xtask parity inventory [--oracle-root <dir>] [--head-root <dir>] --out <csv>`
 /// — regenerate the parity inventory, validating against the oracle tree.
 fn cmd_parity_inventory(args: &[String]) -> i32 {
-    let default_out = std::path::PathBuf::from(".slim/deepwork/parity-inventory.csv");
+    let Some(out) = flag(args, "--out").map(PathBuf::from) else {
+        eprintln!(
+            "xtask parity inventory: --out <csv> is required.\n\
+             \x20 Pass the path to write the inventory CSV to."
+        );
+        return 2;
+    };
     let opts = parity::inventory::InventoryOpts {
         oracle_root: flag(args, "--oracle-root")
             .map(PathBuf::from)
@@ -146,9 +152,7 @@ fn cmd_parity_inventory(args: &[String]) -> i32 {
         head_root: flag(args, "--head-root")
             .map(PathBuf::from)
             .unwrap_or_default(),
-        out: flag(args, "--out")
-            .map(PathBuf::from)
-            .unwrap_or(default_out),
+        out,
     };
     parity::inventory::run(&opts)
 }
@@ -651,12 +655,18 @@ fn cmd_parity(args: &[String]) -> i32 {
     }
 }
 
+/// `xtask parity coverage --inventory <csv> --surfaces <csv>` reports the
+/// inventory files and component families no surface claims.
 fn cmd_parity_coverage(args: &[String]) -> i32 {
-    let inventory =
-        Path::new(flag(args, "--inventory").unwrap_or(".slim/deepwork/parity-inventory.csv"));
-    let surfaces =
-        Path::new(flag(args, "--surfaces").unwrap_or(".slim/deepwork/parity-surfaces.csv"));
-    match parity::coverage::run(inventory, surfaces) {
+    let (Some(inventory), Some(surfaces)) = (flag(args, "--inventory"), flag(args, "--surfaces"))
+    else {
+        eprintln!(
+            "xtask parity coverage: --inventory <csv> and --surfaces <csv> are required.\n\
+             \x20 Pass the same two CSVs the surface matrix validator reads."
+        );
+        return 2;
+    };
+    match parity::coverage::run(Path::new(inventory), Path::new(surfaces)) {
         Ok(code) => code,
         Err(error) => {
             eprintln!("parity coverage: {error}");

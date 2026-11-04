@@ -39,35 +39,46 @@ pub struct SurfaceOpts {
     pub build_id: String,
 }
 
-/// `cargo xtask parity surfaces --generate --inventory <csv> --out <csv>`
-/// proposes one surface per inventory family. `cargo xtask parity surfaces`
-/// validates the matrix.
+/// Validates the matrix:
+/// `cargo xtask parity surfaces --inventory <csv> --surfaces <csv> --bundles
+/// <evidence-root> --oracle-commit <commit> --build-id <id>`.
+/// Proposes one surface per inventory family:
+/// `cargo xtask parity surfaces --generate --inventory <csv> --out <csv>`.
 pub fn cmd(args: &[String]) -> i32 {
-    let inventory = flag_path(args, "--inventory")
-        .unwrap_or_else(|| PathBuf::from(".slim/deepwork/parity-inventory.csv"));
     if has_flag(args, "--generate") {
-        let out = flag_path(args, "--out")
-            .unwrap_or_else(|| PathBuf::from(".slim/deepwork/parity-surfaces.csv"));
+        let (Some(inventory), Some(out)) =
+            (flag_path(args, "--inventory"), flag_path(args, "--out"))
+        else {
+            eprintln!(
+                "xtask parity surfaces --generate: --inventory <csv> and --out <csv> are required."
+            );
+            return 2;
+        };
         return generate(&inventory, &out);
     }
-    let surfaces = flag_path(args, "--surfaces")
-        .unwrap_or_else(|| PathBuf::from(".slim/deepwork/parity-surfaces.csv"));
+    let (Some(inventory), Some(surfaces), Some(bundles)) = (
+        flag_path(args, "--inventory"),
+        flag_path(args, "--surfaces"),
+        flag_path(args, "--bundles"),
+    ) else {
+        eprintln!(
+            "xtask parity surfaces: --inventory <csv>, --surfaces <csv> and --bundles \
+             <evidence-root> are required.\n\
+             \x20 Pass the two CSVs and the root that holds the per-surface evidence bundles.\n\
+             \x20 No path is assumed; VERIFIED rows also need --oracle-commit and --build-id."
+        );
+        return 2;
+    };
     let opts = SurfaceOpts {
         inventory,
         surfaces,
-        bundles: bundle_root(args),
+        bundles,
         oracle_commit: flag(args, "--oracle-commit")
             .unwrap_or_default()
             .to_string(),
         build_id: flag(args, "--build-id").unwrap_or_default().to_string(),
     };
     validate(&opts)
-}
-
-/// The root that holds the per-surface evidence bundles. `--bundles` overrides
-/// it; the default is the tree the inventory and matrix CSVs live beside.
-fn bundle_root(args: &[String]) -> PathBuf {
-    flag_path(args, "--bundles").unwrap_or_else(|| PathBuf::from(".slim/deepwork/78-evidence"))
 }
 
 fn has_flag(args: &[String], name: &str) -> bool {
@@ -435,18 +446,50 @@ mod tests {
 
     type FailureCase = (&'static str, &'static str, Box<dyn FnOnce(&Path)>);
 
+    /// Every path is operator input, so a run that omits one must stop instead
+    /// of guessing a location.
     #[test]
-    fn bundle_root_names_the_evidence_tree_and_obeys_the_override() {
+    fn path_flags_are_required_and_then_respected() {
+        let root = temp_root("flags");
+        let inventory = root.join("inventory.csv");
+        let surfaces = root.join("surfaces.csv");
+        let bundles = root.join("bundles");
+        write(&inventory, b"path,status,native_target,family\n");
+        write(
+            &surfaces,
+            b"id,surface,frozen_refs,native_refs,layout,data,states,input,perf,overall,evidence,notes\n",
+        );
+        assert_eq!(cmd(&[]), 2, "a bare run must not pick a path");
         assert_eq!(
-            bundle_root(&[]),
-            PathBuf::from(".slim/deepwork/78-evidence"),
-            "a run with no flags looks in the tree that holds the bundles"
+            cmd(&paths(&[
+                ("--inventory", &inventory),
+                ("--surfaces", &surfaces)
+            ])),
+            2,
+            "the evidence root is required too"
         );
         assert_eq!(
-            bundle_root(&["--bundles".to_string(), "somewhere-else".to_string()]),
-            PathBuf::from("somewhere-else"),
-            "an explicit root is respected"
+            cmd(&paths(&[
+                ("--inventory", &inventory),
+                ("--surfaces", &surfaces),
+                ("--bundles", &bundles),
+            ])),
+            0,
+            "three explicit paths reach the validator"
         );
+        assert_eq!(
+            cmd(&["--generate".to_string()]),
+            2,
+            "generate needs both an input and an output"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn paths(pairs: &[(&str, &Path)]) -> Vec<String> {
+        pairs
+            .iter()
+            .flat_map(|(flag, path)| [flag.to_string(), path.to_string_lossy().into_owned()])
+            .collect()
     }
 
     fn temp_root(name: &str) -> PathBuf {

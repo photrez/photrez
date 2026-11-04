@@ -25,13 +25,18 @@ pub struct StringsOpts {
     pub write_map: Option<PathBuf>,
 }
 
-/// `cargo xtask parity strings [--root <dir>] [--map <csv>]`
+/// `cargo xtask parity strings --surfaces <csv> [--root <dir>] [--map <csv>]`
 pub fn cmd(args: &[String]) -> i32 {
-    let root = flag_path(args, "--root").unwrap_or_else(|| PathBuf::from("apps/desktop"));
+    let Some(surfaces) = flag_path(args, "--surfaces") else {
+        eprintln!(
+            "xtask parity strings: --surfaces <csv> is required.\n\
+             \x20 Pass the surface matrix CSV that maps each inventory file to a surface."
+        );
+        return 2;
+    };
     let opts = StringsOpts {
-        root,
-        surfaces: flag_path(args, "--surfaces")
-            .unwrap_or_else(|| PathBuf::from(".slim/deepwork/parity-surfaces.csv")),
+        root: flag_path(args, "--root").unwrap_or_else(|| PathBuf::from("apps/desktop")),
+        surfaces,
         map: flag_path(args, "--map"),
         write_map: flag_path(args, "--write-map"),
     };
