@@ -366,6 +366,9 @@ mod layers_footer;
 #[path = "tests/option_bar.rs"]
 mod option_bar;
 
+#[path = "tests/close_guard.rs"]
+mod close_guard;
+
 #[path = "tests/commands.rs"]
 mod commands;
 
