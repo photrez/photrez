@@ -8,7 +8,6 @@ const TEXT_STROKE_POPOVER_W: f32 = 240.0;
 pub(super) fn text_stroke_pill(
     width: f64,
     color_value: [u8; 4],
-    open: bool,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let active = width > 0.0;
@@ -24,13 +23,7 @@ pub(super) fn text_stroke_pill(
         .gap(px(GAP))
         .rounded(px(RADIUS))
         .border_1()
-        .border_color(if active {
-            color::ACCENT
-        } else if open {
-            HOVER_BORDER_LOCAL
-        } else {
-            color::BORDER
-        })
+        .border_color(if active { color::ACCENT } else { color::BORDER })
         .bg(if active { ACCENT_20 } else { color::FIELD })
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
@@ -97,7 +90,7 @@ pub(in super::super) fn text_stroke_control(
         div()
             .relative()
             .flex_shrink_0()
-            .child(text_stroke_pill(width, color_value, open, cx));
+            .child(text_stroke_pill(width, color_value, cx));
     if open {
         wrapper = wrapper.child(gpui_kit::deferred(
             super::select_surface::SelectPanelSurface::new(

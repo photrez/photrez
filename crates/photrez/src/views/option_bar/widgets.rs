@@ -653,17 +653,6 @@ pub(super) fn numeric_field(
     field
 }
 
-/// `#4B515D` — the edge a stroke pill takes while its popover is open.
-///
-/// It is not a hover colour: the reference paints no hover border at all, because its unlayered
-/// border rule beats every `hover:border-*` utility it declares.
-pub(super) const HOVER_BORDER_LOCAL: Hsla = Hsla {
-    h: 0.611111,
-    s: 0.107143,
-    l: 0.329412,
-    a: 1.0,
-};
-
 // ── Group labels ───────────────────────────────────────────────────────────────
 
 /// The selection bar's caps captions ("Position", "Size", "Rotation").

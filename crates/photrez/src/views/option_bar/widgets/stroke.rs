@@ -15,11 +15,11 @@ pub(super) fn stroke_dot() -> Div {
 }
 
 /// The shape bar's stroke pill; clicking toggles the stroke popover, not the
-/// outline (stroke popover open state).
+/// outline (stroke popover open state). The reference styles the pill identically open and closed, so
+/// the edge does not track `open`.
 pub(super) fn shape_stroke_pill(
     enabled: bool,
     width: f64,
-    open: bool,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let active = enabled && width > 0.0;
@@ -35,13 +35,7 @@ pub(super) fn shape_stroke_pill(
         .gap(px(GAP))
         .rounded(px(RADIUS))
         .border_1()
-        .border_color(if active {
-            color::ACCENT
-        } else if open {
-            HOVER_BORDER_LOCAL
-        } else {
-            color::BORDER
-        })
+        .border_color(if active { color::ACCENT } else { color::BORDER })
         .bg(if active { ACCENT_20 } else { color::FIELD })
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
@@ -97,7 +91,7 @@ pub(in super::super) fn stroke_control(
     let mut wrapper = div()
         .relative()
         .flex_shrink_0()
-        .child(shape_stroke_pill(enabled, width, open, cx));
+        .child(shape_stroke_pill(enabled, width, cx));
     if open {
         wrapper = wrapper.child(gpui_kit::deferred(
             super::select_surface::SelectPanelSurface::new(
