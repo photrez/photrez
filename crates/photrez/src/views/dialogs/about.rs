@@ -1,7 +1,9 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, relative, Div, FontWeight, Hsla, Stateful};
+use gpui_kit::{
+    div, hsla, px, relative, Div, FontWeight, Hsla, Stateful, TestSupportExt,
+};
 
 use crate::components::ui;
 use crate::i18n::t;
@@ -193,9 +195,13 @@ fn about_hero() -> Div {
 
 /// The version pill: 4px corners, the [`about_pill_colours`] edge and fill,
 /// 6px horizontal and 2px vertical padding, 10px semibold accent text.
-fn about_version_pill() -> Div {
+fn about_version_pill() -> impl IntoElement {
     let (edge, fill, text) = about_pill_colours();
+    let version = about_version();
     div()
+        .id("about-version")
+        .test_support()
+        .aria_label(version.clone())
         .rounded(px(R4))
         .border_1()
         .border_color(edge)
@@ -209,7 +215,7 @@ fn about_version_pill() -> Div {
                 .font_weight(FontWeight(600.))
                 .line_height(relative(1.3))
                 .text_color(text)
-                .child(about_version()),
+                .child(version),
         )
 }
 

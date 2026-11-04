@@ -315,6 +315,15 @@ fn about_dialog_mounts_its_links_and_closes(cx: &mut gpui_kit::TestAppContext) {
             Some(crate::state::DialogId::About)
         );
         window.find("dialog-about");
+        // The pill's accessible name is the string the view renders, so this
+        // proves the About surface shows the crate version. The helper alone
+        // cannot: it returns the same macro the assertion compares against, so
+        // a version that never reaches the screen would still satisfy it.
+        assert_eq!(
+            window.find("about-version").label(),
+            Some(concat!("v", env!("CARGO_PKG_VERSION"))),
+            "the About surface mounts the crate version, not a copy of it"
+        );
         window.find("about-close");
         window.click("about-close", cx);
         window.render_frame(cx);
