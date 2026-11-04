@@ -82,7 +82,6 @@
 # attributes travelled with the accessors so both build shapes still compile.
 #
 # The rest still owe theirs.
-1006 crates/core/src/document/tests/structural.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1441 crates/photrez/src/app/tests/documents.rs
 1484 crates/photrez/src/app/tests/selection.rs

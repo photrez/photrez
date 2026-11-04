@@ -11,6 +11,7 @@ mod contract;
 mod contract_structured;
 mod external;
 mod external_size;
+mod flatten_layers;
 mod fuzz;
 mod history_stream;
 mod reorder;
