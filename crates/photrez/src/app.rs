@@ -70,7 +70,10 @@ mod text;
 mod toasts;
 pub(crate) mod tool_settings;
 mod tooltips;
+mod transform_align;
+mod transform_display;
 pub(crate) mod transform_geometry;
+mod transform_hit;
 mod transform_move;
 mod viewport;
 

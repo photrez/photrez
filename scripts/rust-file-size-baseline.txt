@@ -102,8 +102,23 @@
 # ASCII, and `stroke_dot` plus the two popover-width constants travelled with
 # the code that alone called them, so that entry is deleted.
 #
+# An eleventh split paid: the live preview, the cursor hit test and the
+# multi-selection layout commands left `app/transform_move.rs` for
+# `transform_display.rs` (263 lines, the three damage helpers and the four
+# composite methods), `transform_hit.rs` (165 lines, the selection readout, the
+# hit test, the auto-select click and `point_in_polygon`) and
+# `transform_align.rs` (176 lines, align, distribute, and the two helpers only
+# they call). Each child carries its own `impl App` block, so no call site
+# changed and 33 `fn` definitions stand on both sides across four files. The
+# parent went from its recorded 1442 to 873 lines, so this entry is deleted.
+# Three `pub(super)` markers were needed: `LayerBounds`, which both sides name,
+# and the two preview entries the drag code still calls. Nothing is absent at
+# identifier level; the one whitespace-token difference is
+# `document_to_layer_local,`, which the child's import writes as
+# `crate::app::transform_geometry::{document_to_layer_local,`. The file's zero
+# non-ASCII bytes stayed zero across the four files.
+#
 # The rest still owe theirs.
 1661 crates/photrez/src/app/measurement/driver.rs
-1442 crates/photrez/src/app/transform_move.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
