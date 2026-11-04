@@ -30,8 +30,16 @@
 
 ### 📦 Download Photrez
 
-Portable archives per platform — extract and run, no installer. They are published from the
-[releases page](https://github.com/photrez/photrez/releases) for the latest released version:
+Portable archives per platform: extract and run, no installer. The native application is published as
+`Photrez-v<version>-windows-x64.zip`, `Photrez-v<version>-macos-arm64.tar.gz` and
+`Photrez-v<version>-linux-x64.tar.gz` from the
+[releases page](https://github.com/photrez/photrez/releases).
+
+Read the release list before you download. As of 2026-11-04 the native archive format is produced by the
+release workflow but has only been published as draft releases, and the release marked **Latest** on that
+page is `v0.1.0`, which ships the archived predecessor's installers (`.exe` setup, `.dmg`, `.deb`, `.rpm`,
+`.AppImage`). Those are not this application. If you see a setup program or an AppImage, you are looking at
+the previous implementation.
 
 - **Windows 10/11 (64-bit):** `Photrez-v<version>-windows-x64.zip` → run `photrez.exe`
 - **macOS (Apple silicon):** `Photrez-v<version>-macos-arm64.tar.gz` → run `photrez`
