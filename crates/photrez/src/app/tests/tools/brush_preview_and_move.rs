@@ -130,7 +130,9 @@ fn move_toggles_are_tab_reachable_and_space_operates_them(cx: &mut gpui_kit::Tes
             "Tab must reach every Move toggle: {seen:?}"
         );
 
-        for _ in 0..8 {
+        // One cycle of the tab order now carries every inline numeric row too, so
+        // coming back round to the snap toggle takes longer than it used to.
+        for _ in 0..64 {
             if window.find("opt-snap").focused() == Some(true) {
                 break;
             }

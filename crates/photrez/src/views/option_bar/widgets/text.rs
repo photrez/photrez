@@ -83,8 +83,16 @@ pub(in super::super) fn font_size_field(
         .child(ml_label(chevron_175()));
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    "opt-text-size",
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        app.begin_text_size_field(window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }

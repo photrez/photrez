@@ -57,7 +57,7 @@ pub(super) fn paint_bucket_items(
                 .as_ref()
                 .filter(|field| field.id == "opt-tolerance")
                 .map(|field| field.buffer.clone()),
-            s.num_field_focus.clone(),
+            s.num_field_focus_for("opt-tolerance"),
         )
     };
     row.child(

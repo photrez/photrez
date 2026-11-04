@@ -82,7 +82,7 @@ fn move_items(
             .filter(|field| field.id == id)
             .map(|field| field.buffer.clone())
     };
-    let num_focus = state.read(cx).num_field_focus.clone();
+    let num_focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
     let locked = readout.is_some_and(|readout| readout.locked);
     row.child(tool_pill(
         icons::with_stroke(icons::CURSOR, STROKE_PILL),
@@ -136,7 +136,7 @@ fn move_items(
         ),
     ))
     .child(divider())
-    .child(position_group(readout, &editing, num_focus.clone(), cx))
+    .child(position_group(readout, &editing, &num_focus, cx))
     .child(size_group(readout))
     .child(transform_cell(
         "num-r",
@@ -146,7 +146,7 @@ fn move_items(
         locked,
         "\u{b0}", // i18n-exempt: technical token (field label glyph)
         editing("num-r"),
-        num_focus,
+        num_focus("num-r"),
         cx,
     ))
     .when(show_main_controls(), |el| {
@@ -302,7 +302,7 @@ fn selection_items(
             .filter(|field| field.id == id)
             .map(|field| field.buffer.clone())
     };
-    let focus = state.read(cx).num_field_focus.clone();
+    let focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
     let field = |id: &'static str,
                  label: &'static str,
                  width: f32,
@@ -316,7 +316,7 @@ fn selection_items(
             selection_field_value(value),
             suffix,
             editing(id),
-            focus.clone(),
+            focus(id),
             cx,
         )
     };

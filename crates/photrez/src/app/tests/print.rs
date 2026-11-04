@@ -18,7 +18,11 @@ fn row_frame(window: &mut gpui_kit::Window, id: &'static str) -> [f32; 4] {
 /// warning row in place of the picker, so the inspector's contents would depend
 /// on where the test runs. The perf tests keep the real enumeration: it is what
 /// they measure.
-fn open_print_dialog(content: &Entity<App>, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+pub(super) fn open_print_dialog(
+    content: &Entity<App>,
+    window: &mut gpui_kit::Window,
+    cx: &mut gpui_kit::App,
+) {
     content.update(cx, |app, cx| {
         app.print_document_action(&crate::app::PrintDocument, cx);
         app.state_for_test().update(cx, |state, _| {

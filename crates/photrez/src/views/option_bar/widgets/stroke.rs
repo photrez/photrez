@@ -241,6 +241,21 @@ fn stroke_color_button(
         )
 }
 
+/// Opens the outline-width edit, or turns the outline on when the shape has
+/// none. The click and a keystroke on the focused row take this same path.
+fn begin_stroke_width(
+    state: &gpui_kit::Entity<AppState>,
+    app: &mut crate::app::App,
+    window: &mut gpui_kit::Window,
+    cx: &mut Context<crate::app::App>,
+) {
+    if state.read(cx).shape_stroke {
+        app.begin_stroke_width_field(window, cx);
+    } else {
+        app.toggle_shape_stroke(cx);
+    }
+}
+
 /// The popover's outline width, edited inline like the corner-radius field.
 fn stroke_width_field(
     state: &gpui_kit::Entity<AppState>,
@@ -250,6 +265,7 @@ fn stroke_width_field(
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let state = state.clone();
+    let key_state = state.clone();
     let active = editing.is_some();
     let text = match editing {
         Some(buffer) if buffer.is_empty() => "|".to_string(),
@@ -272,11 +288,7 @@ fn stroke_width_field(
         .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
-                if state.read(cx).shape_stroke {
-                    app.begin_stroke_width_field(window, cx);
-                } else {
-                    app.toggle_shape_stroke(cx);
-                }
+                begin_stroke_width(&state, app, window, cx);
             }),
         )
         .child(
@@ -293,8 +305,16 @@ fn stroke_width_field(
         .child(dim_span("px")); // i18n-exempt: technical token (unit)
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    "opt-stroke-width",
+                    event,
+                    window,
+                    |app, window, cx| {
+                        begin_stroke_width(&key_state, app, window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }

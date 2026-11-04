@@ -63,11 +63,10 @@ pub(super) fn section(
                 }
             })
     };
-    let (session, focus, constrain, opacity, slider_bounds, slider_capture, track_focus) = {
+    let (session, constrain, opacity, slider_bounds, slider_capture, track_focus) = {
         let s = state.read(cx);
         (
             s.num_field.clone(),
-            s.num_field_focus.clone(),
             s.constrain_ratio,
             s.layer_opacity,
             s.opacity_slider_bounds.clone(),
@@ -82,6 +81,7 @@ pub(super) fn section(
             .map(|field| field.buffer.clone())
     };
     let open = crate::app::App::begin_transform_field;
+    let focus_for = |id: &'static str| state.read(cx).num_field_focus_for(id);
     // The track is a slider host like the option bar's: the shared capture
     // surface maps a pointer across it, and the arrow keys step one percent.
     let track = h_flex()
@@ -137,7 +137,7 @@ pub(super) fn section(
                             &row_text(readout.map(|layer| layer.x), REST_X),
                             Some("px"), // i18n-exempt: technical token (unit)
                             editing("prop-x").as_deref(),
-                            focus.clone(),
+                            focus_for("prop-x"),
                             open,
                             cx,
                         ))
@@ -147,7 +147,7 @@ pub(super) fn section(
                             &row_text(readout.map(|layer| layer.y), REST_Y),
                             Some("px"), // i18n-exempt: technical token (unit)
                             editing("prop-y").as_deref(),
-                            focus.clone(),
+                            focus_for("prop-y"),
                             open,
                             cx,
                         )),
@@ -167,7 +167,7 @@ pub(super) fn section(
                             &row_text(readout.map(|layer| layer.width), REST_W),
                             Some("px"), // i18n-exempt: technical token (unit)
                             editing("prop-w").as_deref(),
-                            focus.clone(),
+                            focus_for("prop-w"),
                             open,
                             cx,
                         ))
@@ -177,7 +177,7 @@ pub(super) fn section(
                             &row_text(readout.map(|layer| layer.height), REST_H),
                             Some("px"), // i18n-exempt: technical token (unit)
                             editing("prop-h").as_deref(),
-                            focus.clone(),
+                            focus_for("prop-h"),
                             open,
                             cx,
                         ))
@@ -193,7 +193,7 @@ pub(super) fn section(
                         &row_text(readout.map(|layer| layer.rotation), REST_R),
                         Some("deg"), // i18n-exempt: technical token (unit)
                         editing("prop-r").as_deref(),
-                        focus,
+                        focus_for("prop-r"),
                         open,
                         cx,
                     ),

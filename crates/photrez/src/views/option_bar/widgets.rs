@@ -57,7 +57,7 @@ pub(super) fn transform_cell(
 pub(super) fn position_group(
     readout: Option<crate::state::LayerTransformReadout>,
     editing: impl Fn(&'static str) -> Option<String>,
-    focus: Option<gpui_kit::FocusHandle>,
+    focus_for: impl Fn(&'static str) -> Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let locked = readout.is_some_and(|readout| readout.locked);
@@ -73,7 +73,7 @@ pub(super) fn position_group(
             locked,
             "px", // i18n-exempt: technical token (field label glyph)
             editing("num-x"),
-            focus.clone(),
+            focus_for("num-x"),
             cx,
         ))
         .child(transform_cell(
@@ -84,7 +84,7 @@ pub(super) fn position_group(
             locked,
             "px", // i18n-exempt: technical token (field label glyph)
             editing("num-y"),
-            focus,
+            focus_for("num-y"),
             cx,
         ))
 }
@@ -251,8 +251,16 @@ pub(super) fn tolerance_num_field(
         );
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    "opt-tolerance",
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        app.begin_fill_tolerance_field(window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }
@@ -520,8 +528,16 @@ pub(super) fn radius_field(
         .child(dim_span("px")); // i18n-exempt: technical token (unit)
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    "opt-shape-radius",
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        app.begin_shape_radius_field(window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }
@@ -645,8 +661,16 @@ pub(super) fn numeric_field(
         .child(dim_span(suffix));
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    id,
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        open(app, id, window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }

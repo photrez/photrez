@@ -235,7 +235,12 @@ impl App {
                 .unwrap_or(true)
         });
 
-        let field_focus = cx.focus_handle();
+        // Each inline numeric field is a tab stop of its own, so Tab lands on
+        // the row the keyboard points at and the keystrokes follow real focus.
+        let num_field_foci: Vec<_> = crate::app::num_field::NUM_FIELD_IDS
+            .iter()
+            .map(|_| cx.focus_handle().tab_stop(true))
+            .collect();
         let slider_foci: Vec<_> = (0..crate::state::SliderTarget::COUNT)
             .map(|_| cx.focus_handle().tab_stop(true))
             .collect();
@@ -254,7 +259,7 @@ impl App {
         let mut app = Self {
             state: cx.new(|_| {
                 let mut state = state;
-                state.num_field_focus = Some(field_focus);
+                state.num_field_foci = num_field_foci;
                 state.slider_foci = slider_foci;
                 state.move_snap_focus = Some(move_snap_focus);
                 state.move_auto_select_focus = Some(move_auto_select_focus);

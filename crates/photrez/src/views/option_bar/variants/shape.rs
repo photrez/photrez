@@ -61,7 +61,6 @@ pub(super) fn shape_items(
         radius,
         arrow,
         editing,
-        focus,
     ) = {
         let s = state.read(cx);
         let layer = s.selected_shape.as_ref();
@@ -94,7 +93,6 @@ pub(super) fn shape_items(
                 .as_ref()
                 .filter(|field| field.id == "opt-shape-radius")
                 .map(|field| field.buffer.clone()),
-            s.num_field_focus.clone(),
         )
     };
     row.child(tool_pill(
@@ -160,14 +158,18 @@ pub(super) fn shape_items(
             stroke_color,
             stroke_open,
             stroke_editing,
-            focus.clone(),
+            state.read(cx).num_field_focus_for("opt-stroke-width"),
             stroke_panel_bounds,
             cx,
         ),
     ))
     .when(kind == ShapeTool::Rect, |el| {
-        el.child(divider())
-            .child(radius_field(radius, editing, focus, cx))
+        el.child(divider()).child(radius_field(
+            radius,
+            editing,
+            state.read(cx).num_field_focus_for("opt-shape-radius"),
+            cx,
+        ))
     })
     .when(kind == ShapeTool::Line, |el| {
         el.child(divider()).child(shape_arrow_toggle(arrow, cx))

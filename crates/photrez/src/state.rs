@@ -529,8 +529,9 @@ pub struct AppState {
     pub rename_layer: Option<RenameSession>,
     /// The open inline numeric edit, if any.
     pub num_field: Option<NumFieldSession>,
-    /// Focus target for inline numeric edits, installed at App construction.
-    pub num_field_focus: Option<gpui_kit::FocusHandle>,
+    /// One tabbable focus handle per inline numeric field, in the order of
+    /// `NUM_FIELD_IDS`, and installed at App construction.
+    pub num_field_foci: Vec<gpui_kit::FocusHandle>,
     /// One tabbable focus handle per slider track, indexed by
     /// `SliderTarget::index` and installed at App construction.
     pub slider_foci: Vec<gpui_kit::FocusHandle>,
@@ -780,7 +781,7 @@ impl Default for AppState {
             text_edit: None,
             rename_layer: None,
             num_field: None,
-            num_field_focus: None,
+            num_field_foci: Vec::new(),
             slider_foci: Vec::new(),
             move_snap_focus: None,
             move_auto_select_focus: None,
@@ -847,6 +848,19 @@ impl AppState {
     /// The handle a Resize Canvas size field takes so Tab can reach it.
     pub fn resize_field_focus(&self, index: u8) -> Option<gpui_kit::FocusHandle> {
         self.resize_field_foci.get(usize::from(index)).cloned()
+    }
+
+    /// The handle one inline numeric field takes so Tab can reach it. The id is
+    /// spelled out rather than read off a shared handle, so renaming a field
+    /// cannot point it at another field's handle. Traversal order comes from
+    /// the view tree, not from the id list. The list lives beside the edits
+    /// that own those ids, in `crate::app::num_field`.
+    pub fn num_field_focus_for(&self, id: &str) -> Option<gpui_kit::FocusHandle> {
+        crate::app::num_field::NUM_FIELD_IDS
+            .iter()
+            .position(|entry| *entry == id)
+            .and_then(|index| self.num_field_foci.get(index))
+            .cloned()
     }
 
     /// A `--shot` launch seeds the demo document without a session, so the tab

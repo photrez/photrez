@@ -56,7 +56,7 @@ mod locale;
 #[cfg(feature = "input-measurement")]
 pub mod measurement;
 mod new_document;
-mod num_field;
+pub(crate) mod num_field;
 mod overlay;
 mod recents;
 mod rename;

@@ -147,8 +147,16 @@ pub fn live_num_field(
     let row = row.child(inner);
     match focus {
         Some(handle) => row.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    id,
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        open(app, id, window, cx);
+                    },
+                    cx,
+                );
             },
         )),
         None => row,

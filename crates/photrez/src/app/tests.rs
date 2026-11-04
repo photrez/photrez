@@ -452,3 +452,6 @@ mod picker_eyedropper;
 
 #[path = "tests/properties.rs"]
 mod properties;
+
+#[path = "tests/keyboard.rs"]
+mod keyboard;

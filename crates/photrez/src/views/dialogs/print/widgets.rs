@@ -238,9 +238,12 @@ pub(super) fn num_box<F>(
     cx: &Context<crate::app::App>,
 ) -> AnyElement
 where
-    F: Fn(&mut crate::app::App, &mut gpui_kit::Window, &mut Context<crate::app::App>) + 'static,
+    F: Fn(&mut crate::app::App, &mut gpui_kit::Window, &mut Context<crate::app::App>)
+        + Clone
+        + 'static,
 {
     let NumFieldEdit { session, focus } = edit;
+    let key_begin = begin.clone();
     let editing = session.filter(|field| field.id == id).map(|field| {
         if field.buffer.is_empty() {
             "|".to_string()
@@ -281,8 +284,19 @@ where
         Some(handle) => box_
             .track_focus(&handle)
             .on_key_down(
-                cx.listener(|app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                    let _ = app.num_field_key(event, cx);
+                cx.listener(move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                    // `key_begin` carries this row's unit basis, so a keystroke
+                    // converts through the click's own path and never a second time.
+                    let begin = key_begin.clone();
+                    app.num_field_key_in_row(
+                        id,
+                        event,
+                        window,
+                        move |app, window, cx| {
+                            begin(app, window, cx);
+                        },
+                        cx,
+                    );
                 }),
             )
             .into_any_element(),

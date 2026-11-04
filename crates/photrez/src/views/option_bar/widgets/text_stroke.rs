@@ -341,8 +341,20 @@ fn text_stroke_width_field(
         );
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    "opt-text-stroke-width",
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        if app.effective_text_stroke_width(cx) > 0.0 {
+                            app.begin_text_stroke_width_field(window, cx);
+                        } else {
+                            app.toggle_text_stroke(cx);
+                        }
+                    },
+                    cx,
+                );
             },
         ));
     }

@@ -29,7 +29,6 @@ pub(super) fn position_size(
     doc_scale: f32,
     sizes: PaperSizes,
     num_field: Option<crate::state::NumFieldSession>,
-    num_focus: Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     // Position and Size: the header carries the unit select.
@@ -413,7 +412,7 @@ pub(super) fn position_size(
             format!("{width_typed:.1}"),
             super::widgets::NumFieldEdit {
                 session: num_field.as_ref(),
-                focus: num_focus.clone(),
+                focus: state.read(cx).num_field_focus_for("print-width"),
             },
             move |app, window, cx| {
                 app.begin_print_size_field("print-width", basis, width_typed, window, cx);
@@ -427,7 +426,7 @@ pub(super) fn position_size(
             format!("{height_typed:.1}"),
             super::widgets::NumFieldEdit {
                 session: num_field.as_ref(),
-                focus: num_focus,
+                focus: state.read(cx).num_field_focus_for("print-height"),
             },
             move |app, window, cx| {
                 app.begin_print_size_field("print-height", basis, height_typed, window, cx);

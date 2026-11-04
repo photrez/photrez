@@ -15,7 +15,6 @@ pub(super) fn printer_setup(
     copies: u32,
     landscape: bool,
     num_field: Option<crate::state::NumFieldSession>,
-    num_focus: Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     inspector = inspector.child(header_row(
@@ -154,7 +153,7 @@ pub(super) fn printer_setup(
                 copies.to_string(),
                 super::widgets::NumFieldEdit {
                     session: num_field.as_ref(),
-                    focus: num_focus.clone(),
+                    focus: state.read(cx).num_field_focus_for("print-copies"),
                 },
                 move |app, window, cx| {
                     app.begin_num_field("print-copies", copies as f64, window, cx);

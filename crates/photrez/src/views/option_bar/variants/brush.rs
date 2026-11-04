@@ -68,7 +68,7 @@ pub(super) fn brush_items(
             .filter(|field| field.id == id)
             .map(|field| field.buffer.clone())
     };
-    let focus = state.read(cx).num_field_focus.clone();
+    let focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
     let p = brush_params(eraser);
     row.child(tool_pill(
         icons::with_stroke(p.icon, STROKE_PILL),
@@ -82,7 +82,7 @@ pub(super) fn brush_items(
         format!("{size:.0}"),
         "px",
         editing("opt-brush-size"),
-        focus.clone(),
+        focus("opt-brush-size"),
         cx,
     ))
     .when(show_paint_size_slider(), |el| {
@@ -96,7 +96,7 @@ pub(super) fn brush_items(
         format!("{:.0}", hardness * 100.0),
         "%",
         editing("opt-brush-hardness"),
-        focus.clone(),
+        focus("opt-brush-hardness"),
         cx,
     ))
     .child(brush_field(
@@ -106,7 +106,7 @@ pub(super) fn brush_items(
         format!("{:.0}", opacity * 100.0),
         "%",
         editing("opt-brush-opacity"),
-        focus.clone(),
+        focus("opt-brush-opacity"),
         cx,
     ))
     .when(show_main_controls(), |el| {
@@ -118,7 +118,7 @@ pub(super) fn brush_items(
                 format!("{:.0}", flow * 100.0),
                 "%",
                 editing("opt-brush-flow"),
-                focus.clone(),
+                focus("opt-brush-flow"),
                 cx,
             ))
             .child(brush_field(
@@ -128,7 +128,7 @@ pub(super) fn brush_items(
                 format!("{smoothing:.0}"),
                 "%",
                 editing("opt-brush-smoothing"),
-                focus.clone(),
+                focus("opt-brush-smoothing"),
                 cx,
             ))
             .child(tooltip(
@@ -166,7 +166,6 @@ pub(super) fn brush_items(
             preset_name,
             labels,
             preset_active,
-            focus,
             cx,
         ))
     })
@@ -185,7 +184,6 @@ pub(super) fn brush_more_dropdown(
     preset_name: &str,
     labels: &'static [&'static str],
     preset_active: usize,
-    focus: Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let (open, preset_open, cursor) = {
@@ -241,7 +239,7 @@ pub(super) fn brush_more_dropdown(
                 format!("{:.0}", flow * 100.0),
                 "%",
                 editing("opt-brush-flow"),
-                focus.clone(),
+                state.read(cx).num_field_focus_for("opt-brush-flow"),
                 cx,
             ))
             .child(brush_field(
@@ -251,7 +249,7 @@ pub(super) fn brush_more_dropdown(
                 format!("{smoothing:.0}"),
                 "%",
                 editing("opt-brush-smoothing"),
-                focus,
+                state.read(cx).num_field_focus_for("opt-brush-smoothing"),
                 cx,
             ))
             .child(tooltip(

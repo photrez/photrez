@@ -531,8 +531,16 @@ pub(super) fn brush_field(
         .child(dim_span(suffix));
     if let Some(handle) = focus {
         field = field.track_focus(&handle).on_key_down(cx.listener(
-            |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                app.num_field_key(event, cx);
+            move |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                app.num_field_key_in_row(
+                    id,
+                    event,
+                    window,
+                    move |app, window, cx| {
+                        app.begin_brush_field(id, window, cx);
+                    },
+                    cx,
+                );
             },
         ));
     }

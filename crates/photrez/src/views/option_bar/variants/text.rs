@@ -23,7 +23,6 @@ pub(super) fn text_items(
         text_layer,
         size,
         editing,
-        focus,
         weight,
         italic,
         underline,
@@ -55,7 +54,6 @@ pub(super) fn text_items(
                 .as_ref()
                 .filter(|field| field.id == "opt-text-size")
                 .map(|field| field.buffer.clone()),
-            s.num_field_focus.clone(),
             if text_layer {
                 s.selected_text_font_weight
             } else {
@@ -121,7 +119,12 @@ pub(super) fn text_items(
     .child(divider())
     .child(font_family_button())
     .child(divider())
-    .child(font_size_field(size, editing, focus.clone(), cx))
+    .child(font_size_field(
+        size,
+        editing,
+        state.read(cx).num_field_focus_for("opt-text-size"),
+        cx,
+    ))
     .child(tooltip(
         state,
         "opt-weight",
@@ -309,7 +312,7 @@ pub(super) fn text_items(
             stroke_align,
             stroke_open,
             stroke_editing,
-            focus,
+            state.read(cx).num_field_focus_for("opt-text-stroke-width"),
             stroke_slider_focus,
             stroke_panel_bounds,
             stroke_slider_bounds,

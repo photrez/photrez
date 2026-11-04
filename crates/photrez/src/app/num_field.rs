@@ -7,6 +7,38 @@ use crate::state::NumFieldSession;
 
 use super::App;
 
+/// Every inline numeric field the app opens. A row whose id is absent here gets no focus
+/// handle, so Tab cannot reach it; adding a field means adding its id here as well.
+/// Traversal order comes from the view tree, not from this list.
+pub(crate) const NUM_FIELD_IDS: [&str; 26] = [
+    "opt-text-size",
+    "opt-text-stroke-width",
+    "opt-tolerance",
+    "opt-shape-radius",
+    "opt-stroke-width",
+    "opt-brush-size",
+    "opt-brush-hardness",
+    "opt-brush-opacity",
+    "opt-brush-flow",
+    "opt-brush-smoothing",
+    "sel-x",
+    "sel-y",
+    "sel-w",
+    "sel-h",
+    "sel-r",
+    "num-x",
+    "num-y",
+    "num-r",
+    "prop-x",
+    "prop-y",
+    "prop-r",
+    "prop-w",
+    "prop-h",
+    "print-width",
+    "print-height",
+    "print-copies",
+];
+
 impl App {
     pub(crate) fn begin_num_field(
         &mut self,
@@ -24,10 +56,61 @@ impl App {
                 replace_on_type: true,
             });
         });
-        if let Some(handle) = self.state.read(cx).num_field_focus.clone() {
+        if let Some(handle) = self.state.read(cx).num_field_focus_for(id) {
             window.focus(&handle, cx);
         }
         cx.notify();
+    }
+
+    /// Whether the open edit belongs to this row. A keystroke that arrives on a
+    /// focused row edits that row's session and no other.
+    pub(crate) fn num_field_row_is_editing(&self, id: &'static str, cx: &gpui_kit::App) -> bool {
+        self.state
+            .read(cx)
+            .num_field
+            .as_ref()
+            .is_some_and(|field| field.id == id)
+    }
+
+    /// Ends the open edit keeping what the user typed, the path Enter takes.
+    /// An empty buffer restores the value the edit started from.
+    pub(crate) fn commit_num_field(&mut self, cx: &mut Context<Self>) {
+        let empty = self
+            .state
+            .read(cx)
+            .num_field
+            .as_ref()
+            .map(|field| field.buffer.trim().is_empty())
+            .unwrap_or(true);
+        if empty {
+            self.cancel_num_field(cx);
+            return;
+        }
+        self.state.update(cx, |state, _| state.num_field = None);
+        cx.notify();
+    }
+
+    /// Feeds a keystroke to one focused numeric row. Tab moves focus before the
+    /// keystroke is delivered, so the row the user left commits its typed value
+    /// and this row opens through `open`, the same path its click takes. That
+    /// makes Tab-then-type behave like click-then-type, seed replacement
+    /// included. Escape, Enter and Backspace stay with the open session, so
+    /// their behaviour does not move.
+    pub(crate) fn num_field_key_in_row<F>(
+        &mut self,
+        id: &'static str,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        open: F,
+        cx: &mut Context<Self>,
+    ) where
+        F: FnOnce(&mut Self, &mut Window, &mut Context<Self>),
+    {
+        if !self.num_field_row_is_editing(id, cx) && numeric_key(event).is_some() {
+            self.commit_num_field(cx);
+            open(self, window, cx);
+        }
+        self.num_field_key(event, cx);
     }
 
     pub(crate) fn begin_text_size_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -204,19 +287,7 @@ impl App {
                 true
             }
             "enter" => {
-                let empty = self
-                    .state
-                    .read(cx)
-                    .num_field
-                    .as_ref()
-                    .map(|field| field.buffer.trim().is_empty())
-                    .unwrap_or(true);
-                if empty {
-                    self.cancel_num_field(cx);
-                } else {
-                    self.state.update(cx, |state, _| state.num_field = None);
-                    cx.notify();
-                }
+                self.commit_num_field(cx);
                 true
             }
             "backspace" => {
@@ -230,18 +301,9 @@ impl App {
                 true
             }
             _ => {
-                let text = event
-                    .keystroke
-                    .key_char
-                    .clone()
-                    .unwrap_or_else(|| event.keystroke.key.clone());
-                let numeric = text.chars().count() == 1
-                    && text
-                        .chars()
-                        .all(|c| c.is_ascii_digit() || c == '.' || c == '-');
-                if !numeric {
+                let Some(text) = numeric_key(event) else {
                     return false;
-                }
+                };
                 self.state.update(cx, |state, _| {
                     if let Some(field) = state.num_field.as_mut() {
                         if field.replace_on_type {
@@ -332,4 +394,18 @@ impl App {
         }
         cx.notify();
     }
+}
+
+/// The character an inline numeric field accepts, or `None` for a keystroke
+/// that only moves focus or ends the edit. One classifier keeps the row-adopt
+/// test and the buffer test from drifting apart.
+fn numeric_key(event: &KeyDownEvent) -> Option<String> {
+    let text = event
+        .keystroke
+        .key_char
+        .clone()
+        .unwrap_or_else(|| event.keystroke.key.clone());
+    let numeric =
+        text.chars().count() == 1 && text.chars().all(|c| c.is_ascii_digit() || ".-".contains(c));
+    numeric.then_some(text)
 }
