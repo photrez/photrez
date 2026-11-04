@@ -244,8 +244,8 @@ fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
             "report": report,
             "max": max_diff,
         });
-        if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
-            eprintln!("xtask parity perceptual-diff: writing {out}: {e}");
+        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask parity perceptual-diff: {e}");
             return 2;
         }
     }
@@ -380,8 +380,8 @@ fn cmd_parity_band_diff(args: &[String]) -> i32 {
             "report": report,
             "max_band": max_band,
         });
-        if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
-            eprintln!("xtask parity band-diff: writing {out}: {e}");
+        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask parity band-diff: {e}");
             return 2;
         }
     }
@@ -521,11 +521,8 @@ fn cmd_parity_diff(args: &[String]) -> i32 {
             "max_diff": max_diff,
             "region": report,
         });
-        if let Err(e) = std::fs::write(
-            out,
-            serde_json::to_string_pretty(&payload).unwrap_or_default(),
-        ) {
-            eprintln!("xtask parity diff: write {out}: {e}");
+        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask parity diff: {e}");
             return 2;
         }
     }

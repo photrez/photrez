@@ -206,7 +206,8 @@ pub fn bands_block(report: &BandReport, verdict: &Verdict, ceilings: Ceilings) -
 /// `thresholds.max_band_pct` records the ceiling this run applied, and `metrics` is left
 /// alone, because the gate number stays the gate number. `bands.gate_rule` names the
 /// comparator that number came from, since a class-map bundle and its bands are measured
-/// by different rules.
+/// by different rules. Fails when the bundle records `thresholds` as anything but an
+/// object, because the ceiling this run applied would have nowhere to go.
 pub fn scored_document(
     recorded: &Value,
     report: &BandReport,
@@ -215,7 +216,7 @@ pub fn scored_document(
     pair: &MaskPair,
     rule: RecordedRule,
     ceiling_source: &str,
-) -> Value {
+) -> Result<Value, String> {
     let mut block = bands_block(report, verdict, ceilings);
     if let Some(map) = block.as_object_mut() {
         map.insert("ceiling_source".to_string(), json!(ceiling_source));
@@ -229,14 +230,23 @@ pub fn scored_document(
     if let Some(map) = document.as_object_mut() {
         map.insert("bands".to_string(), block);
         map.insert("pass".to_string(), json!(verdict.pass));
-        let thresholds = map
-            .entry("thresholds")
-            .or_insert_with(|| json!({}))
-            .as_object_mut()
-            .expect("thresholds was written as an object");
-        thresholds.insert("max_band_pct".to_string(), json!(ceilings.max_band_pct));
+        let entry = map.entry("thresholds").or_insert_with(|| json!({}));
+        match entry {
+            Value::Object(thresholds) => {
+                thresholds.insert("max_band_pct".to_string(), json!(ceilings.max_band_pct));
+            }
+            // A bundle is hand-edited evidence, so its thresholds block can hold any JSON
+            // value. Naming the recorded value keeps this a readable gate failure instead
+            // of a panic inside the run.
+            other => {
+                return Err(format!(
+                    "thresholds is {other}, not an object, so the applied band ceiling has \
+                     nowhere to go"
+                ));
+            }
+        }
     }
-    document
+    Ok(document)
 }
 
 /// Score one evidence bundle against both ceilings.
@@ -295,7 +305,7 @@ pub fn score_bundle(bundle: &Path, opts: &ScoreOpts) -> Result<Scored, String> {
         &pair,
         rule,
         ceiling_source(opts.max_band_pct.is_some(), record.max_band_pct.is_some()),
-    );
+    )?;
     Ok(Scored {
         surface: record.surface,
         size: (a.width, a.height),

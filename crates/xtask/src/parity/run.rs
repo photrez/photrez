@@ -529,7 +529,7 @@ struct InkAcceptanceShot {
     ratio: f64,
 }
 
-pub(super) fn write_json<T: serde::Serialize>(path: PathBuf, value: &T) -> Result<(), String> {
+pub(crate) fn write_json<T: serde::Serialize>(path: PathBuf, value: &T) -> Result<(), String> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|e| format!("serialize {}: {e}", path.display()))?;
     std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;

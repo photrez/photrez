@@ -555,3 +555,18 @@ fn the_census_reject_list_is_reproduced_on_the_stored_bundles() {
     assert_eq!(rejects(20.0), ["S009", "S043", "S059"]);
     assert_eq!(rejects(12.0).len(), 8, "{:?}", rejects(12.0));
 }
+
+/// A bundle is hand-edited evidence, so its `thresholds` block can be any JSON value.
+/// The scored run has nowhere to write the ceiling it applied in that case, and it says
+/// so instead of panicking inside the gate.
+#[test]
+fn a_bundle_that_records_thresholds_as_a_number_is_refused() {
+    let dir = artifact_dir("band-thresholds-not-an-object");
+    write_bundle(&dir, "S900", &flat(100, 60), &flat(100, 60), json!(5));
+    let error = score_bundle(&dir, &ScoreOpts::default())
+        .expect_err("the applied ceiling has nowhere to go");
+    assert!(
+        error.contains("thresholds is 5, not an object"),
+        "names the recorded value, got {error}"
+    );
+}
