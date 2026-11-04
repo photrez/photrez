@@ -16,15 +16,23 @@ pub(super) fn recovery_body(
             .child("Unsaved documents found in the autosave store:".to_string()), // i18n-exempt: native-only copy; no catalogue equivalent
     );
     for entry in entries {
-        body = body.child(
-            div()
-                .h(px(24.0))
-                .flex()
-                .items_center()
-                .text_size(px(11.5))
-                .text_color(color::TEXT)
-                .child(entry.name),
-        );
+        let already_open = entry.already_open;
+        let mut row = div()
+            .h(px(24.0))
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .text_size(px(11.5))
+            .text_color(color::TEXT)
+            .child(entry.name);
+        if already_open {
+            row = row.child(
+                div()
+                    .text_color(color::TEXT_DIM)
+                    .child(t("dialogs.recovery.alreadyOpen").to_string()),
+            );
+        }
+        body = body.child(row);
     }
     body.child(
         div()

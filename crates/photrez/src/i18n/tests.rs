@@ -53,6 +53,9 @@ fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
 #[test]
 fn catalog_matches_reference_plus_named_deltas() {
     const NATIVE_ONLY: &[&str] = &[
+        // The reference never prompts at startup for an autosave, so its catalog
+        // has no key for the prompt's open-document marker.
+        "dialogs.recovery.alreadyOpen",
         // The reference spells these three through `t(key, default)`; here they
         // are real entries so the label resolves without a fallback.
         "properties.alignCenter",
@@ -65,6 +68,16 @@ fn catalog_matches_reference_plus_named_deltas() {
         "tools.textActions.newline",
     ];
     const REFERENCE_ONLY: &[&str] = &["tools.text.commit", "tools.text.newline"];
+    // A shared key whose native text differs on purpose. The reference renders an
+    // em dash in the About tagline; this project's copy rule forbids that glyph in
+    // user-facing text, so the tagline diverges by decision. Each row states the
+    // accepted text for both locales, so the divergence is checked rather than
+    // excused, and a further change to the line still fails here.
+    const TEXT_DELTAS: &[(&str, &str, &str)] = &[(
+        "dialogs.about.tagline",
+        "Native desktop image studio. Lean. Offline. Under 80 MB.",
+        "Studio gambar desktop native. Ramping. Luring. Di bawah 80 MB.",
+    )];
 
     for (locale, text) in CATALOGS {
         let native: std::collections::BTreeMap<String, String> = {
@@ -111,6 +124,23 @@ fn catalog_matches_reference_plus_named_deltas() {
         }
         for (key, value) in &reference {
             if REFERENCE_ONLY.contains(&key.as_str()) {
+                continue;
+            }
+            if let Some((_, en_text, id_text)) = TEXT_DELTAS
+                .iter()
+                .find(|(deltas_key, ..)| deltas_key == key)
+            {
+                let expected = if locale.code() == "en" {
+                    *en_text
+                } else {
+                    *id_text
+                };
+                assert_eq!(
+                    native.get(key).map(String::as_str),
+                    Some(expected),
+                    "{}: {key} is a named copy divergence and must keep its recorded text",
+                    locale.code()
+                );
                 continue;
             }
             assert_eq!(
@@ -323,7 +353,7 @@ fn leaf_counts_are_pinned() {
     for locale in [Locale::En, Locale::Id] {
         assert_eq!(
             load(locale).entries.len(),
-            459,
+            460,
             "{} leaf count",
             locale.code()
         );

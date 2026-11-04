@@ -11,7 +11,7 @@ use crate::services::autosave::AutosaveStore;
 use crate::services::error::ServiceError;
 use crate::services::file_io::FileIo;
 use crate::services::save_stream::SaveStream;
-use crate::state::{AutosaveStatus, TabRow};
+use crate::state::{AutosaveStatus, RecoveryEntry};
 
 use super::App;
 
@@ -113,7 +113,9 @@ impl App {
     /// shows nothing; reading it never blocks opening a requested document.
     /// An archive whose document is already on screen, in a state the file was
     /// written at or after, is not offered: it cannot hold work the user has
-    /// not got in front of them.
+    /// not got in front of them. An archive that is newer, or whose age cannot
+    /// be established, is offered and marked as the document already on screen,
+    /// so the choice reads against that document rather than as a new tab.
     pub(crate) fn prepare_recovery_from(&mut self, cache_root: &Path, cx: &mut Context<Self>) {
         let store = AutosaveStore::new(cache_root);
         let Ok(entries) = store.list() else {
@@ -127,10 +129,10 @@ impl App {
             if self.holds_state_of(entry) {
                 continue;
             }
-            rows.push(TabRow {
+            rows.push(RecoveryEntry {
                 doc_id: entry.doc_id().to_string(),
                 name: entry.display_name().to_string(),
-                dirty: true,
+                already_open: self.sessions.get(entry.doc_id()).is_some(),
             });
         }
         if rows.is_empty() {
@@ -143,13 +145,14 @@ impl App {
         cx.notify();
     }
 
-    /// True when an open session's own file already carries this archive's
-    /// state or something newer. Identity is the document ID, and recency is
-    /// the file's last-modified time against the archive's write time. Anything
-    /// that cannot be read, including an archive with no recorded time, a
-    /// document with no file behind it, or a timestamp the OS will not give,
-    /// stays offered: a missing signal must never be read as "stale", because
-    /// the archive is the only copy of unsaved work.
+    /// True when an open session's own file already carries this archive's state
+    /// or something newer. Identity is the open session's document ID plus that
+    /// session's file path, which the boundary canonicalises before it reads it,
+    /// never the display name. Recency is that file's last-modified time against
+    /// the archive's write time. Anything unreadable, an archive with no recorded
+    /// time, a document with no file behind it, or a timestamp the OS will not
+    /// give, stays offered: a missing signal must not be read as stale, because
+    /// the archive can be the only copy of unsaved work.
     fn holds_state_of(&mut self, entry: &crate::services::autosave::AutosaveEntry) -> bool {
         let Some(saved_at) = entry.unix_ms() else {
             return false;
@@ -257,11 +260,29 @@ impl App {
         cx.notify();
     }
 
-    /// Throw away every recoverable autosave.
+    /// Throw away the recoverable autosaves this prompt actually listed.
+    ///
+    /// A suppressed archive stays on disk. `holds_state_of` hides a row only when
+    /// an open session provably holds the same or newer state, and the user never
+    /// sees that row, so no choice of theirs can cover deleting it. Clearing the
+    /// whole store here would destroy the copy that suppression left behind.
     pub(crate) fn discard_autosaves_from(&mut self, cache_root: &Path, cx: &mut Context<Self>) {
         let store = AutosaveStore::new(cache_root);
-        if let Err(error) = store.clear_all() {
-            self.set_status_error(Some(format!("Recovery: {error}")), cx);
+        let listed: Vec<String> = self
+            .state
+            .read(cx)
+            .recovery_entries
+            .iter()
+            .map(|entry| entry.doc_id.clone())
+            .collect();
+        let mut failed = Vec::new();
+        for doc_id in &listed {
+            if let Err(error) = store.clear_one(doc_id) {
+                failed.push(format!("{doc_id}: {error}"));
+            }
+        }
+        if !failed.is_empty() {
+            self.set_status_error(Some(format!("Recovery: {}", failed.join("; "))), cx);
         }
         self.state.update(cx, |state, _| {
             state.active_dialog = None;

@@ -464,7 +464,7 @@
     },
     "about": {
       "title": "About Photrez",
-      "tagline": "Native desktop image studio — Lean. Offline. Under 80 MB.",
+      "tagline": "Native desktop image studio. Lean. Offline. Under 80 MB.",
       "coreEngine": "Core Engine",
       "rasterizer": "Rasterizer",
       "runtimeShell": "Runtime Shell",
@@ -510,6 +510,9 @@
     "unsavedChanges": {
       "title": "Unsaved Changes",
       "message": "\"{{name}}\" has unsaved changes. Discard them?"
+    },
+    "recovery": {
+      "alreadyOpen": "This document is already open."
     }
   },
   "errors": {

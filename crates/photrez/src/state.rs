@@ -209,6 +209,16 @@ pub struct TabRow {
     pub dirty: bool,
 }
 
+/// One archive in the startup recovery prompt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryEntry {
+    pub doc_id: String,
+    pub name: String,
+    /// An open session already holds this document. The prompt names it, because
+    /// restoring then acts on the document on screen instead of adding a tab.
+    pub already_open: bool,
+}
+
 /// The Resize Canvas dialog's editable dimensions.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResizeSession {
@@ -303,7 +313,7 @@ pub struct AppState {
     pub autosave_status: AutosaveStatus,
     pub autosave_error: Option<String>,
     /// Recoverable autosave documents offered at startup.
-    pub recovery_entries: Vec<TabRow>,
+    pub recovery_entries: Vec<RecoveryEntry>,
     /// Recent project paths, newest first (File menu).
     pub recent_files: Vec<String>,
     /// Export dialog state.
@@ -564,6 +574,9 @@ pub struct AppState {
     /// Control whose tooltip is showing, if any. A `String` because layer-row
     /// tooltips carry the row's numeric id, which no static key can encode.
     pub tooltip: Option<String>,
+    /// Tool-rail button under the pointer, if any. The rail resolves its icon
+    /// tint from this because `Icon` reads its own colour field at build time.
+    pub hovered_tool: Option<ToolId>,
     /// The open Resize Canvas dialog, if any.
     pub resize_canvas: Option<ResizeSession>,
 }
@@ -769,6 +782,7 @@ impl Default for AppState {
             brush_menu_strength_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             brush_menu_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
             tooltip: None,
+            hovered_tool: None,
             resize_canvas: None,
         }
     }

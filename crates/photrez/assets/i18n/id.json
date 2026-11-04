@@ -464,7 +464,7 @@
     },
     "about": {
       "title": "Tentang Photrez",
-      "tagline": "Studio gambar desktop native — Ramping. Luring. Di bawah 80 MB.",
+      "tagline": "Studio gambar desktop native. Ramping. Luring. Di bawah 80 MB.",
       "coreEngine": "Mesin Utama",
       "rasterizer": "Rasterizer",
       "runtimeShell": "Runtime Shell",
@@ -510,6 +510,9 @@
     "unsavedChanges": {
       "title": "Perubahan Belum Disimpan",
       "message": "\"{{name}}\" memiliki perubahan yang belum disimpan. Buang perubahan?"
+    },
+    "recovery": {
+      "alreadyOpen": "Dokumen ini sudah terbuka."
     }
   },
   "errors": {
