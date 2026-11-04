@@ -12,9 +12,15 @@ use super::*;
 use gpui_kit::AnyElement;
 
 mod geometry;
+mod position_size;
+mod preview;
+mod printer_setup;
 mod quality;
 mod widgets;
 use geometry::*;
+use position_size::*;
+use preview::*;
+use printer_setup::*;
 pub(super) use quality::{effective_ppi, ppi_quality, printer_notice};
 use widgets::*;
 
@@ -37,7 +43,6 @@ pub(super) fn render(
 ) -> AnyElement {
     use crate::app::PRINT_PAPERS;
     use crate::state::SliderTarget;
-    use crate::views::option_bar::slider_surface::BarSliderSurface;
 
     let s = state.read(cx);
     let paper = s.print_paper.min(PRINT_PAPERS.len() - 1);
@@ -70,15 +75,7 @@ pub(super) fn render(
         (paper_w_mm, paper_h_mm)
     };
 
-    let PagePreview {
-        page_w,
-        page_h,
-        doc_scale,
-        doc_px_w,
-        doc_px_h,
-        doc_x,
-        doc_y,
-    } = page_preview(
+    let preview = page_preview(
         (page_w_mm, page_h_mm),
         (doc_w, doc_h),
         margins,
@@ -87,85 +84,19 @@ pub(super) fn render(
         scale,
     );
 
-    let card = h_flex()
-        .w_full()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::FIELD)
-        .p(px(10.0))
-        .child(
-            v_flex()
-                .items_center()
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .font_weight(FontWeight(600.))
-                        .text_color(color::TEXT)
-                        .child(format!("Baseline ({doc_w} \u{00d7} {doc_h} px)")),
-                )
-                .child(
-                    div()
-                        .mt(px(2.0))
-                        .text_size(px(10.5))
-                        .text_color(color::TEXT_DIM)
-                        .child(format!(
-                            "Paper: {paper_name} ({paper_w_mm:.0} mm \u{00d7} {paper_h_mm:.0} mm)"
-                        )),
-                ),
-        );
-
-    let page = div()
-        .w(px(page_w))
-        .h(px(page_h))
-        .border_1()
-        .border_dashed()
-        .border_color(color::BORDER)
-        .bg(if show_paper_white {
-            hsla(0.0, 0.0, 1.0, 1.0)
-        } else {
-            color::CANVAS
-        })
-        .relative()
-        .child(
-            div()
-                .absolute()
-                .left(px(doc_x))
-                .top(px(doc_y))
-                .w(px(doc_px_w))
-                .h(px(doc_px_h))
-                .border_1()
-                .border_dashed()
-                .border_color(color::TOOL_MARK),
-        );
-
-    let left = v_flex()
-        .w(px(LEFT_W))
-        .flex_none()
-        .h_full()
-        .items_center()
-        .p(px(PAD))
-        .gap(px(10.0))
-        .child(card)
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(page),
-        )
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(color::TEXT_DIM)
-                .child("Click and drag image on paper to reposition"), // i18n-exempt: copy not in catalog
-        );
+    let doc_scale = preview.doc_scale;
+    let left = preview_column(
+        preview,
+        doc_w,
+        doc_h,
+        paper_name,
+        paper_w_mm,
+        paper_h_mm,
+        show_paper_white,
+    );
 
     // ── Inspector ───────────────────────────────────────────────────────────
-    let mut inspector = v_flex()
+    let inspector = v_flex()
         .flex_1()
         .h_full()
         .overflow_hidden()
@@ -173,252 +104,16 @@ pub(super) fn render(
         .border_color(color::BORDER)
         .px(px(PAD))
         .gap(px(12.0));
-
-    inspector = inspector.child(header_row(
-        &t("dialogs.print.printerSetup"),
-        &t("dialogs.print.systemSpooler"),
-    ));
-
-    let printer_name = printers.get(printer).cloned().unwrap_or_default();
-    let toggle_state = state.clone();
-    let trigger = field(
-        "print-printer-trigger",
-        printer_name,
+    let mut inspector = printer_setup(
+        inspector,
+        state,
+        printers,
+        print_error,
+        printer,
+        printer_open,
+        copies,
+        landscape,
         cx,
-        move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-            cx.stop_propagation();
-            toggle_state.update(cx, |state, _| {
-                state.print_printer_open = !state.print_printer_open
-            });
-            cx.notify();
-        },
-    );
-    inspector = inspector.child(
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap(px(8.0))
-            .py(px(6.0))
-            .child(label(&t("dialogs.print.printer")))
-            .child(div().flex_1().child(trigger))
-            .child(
-                div()
-                    .id("print-refresh")
-                    .test_support()
-                    .h(px(ROW_H))
-                    .w(px(24.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(color::FIELD_BORDER)
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            app.refresh_printers(cx);
-                            cx.notify();
-                        }),
-                    )
-                    .child(
-                        Icon::default()
-                            .data(icons::ROTATE_CW)
-                            .size(px(12.0))
-                            .text_color(color::TEXT_DIM),
-                    ),
-            ),
-    );
-    if printer_open {
-        let mut list = v_flex().w_full().gap(px(2.0)).pb(px(4.0));
-        for (index, name) in printers.iter().enumerate() {
-            let pick = state.clone();
-            list = list.child(
-                div()
-                    .id(format!("print-printer-{index}"))
-                    .test_support()
-                    .h(px(22.0))
-                    .px(px(8.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(3.0))
-                    .text_size(px(11.0))
-                    .text_color(if index == printer {
-                        color::ACCENT
-                    } else {
-                        color::TEXT
-                    })
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            pick.update(cx, |state, _| {
-                                state.print_printer = index;
-                                state.print_printer_open = false;
-                            });
-                            cx.notify();
-                        }),
-                    )
-                    .child(name.clone()),
-            );
-        }
-        inspector = inspector.child(list);
-    }
-    if let Some(message) = printer_notice(print_error.as_deref(), printers.len()) {
-        inspector = inspector.child(
-            h_flex()
-                .id("print-error")
-                .test_support()
-                .w_full()
-                .items_center()
-                .gap(px(6.0))
-                .px(px(10.0))
-                .py(px(6.0))
-                .rounded(px(4.0))
-                .border_1()
-                .border_color(color::BORDER)
-                .bg(color::ROSE_950.opacity(0.2))
-                .child(
-                    Icon::default()
-                        .data(icons::CIRCLE)
-                        .size(px(12.0))
-                        .text_color(color::ROSE_400),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.5))
-                        .text_color(color::ROSE_400)
-                        .child(message),
-                ),
-        );
-    }
-
-    let copies_dec = state.clone();
-    let copies_inc = state.clone();
-    inspector = inspector.child(
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap(px(8.0))
-            .py(px(6.0))
-            .child(label(&t("dialogs.print.copies")))
-            .child(
-                div()
-                    .h(px(ROW_H))
-                    .w(px(72.0))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(px(6.0))
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(color::FIELD_BORDER)
-                    .bg(color::FIELD)
-                    .child(
-                        div()
-                            .id("print-copies-dec")
-                            .test_support()
-                            .w(px(16.0))
-                            .flex()
-                            .justify_center()
-                            .cursor_pointer()
-                            .on_click(cx.listener(
-                                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    copies_dec.update(cx, |state, _| {
-                                        state.print_copies =
-                                            state.print_copies.saturating_sub(1).max(1);
-                                    });
-                                    cx.notify();
-                                },
-                            ))
-                            .child("-"), // i18n-exempt: glyph or symbol
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.5))
-                            .text_color(color::TEXT)
-                            .child(copies.to_string()),
-                    )
-                    .child(
-                        div()
-                            .id("print-copies-inc")
-                            .test_support()
-                            .w(px(16.0))
-                            .flex()
-                            .justify_center()
-                            .cursor_pointer()
-                            .on_click(cx.listener(
-                                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    copies_inc.update(cx, |state, _| {
-                                        state.print_copies =
-                                            state.print_copies.saturating_add(1).min(99);
-                                    });
-                                    cx.notify();
-                                },
-                            ))
-                            .child("+"), // i18n-exempt: glyph or symbol
-                    ),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("print-settings")
-                    .test_support()
-                    .h(px(ROW_H))
-                    .px(px(10.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(color::FIELD_BORDER)
-                    .bg(color::FIELD)
-                    .text_size(px(11.0))
-                    .text_color(color::TEXT)
-                    .cursor_pointer()
-                    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        app.set_status_error(
-                            Some("Printer properties are managed by the system".into()),
-                            cx,
-                        );
-                    }))
-                    .child(t("dialogs.print.printerProps")),
-            ),
-    );
-
-    let portrait_state = state.clone();
-    let landscape_state = state.clone();
-    inspector = inspector.child(
-        h_flex()
-            .w_full()
-            .items_center()
-            .gap(px(8.0))
-            .py(px(6.0))
-            .child(label(&t("dialogs.print.layout")))
-            .child(toggle(
-                "print-orientation",
-                &t("dialogs.print.portrait"),
-                !landscape,
-                cx,
-                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                    cx.stop_propagation();
-                    portrait_state.update(cx, |state, _| state.print_landscape = false);
-                    cx.notify();
-                },
-            ))
-            .child(toggle(
-                "print-orientation-landscape",
-                &t("dialogs.print.landscape"),
-                landscape,
-                cx,
-                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                    cx.stop_propagation();
-                    landscape_state.update(cx, |state, _| state.print_landscape = true);
-                    cx.notify();
-                },
-            )),
     );
 
     let color_state = state.clone();
@@ -467,376 +162,26 @@ pub(super) fn render(
         }
     }
 
-    // Position and Size: the header carries the unit select.
-    let position_state = state.clone();
-    let unit_state = state.clone();
-    let position_header = h_flex()
-        .id("print-position-header")
-        .test_support()
-        .h(px(HEADER_H))
-        .w_full()
-        .items_center()
-        .justify_between()
-        .cursor_pointer()
-        .on_click(
-            cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                position_state.update(cx, |state, _| {
-                    state.print_position_open = !state.print_position_open
-                });
-                cx.notify();
-            }),
-        )
-        .child(
-            h_flex()
-                .items_center()
-                .gap(px(6.0))
-                .child(
-                    Icon::default()
-                        .data(icons::CHEVRON_DOWN)
-                        .size(px(10.0))
-                        .text_color(color::TEXT_DIM),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight(500.))
-                        .text_color(color::TEXT)
-                        .child(t("dialogs.print.positionAndSize")),
-                ),
-        )
-        .child(
-            div().w(px(120.0)).child(
-                field(
-                    "print-unit",
-                    unit_label(&unit),
-                    cx,
-                    move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        unit_state.update(cx, |state, _| {
-                            state.print_unit_open = !state.print_unit_open
-                        });
-                        cx.notify();
-                    },
-                )
-                .into_any_element(),
-            ),
-        );
-    inspector = inspector.child(position_header);
-
-    if position_open {
-        if unit_open {
-            let mut list = v_flex().w_full().gap(px(2.0)).pb(px(4.0));
-            for code in ["mm", "cm", "in", "px"] {
-                let pick = state.clone();
-                list = list.child(
-                    div()
-                        .id(format!("print-unit-{code}"))
-                        .test_support()
-                        .h(px(22.0))
-                        .px(px(8.0))
-                        .flex()
-                        .items_center()
-                        .rounded(px(3.0))
-                        .text_size(px(11.0))
-                        .text_color(if unit == code {
-                            color::ACCENT
-                        } else {
-                            color::TEXT
-                        })
-                        .cursor_pointer()
-                        .on_click(cx.listener(
-                            move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                cx.stop_propagation();
-                                pick.update(cx, |state, _| {
-                                    state.print_unit = code.to_string();
-                                    state.print_unit_open = false;
-                                });
-                                cx.notify();
-                            },
-                        ))
-                        .child(unit_label(code)),
-                );
-            }
-            inspector = inspector.child(list);
-        }
-
-        let paper_state = state.clone();
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(8.0))
-                .h(px(ROW_H))
-                .child(label(&t("dialogs.print.paperSize")))
-                .child(div().flex_1().child(field(
-                    "print-paper",
-                    paper_label(paper),
-                    cx,
-                    move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        paper_state.update(cx, |state, _| {
-                            state.print_paper_open = !state.print_paper_open
-                        });
-                        cx.notify();
-                    },
-                ))),
-        );
-        if paper_open {
-            let mut list = v_flex().w_full().gap(px(2.0)).pb(px(4.0));
-            for (index, (name, _, w, h)) in PRINT_PAPERS.iter().enumerate() {
-                let pick = state.clone();
-                list = list.child(
-                    div()
-                        .id(format!("print-paper-{index}"))
-                        .test_support()
-                        .h(px(22.0))
-                        .px(px(8.0))
-                        .flex()
-                        .items_center()
-                        .rounded(px(3.0))
-                        .text_size(px(11.0))
-                        .text_color(if index == paper {
-                            color::ACCENT
-                        } else {
-                            color::TEXT
-                        })
-                        .cursor_pointer()
-                        .on_click(cx.listener(
-                            move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                cx.stop_propagation();
-                                pick.update(cx, |state, _| {
-                                    state.print_paper = index;
-                                    state.print_paper_open = false;
-                                });
-                                cx.notify();
-                            },
-                        ))
-                        .child(format!("{name} ({w:.0} \u{00d7} {h:.0} mm)")),
-                );
-            }
-            inspector = inspector.child(list);
-        }
-
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(8.0))
-                .h(px(ROW_H))
-                .child(label(&t("dialogs.print.margins")))
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .text_color(color::TEXT)
-                        .child(format!(
-                            "{:.1} {}",
-                            to_unit(margins, &unit),
-                            unit_suffix(&unit)
-                        )),
-                ),
-        );
-
-        let center_state = state.clone();
-        inspector = inspector.child(checkbox(
-            "print-center",
-            &t("dialogs.print.centerOnPage"),
-            center,
-            cx,
-            move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                center_state.update(cx, |state, _| {
-                    state.print_center_on_page = !state.print_center_on_page
-                });
-                cx.notify();
-            },
-        ));
-
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .py(px(6.0))
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .font_weight(FontWeight(600.))
-                        .text_color(color::TEXT)
-                        .child(t("dialogs.print.scaledPrintSize")),
-                )
-                .child({
-                    let fit_state = state.clone();
-                    div().w(px(120.0)).child(checkbox(
-                        "print-scale-fit",
-                        &t("dialogs.print.scaleToFit"),
-                        scale_to_fit,
-                        cx,
-                        move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            fit_state.update(cx, |state, _| {
-                                state.print_scale_to_fit = !state.print_scale_to_fit
-                            });
-                            cx.notify();
-                        },
-                    ))
-                }),
-        );
-
-        let track = div().w_full().h(px(14.0)).flex().items_center().child(
-            div()
-                .relative()
-                .w_full()
-                .h(px(4.0))
-                .rounded(px(2.0))
-                .bg(color::BORDER)
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(0.0))
-                        .top(px(0.0))
-                        .h(px(4.0))
-                        .w(relative(((scale - 10) as f32) / 390.0))
-                        .rounded(px(2.0))
-                        .bg(color::ACCENT),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(-4.0))
-                        .left(relative(((scale - 10) as f32) / 390.0))
-                        .ml(px(-6.0))
-                        .w(px(12.0))
-                        .h(px(12.0))
-                        .rounded_full()
-                        .bg(color::ACCENT),
-                ),
-        );
-        // The surface focuses this wrapper on a click; arrows step one percent
-        // across the same 10..=400 range and clear Scale to Fit.
-        let mut scale_track = div()
-            .id("print-scale-track")
-            .test_support()
-            .flex_1()
-            .h(px(14.0))
-            .aria_label(t("dialogs.print.scale"));
-        scale_track = crate::views::option_bar::slider_surface::track_focus_and_keys(
-            scale_track,
-            &scale_focus,
-            SliderTarget::PrintScale,
-            cx,
-        );
-        scale_track = scale_track.child(BarSliderSurface::new(
-            track,
-            cx.entity().downgrade(),
-            SliderTarget::PrintScale,
-            scale_bounds,
-            capture,
-            scale_focus,
-        ));
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(8.0))
-                .h(px(ROW_H))
-                .child(
-                    div()
-                        .w(px(42.0))
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT_DIM)
-                        .child(t("dialogs.print.scale")),
-                )
-                .child(scale_track)
-                .child(
-                    div()
-                        .w(px(44.0))
-                        .h(px(22.0))
-                        .flex()
-                        .items_center()
-                        .justify_end()
-                        .px(px(6.0))
-                        .rounded(px(3.0))
-                        .border_1()
-                        .border_color(color::BORDER)
-                        .bg(color::FIELD)
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT)
-                        .child(scale.to_string()),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT_DIM)
-                        .child("%"), // i18n-exempt: unit glyph
-                ),
-        );
-
-        let width_mm = doc_w as f64 * doc_scale as f64 * 25.4 / PRINT_PPI;
-        let height_mm = doc_h as f64 * doc_scale as f64 * 25.4 / PRINT_PPI;
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap(px(8.0))
-                .h(px(ROW_H))
-                .child(
-                    div()
-                        .w(px(42.0))
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT_DIM)
-                        .child("Width"), // i18n-exempt: copy not in catalog
-                )
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .text_color(color::TEXT)
-                        .child(format!(
-                            "{:.1} {}",
-                            to_unit(width_mm, &unit),
-                            unit_suffix(&unit)
-                        )),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(color::TEXT_DIM)
-                        .child("Height"), // i18n-exempt: copy not in catalog
-                )
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .text_color(color::TEXT)
-                        .child(format!(
-                            "{:.1} {}",
-                            to_unit(height_mm, &unit),
-                            unit_suffix(&unit)
-                        )),
-                ),
-        );
-
-        let print_ppi = effective_ppi((doc_w as f64, doc_h as f64), (width_mm, height_mm));
-        let (badge_text, badge_tint, badge_fill) = ppi_quality(print_ppi);
-        inspector = inspector.child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .px(px(8.0))
-                .py(px(6.0))
-                .rounded(px(4.0))
-                .border_1()
-                .border_color(color::BORDER)
-                .bg(badge_fill.opacity(0.4))
-                .text_size(px(11.0))
-                .text_color(badge_tint)
-                .child(t("dialogs.print.printResolution").to_string())
-                // i18n-exempt: the reference keeps this copy out of its catalog
-                .child(format!("{print_ppi} PPI \u{2014} {badge_text}")),
-        );
-    }
+    let inspector = position_size(
+        inspector,
+        state,
+        position_open,
+        paper,
+        paper_open,
+        unit,
+        unit_open,
+        margins,
+        center,
+        scale_to_fit,
+        scale,
+        scale_bounds,
+        capture,
+        scale_focus,
+        doc_w,
+        doc_h,
+        doc_scale,
+        cx,
+    );
 
     let cancel = dialog_action_button(
         &t("common.cancel"),
