@@ -115,6 +115,22 @@ pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
     manifest::require_english_locale(&manifest)?;
     let selected = manifest::select(&manifest, &opts.shots)?;
 
+    // A FAIL is only interpretable against a known baseline revision, so the run
+    // names it before any verdict. These baselines are the predecessor
+    // revision's pixels, not the pinned reference's, and a row that fails is a
+    // question about that difference rather than a defect verdict on this build.
+    match (&manifest.source_commit, &manifest.captured_at) {
+        (Some(commit), Some(captured)) => println!(
+            "baselines: source commit {} captured {}",
+            commit.get(..8).unwrap_or(commit),
+            captured
+        ),
+        _ => println!(
+            "baselines: the manifest records no source commit or capture time, so \
+             a FAIL here cannot be read as a defect against the current revision"
+        ),
+    }
+
     std::fs::create_dir_all(&opts.report_dir)
         .map_err(|e| format!("create {}: {e}", opts.report_dir.display()))?;
     let cand_dir = opts.report_dir.join("candidates");

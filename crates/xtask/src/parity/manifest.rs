@@ -22,6 +22,15 @@ pub struct Manifest {
     /// container-level `rename_all`.
     #[serde(default, rename = "metricsMask")]
     pub metrics_mask: Option<MetricsMask>,
+    /// The commit the reference images were captured from. Absent in a manifest
+    /// that predates the field, which the run then reports as unrecorded rather
+    /// than staying silent, because a FAIL against an unknown baseline revision
+    /// reads like a defect against the current one.
+    #[serde(default, rename = "sourceCommit")]
+    pub source_commit: Option<String>,
+    /// When the reference images were captured, as recorded by the capture.
+    #[serde(default, rename = "capturedAt")]
+    pub captured_at: Option<String>,
     pub shots: Vec<Shot>,
 }
 
@@ -284,6 +293,8 @@ mod tests {
         Manifest {
             locale: locale.map(str::to_owned),
             metrics_mask: None,
+            source_commit: None,
+            captured_at: None,
             shots: Vec::new(),
         }
     }
@@ -316,6 +327,48 @@ mod tests {
         let m = with.metrics_mask.expect("mask present");
         assert_eq!((m.x0, m.y0, m.x1, m.y1), (10, 20, 30, 40));
         assert_eq!((m.viewport_width, m.viewport_height), (1920, 1020));
+    }
+
+    /// The provenance fields bind to the camelCase keys the capture writes. This
+    /// matters because the run prints either the recorded revision or a warning
+    /// that none is recorded, so a wrong rename would print the warning about a
+    /// manifest that does state its source.
+    #[test]
+    fn baseline_provenance_parses() {
+        let bare: Manifest = serde_json::from_str(r#"{"shots":[]}"#).expect("no provenance parses");
+        assert!(bare.source_commit.is_none());
+        assert!(bare.captured_at.is_none());
+
+        let with: Manifest = serde_json::from_str(
+            r#"{"sourceCommit":"0c6e926dea8e","capturedAt":"2026-10-17T12:42:13.736Z",
+               "shots":[]}"#,
+        )
+        .expect("declared provenance parses");
+        assert_eq!(with.source_commit.as_deref(), Some("0c6e926dea8e"));
+        assert_eq!(
+            with.captured_at.as_deref(),
+            Some("2026-10-17T12:42:13.736Z")
+        );
+    }
+
+    /// The shipped baselines do state their source, so the run reports a revision
+    /// rather than the unrecorded warning. Read through the loader the tool itself
+    /// uses, not embedded at compile time: this crate's tests may not turn the
+    /// application's test data into a build input.
+    #[test]
+    fn shipped_baselines_record_their_source() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/photrez/tests/baseline/manifest.json");
+        let manifest = super::load(&path).expect("the shipped manifest loads");
+        assert_eq!(
+            manifest.source_commit.as_deref(),
+            Some("0c6e926dea8e37768dc7edd0e0f0924cc0e80b90"),
+            "the baselines name the commit they were captured from"
+        );
+        assert!(
+            manifest.captured_at.is_some(),
+            "and when they were captured"
+        );
     }
 
     /// A perceptual record and a class-map record are told apart by the keys they carry,
