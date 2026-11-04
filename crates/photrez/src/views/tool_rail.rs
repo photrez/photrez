@@ -172,6 +172,19 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
         ))
 }
 
+/// The rail button's icon tint for its two visual states.
+///
+/// The active tool and a hovered inactive tool both use [`color::TEXT`], the
+/// colour the reference's `currentColor` glyph lifts to on hover. An inactive
+/// resting button keeps [`color::ICON`].
+fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
+    if active || hovered {
+        color::TEXT
+    } else {
+        color::ICON
+    }
+}
+
 /// A tool row: a 36px rounded square centring an 18px icon, plus the optional
 /// sub-variant triangle.
 ///
@@ -187,14 +200,15 @@ fn tool_button(
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
-    // `Icon` captures its tint when the element tree is built, *before* hover
-    // styles are applied at paint time, so the tint has to be decided here
-    // rather than inherited from the button's `.hover(|s| s.text_color(..))`.
-    // Consequence: the icon does not brighten on hover, only the button
-    // background does. See KNOWN-FIDELITY-GAPS.
+    // `Icon` resolves its tint from its own `text_color` field or the theme
+    // foreground, never from an inherited hover style. So the tint is decided
+    // here, from the button's active and hover state held in `AppState`.
     let active = tool.tool_id == active_tool;
-    let icon_tint = if active { color::TEXT } else { color::ICON };
-    let selection_shape = state.read(cx).selection_shape;
+    let (selection_shape, hovered) = {
+        let s = state.read(cx);
+        (s.selection_shape, s.hovered_tool == Some(tool.tool_id))
+    };
+    let icon_tint = tool_icon_tint(active, hovered);
     let icon = if tool.tool_id == ToolId::Selection && selection_shape == SelectionShape::Ellipse {
         icons::CIRCLE_DASHED
     } else {
@@ -215,6 +229,22 @@ fn tool_button(
         state_for_variants.update(cx, |s, _| s.selection_flyout_open = true);
         cx.notify();
     });
+    let state_for_hover = state.clone();
+    let hover_tool_id = tool.tool_id;
+    let on_hover = cx.listener(move |_, hovered: &bool, _window, cx| {
+        let next = hovered.then_some(hover_tool_id);
+        let changed = state_for_hover.update(cx, |s, _| {
+            if s.hovered_tool == next {
+                false
+            } else {
+                s.hovered_tool = next;
+                true
+            }
+        });
+        if changed {
+            cx.notify();
+        }
+    });
 
     div()
         .id(tool.id)
@@ -228,6 +258,7 @@ fn tool_button(
         .justify_center()
         .rounded(px(dim::TOOL_BTN_RADIUS))
         .on_click(on_click)
+        .on_hover(on_hover)
         .when(tool.has_variants, |el| {
             el.on_mouse_down(MouseButton::Right, on_right_click)
         })
@@ -503,6 +534,30 @@ fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 mod tests {
     use super::*;
     use crate::state::ToolId::*;
+
+    /// Pin the tint decision for the three button states.
+    ///
+    /// RED proof: drop `|| hovered` from `tool_icon_tint` and the
+    /// hovered-inactive assertion fails naming the lifted colour.
+    #[test]
+    fn tool_icon_tint_lifts_only_for_hovered_or_active() {
+        assert_eq!(
+            tool_icon_tint(false, false),
+            color::ICON,
+            "resting inactive keeps the dim icon colour"
+        );
+        assert_eq!(
+            tool_icon_tint(false, true),
+            color::TEXT,
+            "hovered inactive lifts to the text colour"
+        );
+        assert_eq!(tool_icon_tint(true, false), color::TEXT, "active lifts");
+        assert_eq!(
+            tool_icon_tint(true, true),
+            color::TEXT,
+            "hover changes nothing for the active tool"
+        );
+    }
 
     /// Pin the `ToolId -> (id, icon, has_variants)` table.
     ///

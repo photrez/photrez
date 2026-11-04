@@ -75,3 +75,36 @@ fn rail_tool_click_switches_and_stays_fluid(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// Hovering a rail button publishes the tool into `AppState`, which is what
+/// the icon tint resolves from, and leaving clears it. Mounted tests cannot
+/// read colour, so this pins the state path only.
+///
+/// RED proof: remove the `on_hover` listener from `tool_button` and the first
+/// hover assertion fails: `hovered_tool` stays `None`.
+#[gpui_kit::test]
+fn rail_hover_publishes_and_clears_the_hovered_tool(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).hovered_tool,
+            None,
+            "no tool is hovered at rest"
+        );
+        window.hover("crop", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).hovered_tool,
+            Some(ToolId::Crop),
+            "hovering the Crop button publishes it"
+        );
+        window.hover("canvas-hitbox", cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).hovered_tool,
+            None,
+            "leaving the button clears the hover"
+        );
+    })
+    .expect("test window remains open");
+}
