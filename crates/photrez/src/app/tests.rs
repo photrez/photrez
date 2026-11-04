@@ -399,6 +399,9 @@ mod recovery;
 #[path = "tests/input.rs"]
 mod input;
 
+#[path = "tests/layer_latency.rs"]
+mod layer_latency;
+
 #[path = "tests/layers_panel.rs"]
 mod layers_panel;
 
