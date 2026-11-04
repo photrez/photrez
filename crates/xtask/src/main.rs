@@ -58,7 +58,7 @@ fn main() {
             } else if args.get(1).map(String::as_str) == Some("band-diff") {
                 cmd_parity_band_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("score") {
-                parity::run::cmd_score(&args[2..])
+                parity::bundle::cmd_score(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("class-diff") {
                 cmd_parity_class_diff(&args[2..])
             } else {
