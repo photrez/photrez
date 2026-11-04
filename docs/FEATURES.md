@@ -16,7 +16,7 @@ because it has not been built yet.
 | Status | Capability |
 | --- | --- |
 | Shipped | The native window renders the document composited by `photrez-core` through one display pass, with the transparent checkerboard behind the page. |
-| Shipped | Open and save layered `.ptz` projects carrying raster, shape and text layers; the current format version is v3 and v1/v2 files still load. |
+| Shipped | Open and save layered `.ptz` projects carrying raster, shape and text layers; the current format version is v3 and v1/v2 files still load. A raster layer carries no text or shape metadata in the saved project, so a project written by an earlier release that stored either on a raster layer drops that metadata at the next save. |
 | Shipped | Import PNG, JPEG, WebP and BMP images, with dimensions and memory checked against the 16384 px / 1 GiB product bounds before decoding. |
 | Shipped | Pan and zoom the camera — wheel zoom anchored at the pointer, Space and middle-drag pan, Fit to Screen (`Ctrl+0`), Actual Size (`Ctrl+1`), `Ctrl+=`/`Ctrl+-`. |
 | Shipped | Multiple documents in a tab strip; each tab keeps its own camera; closing the last document shows the welcome card with quick presets. |
@@ -66,6 +66,7 @@ because it has not been built yet.
 | Shipped | Text option bar and Properties typography branch carry font family, size, alignment, colour, and a stroke popover (width, colour, outside/center/inside); line height and tracking appear in edit mode. |
 | Partial | Text rendering covers regular point text fill and stroke; italic, underline, weights and area-text boxes are outside the current rasterizer subset. |
 | Shipped | Text layers persist as re-editable metadata in `.ptz` and stay parametric across document boundaries. |
+| Shipped | Rasterize a text layer from its option bar: the rendered bitmap becomes the layer's own pixel content in one history entry, the layer then composites from those pixels, and it is no longer re-editable as text. Text the rasterizer cannot render, such as underline, strikethrough, uppercase or a bold weight, is refused with a typed error and stays a text layer. |
 
 ## Colour
 
