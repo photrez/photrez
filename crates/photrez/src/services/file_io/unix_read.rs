@@ -1,8 +1,6 @@
 #![allow(unsafe_code)] // SAFETY: all unsafe operations here are limited to openat and ownership of returned descriptors.
 
 use super::ServiceError;
-use std::fs::File;
-use std::path::Path;
 
 // The flag bits and errno values below are the numbers each platform's own
 // header gives its x86_64 (and, for macOS, arm64) ABI. A target without a
