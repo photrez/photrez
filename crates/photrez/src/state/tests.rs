@@ -24,7 +24,7 @@ fn all_74_manifest_ids_seed_deterministically() {
     assert_eq!(
         ids.len(),
         74,
-        "expected 74 manifest ids, found {} — manifest.json changed, update this test",
+        "expected 74 manifest ids, found {}. manifest.json changed, update this test",
         ids.len()
     );
 

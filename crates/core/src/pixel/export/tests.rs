@@ -78,7 +78,7 @@ mod benchmarks {
         // Lossless output of incompressible 4K must be large (MBs), not ~5 KB.
         assert!(
             out.len() > 5_000_000,
-            "lossless WebP of 4K noise only {} KB — encoder is broken",
+            "lossless WebP of 4K noise is only {} KB. The encoder is broken.",
             out.len() / 1024
         );
         // Exact round-trip: decode must equal the original pixels.
@@ -87,7 +87,7 @@ mod benchmarks {
         let dec = img.to_rgba8().into_raw();
         assert_eq!(
             dec, px,
-            "lossless WebP round-trip mismatch — real data loss"
+            "lossless WebP round-trip mismatch. Real data loss."
         );
     }
 

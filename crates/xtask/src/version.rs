@@ -12,7 +12,7 @@ const MANIFEST_REL: &str = "crates/photrez/Cargo.toml";
 
 pub(crate) fn cmd_set_version(args: &[String]) -> i32 {
     let Some(new_version) = args.first() else {
-        eprintln!("xtask set-version <semver> — e.g. xtask set-version 0.2.0");
+        eprintln!("xtask set-version <semver>. Example: xtask set-version 0.2.0");
         return 2;
     };
     if !semver_valid(new_version) {
