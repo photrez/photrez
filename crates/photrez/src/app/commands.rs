@@ -646,7 +646,7 @@ impl App {
             state.print_printer = 0;
             state.active_dialog = Some(DialogId::Print);
         });
-        cx.notify();
+        self.refresh_print_papers(cx);
     }
 
     /// Re-list the platform printers for the Print dialog's refresh control.
@@ -660,6 +660,46 @@ impl App {
             state.printers = printers;
             state.print_error = print_error;
             state.print_printer = 0;
+        });
+        self.refresh_print_papers(cx);
+    }
+
+    /// Ask the selected printer's driver which paper sizes it offers, and store
+    /// the answer for the dialog's Paper Size row.
+    ///
+    /// Only Windows can answer. On another target the sizes stay unknown and no
+    /// failure is recorded, so the row says it has no list instead of claiming
+    /// the chosen paper is missing.
+    pub(crate) fn refresh_print_papers(&mut self, cx: &mut Context<Self>) {
+        let printer = self
+            .state
+            .read(cx)
+            .printers
+            .get(self.state.read(cx).print_printer)
+            .cloned();
+        #[cfg(windows)]
+        let (papers, reason) = match printer {
+            Some(printer) => {
+                match crate::services::print::PrintService::default().paper_sizes(&printer) {
+                    Ok(sizes) => (
+                        Some(
+                            sizes
+                                .into_iter()
+                                .map(|size| (size.name, size.width_mm, size.height_mm))
+                                .collect(),
+                        ),
+                        None,
+                    ),
+                    Err(error) => (None, Some(error.to_string())),
+                }
+            }
+            None => (None, None),
+        };
+        #[cfg(not(windows))]
+        let (papers, reason) = (None, None);
+        self.state.update(cx, |state, _| {
+            state.print_papers = papers;
+            state.print_papers_error = reason;
         });
         cx.notify();
     }

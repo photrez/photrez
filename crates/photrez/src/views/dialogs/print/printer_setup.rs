@@ -14,6 +14,8 @@ pub(super) fn printer_setup(
     printer_open: bool,
     copies: u32,
     landscape: bool,
+    num_field: Option<crate::state::NumFieldSession>,
+    num_focus: Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     inspector = inspector.child(header_row(
@@ -92,13 +94,15 @@ pub(super) fn printer_setup(
                     })
                     .cursor_pointer()
                     .on_click(
-                        cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
                             pick.update(cx, |state, _| {
                                 state.print_printer = index;
                                 state.print_printer_open = false;
                             });
-                            cx.notify();
+                            // A different printer has a different driver, so the
+                            // paper list the dialog quotes has to be asked again.
+                            app.refresh_print_papers(cx);
                         }),
                     )
                     .child(name.clone()),
@@ -135,74 +139,28 @@ pub(super) fn printer_setup(
         );
     }
 
-    let copies_dec = state.clone();
-    let copies_inc = state.clone();
+    let copies_label = t("dialogs.print.copies");
     inspector = inspector.child(
         h_flex()
             .w_full()
             .items_center()
             .gap(px(8.0))
             .py(px(6.0))
-            .child(label(&t("dialogs.print.copies")))
-            .child(
-                div()
-                    .h(px(ROW_H))
-                    .w(px(72.0))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(px(6.0))
-                    .rounded(px(4.0))
-                    .border_1()
-                    .border_color(color::FIELD_BORDER)
-                    .bg(color::FIELD)
-                    .child(
-                        div()
-                            .id("print-copies-dec")
-                            .test_support()
-                            .w(px(16.0))
-                            .flex()
-                            .justify_center()
-                            .cursor_pointer()
-                            .on_click(cx.listener(
-                                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    copies_dec.update(cx, |state, _| {
-                                        state.print_copies =
-                                            state.print_copies.saturating_sub(1).max(1);
-                                    });
-                                    cx.notify();
-                                },
-                            ))
-                            .child("-"), // i18n-exempt: glyph or symbol
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.5))
-                            .text_color(color::TEXT)
-                            .child(copies.to_string()),
-                    )
-                    .child(
-                        div()
-                            .id("print-copies-inc")
-                            .test_support()
-                            .w(px(16.0))
-                            .flex()
-                            .justify_center()
-                            .cursor_pointer()
-                            .on_click(cx.listener(
-                                move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.stop_propagation();
-                                    copies_inc.update(cx, |state, _| {
-                                        state.print_copies =
-                                            state.print_copies.saturating_add(1).min(99);
-                                    });
-                                    cx.notify();
-                                },
-                            ))
-                            .child("+"), // i18n-exempt: glyph or symbol
-                    ),
-            )
+            .child(label(&copies_label))
+            .child(num_box(
+                "print-copies",
+                &copies_label,
+                72.0,
+                copies.to_string(),
+                super::widgets::NumFieldEdit {
+                    session: num_field.as_ref(),
+                    focus: num_focus.clone(),
+                },
+                move |app, window, cx| {
+                    app.begin_num_field("print-copies", copies as f64, window, cx);
+                },
+                cx,
+            ))
             .child(div().flex_1())
             .child(
                 div()
@@ -243,6 +201,7 @@ pub(super) fn printer_setup(
                 "print-orientation",
                 &t("dialogs.print.portrait"),
                 !landscape,
+                Some(page_glyph("print-portrait-glyph", false, !landscape)),
                 cx,
                 move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                     cx.stop_propagation();
@@ -254,6 +213,7 @@ pub(super) fn printer_setup(
                 "print-orientation-landscape",
                 &t("dialogs.print.landscape"),
                 landscape,
+                Some(page_glyph("print-landscape-glyph", true, landscape)),
                 cx,
                 move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                     cx.stop_propagation();

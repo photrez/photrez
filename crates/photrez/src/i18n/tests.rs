@@ -53,6 +53,12 @@ fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
 #[test]
 fn catalog_matches_reference_plus_named_deltas() {
     const NATIVE_ONLY: &[&str] = &[
+        // The reference hardcodes both of these in the inspector instead of
+        // putting them in its catalog. The native Paper Size row reads them,
+        // because it answers what the driver reported rather than asserting the
+        // chosen paper is missing.
+        "dialogs.print.paperListUnavailable",
+        "dialogs.print.printerOffers",
         // The reference never prompts at startup for an autosave, so its catalog
         // has no key for the prompt's open-document marker.
         "dialogs.recovery.alreadyOpen",
@@ -353,7 +359,7 @@ fn leaf_counts_are_pinned() {
     for locale in [Locale::En, Locale::Id] {
         assert_eq!(
             load(locale).entries.len(),
-            460,
+            462,
             "{} leaf count",
             locale.code()
         );

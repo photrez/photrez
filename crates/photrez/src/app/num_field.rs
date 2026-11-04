@@ -146,6 +146,42 @@ impl App {
         self.begin_num_field(id, value, window, cx);
     }
 
+    /// Opens the Print dialog's Width or Height row. The view supplies the pair
+    /// of sizes the row shows at 100 % scale in its own unit, so the commit
+    /// divides by that basis and never converts units a second time.
+    pub(crate) fn begin_print_size_field(
+        &mut self,
+        id: &'static str,
+        basis: (f64, f64),
+        value: f64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, _| {
+            state.print_size_basis = Some(basis);
+        });
+        self.begin_num_field(id, value, window, cx);
+    }
+
+    /// Writes a typed printed size back as the scale percentage the dialog
+    /// already drives. A size is a scale question here, not a second paper
+    /// authority, so the row keeps one owner.
+    fn set_print_size(&mut self, width_axis: bool, value: f64, cx: &mut Context<Self>) {
+        let basis = match (width_axis, self.state.read(cx).print_size_basis) {
+            (_, None) => return,
+            (true, Some((basis, _))) => basis,
+            (false, Some((_, basis))) => basis,
+        };
+        if basis <= 0.0 || !basis.is_finite() {
+            return;
+        }
+        let percent = (value / basis * 100.0).round().clamp(10.0, 400.0) as u32;
+        self.state.update(cx, |state, _| {
+            state.print_scale_to_fit = false;
+            state.print_scale_percent = percent;
+        });
+    }
+
     pub(crate) fn cancel_num_field(&mut self, cx: &mut Context<Self>) {
         let Some((id, original)) = self
             .state
@@ -253,6 +289,20 @@ impl App {
             }
             "num-x" | "num-y" | "num-r" | "prop-x" | "prop-y" | "prop-w" | "prop-h" | "prop-r" => {
                 self.set_transform_field(id, value, cx)
+            }
+            "print-copies" => {
+                let copies = value.round().clamp(1.0, 99.0) as u32;
+                self.state
+                    .update(cx, |state, _| state.print_copies = copies);
+                Ok(())
+            }
+            "print-width" => {
+                self.set_print_size(true, value, cx);
+                Ok(())
+            }
+            "print-height" => {
+                self.set_print_size(false, value, cx);
+                Ok(())
             }
             "opt-brush-size" => {
                 self.set_brush_value(crate::app::tool_settings::BrushField::Size, value, cx);

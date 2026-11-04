@@ -51,7 +51,10 @@ fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestApp
         window.render_frame(cx);
         window.click("print-orientation-landscape", cx);
         window.render_frame(cx);
-        window.click("print-copies-inc", cx);
+        window.click("print-copies", cx);
+        window.render_frame(cx);
+        window.press("3", cx);
+        window.press("enter", cx);
         window.render_frame(cx);
         window.click("print-unit", cx);
         window.render_frame(cx);
@@ -67,7 +70,7 @@ fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestApp
             let state = content.read(cx).state_for_test().read(cx);
             assert_eq!(state.print_paper, 1);
             assert!(state.print_landscape);
-            assert_eq!(state.print_copies, 2);
+            assert_eq!(state.print_copies, 3, "typing 3 commits three copies");
             assert_eq!(state.print_unit, "cm");
             // This test failed once under full parallel load with no clue about why.
             // The row's own frame travels with the message so the next occurrence says
@@ -331,6 +334,296 @@ fn the_printer_properties_button_carries_the_catalog_copy(cx: &mut gpui_kit::Tes
              catalog copy; row frame {:?}",
             frame[2],
             frame
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Reads the open number session, if a field has one.
+fn num_session(
+    content: &Entity<App>,
+    cx: &gpui_kit::App,
+) -> Option<crate::state::NumFieldSession> {
+    content
+        .read(cx)
+        .state_for_test()
+        .read(cx)
+        .num_field
+        .clone()
+}
+
+/// The copies row takes a typed count. The `- 1 +` stepper it replaces is
+/// gone, and the row keeps the dialog's 1..=99 clamp.
+#[gpui_kit::test]
+fn the_copies_row_is_a_typed_field_not_a_stepper(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        assert!(
+            window.try_find("print-copies").is_some(),
+            "the copies row is one editable field"
+        );
+        assert!(
+            window.try_find("print-copies-dec").is_none(),
+            "the minus stepper button is gone"
+        );
+        assert!(
+            window.try_find("print-copies-inc").is_none(),
+            "the plus stepper button is gone"
+        );
+
+        window.click("print-copies", cx);
+        window.render_frame(cx);
+        let opened = num_session(&content, cx).expect("the copies field opens an edit session");
+        assert_eq!(
+            (opened.id, opened.buffer.as_str()),
+            ("print-copies", "1"),
+            "the field seeds the dialog's own copy count"
+        );
+        for key in ["1", "2"] {
+            window.press(key, cx);
+        }
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let typed = content.read(cx).state_for_test().read(cx).print_copies;
+        assert_eq!(typed, 12, "typing 12 commits twelve copies");
+
+        // Over the ceiling: the field clamps to 99 rather than accepting 999.
+        window.click("print-copies", cx);
+        for key in ["9", "9", "9"] {
+            window.press(key, cx);
+        }
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let ceiling = content.read(cx).state_for_test().read(cx).print_copies;
+        assert_eq!(ceiling, 99, "the typed count keeps the 99-copy ceiling");
+
+        // Under the floor: a zero commits one copy, not zero.
+        window.click("print-copies", cx);
+        window.press("0", cx);
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let floor = content.read(cx).state_for_test().read(cx).print_copies;
+        assert_eq!(floor, 1, "the typed count keeps the 1-copy floor");
+    })
+    .expect("test window remains open");
+}
+
+/// Each orientation button draws the page shape the reference puts inside it,
+/// in that button's own aspect, and clicking it still drives the orientation.
+#[gpui_kit::test]
+fn the_orientation_buttons_draw_a_page_shape(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        assert!(
+            window.try_find("print-portrait-glyph").is_some(),
+            "the Portrait button draws a page, not only its label"
+        );
+        assert!(
+            window.try_find("print-landscape-glyph").is_some(),
+            "the Landscape button draws a page, not only its label"
+        );
+        let portrait = row_frame(window, "print-portrait-glyph");
+        let landscape = row_frame(window, "print-landscape-glyph");
+        assert!(
+            portrait[2] > 0.0 && portrait[3] > 0.0,
+            "the portrait button paints a page, not only text; frame {portrait:?}"
+        );
+        assert!(
+            portrait[3] > portrait[2],
+            "the portrait page is taller than it is wide; frame {portrait:?}"
+        );
+        assert!(
+            landscape[2] > landscape[3],
+            "the landscape page is wider than it is tall; frame {landscape:?}"
+        );
+
+        window.click("print-orientation-landscape", cx);
+        window.render_frame(cx);
+        let landscape_on = content.read(cx).state_for_test().read(cx).print_landscape;
+        assert!(
+            landscape_on,
+            "the landscape button still drives the orientation the dialog prints with"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The printed Width field is editable: a typed size becomes the scale
+/// percentage the dialog already drives, and it leaves Scale to Fit.
+#[gpui_kit::test]
+fn the_printed_size_fields_edit_the_scale(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        let state = content.read(cx).state_for_test();
+        assert!(
+            state.read(cx).print_scale_to_fit,
+            "the dialog starts in Scale to Fit, so the percentage is not yet the driver"
+        );
+
+        window.click("print-width", cx);
+        window.render_frame(cx);
+        let width_seed: f64 = num_session(&content, cx)
+            .expect("the Width field opens an edit session")
+            .buffer
+            .parse()
+            .expect("the Width seed is the number the row shows");
+        window.press("escape", cx);
+
+        window.click("print-height", cx);
+        window.render_frame(cx);
+        let height_seed: f64 = num_session(&content, cx)
+            .expect("the Height field opens an edit session")
+            .buffer
+            .parse()
+            .expect("the Height seed is the number the row shows");
+        window.press("escape", cx);
+        assert!(
+            (width_seed - height_seed).abs() > 0.05,
+            "each axis seeds its own size, got {width_seed} and {height_seed}"
+        );
+
+        // Type the Height axis's own size into the Width field. The percentage
+        // that follows is that size over the Width basis, so the two axes cannot
+        // be sharing one seed.
+        let expected = (height_seed / width_seed * 100.0)
+            .round()
+            .clamp(10.0, 400.0) as u32;
+        window.click("print-width", cx);
+        window.render_frame(cx);
+        for key in height_seed.to_string().chars() {
+            window.press(&key.to_string(), cx);
+        }
+        window.press("enter", cx);
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test();
+        assert_eq!(
+            state.read(cx).print_scale_percent,
+            expected,
+            "a typed Width sets the scale the dialog prints with"
+        );
+        assert!(
+            !state.read(cx).print_scale_to_fit,
+            "an edited size leaves Scale to Fit, as the reference does"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Stores what the driver answered and lays the dialog out again.
+fn set_driver_papers(
+    window: &mut gpui_kit::Window,
+    content: &Entity<App>,
+    cx: &mut gpui_kit::App,
+    papers: Option<Vec<(String, f64, f64)>>,
+    error: Option<String>,
+) {
+    content.update(cx, |app, cx| {
+        app.state_for_test().update(cx, |state, _| {
+            state.print_papers = papers;
+            state.print_papers_error = error;
+        });
+    });
+    window.render_frame(cx);
+}
+
+/// The Paper Size row answers from the driver's own list: a populated list is
+/// shown, an empty list claims nothing extra, and a failure says why instead of
+/// rendering an empty list silently.
+#[gpui_kit::test]
+fn the_paper_row_reports_what_the_driver_lists(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        // The driver's answer sits inside the open Paper list, so the inspector
+        // keeps its fixed height when a printer names many sizes.
+        window.click("print-paper", cx);
+        window.render_frame(cx);
+
+        // Nothing asked: the row says it has no list rather than claiming the
+        // chosen paper is missing.
+        set_driver_papers(window, &content, cx, None, None);
+        assert!(
+            window.try_find("print-paper-unknown").is_some(),
+            "an unanswered platform says so on its own row"
+        );
+        assert!(window.try_find("print-paper-reported").is_none());
+        assert!(window.try_find("print-paper-error").is_none());
+
+        set_driver_papers(
+            window,
+            &content,
+            cx,
+            Some(vec![
+                ("A4 (210 x 297 mm)".to_string(), 210.0, 297.0),
+                ("Letter".to_string(), 216.0, 279.0),
+            ]),
+            None,
+        );
+        assert!(
+            window.try_find("print-paper-reported").is_some(),
+            "the driver's own sizes are listed"
+        );
+        assert!(window.try_find("print-paper-unknown").is_none());
+
+        // The driver answered with nothing: that is the one case that earns the
+        // "not listed on this printer" tail, so no extra row appears.
+        set_driver_papers(window, &content, cx, Some(Vec::new()), None);
+        assert!(window.try_find("print-paper-reported").is_none());
+        assert!(window.try_find("print-paper-unknown").is_none());
+
+        set_driver_papers(
+            window,
+            &content,
+            cx,
+            None,
+            Some("Failed to enumerate printer papers".into()),
+        );
+        assert!(
+            window.try_find("print-paper-error").is_some(),
+            "a failed enumeration reports its reason rather than an empty list"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Picking a printer asks that printer's driver, because another printer has a
+/// different list. Only Windows has an enumerator; there the answer is either
+/// the sizes or the reason it failed, never a silent nothing.
+#[cfg(windows)]
+#[gpui_kit::test]
+fn picking_a_printer_asks_its_driver_for_its_paper_sizes(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.print_papers = None;
+                state.print_papers_error = None;
+            });
+        });
+        window.render_frame(cx);
+
+        window.click("print-printer-trigger", cx);
+        window.render_frame(cx);
+        window.click("print-printer-1", cx);
+        window.render_frame(cx);
+
+        let state = content.read(cx).state_for_test().read(cx);
+        assert_eq!(
+            state.print_printer, 1,
+            "the pick selects the second printer"
+        );
+        assert!(
+            state.print_papers.is_some() || state.print_papers_error.is_some(),
+            "the pick enumerates the new printer's papers, or records why it could not"
         );
     })
     .expect("test window remains open");

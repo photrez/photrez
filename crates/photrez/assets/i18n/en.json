@@ -485,6 +485,8 @@
       "colorManagement": "Color Management",
       "positionAndSize": "Position and Size",
       "paperSize": "Paper Size",
+      "printerOffers": "Printer offers:",
+      "paperListUnavailable": "Paper sizes are not listed on this platform",
       "margins": "Margins",
       "centerOnPage": "Center on Page",
       "topOffset": "Top:",

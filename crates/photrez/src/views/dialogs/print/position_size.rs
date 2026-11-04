@@ -27,6 +27,9 @@ pub(super) fn position_size(
     doc_w: u32,
     doc_h: u32,
     doc_scale: f32,
+    sizes: PaperSizes,
+    num_field: Option<crate::state::NumFieldSession>,
+    num_focus: Option<gpui_kit::FocusHandle>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     // Position and Size: the header carries the unit select.
@@ -133,7 +136,7 @@ pub(super) fn position_size(
                 .child(label(&t("dialogs.print.paperSize")))
                 .child(div().flex_1().child(field(
                     "print-paper",
-                    paper_label(paper),
+                    paper_label(paper, &sizes),
                     cx,
                     move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                         cx.stop_propagation();
@@ -144,6 +147,48 @@ pub(super) fn position_size(
                     },
                 ))),
         );
+        // What the driver itself reports. An empty answer needs no extra row:
+        // the field's own tail already says the paper is not listed.
+        let report = match &sizes {
+            PaperSizes::Listed(entries) => Some(
+                v_flex()
+                    .id("print-paper-reported")
+                    .test_support()
+                    .w_full()
+                    .gap(px(2.0))
+                    .pb(px(4.0))
+                    .text_size(px(10.5))
+                    .text_color(color::TEXT_DIM)
+                    .child(t("dialogs.print.printerOffers").to_string())
+                    .children(entries.iter().map(|(name, width_mm, height_mm)| {
+                        div().child(paper_name_label(name, *width_mm, *height_mm))
+                    }))
+                    .into_any_element(),
+            ),
+            PaperSizes::Empty => None,
+            PaperSizes::Failed(reason) => Some(
+                h_flex()
+                    .id("print-paper-error")
+                    .test_support()
+                    .w_full()
+                    .items_center()
+                    .gap(px(6.0))
+                    .text_size(px(10.5))
+                    .text_color(color::ROSE_400)
+                    .child(reason.clone())
+                    .into_any_element(),
+            ),
+            PaperSizes::Unknown => Some(
+                div()
+                    .id("print-paper-unknown")
+                    .test_support()
+                    .w_full()
+                    .text_size(px(10.5))
+                    .text_color(color::TEXT_DIM)
+                    .child(t("dialogs.print.paperListUnavailable").to_string())
+                    .into_any_element(),
+            ),
+        };
         if paper_open {
             let mut list = v_flex().w_full().gap(px(2.0)).pb(px(4.0));
             for (index, (name, _, w, h)) in PRINT_PAPERS.iter().enumerate() {
@@ -178,6 +223,14 @@ pub(super) fn position_size(
                 );
             }
             inspector = inspector.child(list);
+            // The driver's answer goes under the presets, inside the open list.
+            // These rows carry no click: the dialog prints the paper picked from
+            // the preset list, so this is the printer's own report, not a second
+            // control. Keeping it here also holds the inspector's fixed height,
+            // because a driver can name many sizes.
+            if let Some(report) = report {
+                inspector = inspector.child(report);
+            }
         }
 
         inspector = inspector.child(
@@ -337,6 +390,50 @@ pub(super) fn position_size(
 
         let width_mm = doc_w as f64 * doc_scale as f64 * 25.4 / PRINT_PPI;
         let height_mm = doc_h as f64 * doc_scale as f64 * 25.4 / PRINT_PPI;
+        // The printed size at 100 % scale, already in the shown unit. `to_unit`
+        // is a pure scale, so a typed size divides by this basis to get the
+        // percentage back and needs no second conversion.
+        let fit = if scale_to_fit {
+            doc_scale as f64
+        } else {
+            doc_scale as f64 * 100.0 / scale as f64
+        };
+        let basis = (
+            to_unit(doc_w as f64 * fit * 25.4 / PRINT_PPI, &unit),
+            to_unit(doc_h as f64 * fit * 25.4 / PRINT_PPI, &unit),
+        );
+        // The field seeds the one decimal it shows, so opening it does not type
+        // a longer number than the row can display.
+        let width_typed = (to_unit(width_mm, &unit) * 10.0).round() / 10.0;
+        let height_typed = (to_unit(height_mm, &unit) * 10.0).round() / 10.0;
+        let width_box = num_box(
+            "print-width",
+            "Width", // i18n-exempt: copy not in catalog
+            68.0,
+            format!("{width_typed:.1}"),
+            super::widgets::NumFieldEdit {
+                session: num_field.as_ref(),
+                focus: num_focus.clone(),
+            },
+            move |app, window, cx| {
+                app.begin_print_size_field("print-width", basis, width_typed, window, cx);
+            },
+            cx,
+        );
+        let height_box = num_box(
+            "print-height",
+            "Height", // i18n-exempt: copy not in catalog
+            68.0,
+            format!("{height_typed:.1}"),
+            super::widgets::NumFieldEdit {
+                session: num_field.as_ref(),
+                focus: num_focus,
+            },
+            move |app, window, cx| {
+                app.begin_print_size_field("print-height", basis, height_typed, window, cx);
+            },
+            cx,
+        );
         inspector = inspector.child(
             h_flex()
                 .w_full()
@@ -350,15 +447,12 @@ pub(super) fn position_size(
                         .text_color(color::TEXT_DIM)
                         .child("Width"), // i18n-exempt: copy not in catalog
                 )
+                .child(width_box)
                 .child(
                     div()
-                        .text_size(px(11.5))
-                        .text_color(color::TEXT)
-                        .child(format!(
-                            "{:.1} {}",
-                            to_unit(width_mm, &unit),
-                            unit_suffix(&unit)
-                        )),
+                        .text_size(px(11.0))
+                        .text_color(color::TEXT_DIM)
+                        .child(unit_suffix(&unit)),
                 )
                 .child(div().flex_1())
                 .child(
@@ -367,15 +461,12 @@ pub(super) fn position_size(
                         .text_color(color::TEXT_DIM)
                         .child("Height"), // i18n-exempt: copy not in catalog
                 )
+                .child(height_box)
                 .child(
                     div()
-                        .text_size(px(11.5))
-                        .text_color(color::TEXT)
-                        .child(format!(
-                            "{:.1} {}",
-                            to_unit(height_mm, &unit),
-                            unit_suffix(&unit)
-                        )),
+                        .text_size(px(11.0))
+                        .text_color(color::TEXT_DIM)
+                        .child(unit_suffix(&unit)),
                 ),
         );
 

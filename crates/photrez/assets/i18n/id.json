@@ -485,6 +485,8 @@
       "colorManagement": "Manajemen Warna",
       "positionAndSize": "Posisi dan Ukuran",
       "paperSize": "Ukuran Kertas",
+      "printerOffers": "Printer menawarkan:",
+      "paperListUnavailable": "Ukuran kertas tidak terdaftar di platform ini",
       "margins": "Margin",
       "centerOnPage": "Pusatkan pada Halaman",
       "topOffset": "Atas:",

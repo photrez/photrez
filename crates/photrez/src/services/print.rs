@@ -57,8 +57,8 @@ impl PrintService {
         }
     }
 
-    /// Enumerate the selected printer's paper sizes.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Enumerate the selected printer's paper sizes. The Print dialog's Paper
+    /// Size row reads this answer; see `App::refresh_print_papers`.
     pub(crate) fn paper_sizes(&self, printer: &str) -> Result<Vec<PaperSize>, PrintError> {
         if printer.is_empty() || printer.contains('\0') {
             return Err(PrintError::validation("Printer name is invalid"));

@@ -346,6 +346,18 @@ pub struct AppState {
     pub print_paper_open: bool,
     pub print_unit_open: bool,
     pub print_printer_open: bool,
+    /// Each paper size the selected printer's driver reports, as its name with
+    /// its millimetre width and height. `None` means no enumeration has run,
+    /// which on macOS and Linux is also the permanent answer, so the dialog
+    /// makes no listing claim from it.
+    pub print_papers: Option<Vec<(String, f64, f64)>>,
+    /// Why the driver refused to list its paper sizes. The dialog prints the
+    /// reason instead of showing an empty list, as the printer row does.
+    pub print_papers_error: Option<String>,
+    /// The dialog's printed Width and Height at 100 % scale, measured in the
+    /// unit the dialog shows. A typed size edit divides by this basis to get
+    /// the scale percentage, so the edit needs no inverse unit conversion.
+    pub print_size_basis: Option<(f64, f64)>,
     /// Laid-out bounds of the Print dialog's Scale track.
     pub print_scale_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
@@ -655,6 +667,9 @@ impl Default for AppState {
             print_paper_open: false,
             print_unit_open: false,
             print_printer_open: false,
+            print_papers: None,
+            print_papers_error: None,
+            print_size_basis: None,
             print_scale_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             fg_color: [225, 90, 23, 255],
             bg_color: [255, 255, 255, 255],

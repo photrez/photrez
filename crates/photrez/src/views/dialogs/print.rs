@@ -65,6 +65,9 @@ pub(super) fn render(
     let scale_bounds = s.print_scale_slider_bounds.clone();
     let capture = s.slider_capture.clone();
     let scale_focus = s.slider_focus_for(SliderTarget::PrintScale);
+    let num_field = s.num_field.clone();
+    let num_focus = s.num_field_focus.clone();
+    let sizes = paper_sizes_reported(s.print_papers.as_ref(), s.print_papers_error.as_deref());
 
     let (doc_w, doc_h) = document_size.unwrap_or((800, 600));
     let paper_name = PRINT_PAPERS[paper].0;
@@ -113,6 +116,8 @@ pub(super) fn render(
         printer_open,
         copies,
         landscape,
+        num_field.clone(),
+        num_focus.clone(),
         cx,
     );
 
@@ -180,6 +185,9 @@ pub(super) fn render(
         doc_w,
         doc_h,
         doc_scale,
+        sizes,
+        num_field,
+        num_focus,
         cx,
     );
 
