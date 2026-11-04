@@ -384,7 +384,7 @@ pub(super) fn render(
                             cx,
                         );
                     }))
-                    .child(format!("{}...", t("dialogs.print.printerProps"))), // i18n-exempt: ellipsis suffix
+                    .child(t("dialogs.print.printerProps")),
             ),
     );
 

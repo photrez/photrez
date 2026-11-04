@@ -314,3 +314,24 @@ fn print_scale_latency(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+#[gpui_kit::test]
+fn the_printer_properties_button_carries_the_catalog_copy(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        // Measured on this mount: 135 px for the catalog copy alone, 154 px once an
+        // extra ellipsis is appended to it. The copy ends in an ellipsis in both
+        // catalogs, so the wider button is the suffix coming back.
+        let frame = row_frame(window, "print-settings");
+        assert!(
+            frame[2] <= 140.,
+            "the printer-properties button is {} px wide, so its label carries more than the \
+             catalog copy; row frame {:?}",
+            frame[2],
+            frame
+        );
+    })
+    .expect("test window remains open");
+}
