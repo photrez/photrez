@@ -83,7 +83,6 @@
 #
 # The rest still owe theirs.
 1006 crates/core/src/document/tests/structural.rs
-1100 crates/core/src/pixel/store/tests.rs
 1661 crates/photrez/src/app/measurement/driver.rs
 1202 crates/photrez/src/app/tests/commands.rs
 1441 crates/photrez/src/app/tests/documents.rs
