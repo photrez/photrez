@@ -88,4 +88,3 @@
 1604 crates/photrez/src/state.rs
 1561 crates/photrez/src/views/option_bar/widgets.rs
 1349 crates/photrez/src/views/properties_panel.rs
-1291 crates/xtask/src/parity/surfaces.rs
