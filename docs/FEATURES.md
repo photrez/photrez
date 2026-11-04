@@ -123,8 +123,9 @@ because it has not been built yet.
 
 | Status | Capability |
 | --- | --- |
-| Shipped | English and Indonesian catalogs cover the user-visible shell; the language choice persists in settings and startup detects the OS locale. |
-| Shipped | Deliberately-untranslated literals carry an explicit exemption reason, and a guard rejects new hardcoded UI strings in CI. |
+| Shipped | English and Indonesian catalogs drive the interface; the language choice persists in settings and startup detects the OS locale. |
+| Partial | About 60 rendered strings are written as literals beside the catalog, each carrying a written exemption reason, so they stay in English whatever the language choice. Seven of them are strings this app invented, where the reference had no text to translate. Localizing any of them needs a new catalog key, and the equal-key-set rule below currently forbids adding one. |
+| Shipped | The `en` and `id` key sets are held equal by a test, so a key cannot exist in one language and not the other. Deliberately-untranslated literals carry an explicit exemption reason, and a guard rejects new hardcoded UI strings in CI. |
 | Not implemented | Languages beyond English and Indonesian. |
 
 ## Packaging
