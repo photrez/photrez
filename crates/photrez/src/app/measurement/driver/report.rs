@@ -164,7 +164,7 @@ pub(super) fn summary_json(
         "profile": if cfg!(debug_assertions) { "dev" } else { "release" },
         "runs": runs,
         "metric_mapping": {
-            "pointer_to_brush_ms": "first preview present after pointerdown (Q6 overlay path); null when no preview",
+            "pointer_to_brush_ms": "first preview present after pointerdown (brush preview overlay path); null when no preview",
             "dispatch_to_commit_ms": "down dispatch to successful core commit (record-only)",
             "brush_commit_ms": "handler_entry_to_commit_ms",
             "brush_mouseup_ms": "up_to_commit_ms",
