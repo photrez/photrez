@@ -237,10 +237,10 @@ impl App {
 
     /// Rasterize a parametric layer to a plain raster (`RasterizeLayer`).
     ///
-    /// Native-only addition over the panel's baseline geometry: reachable from
-    /// the text-layer typography row in Properties (`prop-rasterize`), where
-    /// the mounted behaviour contract pins it. That row is the only entry
-    /// point; the panel itself offers no rasterize button.
+    /// Native-only addition: the Properties panel carries no rasterize row, so
+    /// the sole entry point is the text layer's `opt-text-rasterize` trigger in
+    /// the option bar, which reports the result through
+    /// `report_layer_op_for_view`.
     ///
     /// Parametric layers are metadata-only in the store, so the host renders
     /// the layer's bitmap first and hands it to `RasterizeLayer` — the

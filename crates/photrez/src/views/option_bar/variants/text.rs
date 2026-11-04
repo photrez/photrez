@@ -327,7 +327,8 @@ pub(super) fn text_items(
             false,
             cx,
             |app, cx| {
-                let _ = app.rasterize_selected_layer(cx);
+                let result = app.rasterize_selected_layer(cx);
+                app.report_layer_op_for_view(result, cx);
             },
         ))
     })
