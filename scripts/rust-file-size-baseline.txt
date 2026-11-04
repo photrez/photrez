@@ -136,6 +136,23 @@
 # ASCII. At 947 lines the file is under the hard cap but still prints in the
 # 900-line warning band, which does not fail the check.
 #
+# A thirteenth split paid: the metric roll-ups, the canonical pixel validators and
+# the report emitters left `app/measurement/driver.rs` for `driver/metrics.rs`
+# (159 lines), `driver/canonical.rs` (246) and `driver/report.rs` (200), and the
+# `#[cfg(test)]` module moved whole to `driver/tests.rs` (184). The parent held
+# 1638 lines at the split, under its recorded 1661, and now holds 888, so this
+# entry is deleted. Twenty-four `pub(super)` markers were needed: four metrics
+# entries the parent aggregates, eight canonical helpers, and twelve report items,
+# `FrameOutcome` counted with its three fields because the parent reads them
+# through `first_frame_after`. Nothing needed `pub` or `pub(crate)`, and no call
+# site changed. The moved bodies are byte-identical; one signature, `pixel_diff`,
+# re-wrapped when its marker passed the width limit and added one trailing comma.
+# The parent prelude gave up the six names only the children now use, and
+# `driver/tests.rs` gained two `use` lines, for `percentile` and
+# `InputMeasurementRender`, which the trimmed parent no longer reaches. Its nine
+# test functions kept their names and their bodies untouched, and the
+# feature-gated run still reports 28 passed for `measurement::`. The file's zero
+# non-ASCII bytes stayed zero across the five files.
+#
 # The rest still owe theirs.
-1661 crates/photrez/src/app/measurement/driver.rs
 1604 crates/photrez/src/state.rs
