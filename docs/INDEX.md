@@ -34,7 +34,7 @@
 
 ---
 
-> Internal material — plans, decisions, specifications and research notes — is
+> Internal material (plans, decisions, specifications and research notes) is
 > intentionally **not** published here. It is gitignored by design;
 > `CONTRIBUTING.md` describes the public rules.
 

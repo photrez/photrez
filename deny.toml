@@ -50,7 +50,7 @@ yanked = "warn"
 # a claim about a dependency that is no longer there.
 ignore = [
     # gpui Linux accessibility stack: accesskit_unix -> zbus (Linux-only, inside
-    # the pinned gpui-pre 0.3.9 — revisit when the framework bumps accesskit_unix)
+    # the pinned gpui-pre 0.3.9). Revisit when the framework bumps accesskit_unix.
     "RUSTSEC-2026-0370", # zvariant - via accesskit_unix -> zbus
     "RUSTSEC-2026-0371", # zbus_names - via accesskit_unix -> zbus
     "RUSTSEC-2026-0372", # zvariant_derive - via accesskit_unix -> zbus

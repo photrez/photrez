@@ -1,4 +1,4 @@
-# UI_GUIDE.md — Photrez UI Design Reference
+# UI_GUIDE.md: Photrez UI Design Reference
 
 > Consolidated visual and interaction guidance for the native GPUI application.
 > Interface values are defined in `crates/photrez/src/tokens.rs`; the web
@@ -7,13 +7,13 @@
 
 ---
 
-## 1. Core Philosophy — "Soft & Snappy"
+## 1. Core Philosophy: "Soft & Snappy"
 
 1. **Familiarity & Muscle Memory**: Standard industry layout (Toolbar top, Inspector right, Tool rail left). Users must know how to use the app instantly.
-2. **Invisible UI (Zero-Tint Neutrality)**: True neutral gray surfaces (OKLCH, no blue/yellow tint) — UI must not distort color perception during image editing.
+2. **Invisible UI (Zero-Tint Neutrality)**: True neutral gray surfaces (OKLCH, no blue/yellow tint). UI must not distort color perception during image editing.
 3. **Soft & Snappy Aesthetic**: Avoid "Mechanical Rigidity" (2px sharp) and "AI Slop" (wide blurs). Modular radius base `6px` (`--radius`). Modern and friendly, but dense for professional efficiency.
 4. **Docked Precision**: Panels dock to window edges. Inner corners rounded (facing canvas), outer corners sharp (touching window). No external margins.
-5. **Distinct Identity**: Single accent color **Photon Amber** (`oklch(0.74 0.15 55)`) — warm, high contrast on neutral UI.
+5. **Distinct Identity**: Single accent color **Photon Amber** (`oklch(0.74 0.15 55)`), warm, high contrast on neutral UI.
 
 ---
 
@@ -59,10 +59,10 @@
 ### Typography
 
 - Font: `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-- **Tabular nums**: MANDATORY global `font-variant-numeric: tabular-nums` — prevents shifting in transform coordinates and percentages
+- **Tabular nums**: MANDATORY global `font-variant-numeric: tabular-nums`. Prevents shifting in transform coordinates and percentages
 - Base: `13px` (native desktop standard)
 - Panel headers: `14px font-semibold`
-- Tabs (all): `12px font-medium` — prevents optical illusion where interactive buttons appear larger than static text
+- Tabs (all): `12px font-medium`. Prevents optical illusion where interactive buttons appear larger than static text
 - Sub-labels: `11-12px font-medium`
 - Min size: `11px` (never smaller)
 
@@ -86,7 +86,7 @@
 ### Input / Select Fields
 
 - Height: `26px` (`h-[26px]`)
-- Style: recessed box — `bg: --editor-field`, `1px border` using `--editor-field-border`
+- Style: recessed box (`bg: --editor-field`, `1px border` using `--editor-field-border`)
 - Focus: border → `--editor-accent`
 - **FORBIDDEN: `font-mono` or `font-bold` in numeric inputs.** Tabular nums handles alignment.
 
@@ -179,7 +179,7 @@ Clear, direct, friendly-professional. No filler.
 ### Rules
 
 - UI language: **English** (MVP)
-- Action labels: clear verbs — `Open`, `Export`, `Resize`, `Undo`. Max 2 words for toolbar.
+- Action labels: clear verbs (`Open`, `Export`, `Resize`, `Undo`). Max 2 words for toolbar.
 - Title case for primary buttons/menus
 - Tooltips: max 1 sentence. Shortcuts: `Ctrl+K` format.
 
@@ -205,19 +205,19 @@ Example: `No layers yet.` / `Open an image to start editing.`
 
 ## 7. Key User Flows (MVP)
 
-### Flow A — Open File
+### Flow A: Open File
 
 `Open → File dialog → Select file → Load to canvas + create layer → Status bar shows dimensions`
 
 Error: invalid file → structured error + retry option. Load fail → document state safe.
 
-### Flow B — Edit Session
+### Flow B: Edit Session
 
 `Select tool → Manipulate on canvas → Adjust properties in inspector → Undo/redo as needed`
 
 Error: invalid action → warning (no crash). Command fail → structured error + consistent state.
 
-### Flow C — Export
+### Flow C: Export
 
 `Export → Choose format (JPG/PNG/WebP) + quality → Choose location → Process → Success/failure feedback`
 
@@ -237,7 +237,7 @@ Error: write fail → `E_IO`. Invalid settings → `E_VALIDATION`.
 
 - [ ] Layout follows locked shell regions
 - [ ] Desktop compact density maintained
-- [ ] No hardcoded colors/spacing/radius — use tokens
+- [ ] No hardcoded colors/spacing/radius. Use tokens
 - [ ] Icon size/style consistent
 - [ ] Active/focus states visible
 

@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>A fast, lightweight native desktop image editor for daily graphic work.</strong><br>
-  Layer management, transforms, precision selection, brush tools, and print export — built for creators who want clean, dependable editing without the bloat.
+  Layer management, transforms, precision selection, brush tools, and print export, built for creators who want clean, dependable editing without the bloat.
 </p>
 
 <p align="center">
@@ -61,7 +61,7 @@ Each archive contains the executable, `LICENSE`, `NOTICE`, and `THIRD_PARTY.md`.
   <tr>
     <td width="50%" valign="top">
       <h3>⚡ Native & Fast</h3>
-      <p>A native Rust interface (GPUI) over the Rust <code>photrez-core</code> document engine — one process, no embedded browser, no telemetry, no forced cloud accounts.</p>
+      <p>A native Rust interface (GPUI) over the Rust <code>photrez-core</code> document engine: one process, no embedded browser, no telemetry, no forced cloud accounts.</p>
     </td>
     <td width="50%" valign="top">
       <h3>🎨 Layer & Selection Workflow</h3>
@@ -150,22 +150,22 @@ cargo test --workspace
 
 <details>
 <summary><b>What do Save, Save As, and Export do?</b></summary>
-<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project — every layer, fully re-editable later. For a new or unsaved document it opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
+<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project, every layer fully re-editable later. For a new or unsaved document it opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
 </details>
 
 <details>
 <summary><b>Is there autosave, and what happens after a crash?</b></summary>
-<p>Yes. While you edit, Photrez writes a hidden autosave — document metadata plus pixels — at most once per minute to a local temp directory, and checks for it on the next launch. It is local-only — no cloud backup.</p>
+<p>Yes. While you edit, Photrez writes a hidden autosave (document metadata plus pixels) at most once per minute to a local temp directory, and checks for it on the next launch. It is local-only, no cloud backup.</p>
 </details>
 
 <details>
 <summary><b>What happens when I close a document with unsaved changes?</b></summary>
-<p>Photrez asks <b>Discard changes?</b> — choose <b>Discard</b> to close without saving, or <b>Cancel</b> to go back. With nothing unsaved, the document closes immediately and the nearest remaining tab activates.</p>
+<p>Photrez asks <b>Discard changes?</b> Choose <b>Discard</b> to close without saving, or <b>Cancel</b> to go back. With nothing unsaved, the document closes immediately and the nearest remaining tab activates.</p>
 </details>
 
 <details>
 <summary><b>What are the New Document defaults?</b></summary>
-<p>The New Document dialog opens at 1080×1080 pixels on a white background, with category tabs (Paper, Social Media, Web & Video, Photography), a preset grid — including HD (1920×1080) and A4 (2480×3508) — or a custom Name/Width/Height/Unit/Background form.</p>
+<p>The New Document dialog opens at 1080×1080 pixels on a white background, with category tabs (Paper, Social Media, Web & Video, Photography), a preset grid that includes HD (1920×1080) and A4 (2480×3508), or a custom Name/Width/Height/Unit/Background form.</p>
 </details>
 
 <details>
@@ -175,17 +175,17 @@ cargo test --workspace
 
 <details>
 <summary><b>Any other known limitations?</b></summary>
-<p>Printing is Windows-only in this release (see the platform notes above). The artifacts are not code-signed — verify the SHA256 checksums. For anything else, GitHub Issues is the live channel for bugs.</p>
+<p>Printing is Windows-only in this release (see the platform notes above). The artifacts are not code-signed. Verify the SHA256 checksums. For anything else, GitHub Issues is the live channel for bugs.</p>
 </details>
 
 ---
 
 ## 📚 Documentation
 
-- 🏗️ **[Architecture](docs/ARCHITECTURE.md)** — runtime architecture
-- 📋 **[Feature Matrix](docs/FEATURES.md)** — What the current native app does, by product area
-- 🤝 **[Contributing](CONTRIBUTING.md)** — PR & code guidelines
-- 🔒 **[Security Policy](SECURITY.md)** — Vulnerability reporting
+- 🏗️ **[Architecture](docs/ARCHITECTURE.md)**: runtime architecture
+- 📋 **[Feature Matrix](docs/FEATURES.md)**: What the current native app does, by product area
+- 🤝 **[Contributing](CONTRIBUTING.md)**: PR & code guidelines
+- 🔒 **[Security Policy](SECURITY.md)**: Vulnerability reporting
 
 ---
 

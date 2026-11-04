@@ -30,7 +30,7 @@ was captured, and which noise is expected.
   configuration a reader reproduces here.
 - Renderer of the reference shots: a headless browser (Chromium with the
   ANGLE/SwiftShader software rasteriser), `deviceScaleFactor: 1`, viewport
-  1366x820. The renderer string is recorded in `manifest.host.renderer` —
+  1366x820. The renderer string is recorded in `manifest.host.renderer`,
   relevant to anyone comparing antialiased edges. Captures of this application
   use the native renderer, which is exactly what the comparison is meant to
   measure.
@@ -38,28 +38,28 @@ was captured, and which noise is expected.
 
 ## Capture conventions (each one exists because a capture got it wrong once)
 
-- **Locale pinned before boot** — selectors written from English text fail
+- **Locale pinned before boot**: selectors written from English text fail
   silently under another locale.
-- **One fresh session per shot** — leftover state (an open modal, a switched
+- **One fresh session per shot**: leftover state (an open modal, a switched
   tool, a hover) makes a failure impossible to localise. The reference shots got
   one page load each; this application's capture gets one process each.
-- **Tooltips suppressed by default** — an element screenshot is a region crop,
+- **Tooltips suppressed by default**: an element screenshot is a region crop,
   not an isolation: anything floating over the target gets baked into the PNG.
   Three tooltip shots opt back in (`allowTooltip` semantics in the script).
-- **Rail disabled-state asserted** — the disabled rail applies
+- **Rail disabled-state asserted**: the disabled rail applies
   `opacity-50 grayscale`, and `grayscale()` collapses colour to luma, so such a
   capture is irrecoverable in post. One shot deliberately captures the disabled
   state (`rail-disabled-no-doc`) to prove it cannot be reconstructed; every
   other shot asserts the rail is enabled.
-- **Native-call failures in the reference shots classified as expected noise** —
-  the build those shots came from ran in a browser, where every call into its
+- **Native-call failures in the reference shots classified as expected noise**.
+  The build those shots came from ran in a browser, where every call into its
   desktop layer rejects; those rejections are recorded per shot under
   `expectedNoise` (category `tauri-invoke-unavailable`), not treated as
   breakage. A shot fails only on anything else. This application calls its own
   services in-process, so its captures do not produce that category.
-- **A failing shot is recorded, the run continues** — per-shot `ok` plus a
+- **A failing shot is recorded, the run continues**: per-shot `ok` plus a
   `failed` count in the summary.
-- **Document open before capture** per `needsDoc` — the tool rail renders
+- **Document open before capture** per `needsDoc`. The tool rail renders
   disabled without an active document.
 
 ## Tolerance policy (measured values)
@@ -72,7 +72,7 @@ was captured, and which noise is expected.
 | Block anchoring | top-aligned comparison | anchor per-region, not globally; shells differ in height at the bottom. |
 | Placeholder regions | dock/navigator numbers measured against a flat placeholder count "missing", not "wrong" | re-measure once the real dock exists. |
 
-Producing the numbers above requires the comparison semantics — the class map
+Producing the numbers above requires the comparison semantics: the class map
 with the 3x3 neighbourhood tolerance, the ink integral, the bounding boxes.
 They live in this repository's own tooling (`cargo xtask parity`, with the
 shape-diff and measure steps under `crates/xtask/src/parity/`), so there is one
@@ -91,7 +91,7 @@ footer). Worst observed deltas, in each PNG's own coordinates:
 | `loading-status` (footer strip 1366x24) | x 620-994, y 5-20 | 767 px (2.3%) |
 
 One recapture pair differed by only 127 px inside the same region, and the
-`ctx-brush` recapture pair was identical — the variance lives there and
+`ctx-brush` recapture pair was identical. The variance lives there and
 nowhere else. A comparison harness should mask that segment (or accept deltas
 of this size there) and stay strict everywhere else.
 
@@ -109,7 +109,7 @@ the 3x3 neighbourhood rule: `dialog-resize` 4 px (worst channel delta 3),
 
 **A re-baseline is never accepted without a recorded reason.** Each manifest
 shot entry carries a `reason` field; naming what changed and why it is intended
-is the minimum. No reason, no commit — a silently re-baselined golden master is
+is the minimum. No reason, no commit: a silently re-baselined golden master is
 a deleted test.
 
 ## Verifying a claim against this set
@@ -122,5 +122,5 @@ a deleted test.
 ## Size budget
 
 Committed PNGs <= 5 MB, `manifest.json` <= 100 KB, directory total <= 6 MB.
-If exceeded: split by category or re-capture — never compress with lossy
+If exceeded: split by category or re-capture. Never compress with lossy
 tooling, which changes the pixels being compared.

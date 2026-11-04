@@ -1,4 +1,4 @@
-# FEATURES.md — Photrez
+# FEATURES.md: Photrez
 
 Current feature matrix for the native Photrez desktop application. Product
 architecture lives in `ARCHITECTURE.md`; install and build commands live in
@@ -7,8 +7,8 @@ changeover, are preserved in the separate archived repository
 [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy); nothing
 there is a current product claim.
 
-Status legend: **Shipped** — reachable in the current native app; **Partial** —
-reachable with the named gap; **Not implemented** — absent, either by design or
+Status legend: **Shipped** means reachable in the current native app; **Partial**
+means reachable with the named gap; **Not implemented** means absent, either by design or
 because it has not been built yet.
 
 ## Canvas and document
@@ -18,22 +18,22 @@ because it has not been built yet.
 | Shipped | The native window renders the document composited by `photrez-core` through one display pass, with the transparent checkerboard behind the page. |
 | Shipped | Open and save layered `.ptz` projects carrying raster, shape and text layers; the current format version is v3 and v1/v2 files still load. A raster layer carries no text or shape metadata in the saved project, so a project written by an earlier release that stored either on a raster layer drops that metadata at the next save. |
 | Shipped | Import PNG, JPEG, WebP and BMP images, with dimensions and memory checked against the 16384 px / 1 GiB product bounds before decoding. |
-| Shipped | Pan and zoom the camera — wheel zoom anchored at the pointer, Space and middle-drag pan, Fit to Screen (`Ctrl+0`), Actual Size (`Ctrl+1`), `Ctrl+=`/`Ctrl+-`. |
+| Shipped | Pan and zoom the camera: wheel zoom anchored at the pointer, Space and middle-drag pan, Fit to Screen (`Ctrl+0`), Actual Size (`Ctrl+1`), `Ctrl+=`/`Ctrl+-`. |
 | Shipped | Multiple documents in a tab strip; each tab keeps its own camera; closing the last document shows the welcome card with quick presets. |
 | Shipped | Moving a raster layer shows a full-resolution, region-composited live preview while dragging. |
-| Not implemented | Adjustment layers and group layers — the production loader refuses them with a typed error; per-layer Basic Adjustments on raster layers are available. |
+| Not implemented | Adjustment layers and group layers: the production loader refuses them with a typed error; per-layer Basic Adjustments on raster layers are available. |
 | Not implemented | PSD import/export. |
 
 ## Tools
 
 | Status | Capability |
 | --- | --- |
-| Shipped | Ten-tool rail — Move (`V`), Selection (`M`), Crop (`C`), Eyedropper (`I`), Brush (`B`), Eraser (`E`), Paint Bucket (`G`), Gradient (`Shift+G`), Shape (`U`), Text (`T`) — with an option bar for the active tool. |
+| Shipped | Ten-tool rail: Move (`V`), Selection (`M`), Crop (`C`), Eyedropper (`I`), Brush (`B`), Eraser (`E`), Paint Bucket (`G`), Gradient (`Shift+G`), Shape (`U`), Text (`T`), with an option bar for the active tool. |
 | Shipped | Brush and eraser with separate size/hardness/strength plus flow and smoothing, six presets, a calibrated soft-edge profile, `[`/`]` size steps, Shift+`[`/`]` hardness steps, Shift-click straight lines, Shift-drag axis lock, Alt-hold colour sampling, and a right-click brush menu over the canvas. |
 | Shipped | Paint Bucket with tolerance, contiguous toggle and selection-aware fill; Gradient with linear/radial types, presets, reverse, and a live distance/angle overlay during the drag. |
 | Shipped | Shape tool with ten kinds (rectangle, ellipse, line, triangle, star, block arrow, heart, diamond, speech bubble, hexagon) kept parametric, with fill and stroke popovers for colour and width. |
 | Shipped | Eyedropper samples the composited canvas and shows the hex value, with an optional auto-copy preference. |
-| Partial | Crop — crop frame with handle resize/move, ratio menu (free, custom, presets, recents, lock shape), Size mode at a 300 PPI base, delete-cropped-pixels and fill-background options, arrow-key nudge and per-crop mini undo. Still open: the advanced group (straighten, guides, classic mode) and its overflow menu. |
+| Partial | Crop: crop frame with handle resize/move, ratio menu (free, custom, presets, recents, lock shape), Size mode at a 300 PPI base, delete-cropped-pixels and fill-background options, arrow-key nudge and per-crop mini undo. Still open: the advanced group (straighten, guides, classic mode) and its overflow menu. |
 
 ## Layers and history
 
@@ -74,7 +74,7 @@ because it has not been built yet.
 | --- | --- |
 | Shipped | Foreground/background swatches on the tool rail with swap. |
 | Shipped | Colour picker: saturation/value box and hue strip with pointer capture (a drag released outside keeps tracking), six-digit hex entry, Cancel/Escape/outside-click revert and Enter/OK commit. |
-| Shipped | The picker targets the right thing by context — the paint foreground/background, the selected text layer's colour in edit mode, or a shape's fill/stroke colour. |
+| Shipped | The picker targets the right thing by context: the paint foreground/background, the selected text layer's colour in edit mode, or a shape's fill/stroke colour. |
 
 ## Dialogs and export
 
@@ -86,7 +86,7 @@ because it has not been built yet.
 | Shipped | Resize Canvas dialog with unit selects, Keep-proportions lock and maximum-dimension warning. |
 | Shipped | Settings dialog chooses the UI language and persists it; About dialog shows the native stack, version and locale line. |
 | Shipped | Save (`Ctrl+S`) and Save As (`Ctrl+Shift+S`) write `.ptz` projects; an imported flat image routes Save to Save As. |
-| Shipped | Export dialog (`Ctrl+Alt+E`) writes the composite as PNG, JPEG or WebP with a quality slider for lossy formats; WebP export is currently the lossless path (quality is ignored) — a documented deviation. |
+| Shipped | Export dialog (`Ctrl+Alt+E`) writes the composite as PNG, JPEG or WebP with a quality slider for lossy formats; WebP export is currently the lossless path (quality is ignored), a documented deviation. |
 | Shipped | Autosave writes dirty documents to the app cache on a 60-second timer, and a startup recovery pass offers them again after an abnormal exit. An archive is skipped when it belongs to the document already open and is no newer than the file on disk; anything uncertain still offers. Discard removes only the archives the prompt listed, so a skipped one survives a Discard aimed at another document, and a row whose document is already open says so instead of opening a second copy. |
 
 ## Print
@@ -117,7 +117,7 @@ because it has not been built yet.
 | Shipped | Tooltips on controls and a toast host for warnings such as locked or missing layers. |
 | Shipped | The window reopens at the remembered position, size and maximized state; a record that no longer lands on a connected display falls back to the centered default. |
 | Shipped | Image files dropped onto the window open as documents. |
-| Not implemented | A screen-reader accessibility tree — the current GPUI runtime exposes no platform accessibility provider. |
+| Not implemented | A screen-reader accessibility tree: the current GPUI runtime exposes no platform accessibility provider. |
 
 ## Internationalization
 

@@ -34,13 +34,13 @@ If builds across many workspaces need shared dependency artifacts, Cargo's build
 
 ## Official sources
 
-- [Cargo environment variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html) — `CARGO_HOME`, `CARGO_TARGET_DIR`, and `CARGO_INCREMENTAL`.
-- [Cargo Home](https://doc.rust-lang.org/cargo/guide/cargo-home.html) — cache contents, relocation, and recovery.
-- [Build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html) — target/build output layout and incremental artifacts.
-- [`cargo clean`](https://doc.rust-lang.org/cargo/commands/cargo-clean.html) — deletion scope, `--target-dir`, and `--dry-run`.
-- [Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html) — development defaults and incremental/debug tradeoffs.
+- [Cargo environment variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html): `CARGO_HOME`, `CARGO_TARGET_DIR`, and `CARGO_INCREMENTAL`.
+- [Cargo Home](https://doc.rust-lang.org/cargo/guide/cargo-home.html): cache contents, relocation, and recovery.
+- [Build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html): target/build output layout and incremental artifacts.
+- [`cargo clean`](https://doc.rust-lang.org/cargo/commands/cargo-clean.html): deletion scope, `--target-dir`, and `--dry-run`.
+- [Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html): development defaults and incremental/debug tradeoffs.
 
-## 2026-10-22 — Shrinking build artifacts without losing the debugger
+## 2026-10-22: Shrinking build artifacts without losing the debugger
 
 Advisory only. Nothing below was applied: no profile was edited, no config file was
 changed, no artifact was deleted. Every recommendation is a one-command, per-invocation
@@ -72,7 +72,7 @@ Two consequences worth keeping in view:
 - The 9.3 GiB of `.exe` files under `deps/` are test and example binaries built by
   `cargo test --no-run`, each carrying full (`debug = 2`) debug info. Reducing the debug
   level shrinks the executables themselves, not just a side-car file.
-- `incremental/` is only 936 MiB — about 6% of the tree. Disabling incremental compilation
+- `incremental/` is only 936 MiB, about 6% of the tree. Disabling incremental compilation
   is a poor trade here: it gives up fast rebuilds for a small fraction of the space.
 
 The `debug` directory holds both the `dev` and `test` profiles, and `release` holds both
@@ -100,7 +100,7 @@ cargo clean --dry-run
 Verified on stable `cargo 1.95.0` in `crates/photrez`. PowerShell strips double quotes
 when handing arguments to native executables, so `--config KEY="value"` is parsed by Cargo
 as a bare word and fails. Two forms work (checked with `cargo metadata --no-deps --offline`
-on stable and `cargo <toolchain> -Z unstable-options config get` on nightly — nightly was
+on stable and `cargo <toolchain> -Z unstable-options config get` on nightly. Nightly was
 installed only for this config check and then removed):
 
 ```powershell
@@ -123,15 +123,15 @@ Notes:
   ([Environment Variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html)).
 - The `profile.<name>.package.<name>` form (the `"*"` dependency override) is documented as
   **not** settable by environment variable
-  ([Configuration](https://doc.rust-lang.org/cargo/reference/config.html)) — confirmed:
-  `CARGO_PROFILE_DEV_PACKAGE_*_DEBUG` is ignored — so `--config` with a TOML file is the
+  ([Configuration](https://doc.rust-lang.org/cargo/reference/config.html)). Confirmed:
+  `CARGO_PROFILE_DEV_PACKAGE_*_DEBUG` is ignored, so `--config` with a TOML file is the
   supported per-invocation route for dependency overrides.
 - `--config` accepts a path to an extra configuration file in addition to `KEY=VALUE`, and
   "takes precedence over environment variables, which take precedence over configuration
   files" ([Configuration](https://doc.rust-lang.org/cargo/reference/config.html)).
 - `line-tables-only` generates "the minimal amount of debug info for backtraces with
   filename/line number info, but not anything else, i.e. no variable or function parameter
-  info" — backtraces keep file and line, the debugger loses variable inspection
+  info": backtraces keep file and line, the debugger loses variable inspection
   ([Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)).
 
 The Cargo Book itself recommends this exact shape as a configuration change
@@ -151,7 +151,7 @@ debug = true
 
 with the stated trade-offs: faster codegen, faster links, smaller target directory, and
 "requires a full rebuild to have a high-quality debugger experience". Applying it as a
-checked-in profile is a persistent change and should be a separate, deliberate decision —
+checked-in profile is a persistent change and should be a separate, deliberate decision,
 not a side effect of a disk-pressure cleanup.
 
 Previewing before any cleanup: `cargo clean --dry-run` in `crates/photrez` reports
@@ -222,7 +222,7 @@ before removing them.
 | --- | --- |
 | `debug = 1` cut one project's release debuginfo from 480 MB to 105 MB | [Rust Users Forum, 2021](https://users.rust-lang.org/t/keeping-debug-info-but-smaller/55009) |
 | `debug = "line-tables-only"` plus a `debugging` opt-in profile gave a ~20% smaller `target/debug` on one project | [Stack Overflow](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less) |
-| A `target/debug` breakdown showing `incremental/` at 16 GB and `deps/` at 21 GB — final artifacts were the smallest part | [Stack Overflow](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less) |
+| A `target/debug` breakdown showing `incremental/` at 16 GB and `deps/` at 21 GB: final artifacts were the smallest part | [Stack Overflow](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less) |
 | Debug info is only in final artifacts; intermediate metadata dominates `deps/` | [same thread](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less) |
 | A single binary measured 231 MiB → 136 MiB (`debug = 1`) → 49 MiB (`debug = 0`) → 34 MiB (`strip = true`) | [r/rust](https://www.reddit.com/r/rust/comments/1g3q6rg/why_are_rust_binaries_so_large/) |
 | Metadata is stored twice (`.rmeta` and inside `.rlib`); removing one copy saves 20–35% | [r/rust](https://www.reddit.com/r/rust/comments/1bms2gj/media_ran_out_of_disk_space_on_my_1tb_machine_a/) |
@@ -256,24 +256,24 @@ defaults remain unchanged until those land.
 
 Official:
 
-- [Cargo Book — Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html) — `debug` levels, `incremental`, `strip`, `split-debuginfo`, default profiles, profile overrides.
-- [Cargo Book — Environment Variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html) — `CARGO_INCREMENTAL`, `CARGO_TARGET_DIR`, `CARGO_HOME`, `CARGO_PROFILE_*`.
-- [Cargo Book — Configuration](https://doc.rust-lang.org/cargo/reference/config.html) — `build.target-dir`, `build.incremental`, `cache.auto-clean-frequency`, `--config` precedence, `profile.<name>` keys.
-- [Cargo Book — Build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html) — target/build directory layout, `debug/` vs `release/`, `incremental/`, sccache.
-- [Cargo Book — cargo clean](https://doc.rust-lang.org/cargo/commands/cargo-clean.html) — `--dry-run`, `-p`, `--profile`, `--doc`, `--target-dir`.
-- [Cargo Book — Optimizing Build Performance](https://doc.rust-lang.org/cargo/guide/build-performance.html) — the `line-tables-only` recommendation and its trade-offs.
-- [Cargo Book — Cargo Home](https://doc.rust-lang.org/cargo/guide/cargo-home.html) — cache contents and relocation.
+- [Cargo Book, Profiles](https://doc.rust-lang.org/cargo/reference/profiles.html): `debug` levels, `incremental`, `strip`, `split-debuginfo`, default profiles, profile overrides.
+- [Cargo Book, Environment Variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html): `CARGO_INCREMENTAL`, `CARGO_TARGET_DIR`, `CARGO_HOME`, `CARGO_PROFILE_*`.
+- [Cargo Book, Configuration](https://doc.rust-lang.org/cargo/reference/config.html): `build.target-dir`, `build.incremental`, `cache.auto-clean-frequency`, `--config` precedence, `profile.<name>` keys.
+- [Cargo Book, Build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html): target/build directory layout, `debug/` vs `release/`, `incremental/`, sccache.
+- [Cargo Book, cargo clean](https://doc.rust-lang.org/cargo/commands/cargo-clean.html): `--dry-run`, `-p`, `--profile`, `--doc`, `--target-dir`.
+- [Cargo Book, Optimizing Build Performance](https://doc.rust-lang.org/cargo/guide/build-performance.html): the `line-tables-only` recommendation and its trade-offs.
+- [Cargo Book, Cargo Home](https://doc.rust-lang.org/cargo/guide/cargo-home.html): cache contents and relocation.
 
 Community and upstream:
 
-- [Rust Users Forum — "Is there a way to make the size of whole project files smaller?"](https://users.rust-lang.org/t/is-there-a-way-to-make-the-size-of-whole-project-files-smaller/100758)
-- [Rust Users Forum — "Keeping debug info, but smaller?"](https://users.rust-lang.org/t/keeping-debug-info-but-smaller/55009)
-- [Stack Overflow — "Why Rust is taking a ton of my disk space and how to make it use less"](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less)
-- [r/rust — "Ran out of disk space on my 1TB machine"](https://www.reddit.com/r/rust/comments/1bms2gj/media_ran_out_of_disk_space_on_my_1tb_machine_a/)
-- [r/rust — "Rust target folder is big in size"](https://www.reddit.com/r/rust/comments/1eyfl57/rust_target_folder_is_big_in_size/)
-- [r/rust — "Why are rust binaries so large?"](https://www.reddit.com/r/rust/comments/1g3q6rg/why_are_rust_binaries_so_large/)
-- [Kobzol — "Reducing Cargo target directory size with -Zno-embed-metadata"](https://kobzol.github.io/rust/rustc/2025/06/02/reduce-cargo-target-dir-size-with-z-no-embed-metadata.html)
-- [Inside Rust — "Reducing target directory size on nightly" (2026-08-18)](https://blog.rust-lang.org/inside-rust/2026/08/18/reducing-target-dir-size-on-nightly/)
-- [Rust Project Goals — "Target directory size reduction"](https://goals.rust-lang.org/2026/target-dir-size.html)
-- [cargo#13136 — track build artifacts for automatic cache cleaning](https://github.com/rust-lang/cargo/issues/13136)
-- [cargo#17518 — reduce debuginfo to `line-tables-only` in the `dev` profile](https://github.com/rust-lang/cargo/pull/17518)
+- [Rust Users Forum, "Is there a way to make the size of whole project files smaller?"](https://users.rust-lang.org/t/is-there-a-way-to-make-the-size-of-whole-project-files-smaller/100758)
+- [Rust Users Forum, "Keeping debug info, but smaller?"](https://users.rust-lang.org/t/keeping-debug-info-but-smaller/55009)
+- [Stack Overflow, "Why Rust is taking a ton of my disk space and how to make it use less"](https://stackoverflow.com/questions/79952745/why-rust-is-taking-a-ton-of-my-disk-space-and-how-to-make-it-use-less)
+- [r/rust, "Ran out of disk space on my 1TB machine"](https://www.reddit.com/r/rust/comments/1bms2gj/media_ran_out_of_disk_space_on_my_1tb_machine_a/)
+- [r/rust, "Rust target folder is big in size"](https://www.reddit.com/r/rust/comments/1eyfl57/rust_target_folder_is_big_in_size/)
+- [r/rust, "Why are rust binaries so large?"](https://www.reddit.com/r/rust/comments/1g3q6rg/why_are_rust_binaries_so_large/)
+- [Kobzol, "Reducing Cargo target directory size with -Zno-embed-metadata"](https://kobzol.github.io/rust/rustc/2025/06/02/reduce-cargo-target-dir-size-with-z-no-embed-metadata.html)
+- [Inside Rust, "Reducing target directory size on nightly" (2026-08-18)](https://blog.rust-lang.org/inside-rust/2026/08/18/reducing-target-dir-size-on-nightly/)
+- [Rust Project Goals, "Target directory size reduction"](https://goals.rust-lang.org/2026/target-dir-size.html)
+- [cargo#13136, track build artifacts for automatic cache cleaning](https://github.com/rust-lang/cargo/issues/13136)
+- [cargo#17518, reduce debuginfo to `line-tables-only` in the `dev` profile](https://github.com/rust-lang/cargo/pull/17518)

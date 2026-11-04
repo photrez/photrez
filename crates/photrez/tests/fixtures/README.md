@@ -36,7 +36,7 @@ called `SaveStream::begin`, `write_layer`, and `end`. It linked the production
 library built from this checkout using Rust 1.95.0 and the lockfile that then
 covered the crate (the pre-consolidation `crates/photrez/Cargo.lock`,
 SHA-256 `f3b7a55c8d66e5ac6e48cf834df9d694a486008f015b6796b7e04384c1a9071d`;
-that file no longer exists — the workspace consolidation replaced it with the
+that file no longer exists: the workspace consolidation replaced it with the
 single root `Cargo.lock`). The locked feature tree was inspected with:
 
 ```text
