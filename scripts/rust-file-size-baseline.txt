@@ -154,5 +154,24 @@
 # feature-gated run still reports 28 passed for `measurement::`. The file's zero
 # non-ASCII bytes stayed zero across the five files.
 #
-# The rest still owe theirs.
-1604 crates/photrez/src/state.rs
+# A fourteenth split paid, the last on this list: the New Document presets and
+# session, the colour, slider, picker, HUD and toast sessions and the test
+# module left `state.rs` for `state/new_document.rs` (280 lines),
+# `state/sessions.rs` (179) and `state/tests.rs` (249), taking the parent from
+# its recorded 1604 to 903. The two type children are private `mod`
+# declarations with two `pub use` glob re-exports, so every `crate::state::X`
+# path in the app resolves unchanged and no call site moved; only
+# `new_document.rs` needed its own import, for `NewDocCategory` and
+# `NewDocPreset`, which stay in the parent. The `#[cfg(test)]` module moved
+# whole: the wrapper line is the only structural difference, and the one body
+# line that changed is its `include_str!` path, re-anchored two levels up for
+# the new location and still naming the same manifest file. The 879 non-ASCII
+# bytes are conserved across the four files: 852 stayed in the parent with
+# four banners and four comments, 12 carry the six `×` preset names (`4×6`
+# up to `8×10`) in `new_document.rs` and 15 sit in the test comments, and every string
+# re-reads byte-exact. All four files held CRLF end to end. The photrez suite
+# counts 692 passed on both sides of the move with the same eleven
+# `state::tests`, so the test module kept its discovery.
+#
+# Nothing is owed now: no entry remains and the ratchet runs with no
+# exceptions at the release tip.
