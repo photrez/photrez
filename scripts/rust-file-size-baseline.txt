@@ -3,8 +3,8 @@
 # freely; a listed file may not grow. Splitting these files is a standing obligation,
 # not a licence to add to them.
 #
-# Re-recorded on 2026-11-03 for the ten entries the parity-closure wave grew: the
-# overflow panels, the live Move-bar transform fields, the print tiers and the
+# Re-recorded on 2026-11-03 for the ten entries that grew while the overflow
+# panels, the live Move-bar transform fields and the print tiers took on the
 # coverage they each carry. The split obligation is unchanged and now larger.
 #
 # Amended the same day: `crates/photrez/src/state.rs` had already drifted four

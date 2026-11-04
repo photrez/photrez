@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [0.1.0] — 2026-08-06
+## [0.1.0] - 2026-08-06
 
 ### 🎉 First Stable Release
 
@@ -54,16 +54,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Performance & privacy:** WebGL2 canvas, offline-first, no cloud uploads.
 
 ### 🔧 Stability
-- Paper-size fetch failures now degrade gracefully (empty preset list) instead of breaking the print inspector — fixed unhandled rejection that failed the full component-test suite.
+- Paper-size fetch failures now degrade gracefully (empty preset list) instead of breaking the print inspector - fixed unhandled rejection that failed the full component-test suite.
 - Full 1517 component-test suite green; `cargo fmt --check` clean; `bun audit --prod --audit-level=high` clean.
 - Component tests no longer flake on slow CI runners (5000ms → 30000ms jsdom timeout).
 
 ### ⚡ Performance & Hardening
 
-- Print is roughly 4x faster — A4 composite output drops from 139 MB to 35 MB by capping print DPI at 300, the photo-print standard, with no visible quality loss at normal viewing distance (print-to-PDF is unaffected).
-- Installers upgrade in place — running setup over an existing installation no longer asks to uninstall first.
-- `print_image_raw` validates the raw pixel buffer against its declared dimensions before handing it to the printer — prevents an out-of-bounds read if the two ever disagree.
-- Print size constants now have a single source of truth — no more drift between worker, main thread, and preview.
+- Print is roughly 4x faster - A4 composite output drops from 139 MB to 35 MB by capping print DPI at 300, the photo-print standard, with no visible quality loss at normal viewing distance (print-to-PDF is unaffected).
+- Installers upgrade in place - running setup over an existing installation no longer asks to uninstall first.
+- `print_image_raw` validates the raw pixel buffer against its declared dimensions before handing it to the printer - prevents an out-of-bounds read if the two ever disagree.
+- Print size constants now have a single source of truth - no more drift between worker, main thread, and preview.
 
 ### 📦 Delivery
 - Windows x64 NSIS installer + `SHA256SUMS`, tagged `v0.1.0` as a GitHub release (not a pre-release).
@@ -71,11 +71,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
-## [0.1.0-beta.1] — 2026-08-03
+## [0.1.0-beta.1] - 2026-08-03
 
 ### ⚠️ Pre-Release Notice
 
-This is the first beta release. It marks the **feature freeze** for the 0.1.0 MVP: the `.ptz` document format is now locked to v1, and no new features will be added until the stable release — only fixes.
+This is the first beta release. It marks the **feature freeze** for the 0.1.0 MVP: the `.ptz` document format is now locked to v1, and no new features will be added until the stable release - only fixes.
 
 ### ✨ Added
 
@@ -94,7 +94,7 @@ This is the first beta release. It marks the **feature freeze** for the 0.1.0 MV
 - Ctrl+P now opens the app's print dialog; the browser's native print dialog no longer interferes.
 - Eraser strokes no longer leave black outline artifacts in the final committed composite.
 - Move tool: dragging at transparent pixels now moves the same layer the panel selects (alpha-aware drag hit-test; previously the drag could target a transparent top layer while the selection fell through to the layer below).
-- Print dialog: the dialog body is now truly full-bleed — the `!p-0` override now wins over the base `px-4 py-4` padding.
+- Print dialog: the dialog body is now truly full-bleed - the `!p-0` override now wins over the base `px-4 py-4` padding.
 
 ### 🧪 Testing
 
@@ -106,7 +106,7 @@ This is the first beta release. It marks the **feature freeze** for the 0.1.0 MV
 
 ---
 
-## [0.1.0-alpha.2] — 2026-08-01
+## [0.1.0-alpha.2] - 2026-08-01
 
 ### ⚠️ Pre-Release Notice
 
@@ -115,23 +115,23 @@ breaking changes, and incomplete features. Not recommended for production use.
 
 ### ✨ Added
 
-- Elliptical marquee selection — drag draws an ellipse; copy/cut/delete scope to the ellipse interior; Rect/Ellipse toggle in the option bar (M / Shift+M).
-- Gradient tool — linear + radial, selection-aware, undoable, option bar with type/direction controls.
-- Paint bucket tool — tolerance-based fill, selection-aware, undoable.
-- WASM export encoding — `photrez-core` PNG/JPEG/WebP encoders compiled to WebAssembly via `wasm-pack`, wired zero-copy into `exportDocument.ts` with automatic Canvas fallback (parity-tested vs the TypeScript encoder).
-- Move tool improvements — canvas-edge snap boost, locked-layer fallthrough, alpha-aware layer hit-test (transparent pixels pass through to the layer underneath).
-- Eyedropper option bar — HEX readout, copy, auto-copy to clipboard.
-- Print pipeline performance phases 1–3 — native-DPI 1:1 composite, raw `Uint8Array` IPC (no temp file / base64), and a raw-RGBA zero-encode path to GDI.
-- No-layer UX guards — brush/eraser/fill/delete/flip/duplicate/merge/flatten/apply-adjustment now surface a warning toast instead of silently no-op'ing.
+- Elliptical marquee selection - drag draws an ellipse; copy/cut/delete scope to the ellipse interior; Rect/Ellipse toggle in the option bar (M / Shift+M).
+- Gradient tool - linear + radial, selection-aware, undoable, option bar with type/direction controls.
+- Paint bucket tool - tolerance-based fill, selection-aware, undoable.
+- WASM export encoding - `photrez-core` PNG/JPEG/WebP encoders compiled to WebAssembly via `wasm-pack`, wired zero-copy into `exportDocument.ts` with automatic Canvas fallback (parity-tested vs the TypeScript encoder).
+- Move tool improvements - canvas-edge snap boost, locked-layer fallthrough, alpha-aware layer hit-test (transparent pixels pass through to the layer underneath).
+- Eyedropper option bar - HEX readout, copy, auto-copy to clipboard.
+- Print pipeline performance phases 1-3 - native-DPI 1:1 composite, raw `Uint8Array` IPC (no temp file / base64), and a raw-RGBA zero-encode path to GDI.
+- No-layer UX guards - brush/eraser/fill/delete/flip/duplicate/merge/flatten/apply-adjustment now surface a warning toast instead of silently no-op'ing.
 
 ### 🎨 Changed
 
-- Splashscreen window removed — the main window shows directly, eliminating the black flash and reducing startup latency; window-state restore now snaps to the primary monitor if the saved position is off-screen.
+- Splashscreen window removed - the main window shows directly, eliminating the black flash and reducing startup latency; window-state restore now snaps to the primary monitor if the saved position is off-screen.
 - Brush stroke smoothing via coalesced pointer events (stylus / high-Hz pointers produce smooth curves); brush cursor previews the active-layer transform (ellipse + rotation).
-- Crisp pixel editing above 200% zoom — renderer uses `NEAREST` magnification to avoid bilinear blur.
-- History VRAM disposal — evicted/cleared undo snapshots release their `ImageBitmap`s (no GPU memory leak on long sessions).
+- Crisp pixel editing above 200% zoom - renderer uses `NEAREST` magnification to avoid bilinear blur.
+- History VRAM disposal - evicted/cleared undo snapshots release their `ImageBitmap`s (no GPU memory leak on long sessions).
 - Parallel batch-open for multi-file import; Alt+resize no longer drifts the center; transform resize keeps aspect ratio ON by default (Shift inverts to free-resize).
-- Adjustments sliders debounced (100ms) — slider leads, engine follows; hardcoded accent colors moved to CSS variables.
+- Adjustments sliders debounced (100ms) - slider leads, engine follows; hardcoded accent colors moved to CSS variables.
 - Six silent `console.error` paths converted to `showToast`; option-bar labels standardized.
 
 ### 🐛 Fixed
@@ -139,7 +139,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 - Background layer no longer reorderable (was reachable via drag).
 - Brush stroke anchor now restored deterministically on undo.
 - Selection move no longer commits ghost history entries on click-only drags.
-- Close button resolution in production webview — dynamic `@vite-ignore` import replaced with a static import.
+- Close button resolution in production webview - dynamic `@vite-ignore` import replaced with a static import.
 
 ### 🧪 Testing
 
@@ -152,7 +152,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 
 ---
 
-## [0.1.0-alpha.1] — 2026-07-19
+## [0.1.0-alpha.1] - 2026-07-19
 
 ### ⚠️ Pre-Release Notice
 
@@ -173,7 +173,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 - Export: PNG, JPEG, WebP with quality settings.
 - Native print dialog integration (Windows).
 - History: undo/redo with VRAM-aware disposal.
-- Save/load project format (`.ptz` — zip archive with document.json + layer PNGs).
+- Save/load project format (`.ptz` - zip archive with document.json + layer PNGs).
 - Window state persistence across launches.
 - WebGL2 renderer with context-loss recovery.
 - Rust `photrez-core` domain crate (reference implementation).
@@ -187,8 +187,8 @@ Highlights:
 
 - Startup time on cold launch is ~3.7s (target: <2s). Optimization planned for beta.
 - High-zoom canvas preview may appear pixelated due to 4096px backing-buffer clamp.
-- WebGL2 `readPixels` is synchronous — brief hitch possible on first "Apply & Paint" for large layers.
-- macOS and Linux are not yet tested in CI — Windows is the only supported platform for alpha.
+- WebGL2 `readPixels` is synchronous - brief hitch possible on first "Apply & Paint" for large layers.
+- macOS and Linux are not yet tested in CI - Windows is the only supported platform for alpha.
 - Blend modes beyond Normal/Multiply/Screen/Overlay are blocked from UI (parity tests pending).
 - Selection is rectangular only (lasso/magic wand not in MVP scope).
 - PSD import is not supported (non-goal for MVP).
@@ -197,7 +197,7 @@ Highlights:
 
 - Path-traversal validation: canonicalize + symlink check + extension allowlist (`validate_path_safe`).
 - `delete_file` restricted to the OS temp directory.
-- `print_image` allowlist narrowed to PNG/JPEG (PDF dropped — non-MVP).
+- `print_image` allowlist narrowed to PNG/JPEG (PDF dropped - non-MVP).
 - File-size cap: 256 MB per IPC operation.
 - Project file (`.ptz`) zip-bomb protection: per-entry decompressed size limit.
 - CSP enabled with `script-src 'self'` (no inline scripts).

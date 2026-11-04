@@ -19,6 +19,13 @@
 # Internal-facing markdown (docs/plans/**, docs/decisions/**) is never scanned:
 # internal documents may say "Phase 2"; public ones may not.
 #
+# SCRIPT SCOPE (2026-11-04): the --files check also covers tracked scripts
+# (scripts/**.txt, scripts/**.sh). A comment in a script is as readable as a
+# comment in Rust, and the size baseline is a tracked data file whose header
+# lines are prose. Two files are exempt, and only these two, because a ban
+# must name what it bans: this guard's own pattern list and the stack-token
+# list it reads. Every other tracked script is scanned by these rules.
+#
 # This is the SINGLE source of truth, called by BOTH the pre-commit hook and CI
 # (GitHub Actions) so the rule cannot diverge. OSS convention: machine-enforced,
 # not memory.
@@ -209,6 +216,23 @@ files_check() {
                    [ -z "$hits" ] || { printf '%s\n' "$hits"; fail "vocabulary of a runtime this repository no longer contains, in public doc $f (describe what the product does, or mark the line trace-exempt: <reason>)"; }
                  fi ;;
             esac
+            ;;
+        esac
+        ;;
+      scripts/*.txt|scripts/*.sh)
+        # Tracked scripts are public artifacts: a comment in one must not
+        # name internal plan vocabulary, a path a fresh clone cannot resolve,
+        # or the vocabulary of a runtime this repository no longer contains.
+        # The guard's own pattern list and the token list carry the words they
+        # ban, so they are exempt; the exemption is scoped to exactly
+        # these two files.
+        case "$f" in
+          scripts/check-public-terminology.sh|scripts/public-stack-tokens.txt) ;;
+          *)
+            grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
+            grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f"
+            hits=$(trace_check "$(grep -n '' "$f")")
+            [ -z "$hits" ] || { printf '%s\n' "$hits"; fail "vocabulary of a runtime this repository no longer contains, in $f (describe what the script does, or mark the line trace-exempt: <reason>)"; }
             ;;
         esac
         ;;

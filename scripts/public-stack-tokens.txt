@@ -33,13 +33,13 @@ tauri	CHANGELOG.md	allowlist
 tauri	docs/frame-pacing-baseline.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 tauri	docs/archive/	allowlist
-tauri	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:tauri
+tauri	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:tauri
 
 # allowlist: dated project history is retained verbatim.
 solid	CHANGELOG.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 solid	docs/archive/	allowlist
-solid	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:solid
+solid	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:solid
 
 # allowlist: dated project history is retained verbatim.
 vite	CHANGELOG.md	allowlist
@@ -47,13 +47,13 @@ vite	CHANGELOG.md	allowlist
 vite	docs/frame-pacing-baseline.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 vite	docs/archive/	allowlist
-vite	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:vite
+vite	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:vite
 
 # allowlist: dated project history is retained verbatim.
 wasm	CHANGELOG.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 wasm	docs/archive/	allowlist
-wasm	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:wasm
+wasm	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:wasm
 
 # allowlist: dated project history is retained verbatim.
 webview	CHANGELOG.md	allowlist
@@ -62,10 +62,27 @@ webview	docs/frame-pacing-baseline.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 webview	docs/archive/	allowlist
 # WebView2 is the Tauri shell's runtime: the surface claim outlives tauri only by mistake.
-webview	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:tauri
+webview	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:tauri
 
 # allowlist: dated project history is retained verbatim.
 webgl	CHANGELOG.md	allowlist
 # allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
 webgl	docs/archive/	allowlist
-webgl	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/	forbidden-when-absent:webgl
+webgl	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:webgl
+
+# Allowlist (2026-11-04): the guard's pattern list and this token file name the
+# words they police, so they are exempt from the scripts/ scan added with the
+# SCRIPT SCOPE note in scripts/check-public-terminology.sh. The exemption covers
+# these two tracked files only; every other script stays scanned.
+tauri	scripts/public-stack-tokens.txt	allowlist
+tauri	scripts/check-public-terminology.sh	allowlist
+solid	scripts/public-stack-tokens.txt	allowlist
+solid	scripts/check-public-terminology.sh	allowlist
+vite	scripts/public-stack-tokens.txt	allowlist
+vite	scripts/check-public-terminology.sh	allowlist
+wasm	scripts/public-stack-tokens.txt	allowlist
+wasm	scripts/check-public-terminology.sh	allowlist
+webview	scripts/public-stack-tokens.txt	allowlist
+webview	scripts/check-public-terminology.sh	allowlist
+webgl	scripts/public-stack-tokens.txt	allowlist
+webgl	scripts/check-public-terminology.sh	allowlist
