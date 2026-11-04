@@ -57,6 +57,8 @@ fn main() {
                 cmd_parity_perceptual_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("band-diff") {
                 cmd_parity_band_diff(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("score") {
+                parity::run::cmd_score(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("class-diff") {
                 cmd_parity_class_diff(&args[2..])
             } else {
@@ -97,6 +99,14 @@ fn print_help() {
          \x20              [--max-band <pct>] [--out <json>]\n\
          \x20     Per-band identity: what differs, whether a shift explains it,\n\
          \x20     and which exact colours each side is made of.\n\
+         \n\
+         \x20 xtask parity score --bundle <dir> [--oracle-mask <png> --native-mask <png>]\n\
+         \x20              [--max-band-pct <pct>] [--band-height <px>] [--max-shift <px>]\n\
+         \x20              [--tiers <n>] [--out <json>]\n\
+         \x20 xtask parity score --bundles <root> [--max-band-pct <pct>]\n\
+         \x20     Scored run of an evidence bundle: the percentage floor and the band\n\
+         \x20     identity ceiling together, with the band numbers written beside the\n\
+         \x20     recorded ones. A root scores every bundle under it and names the rejects.\n\
          \n\
          \x20 xtask parity class-diff --a <png> --b <png> [--max <pct>]\n\
          \x20     Recompute a class-map verdict: pixels that differ at all, and how\n\

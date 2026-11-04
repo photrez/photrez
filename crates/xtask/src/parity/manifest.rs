@@ -1,10 +1,13 @@
 //! Reader for the golden-master `manifest.json` (the shot index beside the
-//! baseline PNGs). Only the fields the parity runs need are typed; everything
-//! else in the manifest stays unread.
+//! baseline PNGs) and for an evidence bundle's recorded `diff.json`. Only the
+//! fields the parity runs need are typed; everything else stays unread.
 
 use std::path::Path;
 
 use serde::Deserialize;
+use serde_json::Value;
+
+use super::round3;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Manifest {
@@ -118,9 +121,164 @@ pub fn select<'a>(manifest: &'a Manifest, patterns: &[String]) -> Result<Vec<&'a
     Ok(picked)
 }
 
+/// The pixel counts a bundle's `diff.json` recorded, with the comparator behind them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RecordedMetrics {
+    /// The ratified perceptual rule: differing pixels, anti-aliasing set aside.
+    Perceptual { changed: u64, ignored_aa: u64 },
+    /// The class-map gate: pixels that differ at all. Its bands are still measured with
+    /// the perceptual rule, so a scored bundle labels which number is whose.
+    ClassMap { raw: u64 },
+}
+
+/// One evidence bundle's recorded verdict, as far as a re-score needs it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BundleRecord {
+    pub surface: String,
+    pub total_pixels: u64,
+    pub recorded: RecordedMetrics,
+    /// The pixels the recorded `changed_pct` was computed from. For a class-map bundle
+    /// this is its own mismatch count, which is neither the raw count nor a perceptual
+    /// measure, so the percentage assertion has to read it rather than re-derive it.
+    pub gate_pixels: u64,
+    /// The percentage allowance the bundle granted itself, as a share of its own mask.
+    pub max_changed_pct: f64,
+    /// The band ceiling the bundle states, when it states one.
+    pub max_band_pct: Option<f64>,
+}
+
+/// Read the record. A document with no pixel counts is refused rather than scored,
+/// because then nothing constrains which pair a re-measure may use.
+pub fn bundle_record(diff: &Value) -> Result<BundleRecord, String> {
+    let metrics = diff
+        .get("metrics")
+        .and_then(Value::as_object)
+        .ok_or("diff.json `metrics` is missing or not an object")?;
+    let number = |key: &str| metrics.get(key).and_then(Value::as_u64);
+    let total_pixels = number("total_pixels").ok_or("diff.json `metrics.total_pixels` missing")?;
+    let recorded =
+        match (
+            number("changed_pixels"),
+            number("ignored_aa_pixels"),
+            number("raw_changed_pixels"),
+        ) {
+            (Some(changed), Some(ignored_aa), _) => RecordedMetrics::Perceptual {
+                changed,
+                ignored_aa,
+            },
+            (_, None, Some(raw)) => RecordedMetrics::ClassMap { raw },
+            _ => return Err(
+                "diff.json `metrics` records neither changed_pixels with ignored_aa_pixels nor \
+                 raw_changed_pixels, so no measurement can be checked against it"
+                    .to_string(),
+            ),
+        };
+    let gate_pixels = match recorded {
+        RecordedMetrics::Perceptual { changed, .. } => changed,
+        RecordedMetrics::ClassMap { raw } => number("changed_pixels").unwrap_or(raw),
+    };
+    Ok(BundleRecord {
+        surface: diff
+            .get("surface")
+            .and_then(Value::as_str)
+            .unwrap_or("(unnamed)")
+            .to_string(),
+        total_pixels,
+        recorded,
+        gate_pixels,
+        max_changed_pct: percentage_allowance(diff, total_pixels),
+        max_band_pct: stated_band_ceiling(diff),
+    })
+}
+
+/// The percentage ceiling the bundle recorded for itself. `max_changed_pixels` is where
+/// the ratified 12 % glyph allowance lives, so the floor travels with the bundle and the
+/// ratified number is only the fallback for a bundle that states none.
+fn percentage_allowance(diff: &Value, total_pixels: u64) -> f64 {
+    let pixels = diff
+        .get("thresholds")
+        .and_then(|t| t.get("max_changed_pixels"))
+        .and_then(Value::as_u64);
+    match pixels {
+        Some(pixels) if total_pixels > 0 => round3(pixels as f64 / total_pixels as f64 * 100.0),
+        _ => super::RATIFIED_MAX_CHANGED_PCT,
+    }
+}
+
+/// The band ceiling the bundle states, if any.
+pub fn stated_band_ceiling(diff: &Value) -> Option<f64> {
+    diff.get("thresholds")
+        .and_then(|t| t.get("max_band_pct"))
+        .and_then(Value::as_f64)
+}
+
+/// The `x=.. y=.. w=.. h=..` regions a `thresholds.mask` note declares, in the order the
+/// note gives them. A note may name several regions, so the caller matches one against
+/// the recorded pixel count instead of taking the first.
+pub fn mask_regions(diff: &Value) -> Vec<(u32, u32, u32, u32)> {
+    let Some(note) = diff
+        .get("thresholds")
+        .and_then(|t| t.get("mask"))
+        .and_then(Value::as_str)
+    else {
+        return Vec::new();
+    };
+    let bytes = note.as_bytes();
+    let mut regions = Vec::new();
+    let mut at = 0;
+    while at + 1 < bytes.len() {
+        if bytes[at] == b'x' && bytes[at + 1] == b'=' {
+            if let Some((region, next)) = read_region(bytes, at + 2) {
+                regions.push(region);
+                at = next;
+                continue;
+            }
+        }
+        at += 1;
+    }
+    regions
+}
+
+/// Digits from `at`, and where the run ends. An empty run is not a number.
+fn digits(bytes: &[u8], at: usize) -> Option<(u32, usize)> {
+    let mut end = at;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    if end == at {
+        return None;
+    }
+    let value = bytes[at..end].iter().try_fold(0u32, |n, d| {
+        n.checked_mul(10)?.checked_add(u32::from(d - b'0'))
+    })?;
+    Some((value, end))
+}
+
+/// `x=.. y=.. w=.. h=..` from `at` (past the `x=`), and where the run ends.
+fn read_region(bytes: &[u8], at: usize) -> Option<((u32, u32, u32, u32), usize)> {
+    let (x, at) = digits(bytes, at)?;
+    let (y, at) = keyed(bytes, at, b'y')?;
+    let (w, at) = keyed(bytes, at, b'w')?;
+    let (h, at) = keyed(bytes, at, b'h')?;
+    Some(((x, y, w, h), at))
+}
+
+/// Optional spaces, then `key=`, then digits.
+fn keyed(bytes: &[u8], at: usize, key: u8) -> Option<(u32, usize)> {
+    let mut at = at;
+    while at < bytes.len() && (bytes[at] == b' ' || bytes[at] == b'\t') {
+        at += 1;
+    }
+    if at + 1 >= bytes.len() || bytes[at] != key || bytes[at + 1] != b'=' {
+        return None;
+    }
+    digits(bytes, at + 2)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{require_english_locale, Manifest};
+    use super::{bundle_record, mask_regions, require_english_locale, Manifest, RecordedMetrics};
+    use serde_json::json;
 
     fn manifest_with(locale: Option<&str>) -> Manifest {
         Manifest {
@@ -158,5 +316,121 @@ mod tests {
         let m = with.metrics_mask.expect("mask present");
         assert_eq!((m.x0, m.y0, m.x1, m.y1), (10, 20, 30, 40));
         assert_eq!((m.viewport_width, m.viewport_height), (1920, 1020));
+    }
+
+    /// A perceptual record and a class-map record are told apart by the keys they carry,
+    /// because the two gates measure different pixels.
+    #[test]
+    fn the_bundle_record_names_its_comparator() {
+        let perceptual = bundle_record(&json!({
+            "surface": "S001",
+            "thresholds": { "max_changed_pixels": 16492, "mask": "348x605" },
+            "metrics": {
+                "changed_pixels": 11765,
+                "total_pixels": 210540,
+                "ignored_aa_pixels": 5779,
+            },
+        }))
+        .expect("perceptual record");
+        assert_eq!(perceptual.surface, "S001");
+        assert_eq!(perceptual.total_pixels, 210540);
+        assert_eq!(
+            perceptual.recorded,
+            RecordedMetrics::Perceptual {
+                changed: 11765,
+                ignored_aa: 5779
+            }
+        );
+        assert_eq!(
+            perceptual.max_band_pct, None,
+            "the bundle states no ceiling"
+        );
+        assert_eq!(
+            perceptual.gate_pixels, 11765,
+            "the percentage the record scored"
+        );
+
+        let class_map = bundle_record(&json!({
+            "surface": "S052",
+            "metrics": {
+                "changed_pixels": 5737,
+                "total_pixels": 90312,
+                "raw_changed_pixels": 5404,
+            },
+        }))
+        .expect("class-map record");
+        assert_eq!(class_map.recorded, RecordedMetrics::ClassMap { raw: 5404 });
+        assert_eq!(
+            class_map.gate_pixels, 5737,
+            "a class-map bundle gates on its own mismatch count, not on the raw count"
+        );
+
+        let err = bundle_record(&json!({ "metrics": { "total_pixels": 100 } }))
+            .expect_err("no comparator can be identified");
+        assert!(err.contains("raw_changed_pixels"), "names the gap: {err}");
+    }
+
+    /// The floor travels with the bundle: `max_changed_pixels` is where the ratified 12 %
+    /// glyph allowance lives, and a bundle that states none gets the ratified number
+    /// rather than a value invented at the comparison.
+    #[test]
+    fn the_ceilings_a_bundle_states_are_the_ceilings_it_is_scored_against() {
+        let glyph = bundle_record(&json!({
+            "thresholds": { "max_changed_pixels": 4992, "max_band_pct": 15.0 },
+            "metrics": {
+                "changed_pixels": 0,
+                "total_pixels": 41600,
+                "ignored_aa_pixels": 0,
+            },
+        }))
+        .expect("glyph record");
+        assert_eq!(glyph.max_changed_pct, 12.0, "4992 of 41600 px");
+        assert_eq!(glyph.max_band_pct, Some(15.0));
+
+        let bare = bundle_record(&json!({
+            "metrics": { "changed_pixels": 0, "total_pixels": 6000, "ignored_aa_pixels": 0 },
+        }))
+        .expect("bare record");
+        assert_eq!(bare.max_changed_pct, super::super::RATIFIED_MAX_CHANGED_PCT);
+        assert_eq!(bare.max_band_pct, None);
+    }
+
+    /// A mask note may name several regions, so every `x=.. y=.. w=.. h=..` is returned and
+    /// the caller matches the recorded pixel count instead of guessing which region the
+    /// mask was. A note in another shape yields nothing, which refuses the rebuild.
+    #[test]
+    fn mask_regions_reads_every_region_a_note_declares() {
+        let several = json!({
+            "thresholds": {
+                "mask": "overlay region x=790 y=585 w=320 h=130 (41600 px). Chrome masks: box \
+                         x=860 y=585 w=180 h=90 with the glyph rect blanked.",
+            },
+        });
+        assert_eq!(
+            mask_regions(&several),
+            vec![(790, 585, 320, 130), (860, 585, 180, 90)]
+        );
+
+        let menu = json!({
+            "thresholds": { "mask": "measured menu+shadow rect x=551 y=577 w=265 h=352 physical \
+                                     (menu panel 552..814 x 578..927 native)" },
+        });
+        assert_eq!(mask_regions(&menu), vec![(551, 577, 265, 352)]);
+
+        assert!(
+            mask_regions(
+                &json!({ "thresholds": { "mask": "full client area 1920x1020 physical" } })
+            )
+            .is_empty(),
+            "a size is not a region"
+        );
+        assert!(mask_regions(&json!({})).is_empty());
+    }
+
+    /// A digit run that would overflow is not a region, and must not wrap into one.
+    #[test]
+    fn an_absurd_coordinate_is_not_a_region() {
+        let diff = json!({ "thresholds": { "mask": "x=99999999999999 y=1 w=2 h=3" } });
+        assert!(mask_regions(&diff).is_empty());
     }
 }

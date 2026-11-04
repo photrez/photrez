@@ -7,6 +7,10 @@
 //! identical in the total. The bands are measured after the pair is aligned sideways, so
 //! one displaced column reads as one horizontal finding, not as content in every band.
 //!
+//! [`decide`] applies the two assertions of the adopted rule: the whole-surface percentage
+//! floor and the band identity ceiling. The ceiling is applied to a band's residue, so a
+//! displaced band costs what the shift leaves rather than its whole difference.
+//!
 //! Only [`super::perceptual::color_delta`] is shared with the ratified comparator, with the
 //! same `y_only == false`. Bands never skip a pixel as anti-aliasing, because a border
 //! drawn one pixel off is exactly the drift this instrument exists to catch.
@@ -14,6 +18,17 @@
 use super::perceptual::color_delta;
 use super::pngio::RgbaImage;
 use serde::Serialize;
+
+/// Band height the ratified band census measured with, in rows.
+pub const DEFAULT_BAND_HEIGHT: u32 = 60;
+/// Alignment search on both axes, in pixels, from the ratified rule.
+pub const DEFAULT_MAX_SHIFT: i32 = 8;
+/// Colour tiers kept per band, from the ratified census.
+pub const DEFAULT_TIERS: usize = 3;
+/// The band identity ceiling adopted 2026-11-04, as a percent of a band's own pixels.
+/// A caller or a bundle states another number; this is only the fallback, so no
+/// comparison carries a literal.
+pub const RATIFIED_MAX_BAND_PCT: f64 = 20.0;
 
 /// The rows a band covers, and what this tool concluded about them.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -63,6 +78,112 @@ pub struct BandReport {
     pub max_shift: i32,
     pub horizontal: Shift,
     pub bands: Vec<Band>,
+}
+
+/// The two ceilings one scored surface answers to. Both are stated numbers: the
+/// percentage floor comes from the bundle's own allowance, the band ceiling from the
+/// caller or the bundle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ceilings {
+    pub max_changed_pct: f64,
+    pub max_band_pct: f64,
+}
+
+/// The band that decides the verdict, read two ways.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorstBand {
+    pub y0: u32,
+    pub y1: u32,
+    pub total_pixels: u64,
+    /// Pixels over the threshold on the aligned pair, before this band's own shift.
+    pub changed_pixels: u64,
+    /// Pixels over the threshold once this band's own shift is absorbed. The ceiling is
+    /// applied to this, so a displaced band costs its residue, not its whole difference.
+    pub residual_pixels: u64,
+    pub changed_pct: f64,
+    pub residual_pct: f64,
+}
+
+/// One surface's verdict against both ceilings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Verdict {
+    pub pass: bool,
+    pub percent_pass: bool,
+    pub band_pass: bool,
+    pub changed_pct: f64,
+    pub worst: Option<WorstBand>,
+}
+
+/// A share of a region, three decimals, with an empty region reading as zero.
+pub(crate) fn share(part: u64, whole: u64) -> f64 {
+    if whole == 0 {
+        return 0.0;
+    }
+    super::round3(part as f64 / whole as f64 * 100.0)
+}
+
+impl Band {
+    fn worst(&self) -> WorstBand {
+        WorstBand {
+            y0: self.y0,
+            y1: self.y1,
+            total_pixels: self.total_pixels,
+            changed_pixels: self.changed_pixels,
+            residual_pixels: self.residual_at_best_dy,
+            changed_pct: self.changed_pct,
+            residual_pct: share(self.residual_at_best_dy, self.total_pixels),
+        }
+    }
+}
+
+impl BandReport {
+    /// The band left with the largest residue after its own shift, as a share of its
+    /// pixels. Ties go to the band higher on screen, so the named band is stable.
+    pub fn worst_band(&self) -> Option<WorstBand> {
+        let mut worst: Option<WorstBand> = None;
+        for band in &self.bands {
+            let candidate = band.worst();
+            if worst
+                .as_ref()
+                .is_none_or(|current| candidate.residual_pct > current.residual_pct)
+            {
+                worst = Some(candidate);
+            }
+        }
+        worst
+    }
+
+    /// The band with the largest changed share, before each band's own shift. Recorded
+    /// beside the residue so a reader sees the displacement and the difference apart.
+    pub fn worst_changed_band(&self) -> Option<WorstBand> {
+        let mut worst: Option<WorstBand> = None;
+        for band in &self.bands {
+            let candidate = band.worst();
+            if worst
+                .as_ref()
+                .is_none_or(|current| candidate.changed_pct > current.changed_pct)
+            {
+                worst = Some(candidate);
+            }
+        }
+        worst
+    }
+}
+
+/// The adopted verdict: the whole-image percentage floor and the band ceiling together.
+/// A ceiling is met at equality, because the rule reads "exceeds". A surface with no
+/// band has nothing that can exceed the ceiling.
+pub fn decide(changed_pct: f64, report: &BandReport, ceilings: Ceilings) -> Verdict {
+    let worst = report.worst_band();
+    let band_pass = worst.is_none_or(|band| band.residual_pct <= ceilings.max_band_pct);
+    let percent_pass = changed_pct <= ceilings.max_changed_pct;
+    Verdict {
+        pass: percent_pass && band_pass,
+        percent_pass,
+        band_pass,
+        changed_pct,
+        worst,
+    }
 }
 
 fn pixel(img: &RgbaImage, x: u32, y: u32) -> [u8; 3] {
@@ -484,5 +605,141 @@ mod tests {
         let b = flat(16, 24);
         let err = report(&a, &b, 0.1, 10, 4, 2).expect_err("sizes differ");
         assert!(err.contains("size mismatch"), "got `{err}`");
+    }
+
+    const DARK: [u8; 3] = [30, 30, 30];
+    const MAGENTA: [u8; 3] = [255, 0, 255];
+    const ORANGE: [u8; 3] = [242, 142, 66];
+
+    /// The ceilings the ratified rule states, so no test invents its own line.
+    fn ratified_ceilings() -> Ceilings {
+        Ceilings {
+            max_changed_pct: crate::parity::RATIFIED_MAX_CHANGED_PCT,
+            max_band_pct: RATIFIED_MAX_BAND_PCT,
+        }
+    }
+
+    /// A band that sits exactly on the ceiling is not over it: the rule reads "exceeds",
+    /// so 20 % of a band's pixels passing is the ratified line, not a failure.
+    #[test]
+    fn a_band_exactly_at_the_ceiling_passes() {
+        let a = image(100, 60, |_, _| DARK);
+        let b = image(100, 60, |_, y| if y < 12 { MAGENTA } else { DARK });
+        let report = report(&a, &b, 0.1, 60, 8, 3).expect("report");
+        let worst = report.worst_band().expect("one band");
+        assert_eq!((worst.changed_pixels, worst.total_pixels), (1200, 6000));
+        assert_eq!(
+            worst.residual_pct, RATIFIED_MAX_BAND_PCT,
+            "12 of 60 rows is exactly {} %",
+            RATIFIED_MAX_BAND_PCT
+        );
+        assert!(
+            decide(0.0, &report, ratified_ceilings()).band_pass,
+            "at the ceiling the band passes"
+        );
+    }
+
+    /// One pixel more than the ceiling is a surface failure, and `pass` says so rather
+    /// than leaving the reader to combine two fields.
+    #[test]
+    fn one_pixel_above_the_ceiling_fails_the_surface() {
+        let a = image(100, 60, |_, _| DARK);
+        let b = image(100, 60, |_, y| if y < 13 { MAGENTA } else { DARK });
+        let report = report(&a, &b, 0.1, 60, 8, 3).expect("report");
+        let verdict = decide(0.0, &report, ratified_ceilings());
+        assert_eq!(verdict.worst.expect("one band").residual_pct, 21.667);
+        assert!(!verdict.band_pass);
+        assert!(!verdict.pass, "a band fail is a surface fail");
+    }
+
+    /// A displaced band is a layout fact, not a colour defect. The ceiling is applied to
+    /// what the shift leaves, so the same pair that reads 26.667 % as measured reads 0 %.
+    #[test]
+    fn alignment_rescues_a_displaced_band() {
+        let a = image(
+            200,
+            180,
+            |_, y| {
+                if (60..72).contains(&y) {
+                    ORANGE
+                } else {
+                    DARK
+                }
+            },
+        );
+        let b = image(
+            200,
+            180,
+            |_, y| {
+                if (68..80).contains(&y) {
+                    ORANGE
+                } else {
+                    DARK
+                }
+            },
+        );
+        let report = report(&a, &b, 0.1, 60, 8, 3).expect("report");
+        let displaced = &report.bands[1];
+        assert_eq!((displaced.y0, displaced.y1), (60, 120));
+        assert_eq!(
+            report.worst_changed_band().expect("a band").changed_pct,
+            26.667,
+            "as measured, the band is over the ceiling"
+        );
+        assert_eq!(displaced.best_dy, 8, "b's stripe sits eight rows lower");
+        assert_eq!(
+            displaced.residual_at_best_dy, 0,
+            "the shift explains the whole band"
+        );
+        assert_eq!(report.worst_band().expect("a band").residual_pct, 0.0);
+        assert!(
+            decide(5.0, &report, ratified_ceilings()).pass,
+            "so a displaced band is not reported as a colour defect"
+        );
+    }
+
+    /// The case the whole-image percentage cannot see: one control painted the wrong colour
+    /// is 7.5 % of the mask and 25 % of the band it sits in, so the floor clears it and the
+    /// ceiling does not.
+    #[test]
+    fn a_band_can_fail_while_the_percentage_passes() {
+        let a = image(400, 200, |_, _| DARK);
+        let b = image(400, 200, |x, y| {
+            if (100..300).contains(&x) && (80..110).contains(&y) {
+                MAGENTA
+            } else {
+                DARK
+            }
+        });
+        let measured = super::super::perceptual::compare(&a, &b, 0.1, true).expect("measure");
+        assert_eq!(
+            measured.changed_pixels, 6000,
+            "the painted control, nothing else"
+        );
+        assert!(
+            measured.changed_pct < ratified_ceilings().max_changed_pct,
+            "the ratified floor would pass it: {} %",
+            measured.changed_pct
+        );
+        let report = report(&a, &b, 0.1, 60, 8, 3).expect("report");
+        assert_eq!(report.horizontal.best_dx, 0, "the pair is not displaced");
+        let verdict = decide(measured.changed_pct, &report, ratified_ceilings());
+        assert!(verdict.percent_pass, "the floor is met on its own");
+        assert!(!verdict.band_pass, "the band the control sits in is not");
+        let worst = verdict.worst.expect("a band trips the ceiling");
+        assert_eq!((worst.y0, worst.y1), (60, 120), "and the report names it");
+        assert_eq!(worst.residual_pct, 25.0);
+    }
+
+    /// A report with no band has nothing that can exceed the ceiling, so it is not a pass
+    /// invented by an absent measurement.
+    #[test]
+    fn an_empty_report_has_no_worst_band() {
+        let a = image(100, 0, |_, _| DARK);
+        let b = image(100, 0, |_, _| DARK);
+        let report = report(&a, &b, 0.1, 60, 8, 3).expect("report");
+        assert!(report.bands.is_empty());
+        assert_eq!(report.worst_band(), None);
+        assert!(decide(0.0, &report, ratified_ceilings()).band_pass);
     }
 }

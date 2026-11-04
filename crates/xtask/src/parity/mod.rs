@@ -33,9 +33,25 @@ pub mod zoom;
 
 use serde::Serialize;
 
+/// Whole-surface perceptual floor adopted for parity, as a percent of the compared
+/// mask. A bundle states its own allowance; this is only the fallback, so no
+/// comparison carries a literal.
+pub const RATIFIED_MAX_CHANGED_PCT: f64 = 7.834;
+
 /// Three-decimal rounding, matching the TS `toFixed(3)` report values.
 pub(crate) fn round3(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
+}
+
+/// First value of `--flag <value>`; `None` when the flag is absent or dangling.
+pub(crate) fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == name {
+            return it.next().map(String::as_str);
+        }
+    }
+    None
 }
 
 /// A pixel rectangle. Only ever produced from non-negative layout coordinates.
