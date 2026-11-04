@@ -372,6 +372,9 @@ mod close_guard;
 #[path = "tests/commands.rs"]
 mod commands;
 
+#[path = "tests/tab_strip.rs"]
+mod tab_strip;
+
 #[path = "tests/save_as_cancel.rs"]
 mod save_as_cancel;
 

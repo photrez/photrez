@@ -4,7 +4,7 @@
 //! `manifest.json` records the active tab at `x52,y46,89.86x37`, and the
 //! column runs from the tool rail's right edge (x=52) to the right dock
 //! (x=833) — 781px wide. Left to right it holds the flexible tab list, the
-//! new-document button, and the utility cluster (layout toggle + Export)
+//! new-document button, and the utility cluster (Export only)
 //! pressed against the dock edge.
 //!
 //! # Scope: the resting state, with exactly one open (and active) document
@@ -17,7 +17,7 @@
 //! A static screenshot cannot show behaviour, so what stays out of this module
 //! is the reference's drag-to-reorder with drop
 //! indicators, cross-document drag dimming, the hover-to-switch timer, the
-//! toasts, the export menu, the tooltip on the layout toggle, and the wheel/keyboard
+//! toasts, the export menu, and the wheel/keyboard
 //! navigation. Clicks that have a native command are wired: a tab activates,
 //! its close button closes the document, `+` opens the New Document dialog and
 //! Export opens the Export dialog. Hover *styling* is reproduced where it is a plain
@@ -50,14 +50,18 @@
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
 //!   takes no space. The arithmetic agrees with leaving it out: the utility
-//!   cluster measures 153px (1 border + 8 left padding + 28 toggle + 8 gap +
-//!   92 export +
-//!   16 right padding), which puts its left border at exactly x=680, where
-//!   `shell-full-page.png` has #333333.
-//! * **The layout toggle is not accent-coloured**: the accent only
-//!   applies when the dock layout is `"stacked"`, and the
-//!   default is `"side-by-side"` — which is
-//!   what the baseline shows (the dock panels sit side by side).
+//!   cluster measures 117px (1 border + 8 left padding + 92 export +
+//!   16 right padding).
+//! * **The layout toggle was captured, and is removed.** The baseline paints
+//!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
+//!   8 gap + 92 export + 16 right padding), which put its left border at
+//!   exactly x=680, where `shell-full-page.png` has #333333. The reference
+//!   switches the right dock between side-by-side and stacked there, and tints
+//!   the glyph with the accent only in the stacked layout. This app ships one
+//!   dock layout, so the control had no handler: a painted control that answers
+//!   no click is removed rather than kept, the same ruling that took the crop
+//!   bar's dead control out. Export keeps its measured x=725..816 place; the
+//!   cluster's left border moves from x=680 to x=716.
 //! * **Box model**: GPUI/taffy defaults to border-box sizing, so the
 //!   38px strip spends its 1px bottom border inside the 38 and leaves the 37px
 //!   content height `manifest.json` measures for the tab. The tab's width is
@@ -70,7 +74,7 @@
 //! # Known fidelity gaps
 //!
 //! * **Icon hover tint.** `Icon` captures its `text_color` while the element
-//!   tree is built, before hover refinement, so the `plus`, `columns` and
+//!   tree is built, before hover refinement, so the `plus` and
 //!   tab-close `x` glyphs do not brighten with their buttons — only the
 //!   backgrounds and plain text do. Same gap as `tool_rail` and `title_bar`;
 //!   no baseline captures a hover of those three controls, so it is unverified
@@ -146,14 +150,8 @@ const CLUSTER_PAD_L: f32 = 8.0;
 /// 16px — utility cluster's right padding.
 const CLUSTER_PAD_R: f32 = 16.0;
 
-/// 28px — layout toggle button.
-const TOGGLE_BTN: f32 = 28.0;
-
-/// 4px corners — layout toggle and export button.
+/// 4px corners — export button.
 const RADIUS_4: f32 = 4.0;
-
-/// 16px — the layout-toggle glyph.
-const TOGGLE_ICON: f32 = 16.0;
 
 /// 28px — export button height.
 const EXPORT_H: f32 = 28.0;
@@ -439,14 +437,15 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         )
 }
 
-/// The utility cluster: centred on one row with 8px between its children, 8px
-/// left and 16px right padding, never squeezed, a 1px left border and the full
-/// strip height — layout toggle plus export.
+/// The utility cluster: centred on one row, 8px left and 16px right padding,
+/// never squeezed, a 1px left border and the full strip height. It holds the
+/// export button.
 ///
-/// The third child of this row, the dock-close button, is hidden from the
+/// The dock-close button is hidden from the
 /// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
 /// absent rather than omitted.
-/// See the module docs for the 153px arithmetic that confirms it.
+/// See the module docs for the 117px arithmetic that confirms it, and for why
+/// the reference's layout toggle is not mounted here.
 fn cluster(cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.
@@ -458,34 +457,7 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
         .pr(px(CLUSTER_PAD_R))
         .border_l_1()
         .border_color(color::BORDER)
-        .child(layout_toggle())
         .child(export_button(cx))
-}
-
-/// The layout toggle: a 28px square with 4px corners, centred on one row, in
-/// the icon colour; on hover it gains white at 4.5% behind it and the plain
-/// text colour. It wraps the `columns` glyph at 16px with a 1.75 stroke.
-///
-/// Not accent-coloured because the dock is in its default `side-by-side`
-/// layout — see the module docs. The `Tooltip` around it is hover-only and
-/// not reproduced.
-///
-/// The reference switches the dock between side-by-side and stacked here; the
-/// app has no stacked layout, so this button has no handler.
-fn layout_toggle() -> impl IntoElement {
-    h_flex()
-        .id("layout-toggle")
-        .size(px(TOGGLE_BTN))
-        .items_center()
-        .justify_center()
-        .rounded(px(RADIUS_4))
-        .hover(|s| s.bg(color::WHITE_45).text_color(color::TEXT))
-        .child(
-            Icon::default()
-                .data(icons::COLUMNS)
-                .size(px(TOGGLE_ICON))
-                .text_color(color::ICON),
-        )
 }
 
 /// The export button: 28px tall, never squeezed, centred on one row with 8px
