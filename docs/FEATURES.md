@@ -87,7 +87,7 @@ because it has not been built yet.
 | Shipped | Settings dialog chooses the UI language and persists it; About dialog shows the native stack, version and locale line. |
 | Shipped | Save (`Ctrl+S`) and Save As (`Ctrl+Shift+S`) write `.ptz` projects; an imported flat image routes Save to Save As. |
 | Shipped | Export dialog (`Ctrl+Alt+E`) writes the composite as PNG, JPEG or WebP with a quality slider for lossy formats; WebP export is currently the lossless path (quality is ignored) — a documented deviation. |
-| Shipped | Autosave writes dirty documents to the app cache on a 60-second timer, and a startup recovery pass offers them again after an abnormal exit. An archive is skipped when it belongs to the document already open and is no newer than the file on disk; anything uncertain still offers. |
+| Shipped | Autosave writes dirty documents to the app cache on a 60-second timer, and a startup recovery pass offers them again after an abnormal exit. An archive is skipped when it belongs to the document already open and is no newer than the file on disk; anything uncertain still offers. Discard removes only the archives the prompt listed, so a skipped one survives a Discard aimed at another document, and a row whose document is already open says so instead of opening a second copy. |
 
 ## Print
 
