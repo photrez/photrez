@@ -13,6 +13,7 @@
 //! capped at 40 per region.
 
 pub mod bands;
+pub mod classdiff;
 pub mod classify;
 pub mod coverage;
 pub mod crosscheck;

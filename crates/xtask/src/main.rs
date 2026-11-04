@@ -57,6 +57,8 @@ fn main() {
                 cmd_parity_perceptual_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("band-diff") {
                 cmd_parity_band_diff(&args[2..])
+            } else if args.get(1).map(String::as_str) == Some("class-diff") {
+                cmd_parity_class_diff(&args[2..])
             } else {
                 cmd_parity(&args[1..])
             }
@@ -95,6 +97,10 @@ fn print_help() {
          \x20              [--max-band <pct>] [--out <json>]\n\
          \x20     Per-band identity: what differs, whether a shift explains it,\n\
          \x20     and which exact colours each side is made of.\n\
+         \n\
+         \x20 xtask parity class-diff --a <png> --b <png> [--max <pct>]\n\
+         \x20     Recompute a class-map verdict: pixels that differ at all, and how\n\
+         \x20     many of those change class under the shell palette classifier.\n\
          \n\
          Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-parity."
     );
@@ -363,6 +369,70 @@ fn cmd_parity_band_diff(args: &[String]) -> i32 {
         if let Err(e) = std::fs::write(out, serde_json::to_string_pretty(&payload).unwrap()) {
             eprintln!("xtask parity band-diff: writing {out}: {e}");
             return 2;
+        }
+    }
+    0
+}
+
+/// `xtask parity class-diff --a <png> --b <png> [--max <pct>]`
+///
+/// Recomputes a recorded class-map verdict: how many pixels differ at all and how
+/// many of those change class. The threshold is printed, never assumed.
+fn cmd_parity_class_diff(args: &[String]) -> i32 {
+    let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
+        eprintln!("xtask parity class-diff: --a <png> and --b <png> are required");
+        return 2;
+    };
+    let max: Option<f64> = match flag(args, "--max") {
+        None => None,
+        Some(v) => match v.parse() {
+            Ok(n) => Some(n),
+            Err(_) => {
+                eprintln!("xtask parity class-diff: --max must be a number, got `{v}`");
+                return 2;
+            }
+        },
+    };
+    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity class-diff: {e}");
+            return 2;
+        }
+    };
+    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("xtask parity class-diff: {e}");
+            return 2;
+        }
+    };
+    let report = match parity::classdiff::report(&img_a, &img_b) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("xtask parity class-diff: {e}");
+            return 1;
+        }
+    };
+    println!(
+        "class diff {}x{}: {} px of {} differ at all, {} change class ({:.3}%)",
+        report.width,
+        report.height,
+        report.differing_pixels,
+        report.total_pixels,
+        report.class_mismatch_pixels,
+        report.class_mismatch_pct
+    );
+    for row in &report.by_class {
+        println!("  from {} x{}", row.class, row.pixels);
+    }
+    if let Some(max) = max {
+        if report.class_mismatch_pct > max {
+            eprintln!(
+                "xtask parity class-diff: FAIL {:.3}% > max {:.3}%",
+                report.class_mismatch_pct, max
+            );
+            return 1;
         }
     }
     0
