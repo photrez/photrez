@@ -90,9 +90,20 @@
 # The 46 non-ASCII bytes all sit in comments the parent kept - the moved code is pure
 # ASCII - and the string literals are identical by multiset, so the entry is deleted.
 #
+# A tenth split paid: the option bar's stroke widgets left
+# `views/option_bar/widgets.rs` for `widgets/stroke.rs` (308 lines) and
+# `widgets/text_stroke.rs` (473), taking the parent from its recorded 1561
+# (1560 at the cut) to 786. The token comparison found nothing absent from the
+# previous revision. The additions are two `mod` declarations, two child
+# `use super::*;` lines, two parent glob imports and two
+# `pub(in super::super)` markers, so `stroke_control` and `text_stroke_control`
+# kept their call sites in `variants/shape.rs` and `variants/text.rs`. The 1224
+# non-ASCII bytes all stayed in the parent, because the moved code is pure
+# ASCII, and `stroke_dot` plus the two popover-width constants travelled with
+# the code that alone called them, so that entry is deleted.
+#
 # The rest still owe theirs.
 1661 crates/photrez/src/app/measurement/driver.rs
 1442 crates/photrez/src/app/transform_move.rs
 1629 crates/photrez/src/render/canvas_bridge.rs
 1604 crates/photrez/src/state.rs
-1561 crates/photrez/src/views/option_bar/widgets.rs
