@@ -30,11 +30,13 @@ pub fn crop_params() -> CropParams {
 /// follows the reference markup fragment line-for-line:
 ///
 /// `pill` ⟵ `Divider` ⟵ `Aspect Ratio: Free` ⟵ `Divider` ⟵ `Delete` ⟵
-/// `Fill BG` ⟵ `white swatch + Use BG` ⟵ `Divider` ⟵ `…` ⟵ `Divider` ⟵
-/// `Cancel` ⟵ `Apply`.
+/// `Fill BG` ⟵ `white swatch + Use BG` ⟵ `Divider` ⟵ `Cancel` ⟵ `Apply`.
 ///
-/// The `<Divider/>` between `MoreDropdown` (…) and `Cancel` is present in the
-/// reference markup and therefore in the baseline shot - not compressed out.
+/// The reference places a `MoreDropdown` between two dividers. This build
+/// omits that trigger: the crop bar contributes no overflow group, and the
+/// guide and classic-mode selectors it would open are not implemented, so a
+/// painted trigger would open nothing. One divider still separates the swatch
+/// group from `Cancel`, as in the reference.
 pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
@@ -137,8 +139,6 @@ pub(super) fn crop_items(
         |app, cx| app.toggle_crop_fill(cx),
     ))
     .child(crop_fill_swatch_group())
-    .child(divider())
-    .child(more_dropdown_button())
     .child(divider())
     .child(cancel_button(cx))
     .child(apply_button(cx))

@@ -877,3 +877,45 @@ fn crop_bar_keeps_every_control_at_the_capture_width(cx: &mut gpui_kit::TestAppC
     })
     .expect("test window remains open");
 }
+
+/// The crop bar ships no More trigger. The bar contributes no overflow group,
+/// so a mounted trigger would paint and open nothing.
+///
+/// `more_dropdown_button` carries no `test_support()`, so `try_find` cannot see
+/// it; the observation is geometric instead. Measured at 1536 px: with the
+/// trigger the span from the fill checkbox to Cancel is 132 px (swatch group,
+/// two dividers, the 24 px button and their gaps); the divider-only layout
+/// measures 97 px.
+///
+/// RED proof: restore `.child(more_dropdown_button())` plus one divider in
+/// `variants::crop_items` and the first assertion fails on the measured span.
+#[gpui_kit::test]
+fn crop_bar_mounts_no_more_trigger(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        window.render_frame(cx);
+        let fill = window.find("opt-crop-fill").bounds();
+        let cancel = window.find("opt-cancel").bounds();
+        let span = f32::from(cancel.origin.x - (fill.origin.x + fill.size.width));
+        assert!(
+            span < 115.0,
+            "the crop bar mounts a dead More trigger: the fill-to-Cancel span is \
+             {span:.1} px, the divider-only layout measures 97 px"
+        );
+        for id in [
+            "crop-ratio",
+            "opt-crop-delete",
+            "opt-crop-fill",
+            "opt-cancel",
+            "opt-apply",
+        ] {
+            assert!(
+                window.try_find(id).is_some(),
+                "{id} still mounts after the trigger removal"
+            );
+        }
+    })
+    .expect("test window remains open");
+}
