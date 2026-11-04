@@ -538,6 +538,14 @@ pub struct AppState {
     pub move_snap_focus: Option<gpui_kit::FocusHandle>,
     pub move_auto_select_focus: Option<gpui_kit::FocusHandle>,
     pub move_transform_focus: Option<gpui_kit::FocusHandle>,
+    /// One tabbable focus handle per New Document text field, indexed by
+    /// `new_document_field_index` and installed at App construction.
+    pub new_document_field_foci: Vec<gpui_kit::FocusHandle>,
+    /// One tabbable focus handle per Resize Canvas size field, indexed by the
+    /// session's `field` value (0 width, 1 height).
+    pub resize_field_foci: Vec<gpui_kit::FocusHandle>,
+    /// Tabbable focus handle for the Rename prompt's text field.
+    pub rename_field_focus: Option<gpui_kit::FocusHandle>,
     /// Laid-out bounds of the Paint Bucket tolerance slider (pointer mapping).
     pub tolerance_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
@@ -777,6 +785,9 @@ impl Default for AppState {
             move_snap_focus: None,
             move_auto_select_focus: None,
             move_transform_focus: None,
+            new_document_field_foci: Vec::new(),
+            resize_field_foci: Vec::new(),
+            rename_field_focus: None,
             tolerance_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             opacity_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             slider_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
@@ -807,6 +818,35 @@ impl AppState {
     /// The handle a track takes so it can be tabbed to and stepped with arrows.
     pub fn slider_focus_for(&self, target: SliderTarget) -> Option<gpui_kit::FocusHandle> {
         self.slider_foci.get(target.index()).cloned()
+    }
+
+    /// How many New Document text fields exist, so the focus table is built
+    /// once and the tab order is checkable.
+    pub const NEW_DOCUMENT_FIELD_COUNT: usize = 3;
+    /// How many Resize Canvas size fields exist.
+    pub const RESIZE_FIELD_COUNT: usize = 2;
+
+    /// A field's slot in `AppState::new_document_field_foci`, spelled out
+    /// rather than read from the enum order, so adding a variant cannot
+    /// silently point a field at another field's handle.
+    pub fn new_document_field_index(field: NewDocField) -> usize {
+        match field {
+            NewDocField::Name => 0,
+            NewDocField::Width => 1,
+            NewDocField::Height => 2,
+        }
+    }
+
+    /// The handle a New Document field takes so Tab can reach it.
+    pub fn new_document_field_focus(&self, field: NewDocField) -> Option<gpui_kit::FocusHandle> {
+        self.new_document_field_foci
+            .get(Self::new_document_field_index(field))
+            .cloned()
+    }
+
+    /// The handle a Resize Canvas size field takes so Tab can reach it.
+    pub fn resize_field_focus(&self, index: u8) -> Option<gpui_kit::FocusHandle> {
+        self.resize_field_foci.get(usize::from(index)).cloned()
     }
 
     /// A `--shot` launch seeds the demo document without a session, so the tab

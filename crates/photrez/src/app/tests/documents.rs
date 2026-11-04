@@ -2,6 +2,9 @@ use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
 
+#[path = "documents/tab_reach.rs"]
+mod tab_reach;
+
 pub(super) fn open_second_document(
     app: &mut App,
     cx: &mut gpui_kit::Context<App>,
@@ -129,11 +132,17 @@ fn closing_a_clean_tab_activates_the_neighbour_and_dirty_tabs_prompt(
     .expect("test window remains open");
 }
 
-fn press_key(app: &mut App, cx: &mut gpui_kit::Context<App>, key: &str) {
-    press_char(app, cx, key, key);
+fn press_key(app: &mut App, window: &gpui_kit::Window, cx: &mut gpui_kit::Context<App>, key: &str) {
+    press_char(app, window, cx, key, key);
 }
 
-fn press_char(app: &mut App, cx: &mut gpui_kit::Context<App>, key: &str, text: &str) {
+fn press_char(
+    app: &mut App,
+    window: &gpui_kit::Window,
+    cx: &mut gpui_kit::Context<App>,
+    key: &str,
+    text: &str,
+) {
     let event = gpui_kit::KeyDownEvent {
         keystroke: gpui_kit::Keystroke {
             modifiers: gpui_kit::Modifiers::default(),
@@ -143,10 +152,10 @@ fn press_char(app: &mut App, cx: &mut gpui_kit::Context<App>, key: &str, text: &
         is_held: false,
         prefer_character_input: false,
     };
-    app.new_document_key(&event, cx);
+    app.new_document_key(&event, window, cx);
 }
 
-fn press_backspace(app: &mut App, cx: &mut gpui_kit::Context<App>) {
+fn press_backspace(app: &mut App, window: &gpui_kit::Window, cx: &mut gpui_kit::Context<App>) {
     let event = gpui_kit::KeyDownEvent {
         keystroke: gpui_kit::Keystroke {
             modifiers: gpui_kit::Modifiers::default(),
@@ -156,7 +165,7 @@ fn press_backspace(app: &mut App, cx: &mut gpui_kit::Context<App>) {
         is_held: false,
         prefer_character_input: false,
     };
-    app.new_document_key(&event, cx);
+    app.new_document_key(&event, window, cx);
 }
 
 #[gpui_kit::test]
@@ -230,9 +239,9 @@ fn new_document_form_types_the_name_and_size_and_converts_units(cx: &mut gpui_ki
         window.click("new-doc-name", cx);
         window.render_frame(cx);
         content.update(cx, |app, cx| {
-            press_char(app, cx, "space", " ");
+            press_char(app, window, cx, "space", " ");
             for key in ["A", "r", "t"] {
-                press_key(app, cx, key);
+                press_key(app, window, cx, key);
             }
         });
         window.render_frame(cx);
@@ -248,20 +257,20 @@ fn new_document_form_types_the_name_and_size_and_converts_units(cx: &mut gpui_ki
         window.render_frame(cx);
         content.update(cx, |app, cx| {
             for _ in 0..4 {
-                press_backspace(app, cx);
+                press_backspace(app, window, cx);
             }
             for key in ["5", "0", "0"] {
-                press_key(app, cx, key);
+                press_key(app, window, cx, key);
             }
         });
         window.click("new-doc-height", cx);
         window.render_frame(cx);
         content.update(cx, |app, cx| {
             for _ in 0..4 {
-                press_backspace(app, cx);
+                press_backspace(app, window, cx);
             }
             for key in ["2", "0", "0"] {
-                press_key(app, cx, key);
+                press_key(app, window, cx, key);
             }
         });
         window.render_frame(cx);

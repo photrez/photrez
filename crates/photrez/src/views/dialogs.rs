@@ -66,8 +66,11 @@
 //!   swatch, not a second layout. `empty_state.rs` delegates this shot back
 //!   here for exactly that reason.
 //! * The dialog buttons' keyboard-focus outline, their 75 ms colour
-//!   transition, the dialog fade-in animation and focus trapping (Tab cycles
-//!   through the dialog's own controls) are still unwired. The titlebar close,
+//!   transition and the dialog fade-in animation are still unwired. The
+//!   Rename, Resize Canvas and New Document text fields are tab stops with the
+//!   shared focus band, so `Tab` moves real focus and the keystrokes follow it.
+//!   Focus is still not trapped inside the dialog: `Tab` past the last field
+//!   leaves for the shell behind it. The titlebar close,
 //!   Escape for Settings/About, the backdrop's outside-click dismiss and the
 //!   About link row are live: `chrome::dialog_close_button` runs each dialog's
 //!   own dismissal, and `dismiss_chrome_dialog` owns the managed-focus Escape.
@@ -643,8 +646,8 @@ pub fn render_dialog(
         })
         .when(dialog == DialogId::ResizeCanvas, |overlay| {
             overlay.track_focus(resize_focus).on_key_down(cx.listener(
-                |app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                    app.resize_key(event, cx);
+                |app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                    app.resize_key(event, window, cx);
                 },
             ))
         })
@@ -652,8 +655,8 @@ pub fn render_dialog(
             overlay
                 .track_focus(new_document_focus)
                 .on_key_down(
-                    cx.listener(|app, event: &gpui_kit::KeyDownEvent, _window, cx| {
-                        app.new_document_key(event, cx);
+                    cx.listener(|app, event: &gpui_kit::KeyDownEvent, window, cx| {
+                        app.new_document_key(event, window, cx);
                     }),
                 )
         })

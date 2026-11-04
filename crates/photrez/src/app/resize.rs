@@ -50,6 +50,32 @@ impl App {
         cx.notify();
     }
 
+    /// Points the session and the keyboard at one size field, so a pointer
+    /// click and a Tab leave the same state behind.
+    pub(crate) fn focus_resize_field(
+        &mut self,
+        field: u8,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let field = field.min(1);
+        self.set_resize_field(field, cx);
+        if let Some(handle) = self.state.read(cx).resize_field_focus(field) {
+            window.focus(&handle, cx);
+        }
+    }
+
+    /// The size field the keyboard points at, or `None` when focus is outside
+    /// the dialog's fields.
+    fn focused_resize_field(&self, window: &Window, cx: &gpui_kit::App) -> Option<u8> {
+        let state = self.state.read(cx);
+        (0..crate::state::AppState::RESIZE_FIELD_COUNT as u8).find(|index| {
+            state
+                .resize_field_focus(*index)
+                .is_some_and(|handle| handle.is_focused(window))
+        })
+    }
+
     /// Expands/collapses the unit list.
     pub(crate) fn toggle_resize_unit(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
@@ -97,8 +123,21 @@ impl App {
         cx.notify();
     }
 
-    pub(crate) fn resize_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn resize_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let key = event.keystroke.key.as_str();
+        // Tab is a real focus move, applied by the platform before this handler
+        // runs, so the session follows the field that ended up focused.
+        if let Some(focused) = self.focused_resize_field(window, cx) {
+            let current = self.state.read(cx).resize_canvas.as_ref().map(|s| s.field);
+            if current != Some(focused) {
+                self.set_resize_field(focused, cx);
+            }
+        }
         match key {
             "escape" => {
                 if self.state.read(cx).resize_unit_open {
@@ -116,15 +155,6 @@ impl App {
                     Ok(()) => self.set_status_error(None, cx),
                     Err(error) => self.set_status_error(Some(format!("Resize: {error}")), cx),
                 }
-                true
-            }
-            "tab" => {
-                self.state.update(cx, |state, _| {
-                    if let Some(session) = state.resize_canvas.as_mut() {
-                        session.field = 1 - session.field.min(1);
-                    }
-                });
-                cx.notify();
                 true
             }
             "backspace" => {

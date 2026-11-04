@@ -242,6 +242,15 @@ impl App {
         let move_snap_focus = cx.focus_handle().tab_stop(true);
         let move_auto_select_focus = cx.focus_handle().tab_stop(true);
         let move_transform_focus = cx.focus_handle().tab_stop(true);
+        // Dialog text fields are tab stops too, so Tab lands on the field and
+        // the keystrokes follow real focus instead of a session index.
+        let new_document_field_foci: Vec<_> = (0..crate::state::AppState::NEW_DOCUMENT_FIELD_COUNT)
+            .map(|_| cx.focus_handle().tab_stop(true))
+            .collect();
+        let resize_field_foci: Vec<_> = (0..crate::state::AppState::RESIZE_FIELD_COUNT)
+            .map(|_| cx.focus_handle().tab_stop(true))
+            .collect();
+        let rename_field_focus = cx.focus_handle().tab_stop(true);
         let mut app = Self {
             state: cx.new(|_| {
                 let mut state = state;
@@ -250,6 +259,9 @@ impl App {
                 state.move_snap_focus = Some(move_snap_focus);
                 state.move_auto_select_focus = Some(move_auto_select_focus);
                 state.move_transform_focus = Some(move_transform_focus);
+                state.new_document_field_foci = new_document_field_foci;
+                state.resize_field_foci = resize_field_foci;
+                state.rename_field_focus = Some(rename_field_focus);
                 state
             }),
             canvas_focus_handle: cx.focus_handle().tab_stop(true),

@@ -22,7 +22,48 @@ use super::App;
 /// one.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
+/// The form's text fields in tab order. `AppState::new_document_field_index`
+/// maps each one to its focus handle, so the two lists must stay in step.
+const FIELDS: [NewDocField; 3] = [NewDocField::Name, NewDocField::Width, NewDocField::Height];
+
 impl App {
+    /// The field the keyboard points at, or `None` when focus is outside the
+    /// form. Typing follows this, not a stored index.
+    fn focused_new_doc_field(&self, window: &Window, cx: &gpui_kit::App) -> Option<NewDocField> {
+        let state = self.state.read(cx);
+        FIELDS.iter().copied().find(|field| {
+            state
+                .new_document_field_focus(*field)
+                .is_some_and(|handle| handle.is_focused(window))
+        })
+    }
+
+    /// Points the form at the focused field and commits the one it leaves, the
+    /// same commit a field click performs.
+    fn follow_new_document_focus(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let Some(focused) = self.focused_new_doc_field(window, cx) else {
+            return;
+        };
+        let current = self
+            .state
+            .read(cx)
+            .new_document
+            .as_ref()
+            .and_then(|session| session.field);
+        if current == Some(focused) {
+            return;
+        }
+        if let Some(current) = current {
+            self.commit_new_document_dimension(current, cx);
+        }
+        self.state.update(cx, |state, _| {
+            if let Some(session) = state.new_document.as_mut() {
+                session.field = Some(focused);
+            }
+        });
+        cx.notify();
+    }
+
     pub(crate) fn open_new_document(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.open_menu = None;
@@ -96,7 +137,13 @@ impl App {
                 session.background_open = false;
             }
         });
-        window.focus(&self.new_document_focus, cx);
+        // Focus the field itself, so a pointer click and a Tab leave the same
+        // state behind.
+        let handle = self.state.read(cx).new_document_field_focus(field);
+        match handle {
+            Some(handle) => window.focus(&handle, cx),
+            None => window.focus(&self.new_document_focus, cx),
+        }
         cx.notify();
     }
 
@@ -167,9 +214,13 @@ impl App {
     pub(crate) fn new_document_key(
         &mut self,
         event: &KeyDownEvent,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
         let key = event.keystroke.key.as_str();
+        // Tab is a real focus move now, and the platform applied it before this
+        // handler ran, so the session follows the field that ended up focused.
+        self.follow_new_document_focus(window, cx);
         let panel_open = self
             .state
             .read(cx)
@@ -188,28 +239,6 @@ impl App {
             "enter" => {
                 self.create_new_document(cx);
                 true
-            }
-            "tab" => {
-                let next = self.state.update(cx, |state, _| {
-                    let session = state.new_document.as_mut()?;
-                    let committed = session.field;
-                    if let Some(field) = committed {
-                        session.commit_dimension(field);
-                    }
-                    let next = match committed {
-                        None | Some(NewDocField::Name) => NewDocField::Width,
-                        Some(NewDocField::Width) => NewDocField::Height,
-                        Some(NewDocField::Height) => NewDocField::Name,
-                    };
-                    session.field = Some(next);
-                    Some(next)
-                });
-                if next.is_some() {
-                    cx.notify();
-                    true
-                } else {
-                    false
-                }
             }
             "backspace" => {
                 self.state.update(cx, |state, _| {

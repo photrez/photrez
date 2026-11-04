@@ -557,6 +557,38 @@ fn rename_button_opens_a_focused_prompt_and_enter_commits(cx: &mut gpui_kit::Tes
 }
 
 #[gpui_kit::test]
+fn tab_reaches_the_rename_field_and_types_into_it(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("layer-rename-0", cx);
+        window.render_frame(cx);
+
+        let mut reached = false;
+        for _ in 0..40 {
+            window.press("tab", cx);
+            window.render_frame(cx);
+            if window.find("rename-value").focused() == Some(true) {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "Tab must reach the Rename dialog's field");
+
+        window.press("y", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).rename_content_for_test(cx).as_deref(),
+            Some("Rastery"),
+            "the keystroke followed the focused field"
+        );
+        window.press("escape", cx);
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn select_all_layers_then_merge_selected_composites_them(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_archive_app(

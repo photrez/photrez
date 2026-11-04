@@ -13,12 +13,14 @@ pub(super) fn rename_body(
         .as_ref()
         .map(|session| session.content.clone())
         .unwrap_or_default();
+    // The prompt's one text field carries its own handle, so Tab lands on it.
+    let field_focus = state.read(cx).rename_field_focus.clone();
     let cancel_state = state.clone();
     v_flex()
         .p(px(16.0))
         .gap(px(8.0))
         .w_full()
-        .child(
+        .child(chrome::tabbable_field(
             div()
                 .id("rename-value")
                 .test_support()
@@ -33,8 +35,10 @@ pub(super) fn rename_body(
                 .bg(color::FIELD)
                 .text_size(px(12.0))
                 .text_color(color::TEXT)
+                .aria_label(t("layers.renameLayer").to_string())
                 .child(format!("{content}|")),
-        )
+            &field_focus,
+        ))
         .child(
             div()
                 .text_size(px(10.0))

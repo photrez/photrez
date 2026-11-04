@@ -418,35 +418,58 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         );
 
     // Right panel: Name, Width/Height/Unit, Background.
-    let name_field = new_doc_field_box(session.field == Some(NewDocField::Name))
-        .id("new-doc-name")
-        .test_support()
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-            cx.stop_propagation();
-            app.focus_new_doc_field(NewDocField::Name, window, cx);
-        }))
-        .child(format!("{}|", session.name));
+    // Each text field carries its own focus handle, so Tab lands on it and the
+    // dialog's keystrokes follow real focus.
+    let (name_focus, width_focus, height_focus) = {
+        let read = state.read(cx);
+        (
+            read.new_document_field_focus(NewDocField::Name),
+            read.new_document_field_focus(NewDocField::Width),
+            read.new_document_field_focus(NewDocField::Height),
+        )
+    };
 
-    let width_field = new_doc_field_box(session.field == Some(NewDocField::Width))
-        .id("new-doc-width")
-        .test_support()
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-            cx.stop_propagation();
-            app.focus_new_doc_field(NewDocField::Width, window, cx);
-        }))
-        .child(format!("{}|", session.width_text));
+    let name_field = chrome::tabbable_field(
+        new_doc_field_box(session.field == Some(NewDocField::Name))
+            .id("new-doc-name")
+            .test_support()
+            .cursor_pointer()
+            .aria_label(t("dialogs.newDocument.name").to_string())
+            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                app.focus_new_doc_field(NewDocField::Name, window, cx);
+            }))
+            .child(format!("{}|", session.name)),
+        &name_focus,
+    );
 
-    let height_field = new_doc_field_box(session.field == Some(NewDocField::Height))
-        .id("new-doc-height")
-        .test_support()
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-            cx.stop_propagation();
-            app.focus_new_doc_field(NewDocField::Height, window, cx);
-        }))
-        .child(format!("{}|", session.height_text));
+    let width_field = chrome::tabbable_field(
+        new_doc_field_box(session.field == Some(NewDocField::Width))
+            .id("new-doc-width")
+            .test_support()
+            .cursor_pointer()
+            .aria_label(t("dialogs.newDocument.width").to_string())
+            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                app.focus_new_doc_field(NewDocField::Width, window, cx);
+            }))
+            .child(format!("{}|", session.width_text)),
+        &width_focus,
+    );
+
+    let height_field = chrome::tabbable_field(
+        new_doc_field_box(session.field == Some(NewDocField::Height))
+            .id("new-doc-height")
+            .test_support()
+            .cursor_pointer()
+            .aria_label(t("dialogs.newDocument.height").to_string())
+            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                app.focus_new_doc_field(NewDocField::Height, window, cx);
+            }))
+            .child(format!("{}|", session.height_text)),
+        &height_focus,
+    );
 
     let unit_select = new_doc_select(
         state,

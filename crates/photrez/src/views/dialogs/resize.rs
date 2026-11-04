@@ -10,7 +10,7 @@ pub(super) fn resize_canvas_body(
     state: &Entity<AppState>,
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> Div {
-    let (width, height, field, unit, locked, unit_open) = {
+    let (width, height, field, unit, locked, unit_open, width_focus, height_focus) = {
         let read = state.read(cx);
         match read.resize_canvas.as_ref() {
             Some(session) => (
@@ -20,6 +20,8 @@ pub(super) fn resize_canvas_body(
                 session.unit,
                 session.aspect_locked,
                 read.resize_unit_open,
+                read.resize_field_focus(0),
+                read.resize_field_focus(1),
             ),
             None => (
                 String::new(),
@@ -28,6 +30,8 @@ pub(super) fn resize_canvas_body(
                 DimensionUnit::Px,
                 true,
                 false,
+                None,
+                None,
             ),
         }
     };
@@ -49,6 +53,7 @@ pub(super) fn resize_canvas_body(
             0,
             unit,
             unit_open,
+            &width_focus,
             cx,
         ))
         .child(resize_aspect_lock(locked, cx))
@@ -60,6 +65,7 @@ pub(super) fn resize_canvas_body(
             1,
             unit,
             false,
+            &height_focus,
             cx,
         ))
 }
@@ -73,6 +79,7 @@ fn resize_field(
     field: u8,
     unit: DimensionUnit,
     list_open: bool,
+    focus: &Option<gpui_kit::FocusHandle>,
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> Div {
     let unit_index = DimensionUnit::ALL
@@ -123,7 +130,7 @@ fn resize_field(
                 .text_color(color::TEXT_DIM)
                 .child(label.to_string()),
         )
-        .child(
+        .child(chrome::tabbable_field(
             div()
                 .id(id)
                 .test_support()
@@ -145,14 +152,16 @@ fn resize_field(
                 .text_size(px(11.5))
                 .text_color(color::TEXT)
                 .cursor_pointer()
+                .aria_label(label.to_string())
                 .on_click(
-                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                         cx.stop_propagation();
-                        app.set_resize_field(field, cx);
+                        app.focus_resize_field(field, window, cx);
                     }),
                 )
                 .child(format!("{value}|")),
-        )
+            focus,
+        ))
         .child(trigger);
     if !(list_open && field == 0) {
         return row;

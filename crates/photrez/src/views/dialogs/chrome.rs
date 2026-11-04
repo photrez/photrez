@@ -1,7 +1,9 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, Stateful, TestSupportExt};
+use gpui_kit::{
+    div, hsla, px, BoxShadow, Div, FocusHandle, FontWeight, Hsla, Stateful, TestSupportExt,
+};
 
 use crate::components::ui;
 use crate::icons;
@@ -242,4 +244,27 @@ pub(super) fn dialog_action_button(
         .id(id)
         .test_support()
         .on_click(listener)
+}
+
+/// Makes a dialog text field a real tab stop.
+///
+/// The handle carries the flag, so `Tab` lands on the field itself and the app
+/// reads focus instead of cycling a session index. The band while the field has
+/// keyboard focus is the shared inset one the slider tracks use, not a new
+/// treatment. A missing handle leaves the field as it was, which is how a
+/// `--shot` view with no App construction stays safe.
+pub(super) fn tabbable_field<E>(field: E, focus: &Option<FocusHandle>) -> E
+where
+    E: InteractiveElement + StatefulInteractiveElement,
+{
+    let Some(handle) = focus.as_ref() else {
+        return field;
+    };
+    field
+        .track_focus(handle)
+        .focusable()
+        .focus_visible(|mut style| {
+            style.box_shadow = Some(vec![ui::focus_band(color::ACCENT.opacity(0.7))]);
+            style
+        })
 }
