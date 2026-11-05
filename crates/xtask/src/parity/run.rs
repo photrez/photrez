@@ -41,6 +41,9 @@ pub struct ParityOpts {
     /// A percent forwarded to every fresh capture, so a run can render at the
     /// scale a reference frame was taken at instead of the live fit.
     pub zoom: Option<String>,
+    /// A page origin forwarded to every fresh capture, for reference frames
+    /// whose camera was placed before the chrome changed.
+    pub pan: Option<String>,
 }
 
 /// The nondeterministic footer metrics strip, in viewport coordinates, as
@@ -388,6 +391,7 @@ fn resolve_candidate(
         expect_client: None,
         open: None,
         zoom: opts.zoom.clone(),
+        pan: opts.pan.clone(),
     };
     capture::capture(&spec)?;
     RgbaImage::load(&spec.out)

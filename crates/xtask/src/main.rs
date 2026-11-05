@@ -3,7 +3,7 @@
 //! Commands:
 //!
 //! ```text
-//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>]
+//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y]
 //!     Launch the built photrez app rendering one baseline state, wait for its
 //!     window, capture the client area to a PNG, and exit. One process per
 //!     shot; no cross-shot state.
@@ -79,7 +79,7 @@ fn print_help() {
         "xtask - workspace automation for the Photrez native port\n\
          \n\
          USAGE:\n\
-         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>]\n\
+         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y]\n\
          \x20 xtask capture --window <title|:pid> --out <png> [--maximize]\n\
          \x20              [--expect-locale <tag>]\n\
          \x20     Attach to a window that is already running. Refuses unless that\n\
@@ -641,6 +641,16 @@ fn cmd_capture(args: &[String]) -> i32 {
         }
         None => None,
     };
+    let pan = match flag(args, "--pan") {
+        Some(v) => {
+            if capture::parse_pan(v).is_none() {
+                eprintln!("xtask capture: --pan wants x,y with two numbers, got `{v}`");
+                return 2;
+            }
+            Some(v.to_owned())
+        }
+        None => None,
+    };
     let spec = capture::CaptureSpec {
         shot: flag(args, "--shot").map(str::to_owned),
         exe: flag(args, "--exe").map(PathBuf::from),
@@ -649,6 +659,7 @@ fn cmd_capture(args: &[String]) -> i32 {
         expect_client,
         open: flag(args, "--open").map(str::to_owned),
         zoom,
+        pan,
     };
     match capture::capture(&spec) {
         Ok(p) => {
@@ -677,6 +688,16 @@ fn cmd_parity(args: &[String]) -> i32 {
             .unwrap_or_else(|| PathBuf::from("target/xtask-parity")),
         mask_metrics: has_flag(args, "--mask-metrics"),
         accept_ink_residual: has_flag(args, "--accept-ink-residual"),
+        pan: match flag(args, "--pan") {
+            Some(v) => {
+                if capture::parse_pan(v).is_none() {
+                    eprintln!("xtask parity: --pan wants x,y with two numbers, got `{v}`");
+                    return 2;
+                }
+                Some(v.to_owned())
+            }
+            None => None,
+        },
         zoom: match flag(args, "--zoom") {
             Some(v) if capture::parse_zoom_percent(v).is_some() => Some(v.to_owned()),
             Some(v) => {

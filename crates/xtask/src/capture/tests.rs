@@ -4,6 +4,7 @@ use super::attached_catalog;
 use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
 use super::occlusion_refusal;
+use super::parse_pan;
 use super::parse_zoom_percent;
 use super::LocaleSource;
 use super::{child_args, CaptureSpec};
@@ -127,12 +128,14 @@ fn child_args_forward_shot_and_open_only_when_given() {
         expect_client: None,
         open: None,
         zoom: None,
+        pan: None,
     };
     assert_eq!(child_args(&base), Vec::<String>::new());
     let both = CaptureSpec {
         shot: Some("move".to_string()),
         open: Some("baseline.ptz".to_string()),
         zoom: Some("97".to_string()),
+        pan: Some("41,73".to_string()),
         ..base
     };
     assert_eq!(
@@ -144,8 +147,21 @@ fn child_args_forward_shot_and_open_only_when_given() {
             "baseline.ptz".to_string(),
             "--zoom".to_string(),
             "97".to_string(),
+            "--pan".to_string(),
+            "41,73".to_string(),
         ]
     );
+}
+
+/// An origin is two finite numbers, in either sign; anything else is refused at
+/// the command line rather than dropped.
+#[test]
+fn pan_accepts_two_numbers_and_refuses_the_rest() {
+    assert_eq!(parse_pan("41,73"), Some((41.0, 73.0)));
+    assert_eq!(parse_pan(" -12.5, 0 "), Some((-12.5, 0.0)));
+    for bad in ["41", "41,", "a,b", "", "41,73,88", "nan,4"] {
+        assert_eq!(parse_pan(bad), None, "`{bad}` is not an origin");
+    }
 }
 
 /// A zoom that is not a positive percent is refused at the command line, so a

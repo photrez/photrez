@@ -76,6 +76,20 @@ pub fn zoom() -> Option<f32> {
     ZOOM.get().and_then(|v| *v)
 }
 
+/// The page origin a capture asked for, in element-local screen pixels.
+static PAN: OnceLock<Option<(f32, f32)>> = OnceLock::new();
+
+/// Records the requested origin. The first caller wins, like the other selectors.
+pub fn set_pan(x: f32, y: f32) {
+    let _ = PAN.set(Some((x, y)));
+}
+
+/// The origin this process was asked to place the page at, or `None` to centre
+/// it in the viewport the layout produced.
+pub fn pan() -> Option<(f32, f32)> {
+    PAN.get().and_then(|v| *v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

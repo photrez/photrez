@@ -93,6 +93,11 @@ pub struct CaptureSpec {
     /// Without it a shot launch live-fits, so the page grows whenever chrome
     /// is hidden, and no recorded zoom can be reproduced.
     pub zoom: Option<String>,
+    /// The page origin to place, as `x,y` in element-local screen pixels,
+    /// forwarded as `--pan <x,y>`. A reference frame whose camera was placed
+    /// before the chrome changed keeps its page off-centre, and only an origin
+    /// reproduces that.
+    pub pan: Option<String>,
 }
 
 /// The arguments the captured process starts with.
@@ -111,6 +116,9 @@ pub fn child_args(spec: &CaptureSpec) -> Vec<String> {
     if let Some(zoom) = &spec.zoom {
         args.extend(["--zoom".to_string(), zoom.clone()]);
     }
+    if let Some(pan) = &spec.pan {
+        args.extend(["--pan".to_string(), pan.clone()]);
+    }
     args
 }
 
@@ -123,6 +131,20 @@ pub fn parse_zoom_percent(value: &str) -> Option<f32> {
         return None;
     }
     Some(percent / 100.)
+}
+
+/// A page origin written as `x,y`, or `None` when it is not two finite numbers.
+/// Negative offsets are accepted: a page may legitimately sit partly outside
+/// the view.
+pub fn parse_pan(value: &str) -> Option<(f32, f32)> {
+    let (x, y) = value.trim().split_once(',')?;
+    let x: f32 = x.trim().parse().ok()?;
+    let y: f32 = y.trim().parse().ok()?;
+    if x.is_finite() && y.is_finite() {
+        Some((x, y))
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

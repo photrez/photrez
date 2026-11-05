@@ -54,6 +54,22 @@ struct StartupArgs {
     shot: Option<String>,
     open_path: Option<PathBuf>,
     zoom: Option<f32>,
+    pan: Option<(f32, f32)>,
+}
+
+/// A page origin written as `x,y` in element-local screen pixels (`41,73`).
+///
+/// Refused unless both halves parse to finite numbers. Negative offsets are
+/// legal, because a page can legitimately sit partly outside the view.
+fn parse_pan(value: &str) -> Option<(f32, f32)> {
+    let (x, y) = value.trim().split_once(',')?;
+    let x: f32 = x.trim().parse().ok()?;
+    let y: f32 = y.trim().parse().ok()?;
+    if x.is_finite() && y.is_finite() {
+        Some((x, y))
+    } else {
+        None
+    }
 }
 
 /// A capture scale written as a percent (`88`, `97.5`).
@@ -74,6 +90,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
     let mut shot = None;
     let mut open_path = None;
     let mut zoom = None;
+    let mut pan = None;
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--shot")
@@ -101,6 +118,17 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
                     .and_then(|value| value.into_string().ok())
                     .and_then(|value| parse_zoom(&value));
             }
+            Some("--pan")
+                if args
+                    .peek()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| parse_pan(value).is_some()) =>
+            {
+                pan = args
+                    .next()
+                    .and_then(|value| value.into_string().ok())
+                    .and_then(|value| parse_pan(&value));
+            }
             _ => {}
         }
     }
@@ -109,6 +137,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
         shot,
         open_path: if has_shot { None } else { open_path },
         zoom,
+        pan,
     }
 }
 
@@ -153,6 +182,9 @@ pub fn run() {
     }
     if let Some(zoom) = startup_args.zoom {
         shot::set_zoom(zoom);
+    }
+    if let Some((x, y)) = startup_args.pan {
+        shot::set_pan(x, y);
     }
     let open_path = startup_args.open_path;
     gpui_kit::application().run(|cx: &mut App| {
@@ -271,6 +303,15 @@ mod startup_args_tests {
         assert_eq!(parse(&["--zoom", "abc"]).zoom, None);
         assert_eq!(parse(&["--zoom", "0"]).zoom, None);
         assert_eq!(parse(&["--zoom"]).zoom, None);
+    }
+
+    #[test]
+    fn pan_origin_is_parsed_as_two_numbers() {
+        assert_eq!(parse(&["--pan", "41,73"]).pan, Some((41.0, 73.0)));
+        assert_eq!(parse(&["--pan", "-12.5, 0"]).pan, Some((-12.5, 0.0)));
+        assert_eq!(parse(&["--pan", "41"]).pan, None);
+        assert_eq!(parse(&["--pan", "a,b"]).pan, None);
+        assert_eq!(parse(&["--pan"]).pan, None);
     }
 
     #[test]
