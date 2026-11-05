@@ -34,7 +34,7 @@ pub mod zoom;
 
 use serde::Serialize;
 
-/// Whole-surface perceptual floor adopted for parity, as a percent of the compared
+/// Whole-surface perceptual floor adopted for comparisons, as a percent of the compared
 /// mask. A bundle states its own allowance; this is only the fallback, so no
 /// comparison carries a literal.
 pub const RATIFIED_MAX_CHANGED_PCT: f64 = 7.834;

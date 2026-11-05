@@ -1,6 +1,6 @@
 //! Reader for the golden-master `manifest.json` (the shot index beside the
 //! baseline PNGs) and for an evidence bundle's recorded `diff.json`. Only the
-//! fields the parity runs need are typed; everything else stays unread.
+//! fields the capture and scoring runs need are typed; everything else stays unread.
 
 use std::path::Path;
 
@@ -72,7 +72,7 @@ pub struct Shot {
     #[serde(default)]
     pub reason: Option<String>,
     /// The camera the reference frame was taken at, when it differs from the
-    /// live fit. Parity replays it so a zoomed or panned baseline is scored
+    /// live fit. The runner replays it so a zoomed or panned baseline is scored
     /// against the same page placement rather than against a scaled artifact.
     #[serde(default)]
     pub camera: Option<ShotCamera>,
@@ -116,7 +116,7 @@ pub fn require_english_locale(manifest: &Manifest) -> Result<(), String> {
         None => Ok(()),
         Some(tag) if tag.trim().is_empty() || tag.trim().eq_ignore_ascii_case("en") => Ok(()),
         Some(tag) => Err(format!(
-            "manifest records locale `{tag}`; parity diffs are only valid against the English baselines"
+            "manifest records locale `{tag}`; diffs are only valid against the English baselines"
         )),
     }
 }
@@ -346,7 +346,7 @@ mod tests {
     }
 
     /// A shot's camera parses, and a shot without one keeps the pre-camera shape.
-    /// The field is what lets parity replay the placement a reference frame was
+    /// The field is what lets the runner replay the placement a reference frame was
     /// taken at, so a wrong rename here would silently score at the live fit.
     #[test]
     fn shot_camera_is_optional() {

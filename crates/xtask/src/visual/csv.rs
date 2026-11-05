@@ -1,8 +1,8 @@
 //! Minimal RFC 4180 CSV reader/writer.
 //!
-//! The frozen inventory carries quoted fields with embedded commas (for
+//! The recorded inventory carries quoted fields with embedded commas (for
 //! example a native target naming two files), so a naive split-on-comma
-//! corrupts rows. One small parser shared by every parity validator removes
+//! corrupts rows. One small parser shared by every validator removes
 //! that class of failure; adding a CSV crate for this was judged a worse
 //! trade than the ~80 lines below.
 

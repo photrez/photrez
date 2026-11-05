@@ -75,7 +75,7 @@ was captured, and which noise is expected.
 Producing the numbers above requires the comparison semantics: the class map
 with the 3x3 neighbourhood tolerance, the ink integral, the bounding boxes.
 They live in this repository's own tooling (`cargo xtask visual`, with the
-shape-diff and measure steps under `crates/xtask/src/parity/`), so there is one
+shape-diff and measure steps under `crates/xtask/src/visual/`), so there is one
 tolerance implementation and it is the one CI runs.
 
 ## Known run-to-run variance (measured)

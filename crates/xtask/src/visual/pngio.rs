@@ -1,4 +1,4 @@
-//! PNG loading and saving for the parity tooling, normalised to 8-bit RGBA
+//! PNG loading and saving for the visual tooling, normalised to 8-bit RGBA
 //! with row-major top-down order. Every input (browser element crops,
 //! Windows screen captures) is converted on load; writers always emit RGBA8.
 
@@ -70,7 +70,7 @@ impl RgbaImage {
         Self::from_rgba(info.width, info.height, data)
     }
 
-    /// Write the image as RGBA8 PNG. The parity reports and side-by-side
+    /// Write the image as RGBA8 PNG. The reports and side-by-side
     /// panels are artifacts; lossless output is the point.
     pub fn save(&self, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent() {

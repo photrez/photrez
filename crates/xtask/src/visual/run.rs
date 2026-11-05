@@ -1,4 +1,4 @@
-//! Parity orchestrator: select shots from the manifest, capture (or reuse)
+//! Capture-and-score orchestrator: select shots from the manifest, capture (or reuse)
 //! candidates, compare, report, and return the exit code.
 //!
 //! Verdict rule (strict by design): a shot is RED when any compared region has
@@ -30,7 +30,7 @@ use super::Rect;
 use super::{InkRegionReport, RawRegionReport, ShapeRegionReport};
 use crate::capture;
 
-/// Everything the `parity` command needs, parsed by `main.rs`.
+/// Everything the `visual` command needs, parsed by `main.rs`.
 pub struct VisualOpts {
     pub baseline: PathBuf,
     pub shots: Vec<String>,

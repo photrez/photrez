@@ -325,7 +325,7 @@ pub type BundleResults = Vec<(String, Result<Scored, String>)>;
 /// Score every bundle under a root, in name order.
 ///
 /// A bundle that cannot be scored comes back as its refusal reason, never as a pass: an
-/// unverifiable record is an evidence gap, and a gap is not parity.
+/// unverifiable record is an evidence gap, and a gap is not a verdict.
 pub fn score_root(root: &Path, opts: &ScoreOpts) -> Result<BundleResults, String> {
     let mut dirs = Vec::new();
     for entry in std::fs::read_dir(root).map_err(|e| format!("read {}: {e}", root.display()))? {

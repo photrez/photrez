@@ -12,7 +12,7 @@
 //! `layout`, `data` and `states` are pixel or projection scores from the
 //! surface's evidence bundle; `input` is wired-and-tested pointer behaviour
 //! from the mounted tests that name the control's handler. It does not mean
-//! keyboard parity. Dialog fields in this app carry no focus handle, so they
+//! keyboard coverage. Dialog fields in this app carry no focus handle, so they
 //! never enter the tab order, and that gap is tracked separately; reading an
 //! `input` `PASS` as a keyboard pass would overstate the evidence.
 

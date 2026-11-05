@@ -152,7 +152,7 @@ fn blit(src: &RgbaImage, dst: &mut [u8], dst_w: u32, at_x: u32) {
 /// legible), written for eyeballing. `zoom` is the integer upscale factor
 /// (the TS original used 6). `gap` between the halves is fixed at 12px, as in
 /// `zoom.ts`'s `sideBySide`.
-#[allow(dead_code)] // review artifact for ink residuals; the parity report does not emit it yet
+#[allow(dead_code)] // review artifact for ink residuals; the scored report does not emit it yet
 pub fn write_zoom_panel(
     original: &RgbaImage,
     start_a: u32,
