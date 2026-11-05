@@ -392,6 +392,7 @@ fn resolve_candidate(
         open: None,
         zoom: opts.zoom.clone(),
         pan: opts.pan.clone(),
+        hover: None,
     };
     capture::capture(&spec)?;
     RgbaImage::load(&spec.out)

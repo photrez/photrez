@@ -3,7 +3,7 @@
 //! Commands:
 //!
 //! ```text
-//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y]
+//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y] [--hover x,y]
 //!     Launch the built photrez app rendering one baseline state, wait for its
 //!     window, capture the client area to a PNG, and exit. One process per
 //!     shot; no cross-shot state.
@@ -79,7 +79,7 @@ fn print_help() {
         "xtask - workspace automation for the Photrez native port\n\
          \n\
          USAGE:\n\
-         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y]\n\
+         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y] [--hover x,y]\n\
          \x20 xtask capture --window <title|:pid> --out <png> [--maximize]\n\
          \x20              [--expect-locale <tag>]\n\
          \x20     Attach to a window that is already running. Refuses unless that\n\
@@ -651,6 +651,17 @@ fn cmd_capture(args: &[String]) -> i32 {
         }
         None => None,
     };
+    let hover = match flag(args, "--hover") {
+        Some(v) => {
+            if let Some(point) = capture::parse_point(v) {
+                Some(point)
+            } else {
+                eprintln!("xtask capture: --hover wants whole-pixel x,y, got `{v}`");
+                return 2;
+            }
+        }
+        None => None,
+    };
     let spec = capture::CaptureSpec {
         shot: flag(args, "--shot").map(str::to_owned),
         exe: flag(args, "--exe").map(PathBuf::from),
@@ -660,6 +671,7 @@ fn cmd_capture(args: &[String]) -> i32 {
         open: flag(args, "--open").map(str::to_owned),
         zoom,
         pan,
+        hover,
     };
     match capture::capture(&spec) {
         Ok(p) => {

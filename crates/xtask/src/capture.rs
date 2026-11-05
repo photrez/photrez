@@ -98,6 +98,19 @@ pub struct CaptureSpec {
     /// before the chrome changed keeps its page off-centre, and only an origin
     /// reproduces that.
     pub pan: Option<String>,
+    /// A client-area point to hold the real cursor on while capturing, as
+    /// `x,y`. Hover styling comes from pointer state, so a captured hover has to
+    /// be an actual hover rather than a seeded flag.
+    pub hover: Option<(i32, i32)>,
+}
+
+/// A cursor point written as `x,y`, or `None` when it is not two finite whole
+/// numbers. Fractions are refused because the cursor has no sub-pixel position.
+pub fn parse_point(value: &str) -> Option<(i32, i32)> {
+    let (x, y) = value.trim().split_once(',')?;
+    let x: i32 = x.trim().parse().ok()?;
+    let y: i32 = y.trim().parse().ok()?;
+    Some((x, y))
 }
 
 /// The arguments the captured process starts with.
@@ -640,13 +653,21 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
         return Err(occlusion_refusal(child_pid, hit_pid));
     }
 
-    // Park the cursor outside the client box, capture, then restore.
+    // Park the cursor outside the client box, capture, then restore. A named
+    // hover point goes inside the box instead, so the window sees real pointer
+    // state and paints the hover it would paint for a person.
     let mut prev: POINT = POINT { x: 0, y: 0 };
     if unsafe { GetCursorPos(&mut prev) } == 0 {
         return Err("GetCursorPos returned false".into());
     }
-    let park = park_point(origin.x, origin.y, w, h);
-    if unsafe { SetCursorPos(park.x, park.y) } == 0 {
+    let cursor = match spec.hover {
+        Some((x, y)) => POINT {
+            x: origin.x + x,
+            y: origin.y + y,
+        },
+        None => park_point(origin.x, origin.y, w, h),
+    };
+    if unsafe { SetCursorPos(cursor.x, cursor.y) } == 0 {
         return Err("SetCursorPos (park) returned false".into());
     }
     std::thread::sleep(Duration::from_millis(500));

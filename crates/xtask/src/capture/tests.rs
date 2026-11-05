@@ -5,6 +5,7 @@ use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
 use super::occlusion_refusal;
 use super::parse_pan;
+use super::parse_point;
 use super::parse_zoom_percent;
 use super::LocaleSource;
 use super::{child_args, CaptureSpec};
@@ -129,6 +130,7 @@ fn child_args_forward_shot_and_open_only_when_given() {
         open: None,
         zoom: None,
         pan: None,
+        hover: None,
     };
     assert_eq!(child_args(&base), Vec::<String>::new());
     let both = CaptureSpec {
@@ -161,6 +163,17 @@ fn pan_accepts_two_numbers_and_refuses_the_rest() {
     assert_eq!(parse_pan(" -12.5, 0 "), Some((-12.5, 0.0)));
     for bad in ["41", "41,", "a,b", "", "41,73,88", "nan,4"] {
         assert_eq!(parse_pan(bad), None, "`{bad}` is not an origin");
+    }
+}
+
+/// A cursor point is whole pixels, because the cursor has no sub-pixel position
+/// and a fractional value would silently capture a different pixel than asked.
+#[test]
+fn hover_point_accepts_whole_pixels_and_refuses_the_rest() {
+    assert_eq!(parse_point("85,62"), Some((85, 62)));
+    assert_eq!(parse_point(" -12, 40 "), Some((-12, 40)));
+    for bad in ["85", "85,", "85.5,62", "a,b", "", "85,62,10"] {
+        assert_eq!(parse_point(bad), None, "`{bad}` is not a cursor point");
     }
 }
 
