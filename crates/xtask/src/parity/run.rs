@@ -38,6 +38,9 @@ pub struct ParityOpts {
     pub report_dir: PathBuf,
     pub mask_metrics: bool,
     pub accept_ink_residual: bool,
+    /// A percent forwarded to every fresh capture, so a run can render at the
+    /// scale a reference frame was taken at instead of the live fit.
+    pub zoom: Option<String>,
 }
 
 /// The nondeterministic footer metrics strip, in viewport coordinates, as
@@ -384,7 +387,7 @@ fn resolve_candidate(
         wait_ms: 60_000,
         expect_client: None,
         open: None,
-        zoom: None,
+        zoom: opts.zoom.clone(),
     };
     capture::capture(&spec)?;
     RgbaImage::load(&spec.out)

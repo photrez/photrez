@@ -677,6 +677,14 @@ fn cmd_parity(args: &[String]) -> i32 {
             .unwrap_or_else(|| PathBuf::from("target/xtask-parity")),
         mask_metrics: has_flag(args, "--mask-metrics"),
         accept_ink_residual: has_flag(args, "--accept-ink-residual"),
+        zoom: match flag(args, "--zoom") {
+            Some(v) if capture::parse_zoom_percent(v).is_some() => Some(v.to_owned()),
+            Some(v) => {
+                eprintln!("xtask parity: --zoom wants a positive percent like 88, got `{v}`");
+                return 2;
+            }
+            None => None,
+        },
     };
     if opts.shots.is_empty() {
         eprintln!("xtask parity: at least one --shot <id|prefix> is required");
