@@ -18,8 +18,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Nothing derived the release tag from the package version, so a tag of v0.3.0
+  # on a 0.2.0 manifest would have built and published anyway. `cargo pkgid` is
+  # used rather than the manifest text so the value comes from cargo itself.
+  check-tag:
+    name: Tag matches the manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compare the tag with the package version
+        run: |
+          set -euo pipefail
+          want="${GITHUB_REF_NAME#v}"
+          got="$(cargo pkgid -p photrez | sed 's/.*#//')"
+          if [ "$want" != "$got" ]; then
+            echo "tag ${GITHUB_REF_NAME} asks for $want, the package version is $got"
+            exit 1
+          fi
+          echo "version: $got"
+
   release:
     name: Build & package (${{ matrix.os }})
+    needs: check-tag
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +136,18 @@ jobs:
 
       - name: Generate SHA256SUMS
         working-directory: assets
-        run: sha256sum * > SHA256SUMS
+        # `sha256sum * > SHA256SUMS` hashed the file it was about to write,
+        # because the redirect creates it first. The list is taken in its own
+        # statement, and an empty download fails with a reason.
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "the release has no assets to checksum"
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
 
       - name: Upload checksums
         env:
@@ -124,4 +157,21 @@ jobs:
       - name: Set release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --notes-file CHANGELOG.md
+        # Passing CHANGELOG.md whole would post every past release, and its
+        # section header still reads "unreleased". Only this tag's section
+        # belongs in the notes, and a tag with no section must not publish
+        # without any.
+        run: |
+          set -euo pipefail
+          version="${{ github.ref_name }}"
+          header="## [${version#v}]"
+          awk -v hdr="$header" '
+            index($0, hdr) == 1 { keep = 1 }
+            keep && substr($0, 1, 4) == "## [" && index($0, hdr) != 1 { exit }
+            keep { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md has no section for $header"
+            exit 1
+          fi
+          gh release edit "${GITHUB_REF_NAME}" --notes-file release-notes.md
