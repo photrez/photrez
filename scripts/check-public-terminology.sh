@@ -180,8 +180,13 @@ trace_check() { # $1 = grep of the surface lines
 }
 
 files_check() {
+  # Paths that are not in the tree are skipped below, because a pull request may
+  # name a file it deleted. That means a mistyped list would otherwise print a
+  # clean verdict over zero scanned inputs, so the count is kept and checked.
+  scanned=0
   for f in $FILES; do
     [ -f "$f" ] || continue
+    scanned=$((scanned + 1))
     case "$f" in
       *.ts|*.tsx|*.rs)
         grep -nE "$PLAN_SRC" "$f" && fail "internal plan terminology in $f"
@@ -238,6 +243,9 @@ files_check() {
         ;;
     esac
   done
+  if [ "$scanned" -eq 0 ]; then
+    fail "--files named no existing file to scan, so the verdict would rest on zero inputs: $FILES"
+  fi
 }
 
 # --- i18n (hardcoded user-visible strings) -------------------------------------
