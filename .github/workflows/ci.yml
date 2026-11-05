@@ -150,7 +150,7 @@ jobs:
             echo "No changed source files matched; terminology scan skipped."
           fi
 
-      - name: Reject hardcoded UI strings in the ported views tree
+      - name: Reject hardcoded UI strings in views and components
         shell: bash
         run: sh scripts/check-public-terminology.sh --i18n --files crates/photrez/src/views crates/photrez/src/components
 
