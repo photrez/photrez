@@ -194,6 +194,10 @@ pub fn run() {
             window_bounds: Some(window_bounds),
             display_id,
             is_resizable: true,
+            // The predecessor's window config declared this minimum, and
+            // `docs/UI_GUIDE.md` still states it, so the layout that assumes it
+            // is the layout people get.
+            window_min_size: Some(size(px(960.), px(640.))),
             ..Default::default()
         };
 
