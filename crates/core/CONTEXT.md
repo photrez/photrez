@@ -110,8 +110,9 @@ before continuing.
 
 - The tile edge is 256 (`pixel::tile_store::TILE`); do not change it here.
 - The existing move-commit interval and synchronous opening are unchanged.
-- `STATE_NODE_CANONICAL` and `TILE_MAJOR` remain `false`; no default behavior
-  changes in a structure-only change.
+- The row-major `PixelLayer` is the canonical byte source; the packed
+  `TileStore` and the `LayerState` seam serve pack/upload and history, and a
+  structure-only change must not move pixel reads onto them.
 - `.ptz` serialized field names, command envelopes, and error codes do not
   change.
 

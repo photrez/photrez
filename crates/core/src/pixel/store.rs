@@ -20,27 +20,6 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::document_store::DocumentPixelStore;
 
-/// Migration flag. OFF (default): the row-major `PixelLayer` is the ACTIVE
-/// production canonical and the host-facing behavior is unchanged. The
-/// `LayerState`/`StateNode` path is AVAILABLE (history entries always store
-/// `Arc<StateNode>`) but NOT activated as the byte source.
-/// ON: the per-layer `LayerState` becomes the canonical reader for the pixel
-/// path (forward path still mirrors into `PixelLayer` so the existing
-/// `get_layer` accessor stays stable).
-#[allow(dead_code)]
-const STATE_NODE_CANONICAL: bool = false;
-
-/// Migration flag — the packed Arc-subarray canonical store.
-/// OFF (default): row-major `PixelLayer` is the ACTIVE production byte source;
-/// the packed-backed `TileStore` is the pack/upload store only (the state_node
-/// `LayerState` packed COW seam is built lazily for history but not the byte
-/// source). ON: the packed tile-major `TileStore` becomes the canonical byte
-/// source. A single runtime const (analogous to `STATE_NODE_CANONICAL`); the
-/// row-major `PixelLayer` remains the rollback path. Flipping to `true` requires
-/// the host mirror wiring + tests first.
-#[allow(dead_code)]
-const TILE_MAJOR: bool = false;
-
 /// Canonical pixel owner, namespaced by document id. This is the long-term owner
 /// (replacing the flat process-global `PIXEL_STORE`). Lifecycle is driven from
 /// the host's pixel commands: open/close/add/remove/resize manage

@@ -9,9 +9,9 @@
 //! (full tiles are `TILE*TILE*4`; edge tiles are clipped to layer bounds).
 //! `descs` stores per-tile `{ offset, w, h }` so extraction never over-reads.
 //!
-//! The store API is the canonical pack/upload surface. `TILE_MAJOR` is OFF in
-//! the current build, so nothing consumes it yet in the lib build; dead-code is
-//! allowed (the surface is intentionally exposed for the flag-enabled path).
+//! The store API is the canonical pack/upload surface. Not every item here is
+//! reached by the lib build, so dead-code is allowed at the module level; the
+//! document engine uses the packed store itself.
 #![allow(dead_code)]
 
 use std::collections::HashMap;

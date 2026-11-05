@@ -6,10 +6,9 @@
 //! Two byte populations exist and they share NOTHING with each other:
 //!
 //! 1. The row-major mirror - `PixelLayer::pixels`, one `Vec<u8>` per layer of
-//!    exactly `width*height*4` bytes. It is the ACTIVE canonical byte source
-//!    (the `STATE_NODE_CANONICAL` and `TILE_MAJOR` flags are both off), it is
-//!    written through on every commit, undo and redo, and it holds the layer's
-//!    pixels independently of the tile graph. Its size is read from
+//!    exactly `width*height*4` bytes. It is the ACTIVE canonical byte source,
+//!    it is written through on every commit, undo and redo, and it holds the
+//!    layer's pixels independently of the tile graph. Its size is read from
 //!    `Vec::len()`, never recomputed from the dimensions.
 //! 2. The tile graph - the `Arc<[u8]>` storage reached through `TileRef`s on the
 //!    per-layer anchor, the per-layer current state, and every `Pixel` history
