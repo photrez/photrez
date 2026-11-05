@@ -441,8 +441,10 @@ impl App {
         // A `real-dialog-*` launch opens the live dialog through the same
         // command the user's shortcut runs, so the capture shows the body the
         // `dialog-*` fixture stubs.
-        if AppState::real_dialog_shot(shot_id) == Some(crate::state::DialogId::NewDocument) {
-            app.open_new_document(cx);
+        match AppState::real_dialog_shot(shot_id) {
+            Some(crate::state::DialogId::NewDocument) => app.open_new_document(cx),
+            Some(crate::state::DialogId::Export) => app.export_document_action(&ExportDocument, cx),
+            Some(_) | None => {}
         }
         // The recovery prompt comes after the explicit open: a document the
         // user asked for by name is on screen before an offer they did not ask

@@ -892,6 +892,7 @@ impl AppState {
     pub fn real_dialog_shot(id: Option<&str>) -> Option<DialogId> {
         match id? {
             "real-dialog-new-document" => Some(DialogId::NewDocument),
+            "real-dialog-export" => Some(DialogId::Export),
             _ => None,
         }
     }
