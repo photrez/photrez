@@ -336,6 +336,24 @@ mod tests {
         }
     }
 
+    /// The two halves of the shape differ on purpose, and the difference is
+    /// deliberate rather than an oversight: build metadata follows the spec and
+    /// allows uppercase, while a pre-release stage is held to lowercase so the
+    /// repo's own `-beta.N` form is the only one a tag can carry.
+    #[test]
+    fn build_metadata_follows_the_spec_and_a_stage_stays_lowercase() {
+        assert!(
+            semver_valid("0.2.1+BUILD"),
+            "spec-legal build metadata must not be refused"
+        );
+        assert!(
+            !semver_valid("0.2.1-BETA"),
+            "an uppercase stage is refused by design"
+        );
+        assert!(!semver_valid("0.2.1+"), "empty build metadata is refused");
+        assert!(!semver_valid("0.2.1+build!"), "punctuation refused");
+    }
+
     /// The trap this covers: a manifest that was already rewritten when cargo
     /// disagrees, so the run reports failure and the tree keeps the refused
     /// version anyway. The rollback has to run, and say so.
