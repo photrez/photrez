@@ -915,3 +915,31 @@ fn text_typing_preview_latency(cx: &mut gpui_kit::TestAppContext) {
     })
     .expect("test window remains open");
 }
+
+/// The reference gates its rest transform frame on a multi-layer selection,
+/// so one selected layer under Move paints no frame at all. Measured: the
+/// reference's Move frame holds 0 accent pixels inside the canvas box, the
+/// port held 2,653.
+#[gpui_kit::test]
+fn move_with_one_selected_layer_paints_no_rest_transform_frame(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        let selected = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .selected_layers
+            .len();
+        assert_eq!(selected, 1, "the fixture selects exactly one layer");
+        assert!(
+            content
+                .update(cx, |app, cx| app.transform_frame_for_test(cx))
+                .is_none(),
+            "Move at rest must not draw the frame the reference reserves for a group"
+        );
+    })
+    .expect("test window remains open");
+}

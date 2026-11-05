@@ -169,36 +169,49 @@ impl App {
                     overlay.transform = Some(frame);
                 }
             } else if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                let transform = self
+                // The reference gates its rest frame on a multi-layer
+                // selection: with one layer selected and Move active its
+                // canvas area holds 0 accent pixels, where this build held
+                // 2,653. A single layer gets handles only while a transform
+                // is actually being dragged.
+                let dragging = self
                     .transform_drag
                     .as_ref()
-                    .filter(|drag| drag.layer_id == layer.id)
-                    .map(|drag| drag.preview.clone())
-                    .unwrap_or_else(|| layer.transform.clone());
-                let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
-                let corners =
-                    crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
-                let mid = |a: crate::app::transform_geometry::Point,
-                           b: crate::app::transform_geometry::Point| {
-                    crate::app::transform_geometry::Point {
-                        x: (a.x + b.x) / 2.0,
-                        y: (a.y + b.y) / 2.0,
-                    }
-                };
-                let handles = [
-                    corners[0],
-                    corners[1],
-                    corners[2],
-                    corners[3],
-                    mid(corners[0], corners[1]),
-                    mid(corners[1], corners[2]),
-                    mid(corners[2], corners[3]),
-                    mid(corners[3], corners[0]),
-                ];
-                overlay.transform = Some(TransformFrame {
-                    corners: corners.map(|point| [point.x, point.y]),
-                    handles: handles.map(|point| [point.x, point.y]),
-                });
+                    .is_some_and(|drag| drag.layer_id == layer.id);
+                if dragging || !matches!(state.active_tool, crate::state::ToolId::Move) {
+                    let transform = self
+                        .transform_drag
+                        .as_ref()
+                        .filter(|drag| drag.layer_id == layer.id)
+                        .map(|drag| drag.preview.clone())
+                        .unwrap_or_else(|| layer.transform.clone());
+                    let (frame_w, frame_h) =
+                        crate::app::transform_geometry::layer_frame_size(&layer);
+                    let corners =
+                        crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
+                    let mid =
+                        |a: crate::app::transform_geometry::Point,
+                         b: crate::app::transform_geometry::Point| {
+                            crate::app::transform_geometry::Point {
+                                x: (a.x + b.x) / 2.0,
+                                y: (a.y + b.y) / 2.0,
+                            }
+                        };
+                    let handles = [
+                        corners[0],
+                        corners[1],
+                        corners[2],
+                        corners[3],
+                        mid(corners[0], corners[1]),
+                        mid(corners[1], corners[2]),
+                        mid(corners[2], corners[3]),
+                        mid(corners[3], corners[0]),
+                    ];
+                    overlay.transform = Some(TransformFrame {
+                        corners: corners.map(|point| [point.x, point.y]),
+                        handles: handles.map(|point| [point.x, point.y]),
+                    });
+                }
             }
         }
         // A non-active layer under the Move pointer gets a
