@@ -11,6 +11,9 @@
 #   truncate -s 0 broken.tar.gz
 #   sh scripts/check-release-archive.sh broken.tar.gz linux   # must exit 1
 #
+#   cp dist/photrez.exe dist/photrez-desktop.exe
+#   sh scripts/check-release-archive.sh ok.tar.gz windows     # must exit 1
+#
 # Usage: sh scripts/check-release-archive.sh <archive> <windows|macos|linux>
 set -u
 
@@ -66,5 +69,16 @@ if ! grep -q "$BINARY" "$LISTING"; then
   echo "::error::Archive is missing the release binary: $BINARY" >&2
   exit 1
 fi
+
+# The archive carries the application and nothing else. A second runtime in the
+# staging directory conveys a stale engine to the person who installs it, and it
+# is invisible in CI because everything else still passes, so it is refused here
+# by name rather than left to the size floor.
+for retired in photrez-desktop; do
+  if grep -q "$retired" "$LISTING"; then
+    echo "::error::Archive carries a retired runtime artifact: $retired" >&2
+    exit 1
+  fi
+done
 
 echo "release archive ok: $ARCHIVE ($SIZE bytes, $PLATFORM)"
