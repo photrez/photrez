@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Brush-tip tests: the diameter-space construction, the resampler contract,
-//! and the offline golden comparison against captured reference tip rasters.
+//! and the offline golden check against the captured reference tip rasters.
 
 use crate::brush::tip::{
     bilinear_resize_premul, build_brush_tip, get_brush_cursor_radius_scale,

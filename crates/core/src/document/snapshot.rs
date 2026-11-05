@@ -9,10 +9,10 @@
 //!     single `EntryPayload::Snapshot` entry restores BOTH metadata (this DTO)
 //!     and pixel state (via the token reference) atomically.
 //!
-//! This is a RUST-CORE capability introduced with the migration flag OFF: the
-//! row-major `PixelLayer` + the pre-existing command history remain the ACTIVE default. The
-//! full document metadata (visible/opacity/blend/transform/selection/viewport)
-//! is a later increment; this carries the pixel-layer metadata + token only.
+//! The app's edits run through the row-major `PixelLayer` and the command
+//! history, so a snapshot entry is not the path the app takes today. What it
+//! carries is pixel-layer metadata plus the token. Document-wide metadata
+//! (visible/opacity/blend/transform/selection/viewport) is not here.
 
 use serde::{Deserialize, Serialize};
 
@@ -29,9 +29,9 @@ pub struct LayerSnapshot {
     pub bitmap_token: Option<String>,
     /// Layer mutation counter (mirrors the canonical store's epoch).
     pub epoch: u64,
-    /// Pixel-mutation counter (mirrors the layer's `epoch`; the Rust store has no
-    /// separate pixel_version field yet — kept as a distinct field for the later
-    /// metadata increment).
+    /// Pixel-mutation counter. The Rust store keeps one counter today, so this
+    /// mirrors the layer's `epoch`. The field stays separate so a metadata entry
+    /// can carry its own pixel version when the store grows one.
     pub pixel_version: u64,
 }
 

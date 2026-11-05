@@ -125,8 +125,9 @@ pub(crate) enum EntryPayload {
     /// pixel state atomically. Matches the `Pixel` pattern: BOTH `before` (the
     /// state being left, returned by `undo_snapshot`) and `after` (the new
     /// state, returned by `redo_snapshot`) are stored so each direction
-    /// restores the CORRECT snapshot (undo != redo). Introduced flag-OFF
-    /// (row-major `PixelLayer` + the pre-existing command history remain the ACTIVE default).
+    /// restores the CORRECT snapshot (undo != redo). Nothing in the app records
+    /// one today: the row-major `PixelLayer` and the command history carry the
+    /// edits, and the core history tests are the callers of `record_snapshot`.
     Snapshot {
         before: DocumentSnapshot,
         after: DocumentSnapshot,

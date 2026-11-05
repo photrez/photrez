@@ -11,8 +11,8 @@ pub mod ptz;
 // the snapshot DTO stay reachable from outside the crate.
 pub mod document;
 pub mod geometry;
-// The paint rasterizer used for the reference comparison (the byte source the
-// host's paint path is checked against).
+// The paint rasterizer, whose bytes are what the host's paint path is checked
+// against.
 pub mod paint;
 pub mod parallel;
 // Pixel ownership: the authoritative per-layer buffers, the per-layer
