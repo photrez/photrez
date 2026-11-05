@@ -94,10 +94,14 @@ jobs:
 
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a
-  # transitive RUSTSEC advisory shouldn't paint every push red. The known
-  # unmaintained transitives (zbus stack via accesskit_unix, inside the
-  # pinned gpui-pre 0.3.9) are dispositioned in deny.toml's ignore list with
-  # their proofs; fixes still land via Dependabot PRs.
+  # transitive RUSTSEC advisory shouldn't paint every push red. Eight entries
+  # are dispositioned in deny.toml, each naming the path that pulls it in: the
+  # zbus stack via accesskit_unix inside the pinned gpui-pre 0.3.9, three pinned
+  # by the framework tree, and two from the font and vector-graphics stack. All
+  # are informational unmaintained notices with no patched release, and
+  # `cargo deny check advisories` blocks on anything outside that list. This step
+  # reads a different database, so it can report more entries than deny blocks;
+  # that difference is why it warns. Fixes still land via Dependabot PRs.
   security:
     name: Security audit
     runs-on: ubuntu-latest
