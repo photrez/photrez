@@ -4,8 +4,6 @@
 //! right dock and status bar. Every nested region is a function call so
 //! each can be `cargo check`ed in isolation.
 
-#![allow(dead_code)]
-
 use crate::render::canvas_bridge::{self, Camera, CanvasImage, CheckerCache};
 use crate::shot;
 use crate::state::AppState;

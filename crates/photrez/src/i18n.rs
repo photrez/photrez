@@ -11,8 +11,6 @@
 //! redraw knows whether to re-render); [`initial_locale`] is the startup
 //! detection order - stored preference, then the OS locale, then `en`.
 
-#![allow(dead_code)] // consumers land with the view sweep; drop this blanket as they arrive
-
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;

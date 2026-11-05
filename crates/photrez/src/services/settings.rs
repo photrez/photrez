@@ -8,8 +8,6 @@
 //! fallback), any UI, or the decision of when a preference is written - the
 //! caller that changes a preference performs the write.
 
-#![allow(dead_code)] // the preference writer lands with the locale switcher; drop this blanket as it arrives
-
 use std::path::{Path, PathBuf};
 
 /// The file name inside the per-user config directory.

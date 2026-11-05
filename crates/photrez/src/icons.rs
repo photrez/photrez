@@ -1,4 +1,3 @@
-#![allow(dead_code)] // consumers arrive module by module; blanket dropped as they land
 //! Icon geometry copied verbatim from `lucide-solid@1.23.0` (ISC licensed) -
 //! the same icon set the design's glyph metrics were taken from, so the shapes
 //! match by

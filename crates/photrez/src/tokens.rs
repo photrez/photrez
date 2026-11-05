@@ -1,4 +1,3 @@
-#![allow(dead_code)] // consumers land module-by-module; drop this blanket as they arrive
 //! Design tokens for the native Photrez shell.
 //!
 //! Source of truth: the design's original theme token block.

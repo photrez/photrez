@@ -17,8 +17,6 @@
 //! or by family (`shot::starts_with("menu-")`); nothing here knows what a shot
 //! *means*, because adding a state should not require editing this file.
 
-#![allow(dead_code)] // `is`/`starts_with` land before the modules that call them; the blanket drops as consumers arrive
-
 use std::sync::OnceLock;
 
 /// The shot id this process was asked to render, or `None` when unset -
