@@ -25,15 +25,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Keyboard access.** Every inline numeric field and every dialog field is now a tab stop with one shared focus treatment, Tab cannot leave an open dialog, and closing a dialog returns focus to whatever held it beforehand.
 - **Tooltips on the tool rail.** Hovering a tool button shows its name and shortcut key, including the variant suffix on tools that offer right-click options; the foreground colour swatch shows its name.
 - **Print paper sizes come from the printer.** The Paper Size field lists the sizes the selected printer reports and only offers the unlisted value when the driver returns none, instead of assuming every printer's list is empty.
+- **Transform frame only where it has work to do.** With one layer selected under Move, the canvas no longer paints the eight-handle frame. It appears for a multi-layer selection, and a drawn shape keeps its handles because selecting it is part of drawing it.
+- **Focus and page edges painted as borders.** The text-edit band and the artboard page edge are drawn as border lines, a 1px page border with a 1px outer ring. A drop shadow in this paint path fills its whole rectangle, so the shadow version would have darkened the surface the user types into.
 
 ### Fixed
 
 - A long layer name clips to its row instead of wrapping onto a second line inside the fixed-height row.
 - The navigator's viewport indicator and thumbnail track the document again after the compositor changes.
+- The window keeps the documented 960x640 minimum instead of shrinking below it. The layout assumes that size, and nothing asked the window for it before.
 
 ### Removed
 
 - The bundled WebView2 bootstrapper and its installer sections.
+- The document tab strip's dock-layout toggle. The button was drawn, hoverable and inert: Photrez ships one dock layout, so it had nothing to switch.
 - The NSIS installer. This release ships archives rather than installers, so there is no in-place upgrade path or "delete app data" prompt yet; unpacking over an existing installation replaces it. Signed installers, if they return, will be announced in a later entry.
 
 ### Known limitations
