@@ -37,7 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Performance and quality
 
 - Paint pipeline improvements include raw-byte region transport and frame-level commit slicing.
-- Frame pacing is measured per interaction on the release build; the recorded numbers are in the project's performance baseline.
+- Frame pacing is measured per interaction in the running application: `cargo run -p photrez --bin measure-frames` records dispatch, composite and presentation timings for a synthetic stroke, and `measure-input` records first-pixel and preview-push latencies and states the build profile it ran under. `docs/frame-pacing-baseline.md` describes both commands.
 
 ---
 
