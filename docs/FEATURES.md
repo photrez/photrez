@@ -55,7 +55,7 @@ because it has not been built yet.
 | Shipped | Selection option bar reads the committed selection and edits X/Y/W/H/angle through core history; a rotate pin turns the selection with Shift snapping to 15 degrees; `Ctrl+T` toggles the transform chrome. |
 | Shipped | Cut/copy/paste/delete pixels of a selection (`Ctrl+X`/`Ctrl+C`/`Ctrl+V`/`Delete`); paste creates a new layer, and a copied selection can be pasted into another document. |
 | Shipped | Move-tool layer drag with snapping to layer and canvas edges/centres plus guide lines, Alt to disable, arrow-key nudge (1 px, 10 px with Shift). |
-| Shipped | Layer transform frame with eight resize handles, rotation, flip, reset and a distance/size HUD that follows the pointer at fixed screen scale. |
+| Shipped | Layer transform frame with eight resize handles, rotation, flip, reset and a distance/size HUD that follows the pointer at fixed screen scale. The frame shows while a transform is being dragged and while several layers are selected together; one selected layer under the Move tool shows no frame, which is what the reference does. |
 | Shipped | Opacity-aware hit testing: clicking a transparent corner falls through to the layer beneath; text and shape layers select by their box. |
 
 ## Text
