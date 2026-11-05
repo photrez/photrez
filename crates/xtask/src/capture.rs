@@ -76,6 +76,10 @@ pub struct CaptureSpec {
     pub out: PathBuf,
     /// Bounds for the window to appear plus first paint, in milliseconds.
     pub wait_ms: u64,
+    /// The client size the environment guard must see. `None` keeps the
+    /// ratified default; an explicit size is how a run matches the geometry a
+    /// given evidence set was taken at.
+    pub expect_client: Option<(i32, i32)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +88,11 @@ pub struct CaptureSpec {
 
 /// The client size the baselines were captured at - parity is defined only at
 /// this size, and only at 100% display scale.
+///
+/// It is the default, not the only legal value: `--client WxH` overrides it per
+/// run, because the recorded evidence set was captured at a maximized 1920x1020
+/// client while the ratified protocol says 1366x820. A caller that names a size
+/// still gets every other size refused.
 #[cfg(windows)]
 const EXPECTED_CLIENT: (i32, i32) = (1366, 820);
 
@@ -102,15 +111,22 @@ const EXPECTED_CLIENT: (i32, i32) = (1366, 820);
 /// A pixel diff cannot see either condition, so the driver refuses loudly
 /// here instead of producing a plausible-looking but meaningless comparison.
 #[cfg(windows)]
-fn assert_capture_environment(client_w: i32, client_h: i32, dpi: u32) -> Result<(), String> {
+fn assert_capture_environment(
+    client_w: i32,
+    client_h: i32,
+    dpi: u32,
+    expected: (i32, i32),
+) -> Result<(), String> {
     if dpi != 96 {
         return Err(format!(
             "display scale is {}% ({dpi} dpi); parity captures require 100% display scaling \
-             (Windows Settings > System > Display > Scale). The baselines assume 1366x820 logical pixels.",
-            dpi * 100 / 96
+             (Windows Settings > System > Display > Scale). The baselines assume {}x{} logical pixels.",
+            dpi * 100 / 96,
+            expected.0,
+            expected.1
         ));
     }
-    let (expected_w, expected_h) = EXPECTED_CLIENT;
+    let (expected_w, expected_h) = expected;
     if (client_w, client_h) != (expected_w, expected_h) {
         return Err(format!(
             "client is {client_w}x{client_h}, expected {expected_w}x{expected_h} - the window was clamped \
@@ -497,7 +513,7 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
     // Refuse to continue when the environment cannot yield a parity image
     // (scaled display or a clamped window); see `assert_capture_environment`.
     let dpi = unsafe { GetDpiForWindow(hwnd) };
-    assert_capture_environment(w, h, dpi)?;
+    assert_capture_environment(w, h, dpi, spec.expect_client.unwrap_or(EXPECTED_CLIENT))?;
     let mut origin: POINT = POINT { x: 0, y: 0 };
     if unsafe { ClientToScreen(hwnd, &mut origin) } == 0 {
         return Err("ClientToScreen returned false".into());

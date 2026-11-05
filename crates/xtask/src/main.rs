@@ -3,7 +3,7 @@
 //! Commands:
 //!
 //! ```text
-//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>]
+//! xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH]
 //!     Launch the built photrez app rendering one baseline state, wait for its
 //!     window, capture the client area to a PNG, and exit. One process per
 //!     shot; no cross-shot state.
@@ -79,7 +79,7 @@ fn print_help() {
         "xtask - workspace automation for the Photrez native port\n\
          \n\
          USAGE:\n\
-         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>]\n\
+         \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH]\n\
          \x20 xtask capture --window <title|:pid> --out <png> [--maximize]\n\
          \x20              [--expect-locale <tag>]\n\
          \x20     Attach to a window that is already running. Refuses unless that\n\
@@ -615,11 +615,28 @@ fn cmd_capture(args: &[String]) -> i32 {
         },
         None => 30_000,
     };
+    let expect_client = match flag(args, "--client") {
+        Some(v) => match v.split_once('x') {
+            Some((w, h)) => match (w.parse::<i32>(), h.parse::<i32>()) {
+                (Ok(w), Ok(h)) if w > 0 && h > 0 => Some((w, h)),
+                _ => {
+                    eprintln!("xtask capture: --client wants WxH with positive numbers, got `{v}`");
+                    return 2;
+                }
+            },
+            None => {
+                eprintln!("xtask capture: --client wants WxH, got `{v}`");
+                return 2;
+            }
+        },
+        None => None,
+    };
     let spec = capture::CaptureSpec {
         shot: flag(args, "--shot").map(str::to_owned),
         exe: flag(args, "--exe").map(PathBuf::from),
         out: PathBuf::from(out),
         wait_ms,
+        expect_client,
     };
     match capture::capture(&spec) {
         Ok(p) => {

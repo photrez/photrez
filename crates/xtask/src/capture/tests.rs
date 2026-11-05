@@ -115,14 +115,32 @@ fn single_row_identity() {
 #[cfg(windows)]
 #[test]
 fn capture_environment_accepts_reference_conditions() {
-    assert!(assert_capture_environment(1366, 820, 96).is_ok());
+    assert!(assert_capture_environment(1366, 820, 96, (1366, 820)).is_ok());
+}
+
+/// An explicit expected size is what lets a run match the geometry a recorded
+/// evidence set was taken at; a client that is not that size is still refused.
+#[cfg(windows)]
+#[test]
+fn capture_environment_honours_an_explicit_client_size() {
+    assert!(assert_capture_environment(1920, 1020, 96, (1920, 1020)).is_ok());
+    let err = assert_capture_environment(1920, 1032, 96, (1920, 1020))
+        .expect_err("a taller client than asked for must be rejected");
+    assert!(err.contains("clamped"), "message names the cause: {err}");
+    let scaled =
+        assert_capture_environment(1920, 1020, 120, (1920, 1020)).expect_err("scaling still wins");
+    assert!(
+        scaled.contains("1920x1020"),
+        "the asked size is named: {scaled}"
+    );
 }
 
 /// A scaled display (120 dpi = 125%) must be rejected with the scale named.
 #[cfg(windows)]
 #[test]
 fn capture_environment_rejects_scaled_display() {
-    let err = assert_capture_environment(1366, 820, 120).expect_err("125% must be rejected");
+    let err =
+        assert_capture_environment(1366, 820, 120, (1366, 820)).expect_err("125% must be rejected");
     assert!(err.contains("125%"), "message names the scale: {err}");
 }
 
@@ -131,7 +149,7 @@ fn capture_environment_rejects_scaled_display() {
 #[cfg(windows)]
 #[test]
 fn capture_environment_rejects_clamped_client() {
-    let err =
-        assert_capture_environment(1366, 816, 96).expect_err("clamped client must be rejected");
+    let err = assert_capture_environment(1366, 816, 96, (1366, 820))
+        .expect_err("clamped client must be rejected");
     assert!(err.contains("clamped"), "message names the cause: {err}");
 }
