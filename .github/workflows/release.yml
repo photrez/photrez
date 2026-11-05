@@ -137,12 +137,19 @@ jobs:
       - name: Generate SHA256SUMS
         working-directory: assets
         # `sha256sum * > SHA256SUMS` hashed the file it was about to write,
-        # because the redirect creates it first. The list is taken in its own
-        # statement, and an empty download fails with a reason.
+        # because the redirect creates it first. The list is built in its own
+        # loop, which also drops a SHA256SUMS left over from an earlier run of
+        # this job, so the file never records itself. An empty download fails
+        # with a reason.
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(*)
+          files=()
+          for asset in *; do
+            if [ "$asset" != "SHA256SUMS" ]; then
+              files+=("$asset")
+            fi
+          done
           if [ "${#files[@]}" -eq 0 ]; then
             echo "the release has no assets to checksum"
             exit 1
@@ -153,6 +160,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ github.ref_name }}" assets/SHA256SUMS --clobber
+
+      - name: Verify published checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Generating a checksum file says the build was measured; it does not say
+        # the published asset still matches it. This downloads the release again
+        # into a fresh directory and checks it, so what a user would fetch is what
+        # gets verified, including SHA256SUMS itself being present. --strict makes
+        # a listed file that cannot be read a failure rather than a warning.
+        run: |
+          set -euo pipefail
+          rm -rf verify && mkdir -p verify
+          gh release download "${{ github.ref_name }}" --dir verify
+          if [ ! -f verify/SHA256SUMS ]; then
+            echo "the release has no SHA256SUMS to verify"
+            exit 1
+          fi
+          ( cd verify && sha256sum --strict --check SHA256SUMS )
 
       - name: Set release notes
         env:
