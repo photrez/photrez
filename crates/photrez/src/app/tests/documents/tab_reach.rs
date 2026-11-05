@@ -167,3 +167,36 @@ fn closing_a_dialog_returns_focus_to_what_had_it(cx: &mut gpui_kit::TestAppConte
     })
     .expect("test window remains open");
 }
+
+/// One Space press confirms an open New Document dialog with no prior focus
+/// step, which is what makes the missing focus-on-open a cosmetic gap rather
+/// than a blocked action. The dialog is asserted open first, so the press
+/// cannot pass by never having reached a dialog.
+#[gpui_kit::test]
+fn space_confirms_an_open_new_document_dialog_with_no_prior_focus(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.state_for_test().read(cx).active_dialog,
+                Some(crate::state::DialogId::NewDocument),
+                "the dialog has to be open before the press means anything"
+            );
+        });
+        window.press("space", cx);
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            let state = app.state_for_test().read(cx);
+            assert_eq!(
+                state.active_dialog, None,
+                "Space must confirm the dialog the keyboard was sent to"
+            );
+        });
+    })
+    .expect("test window remains open");
+}
