@@ -428,6 +428,7 @@ fn layer_row(
             div()
                 .flex_1()
                 .min_w(px(0.0))
+                .truncate()
                 .text_size(px(ROW_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(if locked { color::TEXT_DIM } else { color::TEXT })
