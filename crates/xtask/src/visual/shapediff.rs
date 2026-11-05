@@ -1,7 +1,7 @@
 //! Class-map region comparison with the 3x3 neighbourhood tolerance - the
 //! `HARD MISMATCH` gate.
 //!
-//! Two entry points because the frozen tools have two shapes:
+//! Two entry points because the two recorded measurements have two shapes:
 //! `shape-diff.ts` compares two images region-by-region with each region
 //! anchored to its own edge; `shell-diff.ts` compares a baseline crop against
 //! a rectangle inside a full client capture - the rectangle takes its origin

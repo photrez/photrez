@@ -130,7 +130,8 @@ fn crop_window() -> Rect {
 }
 
 /// The full recorded probe: both images, both floors, both cross-sections.
-/// Geometry frozen from `measure.ts`.
+/// Geometry copied from `measure.ts`, pinned by a test so a refactor cannot
+/// drift it.
 #[derive(Clone, Debug)]
 pub struct RailCropIconProbe {
     pub baseline_solid: Option<Bbox>,
@@ -239,10 +240,10 @@ mod tests {
     }
 
     #[test]
-    fn probe_geometry_is_frozen_from_measure_ts() {
-        // The window/y and probe coords the cross-check asserts against are
-        // derived from measure.ts; pin them so a "faithful refactor" cannot
-        // drift the recorded bbox.
+    fn probe_geometry_matches_the_recorded_measure_ts_values() {
+        // The window/y and probe coords the cross-check asserts against come
+        // from measure.ts; pin them so a "faithful refactor" cannot drift the
+        // recorded bbox.
         let win = crop_window();
         assert_eq!(win.x, 0);
         assert_eq!(win.y, 84);

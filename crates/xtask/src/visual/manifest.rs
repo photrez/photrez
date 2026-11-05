@@ -11,8 +11,8 @@ use super::round3;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Manifest {
-    /// The locale the baselines were captured under; the frozen reference's
-    /// manifest records `"en"`. Absent in manifests that predate the field.
+    /// The locale the baselines were captured under; the tracked baseline
+    /// manifests record `"en"`. Absent in manifests that predate the field.
     #[serde(default)]
     pub locale: Option<String>,
     /// The nondeterministic footer strip that `--mask-metrics` blanks. Absent in
