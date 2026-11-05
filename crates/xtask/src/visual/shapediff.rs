@@ -433,8 +433,8 @@ mod tests {
     /// percentage and the histogram counts in the same pass.
     #[test]
     fn anchored_comparison_produces_expected_hist_and_fringer() {
-        use crate::parity::Anchor;
-        use crate::parity::RegionSpec;
+        use crate::visual::Anchor;
+        use crate::visual::RegionSpec;
 
         // Two 2x2 images. A: all bg. B: one stroke pixel at (0,0).
         let a_img = RgbaImage::from_rgba(

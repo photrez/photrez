@@ -1,6 +1,6 @@
 //! Surface-matrix generator and validator (T2 + T5).
 //!
-//! The frozen Python `parity_surfaces.py` was a hand-written 51-row literal
+//! The frozen Python `visual_surfaces.py` was a hand-written 51-row literal
 //! with no generator; this module derives the surface proposals from the
 //! re-based inventory (one proposal per inventory family) so no directory can
 //! be silently omitted, and validates the matrix in both directions: every
@@ -35,22 +35,22 @@ pub struct SurfaceOpts {
     pub bundles: PathBuf,
     /// Expected provenance for bundle checks: `oracle=<commit>` and
     /// `build=<id>`. Empty disables the provenance match.
-    pub oracle_commit: String,
+    pub reference_commit: String,
     pub build_id: String,
 }
 
 /// Validates the matrix:
-/// `cargo xtask parity surfaces --inventory <csv> --surfaces <csv> --bundles
-/// <evidence-root> --oracle-commit <commit> --build-id <id>`.
+/// `cargo xtask visual surfaces --inventory <csv> --surfaces <csv> --bundles
+/// <evidence-root> --reference-commit <commit> --build-id <id>`.
 /// Proposes one surface per inventory family:
-/// `cargo xtask parity surfaces --generate --inventory <csv> --out <csv>`.
+/// `cargo xtask visual surfaces --generate --inventory <csv> --out <csv>`.
 pub fn cmd(args: &[String]) -> i32 {
     if has_flag(args, "--generate") {
         let (Some(inventory), Some(out)) =
             (flag_path(args, "--inventory"), flag_path(args, "--out"))
         else {
             eprintln!(
-                "xtask parity surfaces --generate: --inventory <csv> and --out <csv> are required."
+                "xtask visual surfaces --generate: --inventory <csv> and --out <csv> are required."
             );
             return 2;
         };
@@ -62,10 +62,10 @@ pub fn cmd(args: &[String]) -> i32 {
         flag_path(args, "--bundles"),
     ) else {
         eprintln!(
-            "xtask parity surfaces: --inventory <csv>, --surfaces <csv> and --bundles \
+            "xtask visual surfaces: --inventory <csv>, --surfaces <csv> and --bundles \
              <evidence-root> are required.\n\
              \x20 Pass the two CSVs and the root that holds the per-surface evidence bundles.\n\
-             \x20 No path is assumed; VERIFIED rows also need --oracle-commit and --build-id."
+             \x20 No path is assumed; VERIFIED rows also need --reference-commit and --build-id."
         );
         return 2;
     };
@@ -73,7 +73,7 @@ pub fn cmd(args: &[String]) -> i32 {
         inventory,
         surfaces,
         bundles,
-        oracle_commit: flag(args, "--oracle-commit")
+        reference_commit: flag(args, "--reference-commit")
             .unwrap_or_default()
             .to_string(),
         build_id: flag(args, "--build-id").unwrap_or_default().to_string(),
@@ -346,7 +346,7 @@ fn validate(opts: &SurfaceOpts) -> i32 {
             errors.extend(bundle::bundle_errors(
                 &id,
                 &opts.bundles.join(&id),
-                &opts.oracle_commit,
+                &opts.reference_commit,
                 &opts.build_id,
             ));
         }
@@ -381,7 +381,7 @@ fn is_stable_id(id: &str) -> bool {
 
 /// Strict bundle contract (T5, G20). This validator is the specification:
 ///
-/// `manifest.json`: `surface`, `oracle_commit`, `build_id`, `fixture`,
+/// `manifest.json`: `surface`, `reference_commit`, `build_id`, `fixture`,
 /// `locale`, `dpi` (> 0), `physical_size` ([w, h]), `oracle_capture`,
 /// `native_capture`.
 /// `diff.json`: `surface`, `pass` (true), `thresholds` {`max_changed_pixels`,
@@ -544,7 +544,7 @@ mod tests {
             &dir.join("manifest.json"),
             serde_json::json!({
                 "surface": id,
-                "oracle_commit": "abc123",
+                "reference_commit": "abc123",
                 "build_id": "build-1",
                 "fixture": "fixture.psd",
                 "locale": "en",
@@ -633,7 +633,7 @@ mod tests {
             surfaces.to_string_lossy().into_owned(),
             "--bundles".into(),
             bundles.to_string_lossy().into_owned(),
-            "--oracle-commit".into(),
+            "--reference-commit".into(),
             "abc123".into(),
             "--build-id".into(),
             "build-1".into(),

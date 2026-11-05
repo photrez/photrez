@@ -199,7 +199,7 @@ pub(crate) fn ink_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parity::pngio::RgbaImage;
+    use crate::visual::pngio::RgbaImage;
 
     fn img(w: u32, h: u32, px: [u8; 4]) -> RgbaImage {
         let mut data = vec![0u8; w as usize * h as usize * 4];

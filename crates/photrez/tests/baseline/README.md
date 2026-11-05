@@ -17,7 +17,7 @@ was captured, and which noise is expected.
 - Current captures: `cargo xtask capture --shot <id> --out <png>` launches this
   application rendering one baseline state, waits for its window and captures
   the client area, one process per shot with no state carried between shots.
-  Comparisons run through `cargo xtask parity`.
+  Comparisons run through `cargo xtask visual`.
 - Source: `manifest.sourceCommit` names the tree the shots were taken from.
   `manifest.sourceDirty` records whether the worktree differed from it at
   capture time.
@@ -74,7 +74,7 @@ was captured, and which noise is expected.
 
 Producing the numbers above requires the comparison semantics: the class map
 with the 3x3 neighbourhood tolerance, the ink integral, the bounding boxes.
-They live in this repository's own tooling (`cargo xtask parity`, with the
+They live in this repository's own tooling (`cargo xtask visual`, with the
 shape-diff and measure steps under `crates/xtask/src/parity/`), so there is one
 tolerance implementation and it is the one CI runs.
 

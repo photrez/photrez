@@ -1,5 +1,5 @@
 use super::*;
-use crate::parity::pngio::RgbaImage;
+use crate::visual::pngio::RgbaImage;
 
 fn luma(px: [u8; 4]) -> f64 {
     0.2126 * f64::from(px[0]) + 0.7152 * f64::from(px[1]) + 0.0722 * f64::from(px[2])

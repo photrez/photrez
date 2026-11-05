@@ -1,16 +1,16 @@
-//! Rust port of the frozen TS parity tooling.
+//! Visual comparison tooling: five measurement surfaces over a pair of PNGs.
 //!
-//! The originals (read-only, never executed) are the five scripts behind the
-//! appearance comparison: `shape-diff.ts` (class map + 3x3 tolerance ->
-//! `HARD MISMATCH`), `diff.ts` (raw RGB delta + side-by-side panel),
-//! `zoom.ts` (ink integral + peak luma), `measure.ts` (bbox / cross-sections),
-//! `shell-diff.ts` (region selection + report). Their recorded outputs are the
-//! cross-check oracle; once this port is verified the Rust code is the only
-//! living implementation of the tolerance policy.
+//! * class map with a 3x3 tolerance, which is what reports a `HARD MISMATCH`;
+//! * raw RGB delta with a side-by-side panel;
+//! * ink integral and peak luma;
+//! * bounding box and cross-sections;
+//! * region selection with a per-region report.
 //!
-//! Reporting conventions preserved from the TS originals: three-decimal
-//! percentages, camelCase JSON keys, per-region `anchoredTo`, hard spots
-//! capped at 40 per region.
+//! The tolerance policy lives here, in the tables in this module and in the
+//! CSVs the callers pass; no other implementation of it is executed.
+//!
+//! Reporting conventions: three-decimal percentages, camelCase JSON keys,
+//! per-region `anchoredTo`, hard spots capped at 40 per region.
 
 pub mod bands;
 pub mod bundle;

@@ -8,31 +8,31 @@
 //!     window, capture the client area to a PNG, and exit. One process per
 //!     shot; no cross-shot state.
 //!
-//! xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]
+//! xtask visual [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]
 //!              [--report <dir>] [--mask-metrics] [--accept-ink-residual]
 //!              [--zoom <pct>] [--pan x,y]
 //!     Compare captured shots against the golden-master baselines. Without
 //!     --candidate each shot is captured first, at the camera its baseline
 //!     records unless --zoom or --pan says otherwise. Exits 0 only when every
-//!     compared shot is green (see parity::run for the verdict rule).
+//!     compared shot is green (see visual::run for the verdict rule).
 //!
-//! xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>
+//! xtask visual cross-check --case shape|diff|zoom|measure --a <png> --b <png>
 //!     Re-runs each comparator on a checked-in fixture pair and checks the
 //!     numbers against the recorded reports.
 //! ```
 //!
-//! `xtask set-version <semver>`, the register checks (`xtask parity coverage`,
-//! `surfaces`, `strings`, `inventory`) and `xtask parity perceptual-diff`
+//! `xtask set-version <semver>`, the register checks (`xtask visual coverage`,
+//! `surfaces`, `strings`, `inventory`) and `xtask visual perceptual-diff`
 //! complete the command set; `--help` states each one's flags.
 //!
-//! The `parity` commands are read-only with respect to the repository: reports
-//! go to `--report` (default `target/xtask-parity`), never into the baseline
+//! The .visual. commands are read-only with respect to the repository: reports
+//! go to `--report` (default `target/xtask-visual`), never into the baseline
 //! directory.
 
 mod capture;
 mod dev;
-mod parity;
 mod version;
+mod visual;
 
 use std::path::{Path, PathBuf};
 
@@ -46,29 +46,29 @@ fn main() {
         Some("capture") => cmd_capture(&args[1..]),
         Some("dev") => dev::run(&args[1..]),
         Some("set-version") => version::cmd_set_version(&args[1..]),
-        Some("parity") => {
+        Some("visual") => {
             if args.get(1).map(String::as_str) == Some("cross-check") {
                 cmd_cross_check(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("inventory") {
-                cmd_parity_inventory(&args[2..])
+                cmd_visual_inventory(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("surfaces") {
-                parity::surfaces::cmd(&args[2..])
+                visual::surfaces::cmd(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("strings") {
-                parity::strings::cmd(&args[2..])
+                visual::strings::cmd(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("coverage") {
-                cmd_parity_coverage(&args[2..])
+                cmd_visual_coverage(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("diff") {
-                cmd_parity_diff(&args[2..])
+                cmd_visual_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("perceptual-diff") {
-                cmd_parity_perceptual_diff(&args[2..])
+                cmd_visual_perceptual_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("band-diff") {
-                cmd_parity_band_diff(&args[2..])
+                cmd_visual_band_diff(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("score") {
-                parity::bundle::cmd_score(&args[2..])
+                visual::bundle::cmd_score(&args[2..])
             } else if args.get(1).map(String::as_str) == Some("class-diff") {
-                cmd_parity_class_diff(&args[2..])
+                cmd_visual_class_diff(&args[2..])
             } else {
-                cmd_parity(&args[1..])
+                cmd_visual(&args[1..])
             }
         }
         Some(other) => {
@@ -96,37 +96,37 @@ fn print_help() {
          \x20     child PATH (the link chain needs it for ld's DLLs and for\n\
          \x20     windres' bare gcc; plain `cargo run` works when the directory\n\
          \x20     is already on PATH).\n\
-         \x20 xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]\n\
+         \x20 xtask visual [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]\n\
          \x20              [--report <dir>] [--mask-metrics] [--accept-ink-residual]\n\
          \x20              [--zoom <pct>] [--pan x,y]\n\
-         \x20 xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
-         \x20 xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]\n\
-         \x20 xtask parity band-diff --a <png> --b <png> [--threshold <f>]\n\
+         \x20 xtask visual cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
+         \x20 xtask visual diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]\n\
+         \x20 xtask visual band-diff --a <png> --b <png> [--threshold <f>]\n\
          \x20              [--band-height <px>] [--max-shift <px>] [--tiers <n>]\n\
          \x20              [--max-band <pct>] [--out <json>]\n\
          \x20     Per-band identity: what differs, whether a shift explains it,\n\
          \x20     and which exact colours each side is made of.\n\
          \n\
-         \x20 xtask parity score --bundle <dir> [--oracle-mask <png> --native-mask <png>]\n\
+         \x20 xtask visual score --bundle <dir> [--reference-mask <png> --native-mask <png>]\n\
          \x20              [--max-band-pct <pct>] [--band-height <px>] [--max-shift <px>]\n\
          \x20              [--tiers <n>] [--out <json>]\n\
-         \x20 xtask parity score --bundles <root> [--max-band-pct <pct>]\n\
+         \x20 xtask visual score --bundles <root> [--max-band-pct <pct>]\n\
          \x20     Scored run of an evidence bundle: the percentage floor and the band\n\
          \x20     identity ceiling together, with the band numbers written beside the\n\
          \x20     recorded ones. A root scores every bundle under it and names the rejects.\n\
          \n\
-         \x20 xtask parity class-diff --a <png> --b <png> [--max <pct>]\n\
+         \x20 xtask visual class-diff --a <png> --b <png> [--max <pct>]\n\
          \x20     Recompute a class-map verdict: pixels that differ at all, and how\n\
          \x20     many of those change class under the shell palette classifier.\n\
          \n\
-         \x20 xtask parity perceptual-diff --a <png> --b <png> [--threshold <f>]\n\
+         \x20 xtask visual perceptual-diff --a <png> --b <png> [--threshold <f>]\n\
          \x20     Compare two frames the way the percentage floor is measured.\n\
          \n\
-         \x20 xtask parity coverage --inventory <csv> --surfaces <csv>\n\
-         \x20 xtask parity surfaces --inventory <csv> --surfaces <csv> --bundles <dir>\n\
-         \x20                   --oracle-commit <sha> --build-id <id>\n\
-         \x20 xtask parity strings --surfaces <csv> --root <dir> --map <csv>\n\
-         \x20 xtask parity inventory --oracle-root <dir> --head-root <dir> --out <csv>\n\
+         \x20 xtask visual coverage --inventory <csv> --surfaces <csv>\n\
+         \x20 xtask visual surfaces --inventory <csv> --surfaces <csv> --bundles <dir>\n\
+         \x20                   --reference-commit <sha> --build-id <id>\n\
+         \x20 xtask visual strings --surfaces <csv> --root <dir> --map <csv>\n\
+         \x20 xtask visual inventory --reference-root <dir> --head-root <dir> --out <csv>\n\
          \x20     Register checks over the surface and text inventories. Every file\n\
          \x20     and commit they read is operator-supplied: no path to a file this\n\
          \x20     repository does not carry is built in.\n\
@@ -136,7 +136,7 @@ fn print_help() {
          \x20     cargo metadata. A lower release number is refused, and a refused\n\
          \x20     read-back restores the manifest bytes it replaced.\n\
          \n\
-         Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-parity."
+         Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-visual."
     );
 }
 
@@ -169,18 +169,18 @@ fn has_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
-/// `xtask parity inventory [--oracle-root <dir>] [--head-root <dir>] --out <csv>`
-/// — regenerate the parity inventory, validating against the oracle tree.
-fn cmd_parity_inventory(args: &[String]) -> i32 {
+/// `xtask visual inventory [--reference-root <dir>] [--head-root <dir>] --out <csv>`
+/// — regenerate the reference inventory, validating against the reference tree.
+fn cmd_visual_inventory(args: &[String]) -> i32 {
     let Some(out) = flag(args, "--out").map(PathBuf::from) else {
         eprintln!(
-            "xtask parity inventory: --out <csv> is required.\n\
+            "xtask visual inventory: --out <csv> is required.\n\
              \x20 Pass the path to write the inventory CSV to."
         );
         return 2;
     };
-    let opts = parity::inventory::InventoryOpts {
-        oracle_root: flag(args, "--oracle-root")
+    let opts = visual::inventory::InventoryOpts {
+        reference_root: flag(args, "--reference-root")
             .map(PathBuf::from)
             .unwrap_or_default(),
         head_root: flag(args, "--head-root")
@@ -188,25 +188,25 @@ fn cmd_parity_inventory(args: &[String]) -> i32 {
             .unwrap_or_default(),
         out,
     };
-    parity::inventory::run(&opts)
+    visual::inventory::run(&opts)
 }
 
-/// `xtask parity perceptual-diff --a <png> --b <png> [--threshold <t>] [--ignore-aa] [--out <json>]`
+/// `xtask visual perceptual-diff --a <png> --b <png> [--threshold <t>] [--ignore-aa] [--out <json>]`
 ///
 /// pixelmatch-style YIQ distance with optional anti-aliasing exclusion. The
 /// threshold is explicit (default 0.1, pixelmatch's default); nothing here
 /// ratifies a tolerance.
-fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
+fn cmd_visual_perceptual_diff(args: &[String]) -> i32 {
     let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
-        eprintln!("xtask parity perceptual-diff: --a <png> and --b <png> are required");
+        eprintln!("xtask visual perceptual-diff: --a <png> and --b <png> are required");
         return 2;
     };
     let threshold: f64 = match flag(args, "--threshold") {
-        None => parity::perceptual::DEFAULT_THRESHOLD,
+        None => visual::perceptual::DEFAULT_THRESHOLD,
         Some(v) => match v.parse() {
             Ok(n) => n,
             Err(_) => {
-                eprintln!("xtask parity perceptual-diff: --threshold must be a number, got `{v}`");
+                eprintln!("xtask visual perceptual-diff: --threshold must be a number, got `{v}`");
                 return 2;
             }
         },
@@ -217,29 +217,29 @@ fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
         Some(v) => match v.parse() {
             Ok(n) => Some(n),
             Err(_) => {
-                eprintln!("xtask parity perceptual-diff: --max must be a number, got `{v}`");
+                eprintln!("xtask visual perceptual-diff: --max must be a number, got `{v}`");
                 return 2;
             }
         },
     };
-    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+    let img_a = match visual::pngio::RgbaImage::load(std::path::Path::new(a)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity perceptual-diff: {e}");
+            eprintln!("xtask visual perceptual-diff: {e}");
             return 2;
         }
     };
-    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+    let img_b = match visual::pngio::RgbaImage::load(std::path::Path::new(b)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity perceptual-diff: {e}");
+            eprintln!("xtask visual perceptual-diff: {e}");
             return 2;
         }
     };
-    let report = match parity::perceptual::compare(&img_a, &img_b, threshold, ignore_aa) {
+    let report = match visual::perceptual::compare(&img_a, &img_b, threshold, ignore_aa) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("xtask parity perceptual-diff: {e}");
+            eprintln!("xtask visual perceptual-diff: {e}");
             return 1;
         }
     };
@@ -254,7 +254,7 @@ fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
     if let Some(max) = max_diff {
         if report.changed_pct > max {
             eprintln!(
-                "xtask parity perceptual-diff: FAIL {:.4}% > {max:.4}%",
+                "xtask visual perceptual-diff: FAIL {:.4}% > {max:.4}%",
                 report.changed_pct
             );
             return 1;
@@ -268,35 +268,35 @@ fn cmd_parity_perceptual_diff(args: &[String]) -> i32 {
             "report": report,
             "max": max_diff,
         });
-        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
-            eprintln!("xtask parity perceptual-diff: {e}");
+        if let Err(e) = visual::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask visual perceptual-diff: {e}");
             return 2;
         }
     }
     0
 }
 
-/// `xtask parity band-diff --a <png> --b <png> [--threshold <f>] [--band-height <px>]
+/// `xtask visual band-diff --a <png> --b <png> [--threshold <f>] [--band-height <px>]
 ///                      [--max-shift <px>] [--tiers <n>] [--out <json>]`
 ///
 /// The per-band view of the same pair: how much differs in each band, whether a shift
 /// explains it, and which exact colours each side is made of. It ratifies nothing and
 /// exits 0 unless `--max-band` is given and a band exceeds it.
-fn cmd_parity_band_diff(args: &[String]) -> i32 {
+fn cmd_visual_band_diff(args: &[String]) -> i32 {
     let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
-        eprintln!("xtask parity band-diff: --a <png> and --b <png> are required");
+        eprintln!("xtask visual band-diff: --a <png> and --b <png> are required");
         return 2;
     };
     let number = |name: &str, default: f64| -> Result<f64, i32> {
         match flag(args, name) {
             None => Ok(default),
             Some(v) => v.parse::<f64>().map_err(|_| {
-                eprintln!("xtask parity band-diff: {name} must be a number, got `{v}`");
+                eprintln!("xtask visual band-diff: {name} must be a number, got `{v}`");
                 2
             }),
         }
     };
-    let threshold = match number("--threshold", parity::perceptual::DEFAULT_THRESHOLD) {
+    let threshold = match number("--threshold", visual::perceptual::DEFAULT_THRESHOLD) {
         Ok(v) => v,
         Err(code) => return code,
     };
@@ -317,25 +317,25 @@ fn cmd_parity_band_diff(args: &[String]) -> i32 {
         Ok(v) => Some(v),
         Err(code) => return code,
     };
-    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+    let img_a = match visual::pngio::RgbaImage::load(std::path::Path::new(a)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity band-diff: {e}");
+            eprintln!("xtask visual band-diff: {e}");
             return 2;
         }
     };
-    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+    let img_b = match visual::pngio::RgbaImage::load(std::path::Path::new(b)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity band-diff: {e}");
+            eprintln!("xtask visual band-diff: {e}");
             return 2;
         }
     };
     let report =
-        match parity::bands::report(&img_a, &img_b, threshold, band_height, max_shift, tiers) {
+        match visual::bands::report(&img_a, &img_b, threshold, band_height, max_shift, tiers) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("xtask parity band-diff: {e}");
+                eprintln!("xtask visual band-diff: {e}");
                 return 1;
             }
         };
@@ -392,7 +392,7 @@ fn cmd_parity_band_diff(args: &[String]) -> i32 {
     println!("worst band: {worst:.3}%");
     if let Some(max) = max_band {
         if worst > max {
-            eprintln!("xtask parity band-diff: FAIL worst band {worst:.3}% > {max:.3}%");
+            eprintln!("xtask visual band-diff: FAIL worst band {worst:.3}% > {max:.3}%");
             return 1;
         }
     }
@@ -404,21 +404,21 @@ fn cmd_parity_band_diff(args: &[String]) -> i32 {
             "report": report,
             "max_band": max_band,
         });
-        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
-            eprintln!("xtask parity band-diff: {e}");
+        if let Err(e) = visual::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask visual band-diff: {e}");
             return 2;
         }
     }
     0
 }
 
-/// `xtask parity class-diff --a <png> --b <png> [--max <pct>]`
+/// `xtask visual class-diff --a <png> --b <png> [--max <pct>]`
 ///
 /// Recomputes a recorded class-map verdict: how many pixels differ at all and how
 /// many of those change class. The threshold is printed, never assumed.
-fn cmd_parity_class_diff(args: &[String]) -> i32 {
+fn cmd_visual_class_diff(args: &[String]) -> i32 {
     let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
-        eprintln!("xtask parity class-diff: --a <png> and --b <png> are required");
+        eprintln!("xtask visual class-diff: --a <png> and --b <png> are required");
         return 2;
     };
     let max: Option<f64> = match flag(args, "--max") {
@@ -426,29 +426,29 @@ fn cmd_parity_class_diff(args: &[String]) -> i32 {
         Some(v) => match v.parse() {
             Ok(n) => Some(n),
             Err(_) => {
-                eprintln!("xtask parity class-diff: --max must be a number, got `{v}`");
+                eprintln!("xtask visual class-diff: --max must be a number, got `{v}`");
                 return 2;
             }
         },
     };
-    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+    let img_a = match visual::pngio::RgbaImage::load(std::path::Path::new(a)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity class-diff: {e}");
+            eprintln!("xtask visual class-diff: {e}");
             return 2;
         }
     };
-    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+    let img_b = match visual::pngio::RgbaImage::load(std::path::Path::new(b)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity class-diff: {e}");
+            eprintln!("xtask visual class-diff: {e}");
             return 2;
         }
     };
-    let report = match parity::classdiff::report(&img_a, &img_b) {
+    let report = match visual::classdiff::report(&img_a, &img_b) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("xtask parity class-diff: {e}");
+            eprintln!("xtask visual class-diff: {e}");
             return 1;
         }
     };
@@ -467,7 +467,7 @@ fn cmd_parity_class_diff(args: &[String]) -> i32 {
     if let Some(max) = max {
         if report.class_mismatch_pct > max {
             eprintln!(
-                "xtask parity class-diff: FAIL {:.3}% > max {:.3}%",
+                "xtask visual class-diff: FAIL {:.3}% > max {:.3}%",
                 report.class_mismatch_pct, max
             );
             return 1;
@@ -476,14 +476,14 @@ fn cmd_parity_class_diff(args: &[String]) -> i32 {
     0
 }
 
-/// `xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]`
+/// `xtask visual diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]`
 ///
 /// Whole-image pixel diff over the same class-map the shot comparison uses.
 /// The threshold is explicit and printed: nothing here ratifies a tolerance,
 /// and the default (0.000%) is the strictest possible verdict.
-fn cmd_parity_diff(args: &[String]) -> i32 {
+fn cmd_visual_diff(args: &[String]) -> i32 {
     let (Some(a), Some(b)) = (flag(args, "--a"), flag(args, "--b")) else {
-        eprintln!("xtask parity diff: --a <png> and --b <png> are required");
+        eprintln!("xtask visual diff: --a <png> and --b <png> are required");
         return 2;
     };
     let max_diff: f64 = match flag(args, "--max-diff") {
@@ -491,41 +491,41 @@ fn cmd_parity_diff(args: &[String]) -> i32 {
         Some(v) => match v.parse() {
             Ok(n) => n,
             Err(_) => {
-                eprintln!("xtask parity diff: --max-diff must be a number, got `{v}`");
+                eprintln!("xtask visual diff: --max-diff must be a number, got `{v}`");
                 return 2;
             }
         },
     };
-    let img_a = match parity::pngio::RgbaImage::load(std::path::Path::new(a)) {
+    let img_a = match visual::pngio::RgbaImage::load(std::path::Path::new(a)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity diff: {e}");
+            eprintln!("xtask visual diff: {e}");
             return 2;
         }
     };
-    let img_b = match parity::pngio::RgbaImage::load(std::path::Path::new(b)) {
+    let img_b = match visual::pngio::RgbaImage::load(std::path::Path::new(b)) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("xtask parity diff: {e}");
+            eprintln!("xtask visual diff: {e}");
             return 2;
         }
     };
     if img_a.width != img_b.width || img_a.height != img_b.height {
         eprintln!(
-            "parity diff: size mismatch: {}x{} vs {}x{} - a layout comparison needs both captures at the same size",
+            "visual diff: size mismatch: {}x{} vs {}x{} - a layout comparison needs both captures at the same size",
             img_a.width, img_a.height, img_b.width, img_b.height
         );
         return 1;
     }
-    let region = parity::RegionSpec {
+    let region = visual::RegionSpec {
         name: "full".to_string(),
-        anchor: parity::Anchor::Top,
+        anchor: visual::Anchor::Top,
         rows: img_a.height,
     };
-    let report = match parity::rawdiff::compare_anchored(&img_a, &img_b, &[region]) {
+    let report = match visual::rawdiff::compare_anchored(&img_a, &img_b, &[region]) {
         Ok(mut v) => v.remove(0),
         Err(e) => {
-            eprintln!("parity diff: {e}");
+            eprintln!("visual diff: {e}");
             return 2;
         }
     };
@@ -545,20 +545,20 @@ fn cmd_parity_diff(args: &[String]) -> i32 {
             "max_diff": max_diff,
             "region": report,
         });
-        if let Err(e) = parity::run::write_json(PathBuf::from(out), &payload) {
-            eprintln!("xtask parity diff: {e}");
+        if let Err(e) = visual::run::write_json(PathBuf::from(out), &payload) {
+            eprintln!("xtask visual diff: {e}");
             return 2;
         }
     }
     if report.diff_pct > max_diff {
         println!(
-            "parity diff: FAIL ({:.4}% > max-diff {:.4}%)",
+            "visual diff: FAIL ({:.4}% > max-diff {:.4}%)",
             report.diff_pct, max_diff
         );
         1
     } else {
         println!(
-            "parity diff: PASS ({:.4}% <= max-diff {:.4}%)",
+            "visual diff: PASS ({:.4}% <= max-diff {:.4}%)",
             report.diff_pct, max_diff
         );
         0
@@ -709,8 +709,8 @@ fn cmd_capture(args: &[String]) -> i32 {
     }
 }
 
-fn cmd_parity(args: &[String]) -> i32 {
-    let opts = parity::run::ParityOpts {
+fn cmd_visual(args: &[String]) -> i32 {
+    let opts = visual::run::VisualOpts {
         baseline: PathBuf::from(
             flag(args, "--baseline").unwrap_or("crates/photrez/tests/baseline"),
         ),
@@ -721,13 +721,13 @@ fn cmd_parity(args: &[String]) -> i32 {
         candidate: flag(args, "--candidate").map(PathBuf::from),
         report_dir: flag(args, "--report")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("target/xtask-parity")),
+            .unwrap_or_else(|| PathBuf::from("target/xtask-visual")),
         mask_metrics: has_flag(args, "--mask-metrics"),
         accept_ink_residual: has_flag(args, "--accept-ink-residual"),
         pan: match flag(args, "--pan") {
             Some(v) => {
                 if capture::parse_pan(v).is_none() {
-                    eprintln!("xtask parity: --pan wants x,y with two numbers, got `{v}`");
+                    eprintln!("xtask visual: --pan wants x,y with two numbers, got `{v}`");
                     return 2;
                 }
                 Some(v.to_owned())
@@ -737,40 +737,40 @@ fn cmd_parity(args: &[String]) -> i32 {
         zoom: match flag(args, "--zoom") {
             Some(v) if capture::parse_zoom_percent(v).is_some() => Some(v.to_owned()),
             Some(v) => {
-                eprintln!("xtask parity: --zoom wants a positive percent like 88, got `{v}`");
+                eprintln!("xtask visual: --zoom wants a positive percent like 88, got `{v}`");
                 return 2;
             }
             None => None,
         },
     };
     if opts.shots.is_empty() {
-        eprintln!("xtask parity: at least one --shot <id|prefix> is required");
+        eprintln!("xtask visual: at least one --shot <id|prefix> is required");
         return 2;
     }
-    match parity::run::run_parity(&opts) {
+    match visual::run::run_visual(&opts) {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("parity failed: {e}");
+            eprintln!("visual run failed: {e}");
             1
         }
     }
 }
 
-/// `xtask parity coverage --inventory <csv> --surfaces <csv>` reports the
+/// `xtask visual coverage --inventory <csv> --surfaces <csv>` reports the
 /// inventory files and component families no surface claims.
-fn cmd_parity_coverage(args: &[String]) -> i32 {
+fn cmd_visual_coverage(args: &[String]) -> i32 {
     let (Some(inventory), Some(surfaces)) = (flag(args, "--inventory"), flag(args, "--surfaces"))
     else {
         eprintln!(
-            "xtask parity coverage: --inventory <csv> and --surfaces <csv> are required.\n\
+            "xtask visual coverage: --inventory <csv> and --surfaces <csv> are required.\n\
              \x20 Pass the same two CSVs the surface matrix validator reads."
         );
         return 2;
     };
-    match parity::coverage::run(Path::new(inventory), Path::new(surfaces)) {
+    match visual::coverage::run(Path::new(inventory), Path::new(surfaces)) {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("parity coverage: {error}");
+            eprintln!("visual coverage: {error}");
             1
         }
     }
@@ -780,10 +780,10 @@ fn cmd_cross_check(args: &[String]) -> i32 {
     let (Some(case), Some(a), Some(b)) =
         (flag(args, "--case"), flag(args, "--a"), flag(args, "--b"))
     else {
-        eprintln!("xtask parity cross-check: --case <shape|diff|zoom|measure> --a <png> --b <png> are required");
+        eprintln!("xtask visual cross-check: --case <shape|diff|zoom|measure> --a <png> --b <png> are required");
         return 2;
     };
-    match parity::crosscheck::run(case, Path::new(a), Path::new(b)) {
+    match visual::crosscheck::run(case, Path::new(a), Path::new(b)) {
         Ok(code) => code,
         Err(e) => {
             eprintln!("cross-check failed: {e}");

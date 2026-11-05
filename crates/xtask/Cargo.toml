@@ -9,9 +9,8 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# Scope today: `parity` (the Rust port of the frozen TS diff tooling, keeping
-# the appearance comparison runnable without a JS toolchain) and `capture`
-# (the product-side window-capture driver). Sibling automation such as
+# Scope today: `visual` (PNG decode, class-map and band metrics, region reports)
+# and `capture` (the product-side window-capture driver). Sibling automation such as
 # `bump-version` and `bench-pixel` lands when its consumer does - not
 # speculatively.
 [dependencies]

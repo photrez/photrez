@@ -10,7 +10,7 @@
 //!
 //! The scored run is a different gate and lives in [`super::bundle`].
 //!
-//! Outputs into `--report` (default `target/xtask-parity/`):
+//! Outputs into `--report` (default `target/xtask-visual/`):
 //! `shape-report.json` (array over compared shots, the shape verdict surface),
 //! `raw-report.json`, `ink-report.json`, and a stdout table. The baseline
 //! directory is never written to.
@@ -31,7 +31,7 @@ use super::{InkRegionReport, RawRegionReport, ShapeRegionReport};
 use crate::capture;
 
 /// Everything the `parity` command needs, parsed by `main.rs`.
-pub struct ParityOpts {
+pub struct VisualOpts {
     pub baseline: PathBuf,
     pub shots: Vec<String>,
     pub candidate: Option<PathBuf>,
@@ -102,7 +102,7 @@ struct ShotResult {
 
 /// Run the comparison loop. `Ok(exit_code)`: 0 = all shots green, 1 = at
 /// least one red (the report is written either way).
-pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
+pub fn run_visual(opts: &VisualOpts) -> Result<i32, String> {
     // The baselines were captured with the English catalog: refuse a
     // non-English request (environment or manifest) before any capture.
     capture::require_english_locale()?;
@@ -189,7 +189,7 @@ pub fn run_parity(opts: &ParityOpts) -> Result<i32, String> {
 /// Process a single shot: resolve candidate, crop, compare, assemble.
 fn process_shot(
     shot: &Shot,
-    opts: &ParityOpts,
+    opts: &VisualOpts,
     mask: Option<manifest::MetricsMask>,
     cand_dir: &Path,
     sbs_dir: &Path,
@@ -365,7 +365,7 @@ fn process_shot(
 /// The camera a fresh capture of this shot must use. A run-level flag applies
 /// to every shot, so it wins; otherwise the manifest's own per-shot camera
 /// places the page where the reference frame has it.
-fn camera_for_shot(shot: &Shot, opts: &ParityOpts) -> (Option<String>, Option<String>) {
+fn camera_for_shot(shot: &Shot, opts: &VisualOpts) -> (Option<String>, Option<String>) {
     let recorded = shot.camera.as_ref();
     (
         opts.zoom
@@ -380,7 +380,7 @@ fn camera_for_shot(shot: &Shot, opts: &ParityOpts) -> (Option<String>, Option<St
 /// Resolve the candidate image for a shot.
 fn resolve_candidate(
     shot: &Shot,
-    opts: &ParityOpts,
+    opts: &VisualOpts,
     out_path: PathBuf,
     candidate_is_dir: bool,
 ) -> Result<RgbaImage, String> {
@@ -454,7 +454,7 @@ fn mask_footer_baseline(img: &mut RgbaImage, mask: manifest::MetricsMask, box_x:
 }
 
 /// Write all three report JSON files.
-fn write_reports(dir: &Path, opts: &ParityOpts, results: &[ShotResult]) -> Result<(), String> {
+fn write_reports(dir: &Path, opts: &VisualOpts, results: &[ShotResult]) -> Result<(), String> {
     let shape_report: Vec<ShapeReportEntry> = results
         .iter()
         .map(|r| ShapeReportEntry {
@@ -565,7 +565,7 @@ pub(crate) fn write_json<T: serde::Serialize>(path: PathBuf, value: &T) -> Resul
 #[cfg(test)]
 mod tests {
     use super::{camera_for_shot, resolve_mask, LEGACY_METRICS_MASK};
-    use crate::parity::manifest::{MetricsMask, Shot, ShotBox, ShotCamera};
+    use crate::visual::manifest::{MetricsMask, Shot, ShotBox, ShotCamera};
     use std::path::PathBuf;
 
     fn declared(w: u32, h: u32) -> MetricsMask {
@@ -645,8 +645,8 @@ mod tests {
         }
     }
 
-    fn opts(zoom: Option<&str>, pan: Option<&str>) -> super::ParityOpts {
-        super::ParityOpts {
+    fn opts(zoom: Option<&str>, pan: Option<&str>) -> super::VisualOpts {
+        super::VisualOpts {
             baseline: PathBuf::from("baseline"),
             shots: Vec::new(),
             candidate: None,

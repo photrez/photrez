@@ -220,7 +220,7 @@ pub fn scored_document(
     let mut block = bands_block(report, verdict, ceilings);
     if let Some(map) = block.as_object_mut() {
         map.insert("ceiling_source".to_string(), json!(ceiling_source));
-        map.insert("oracle_mask".to_string(), json!(file_name(&pair.oracle)));
+        map.insert("reference_mask".to_string(), json!(file_name(&pair.oracle)));
         map.insert("native_mask".to_string(), json!(file_name(&pair.native)));
         map.insert("pair_note".to_string(), json!(pair.note));
         map.insert("crop".to_string(), json!(pair.crop));
@@ -263,7 +263,7 @@ pub fn score_bundle(bundle: &Path, opts: &ScoreOpts) -> Result<Scored, String> {
         (None, None) => select_masks(bundle, &recorded, &record)?,
         _ => {
             return Err(
-                "--oracle-mask and --native-mask are both required, or both omitted so the \
+                "--reference-mask and --native-mask are both required, or both omitted so the \
                  bundle's own recorded pair is used"
                     .to_string(),
             )
@@ -624,10 +624,10 @@ fn report_batch(rows: &BundleResults) -> i32 {
     1
 }
 
-/// `xtask parity score --bundle <dir> [--oracle-mask <png> --native-mask <png>]
+/// `xtask visual score --bundle <dir> [--reference-mask <png> --native-mask <png>]
 ///                     [--max-band-pct <f>] [--band-height <px>] [--max-shift <px>]
 ///                     [--tiers <n>] [--out <json>]`
-/// `xtask parity score --bundles <root> [--max-band-pct <f>] ...`
+/// `xtask visual score --bundles <root> [--max-band-pct <f>] ...`
 ///
 /// Re-measures the pair a bundle's verdict was made on, adds the band identity block to
 /// its `diff.json`, and applies both ceilings. Exits 1 when the surface fails either one,
@@ -641,7 +641,7 @@ pub fn cmd_score(args: &[String]) -> i32 {
         return match score_root(root, &opts) {
             Ok(rows) => report_batch(&rows),
             Err(e) => {
-                eprintln!("xtask parity score: {e}");
+                eprintln!("xtask visual score: {e}");
                 2
             }
         };
@@ -649,14 +649,14 @@ pub fn cmd_score(args: &[String]) -> i32 {
     let bundle = match &opts.bundle {
         Some(bundle) => bundle.clone(),
         None => {
-            eprintln!("xtask parity score: --bundle <dir> or --bundles <root> is required.");
+            eprintln!("xtask visual score: --bundle <dir> or --bundles <root> is required.");
             return 2;
         }
     };
     let scored = match score_bundle(&bundle, &opts) {
         Ok(scored) => scored,
         Err(e) => {
-            eprintln!("xtask parity score: {e}");
+            eprintln!("xtask visual score: {e}");
             return 2;
         }
     };
@@ -681,7 +681,7 @@ pub fn cmd_score(args: &[String]) -> i32 {
     report_bands(&scored.report);
     if let Some(out) = &opts.out {
         if let Err(e) = write_json(out.clone(), &scored.document) {
-            eprintln!("xtask parity score: {e}");
+            eprintln!("xtask visual score: {e}");
             return 2;
         }
     }
@@ -706,27 +706,27 @@ fn parse_score_args(args: &[String]) -> Result<ScoreOpts, i32> {
     let root = super::flag(args, "--bundles").map(PathBuf::from);
     if bundle.is_none() && root.is_none() {
         eprintln!(
-            "xtask parity score: --bundle <dir> or --bundles <root> is required.\n\
+            "xtask visual score: --bundle <dir> or --bundles <root> is required.\n\
              \x20 One bundle is scored against its recorded pair. A root scores every bundle\n\
              \x20 under it and names the band-ceiling rejects."
         );
         return Err(2);
     }
     if bundle.is_some() && root.is_some() {
-        eprintln!("xtask parity score: --bundle and --bundles are alternatives, not both.");
+        eprintln!("xtask visual score: --bundle and --bundles are alternatives, not both.");
         return Err(2);
     }
     let stated = |name: &str| -> Result<Option<f64>, i32> {
         match super::flag(args, name) {
             None => Ok(None),
             Some(value) => value.parse::<f64>().map(Some).map_err(|_| {
-                eprintln!("xtask parity score: {name} must be a number, got `{value}`");
+                eprintln!("xtask visual score: {name} must be a number, got `{value}`");
                 2
             }),
         }
     };
     let reject = |name: &str, value: f64, need: &str| -> i32 {
-        eprintln!("xtask parity score: {name} {need}, got {value}");
+        eprintln!("xtask visual score: {name} {need}, got {value}");
         2
     };
     let max_band_pct = match stated("--max-band-pct")? {
@@ -752,7 +752,7 @@ fn parse_score_args(args: &[String]) -> Result<ScoreOpts, i32> {
     Ok(ScoreOpts {
         bundle,
         root,
-        oracle: super::flag(args, "--oracle-mask").map(PathBuf::from),
+        oracle: super::flag(args, "--reference-mask").map(PathBuf::from),
         native: super::flag(args, "--native-mask").map(PathBuf::from),
         out: super::flag(args, "--out").map(PathBuf::from),
         max_band_pct,

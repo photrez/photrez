@@ -23,7 +23,7 @@
 //!   instance holds the executable open and would fail the next link).
 //!
 //! The PowerShell original was DPI-unaware at deviceScaleFactor 1 and so is
-//! this driver; parity is defined at 1366x820 client pixels.
+//! this driver; the capture protocol is defined at 1366x820 client pixels.
 //!
 //! `unsafe_code` is allowed for THIS MODULE ONLY (root lints opt in elsewhere):
 //! the module is a thin, reviewed wrapper over `windows-sys` screen-capture
@@ -164,7 +164,7 @@ pub fn parse_pan(value: &str) -> Option<(f32, f32)> {
 // capture environment guard
 // ---------------------------------------------------------------------------
 
-/// The client size the baselines were captured at - parity is defined only at
+/// The client size the baselines were captured at - the protocol is defined only at
 /// this size, and only at 100% display scale.
 ///
 /// It is the default, not the only legal value: `--client WxH` overrides it per
@@ -174,7 +174,7 @@ pub fn parse_pan(value: &str) -> Option<(f32, f32)> {
 #[cfg(windows)]
 const EXPECTED_CLIENT: (i32, i32) = (1366, 820);
 
-/// Refuse to capture when the environment cannot produce a parity image.
+/// Refuse to capture when the environment cannot produce a comparable frame.
 ///
 /// Two conditions make a capture meaningless rather than merely different,
 /// and both leave the saved PNG looking plausible:
@@ -197,7 +197,7 @@ fn assert_capture_environment(
 ) -> Result<(), String> {
     if dpi != 96 {
         return Err(format!(
-            "display scale is {}% ({dpi} dpi); parity captures require 100% display scaling \
+            "display scale is {}% ({dpi} dpi); captures require 100% display scaling \
              (Windows Settings > System > Display > Scale). The baselines assume {}x{} logical pixels.",
             dpi * 100 / 96,
             expected.0,
@@ -233,7 +233,7 @@ fn occlusion_refusal(target_pid: u32, owner_pid: u32) -> String {
 // capture locale guard
 // ---------------------------------------------------------------------------
 
-/// The locale every parity capture must resolve: the golden-master baselines
+/// The locale every capture must resolve: the golden-master baselines
 /// were captured with the English catalog, so a diff under any other locale is
 /// meaningless rather than merely different.
 const CAPTURE_LOCALE: &str = "en";
@@ -251,7 +251,7 @@ fn locale_request_ok(requested: Option<&str>) -> Result<(), String> {
         Some(tag) if tag.trim().is_empty() => Ok(()),
         Some(tag) if tag.trim().eq_ignore_ascii_case(CAPTURE_LOCALE) => Ok(()),
         Some(tag) => Err(format!(
-            "{LOCALE_ENV}={tag} requests a non-English locale; parity captures \
+            "{LOCALE_ENV}={tag} requests a non-English locale; captured frames \
              must resolve `{CAPTURE_LOCALE}`. Unset the variable or set it to `{CAPTURE_LOCALE}`."
         )),
     }
@@ -367,7 +367,7 @@ fn os_language_tag() -> String {
 }
 
 /// What a window-attach capture is about to see. `expected` is the operator's claim about the
-/// surface, used by the deliberately non-English states; with nothing expected, parity requires
+/// surface, used by the deliberately non-English states; with nothing expected, the driver requires
 /// English. The refusal names the input it read, because that is the thing to change.
 pub fn require_attached_locale(expected: Option<&str>) -> Result<(String, LocaleSource), String> {
     let (catalog, source) = attached_catalog(
@@ -602,7 +602,7 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
     if w <= 0 || h <= 0 {
         return Err("client rect became zero after settle".into());
     }
-    // Refuse to continue when the environment cannot yield a parity image
+    // Refuse to continue when the environment cannot yield a comparable frame
     // (scaled display or a clamped window); see `assert_capture_environment`.
     let dpi = unsafe { GetDpiForWindow(hwnd) };
     assert_capture_environment(w, h, dpi, spec.expect_client.unwrap_or(EXPECTED_CLIENT))?;
@@ -691,14 +691,14 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
     let _ = unsafe { SetCursorPos(prev.x, prev.y) };
 
     // Save the PNG.
-    let img = crate::parity::pngio::RgbaImage::from_rgba(w as u32, h as u32, rgba)?;
+    let img = crate::visual::pngio::RgbaImage::from_rgba(w as u32, h as u32, rgba)?;
     img.save(spec.out.as_path())?;
     Ok(spec.out.clone())
 }
 
 /// Run one capture. Returns the PNG path written.
 ///
-/// Windows-only; on other platforms returns an explanatory error (the parity
+/// Windows-only; on other platforms returns an explanatory error (the capture
 /// comparison itself is portable, capture is not).
 #[cfg(windows)]
 pub fn capture(spec: &CaptureSpec) -> Result<PathBuf, String> {

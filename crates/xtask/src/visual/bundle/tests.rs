@@ -47,7 +47,7 @@ fn painted_control() -> RgbaImage {
 /// reader without touching a baseline or a recorded bundle.
 fn artifact_dir(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/xtask-parity-score")
+        .join("../../target/xtask-visual-score")
         .join(name);
     std::fs::create_dir_all(&dir).expect("artifact directory");
     dir

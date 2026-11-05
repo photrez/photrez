@@ -25,11 +25,11 @@ pub struct StringsOpts {
     pub write_map: Option<PathBuf>,
 }
 
-/// `cargo xtask parity strings --surfaces <csv> [--root <dir>] [--map <csv>]`
+/// `cargo xtask visual strings --surfaces <csv> [--root <dir>] [--map <csv>]`
 pub fn cmd(args: &[String]) -> i32 {
     let Some(surfaces) = flag_path(args, "--surfaces") else {
         eprintln!(
-            "xtask parity strings: --surfaces <csv> is required.\n\
+            "xtask visual strings: --surfaces <csv> is required.\n\
              \x20 Pass the surface matrix CSV that maps each inventory file to a surface."
         );
         return 2;

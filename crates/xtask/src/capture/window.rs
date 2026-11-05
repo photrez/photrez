@@ -137,7 +137,7 @@ pub fn capture_window(spec: &WindowSpec) -> Result<std::path::PathBuf, String> {
     let rgba = unsafe { capture_client(origin.x, origin.y, w, h)? };
     let _ = unsafe { SetCursorPos(prev.x, prev.y) };
 
-    let img = crate::parity::pngio::RgbaImage::from_rgba(w as u32, h as u32, rgba)?;
+    let img = crate::visual::pngio::RgbaImage::from_rgba(w as u32, h as u32, rgba)?;
     img.save(spec.out.as_path())?;
     println!(
         "manifest: client={}x{} dpi={} origin=({},{}) out={}",

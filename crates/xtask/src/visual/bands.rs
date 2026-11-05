@@ -614,7 +614,7 @@ mod tests {
     /// The ceilings the ratified rule states, so no test invents its own line.
     fn ratified_ceilings() -> Ceilings {
         Ceilings {
-            max_changed_pct: crate::parity::RATIFIED_MAX_CHANGED_PCT,
+            max_changed_pct: crate::visual::RATIFIED_MAX_CHANGED_PCT,
             max_band_pct: RATIFIED_MAX_BAND_PCT,
         }
     }

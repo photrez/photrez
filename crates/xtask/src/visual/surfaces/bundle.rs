@@ -10,7 +10,7 @@ use super::*;
 pub(super) fn bundle_errors(
     id: &str,
     bundle: &Path,
-    oracle_commit: &str,
+    reference_commit: &str,
     build_id: &str,
 ) -> Vec<String> {
     let mut errors = Vec::new();
@@ -20,9 +20,9 @@ pub(super) fn bundle_errors(
             bundle.display()
         )];
     }
-    if oracle_commit.is_empty() || build_id.is_empty() {
+    if reference_commit.is_empty() || build_id.is_empty() {
         errors.push(format!(
-            "{id}: VERIFIED requires pinned --oracle-commit and --build-id"
+            "{id}: VERIFIED requires pinned --reference-commit and --build-id"
         ));
     }
 
@@ -62,7 +62,7 @@ pub(super) fn bundle_errors(
 
     let mut captures: Vec<(&'static str, String)> = Vec::new();
     if let Some(manifest) = &manifest {
-        for key in ["oracle_commit", "build_id", "fixture", "locale"] {
+        for key in ["reference_commit", "build_id", "fixture", "locale"] {
             if str_at(manifest, key).is_none() {
                 errors.push(format!("{id}: manifest `{key}` is empty or missing"));
             }
@@ -88,9 +88,9 @@ pub(super) fn bundle_errors(
                 None => errors.push(format!("{id}: manifest `{key}` is empty or missing")),
             }
         }
-        if !same_commit(str_at(manifest, "oracle_commit"), oracle_commit) {
+        if !same_commit(str_at(manifest, "reference_commit"), reference_commit) {
             errors.push(format!(
-                "{id}: manifest oracle commit does not identify `{oracle_commit}`"
+                "{id}: manifest oracle commit does not identify `{reference_commit}`"
             ));
         }
         if str_at(manifest, "build_id") != Some(build_id) {
@@ -290,9 +290,12 @@ pub(super) fn bundle_errors(
                     errors.push(format!("{id}: provenance lacks `{key}`"));
                 }
             }
-            if !same_commit(provenance.get("oracle").map(String::as_str), oracle_commit) {
+            if !same_commit(
+                provenance.get("oracle").map(String::as_str),
+                reference_commit,
+            ) {
                 errors.push(format!(
-                    "{id}: bundle provenance does not identify oracle commit `{oracle_commit}`"
+                    "{id}: bundle provenance does not identify oracle commit `{reference_commit}`"
                 ));
             }
             if provenance.get("build").map(String::as_str) != Some(build_id) {
@@ -302,7 +305,7 @@ pub(super) fn bundle_errors(
             }
             if let Some(manifest) = &manifest {
                 for (manifest_key, provenance_key) in [
-                    ("oracle_commit", "oracle"),
+                    ("reference_commit", "oracle"),
                     ("build_id", "build"),
                     ("fixture", "fixture"),
                 ] {
