@@ -123,14 +123,25 @@ fi
 
 LISTING=$(mktemp)
 trap 'rm -f "$LISTING"' EXIT
+LIST_TOOL=
 case "$ARCHIVE" in
-  *.zip) unzip -l "$ARCHIVE" > "$LISTING" ;;
-  *.tar.gz) tar -tzf "$ARCHIVE" > "$LISTING" ;;
+  *.zip) LIST_TOOL=unzip; unzip -l "$ARCHIVE" > "$LISTING" ;;
+  *.tar.gz) LIST_TOOL=tar; tar -tzf "$ARCHIVE" > "$LISTING" ;;
   *)
     echo "::error::Unrecognised archive type (expected .zip or .tar.gz): $ARCHIVE" >&2
     exit 1
     ;;
 esac
+LIST_RC=$?
+
+# An unreadable archive is a different failure than an incomplete one. On a
+# corrupt file unzip still prints its header line, so an empty listing is not the
+# only symptom: without this check every test below would report a missing
+# notice, which diagnoses the reader rather than the payload.
+if [ "$LIST_RC" -ne 0 ] || [ ! -s "$LISTING" ]; then
+  echo "::error::$ARCHIVE could not be listed by $LIST_TOOL (rc $LIST_RC): corrupt, truncated, or not the archive type its name claims, so no content check ran" >&2
+  exit 2
+fi
 
 for required in LICENSE NOTICE THIRD_PARTY.md; do
   if ! grep -q "$required" "$LISTING"; then
