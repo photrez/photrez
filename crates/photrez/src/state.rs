@@ -894,6 +894,7 @@ impl AppState {
             "real-dialog-new-document" => Some(DialogId::NewDocument),
             "real-dialog-export" => Some(DialogId::Export),
             "real-dialog-print" => Some(DialogId::Print),
+            "real-dialog-resize-canvas" => Some(DialogId::ResizeCanvas),
             _ => None,
         }
     }

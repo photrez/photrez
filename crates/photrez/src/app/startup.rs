@@ -445,6 +445,11 @@ impl App {
             Some(crate::state::DialogId::NewDocument) => app.open_new_document(cx),
             Some(crate::state::DialogId::Export) => app.export_document_action(&ExportDocument, cx),
             Some(crate::state::DialogId::Print) => app.print_document_action(&PrintDocument, cx),
+            Some(crate::state::DialogId::ResizeCanvas) => {
+                if let Err(error) = app.begin_resize_canvas(window, cx) {
+                    eprintln!("photrez: the resize prompt was not opened: {error}");
+                }
+            }
             Some(_) | None => {}
         }
         // The recovery prompt comes after the explicit open: a document the
