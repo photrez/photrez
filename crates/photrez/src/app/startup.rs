@@ -438,6 +438,12 @@ impl App {
         if shot_id.is_some() && app.state.read(cx).has_document && app.active_document.is_none() {
             app.install_shot_document(cx);
         }
+        // A `real-dialog-*` launch opens the live dialog through the same
+        // command the user's shortcut runs, so the capture shows the body the
+        // `dialog-*` fixture stubs.
+        if AppState::real_dialog_shot(shot_id) == Some(crate::state::DialogId::NewDocument) {
+            app.open_new_document(cx);
+        }
         // The recovery prompt comes after the explicit open: a document the
         // user asked for by name is on screen before an offer they did not ask
         // for can cover it.

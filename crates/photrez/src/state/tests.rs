@@ -247,3 +247,22 @@ fn move_layer_unknown_id_is_noop() {
     assert!(!state.move_layer(9, 9), "both unknown must fail");
     assert_eq!(state.layers, before);
 }
+
+/// `real-dialog-*` selects the live dialog; the `dialog-*` fixture namespace
+/// stays untouched so the stubbed bodies keep measuring what they measure.
+///
+/// RED proof: return `None` for every id in `AppState::real_dialog_shot` and
+/// the first assert fails with `None != Some(NewDocument)`.
+#[test]
+fn real_dialog_shot_names_the_live_dialog_only() {
+    assert_eq!(
+        AppState::real_dialog_shot(Some("real-dialog-new-document")),
+        Some(DialogId::NewDocument)
+    );
+    assert_eq!(
+        AppState::real_dialog_shot(Some("dialog-new-document")),
+        None
+    );
+    assert_eq!(AppState::real_dialog_shot(Some("shell-full-page")), None);
+    assert_eq!(AppState::real_dialog_shot(None), None);
+}

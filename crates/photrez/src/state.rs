@@ -884,6 +884,18 @@ impl AppState {
         self.active_tab = Some(id);
     }
 
+    /// The product dialog a capture asks to open itself, or `None`.
+    ///
+    /// Ids beginning `dialog-` belong to the capture fixture in
+    /// `views/dialogs.rs`, whose bodies are stubbed on purpose. `real-dialog-*`
+    /// names the live view instead, so the body gets pixel evidence of its own.
+    pub fn real_dialog_shot(id: Option<&str>) -> Option<DialogId> {
+        match id? {
+            "real-dialog-new-document" => Some(DialogId::NewDocument),
+            _ => None,
+        }
+    }
+
     /// Build the state that matches a manifest shot id.
     ///
     /// `None` and every id that is not recognised returns the default state.
