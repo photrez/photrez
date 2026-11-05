@@ -47,6 +47,11 @@ the previous implementation.
 
 On Windows, extract the archive anywhere and run `photrez.exe`. There is no installer, Start Menu entry, or file-association registration.
 
+Photrez keeps settings in `%APPDATA%\photrez`, and its cache and autosave archives in
+`%LOCALAPPDATA%\photrez`. The archived predecessor installed into that same `%LOCALAPPDATA%\photrez`
+folder, so it may still hold the executable, the loader DLL and the uninstaller it left behind.
+Uninstall the predecessor first, and extract this archive to a folder of your own instead.
+
 Each archive contains the executable, `LICENSE`, `NOTICE`, and `THIRD_PARTY.md`. The release also carries a `SHA256SUMS` file; verify the archive with `sha256sum -c SHA256SUMS`. These portable archives are unsigned. Windows SmartScreen may warn when launching `photrez.exe`; verify the archive checksum before running it.
 
 </div>
