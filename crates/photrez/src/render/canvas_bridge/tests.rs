@@ -642,3 +642,57 @@ fn read_region_rgba_refuses_a_surface_with_pending_previews() {
     let _ = image.discard_preview_patches();
     assert!(image.read_region_rgba(0, 0, 4, 4).is_ok());
 }
+
+/// The navigator's viewport indicator is the canvas viewport in document
+/// space, so at a zoom that shows more than the page it must be wider than the
+/// page. Clamping it to the document collapses it onto the page border and it
+/// reads as an artboard frame instead.
+#[test]
+fn navigator_viewport_frame_is_not_clamped_to_the_page() {
+    let layout = super::navigator_layout(800., 600.).expect("valid document");
+    let camera = Camera::new(-43., -11., 0.88).expect("valid camera");
+    let frame = super::navigator_viewport_frame(camera, (781., 668.), &layout).expect("a frame");
+    assert!(
+        frame.2 > layout.width + 1.0,
+        "the indicator must reach past the page: frame {} vs page {}",
+        frame.2,
+        layout.width
+    );
+    assert!(
+        frame.3 > layout.height,
+        "and past it vertically: {0}",
+        frame.3
+    );
+}
+
+/// The preview cuts the indicator, and a cut edge disappears rather than being
+/// redrawn along the clip line. This is the reference's own resting geometry:
+/// two vertical rules spanning the box, no horizontal ones.
+#[test]
+fn navigator_indicator_drops_the_edges_the_box_cuts() {
+    let frame = (2.3, -11., 130.2, 111.4);
+    let (soft, edges) = super::navigator_indicator_paint(frame, (0., 0., 208., 88.));
+    let soft = soft.expect("the fill survives the cut");
+    assert_eq!((soft.0, soft.2), (2.3, 130.2), "fill keeps the frame's x");
+    assert_eq!((soft.1, soft.3), (0., 88.), "and is cut to the box height");
+    assert_eq!(
+        edges,
+        vec![(2.3, 0., 1., 88.), (131.5, 0., 1., 88.)],
+        "left and right rules only, each spanning the cut box"
+    );
+}
+
+/// A frame that fits inside the box keeps all four of its edges.
+#[test]
+fn navigator_indicator_keeps_every_edge_it_does_not_cut() {
+    let (_, edges) = super::navigator_indicator_paint((20., 10., 60., 40.), (0., 0., 208., 88.));
+    assert_eq!(edges.len(), 4, "an uncut frame draws its whole border");
+}
+
+/// Nothing survives when the viewport lies wholly outside the preview.
+#[test]
+fn navigator_indicator_paints_nothing_for_a_frame_outside_the_box() {
+    let (soft, edges) = super::navigator_indicator_paint((300., 0., 40., 40.), (0., 0., 208., 88.));
+    assert!(soft.is_none());
+    assert!(edges.is_empty());
+}
