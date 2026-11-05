@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Text layers** - live, re-editable text with styles and alignment, persisted as non-destructive metadata.
-- **Shape layers** - parametric rectangle, ellipse, line, arrow, and star with fill/stroke controls.
+- **Shape layers** - parametric rectangle, ellipse, line, triangle, star, arrow, heart, diamond, speech bubble and hexagon, ten kinds in the option bar, with fill and stroke controls.
 - **All 12 blend modes** - identical preview and export output.
 - **Per-OS release archives** - Windows `.zip`, macOS and Linux `.tar.gz`, each containing the executable plus `LICENSE`, `NOTICE` and `THIRD_PARTY.md`, with `SHA256SUMS` attached to the release.
 
