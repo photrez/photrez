@@ -160,7 +160,9 @@ jobs:
         # Passing CHANGELOG.md whole would post every past release, and its
         # section header still reads "unreleased". Only this tag's section
         # belongs in the notes, and a tag with no section must not publish
-        # without any.
+        # without any. A section that still says "unreleased" describes an
+        # entry nobody dated yet, so it names the line to fix instead of
+        # publishing it as a release.
         run: |
           set -euo pipefail
           version="${{ github.ref_name }}"
@@ -172,6 +174,11 @@ jobs:
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
             echo "CHANGELOG.md has no section for $header"
+            exit 1
+          fi
+          if grep -qi 'unreleased' release-notes.md; then
+            echo "CHANGELOG.md: $header is not dated for this release; set it to '## [${version#v}] - YYYY-MM-DD'"
+            grep -in 'unreleased' release-notes.md
             exit 1
           fi
           gh release edit "${GITHUB_REF_NAME}" --notes-file release-notes.md
