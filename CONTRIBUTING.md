@@ -65,3 +65,32 @@ Describe changes with product and technical terms rather than internal planning 
 - **Design:** Follow the product guidance in `docs/DESIGN.md` and `docs/UI_GUIDE.md`.
 
 Thank you for contributing to Photrez!
+
+## Release
+
+One file owns the version: `crates/photrez/Cargo.toml`. Set it with `cargo xtask set-version <semver>`. The
+command refuses a version shape it does not accept, refuses a lower release number than the one already set, and
+restores the manifest byte for byte when `cargo metadata` reports something other than what it wrote. It prints
+the version it read back.
+
+A tag that starts with `v` runs `.github/workflows/release.yml`. The `check-tag` job compares the tag with
+`cargo pkgid -p photrez` and stops when they disagree. Each platform job then builds with
+`cargo build --release -p photrez`, packs that binary with `LICENSE`, `NOTICE` and `THIRD_PARTY.md`, and runs the
+archive check below on its own output. The `finalize` job writes `SHA256SUMS`, uploads it, re-downloads the
+release and verifies the sums, then sets the release notes from the changelog section that matches the tag; it
+refuses a section that is missing or still marked unreleased. Photrez is not code-signed, so those checksums are
+the integrity check a user can perform.
+
+Check a build before you publish it:
+
+```
+sh scripts/check-release-archive.sh <archive> <windows|macos|linux>
+sh scripts/check-release-archive.sh --binary <path> <windows|macos|linux>
+sh scripts/check-release-archive.sh --imports <listing> <windows|macos|linux>
+```
+
+The first command confirms the archive is a real build, carries the three licence files and holds exactly one
+runtime. The other two list the dynamic libraries the shipped binary asks for and refuse a runtime this product
+no longer contains: `--binary` reads a binary on its own machine, and `--imports` reads a listing captured on
+another platform, so a macOS or Linux answer can be reviewed anywhere. Each of them exits non-zero and names the
+cause.
