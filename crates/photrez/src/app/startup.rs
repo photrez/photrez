@@ -450,6 +450,20 @@ impl App {
                     eprintln!("photrez: the resize prompt was not opened: {error}");
                 }
             }
+            // The layer rows carry the core id the prompt renames by, so the
+            // shot's own first row is the layer a capture renames.
+            Some(crate::state::DialogId::Rename) => {
+                let layer_id = app
+                    .state
+                    .read(cx)
+                    .layers
+                    .first()
+                    .and_then(|row| row.core_id.clone());
+                match layer_id {
+                    Some(id) => app.begin_rename_layer(id, window, cx),
+                    None => eprintln!("photrez: the rename prompt has no layer to rename"),
+                }
+            }
             Some(_) | None => {}
         }
         // The recovery prompt comes after the explicit open: a document the

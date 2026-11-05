@@ -278,6 +278,11 @@ fn real_dialog_shot_names_the_live_dialog_only() {
         Some(DialogId::ResizeCanvas)
     );
     assert_eq!(AppState::real_dialog_shot(Some("dialog-resize")), None);
+    assert_eq!(
+        AppState::real_dialog_shot(Some("real-dialog-rename")),
+        Some(DialogId::Rename)
+    );
+    assert_eq!(AppState::real_dialog_shot(Some("dialog-rename")), None);
     assert_eq!(AppState::real_dialog_shot(Some("shell-full-page")), None);
     assert_eq!(AppState::real_dialog_shot(None), None);
 }

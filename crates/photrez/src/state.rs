@@ -895,6 +895,7 @@ impl AppState {
             "real-dialog-export" => Some(DialogId::Export),
             "real-dialog-print" => Some(DialogId::Print),
             "real-dialog-resize-canvas" => Some(DialogId::ResizeCanvas),
+            "real-dialog-rename" => Some(DialogId::Rename),
             _ => None,
         }
     }
