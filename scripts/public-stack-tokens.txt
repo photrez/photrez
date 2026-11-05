@@ -86,3 +86,8 @@ webview	scripts/public-stack-tokens.txt	allowlist
 webview	scripts/check-public-terminology.sh	allowlist
 webgl	scripts/public-stack-tokens.txt	allowlist
 webgl	scripts/check-public-terminology.sh	allowlist
+# allowlist (2026-11-05): the release archive guard refuses a shipped binary that
+# links the retired shell's libraries, so it must name them. The exemption covers
+# that one script and these two tokens; it weakens no other surface.
+tauri	scripts/check-release-archive.sh	allowlist
+webview	scripts/check-release-archive.sh	allowlist

@@ -15,7 +15,76 @@
 #   sh scripts/check-release-archive.sh ok.tar.gz windows     # must exit 1
 #
 # Usage: sh scripts/check-release-archive.sh <archive> <windows|macos|linux>
+#        sh scripts/check-release-archive.sh --binary <path> <platform>
+#        sh scripts/check-release-archive.sh --imports <listing> <platform>
 set -u
+
+# Second mode: inspect the shipped binary's dynamic imports for a runtime this
+# repository no longer contains. The archive checks above cannot see this case:
+# a binary can carry the licence set, clear the size floor and still link an
+# engine the product does not use, which is what a person who installs the
+# release would receive. A captured listing is accepted so the macOS and Linux
+# answers can be checked on any machine, and so the refusal rule below is
+# provable without those hosts.
+#
+#   sh scripts/check-release-archive.sh --binary target/release/photrez windows
+#   sh scripts/check-release-archive.sh --imports photrez-macos-imports.txt macos
+case "${1:-}" in
+  --binary)
+    BIN=${2:-}
+    PLATFORM=${3:-}
+    [ -n "$BIN" ] && [ -n "$PLATFORM" ] || { echo "usage: $0 --binary <path> <windows|macos|linux>" >&2; exit 2; }
+    [ -f "$BIN" ] || { echo "::error::Binary not found: $BIN" >&2; exit 1; }
+    LIST=$(mktemp)
+    trap 'rm -f "$LIST"' EXIT
+    case "$PLATFORM" in
+      windows)
+        TOOL=$(command -v objdump || true)
+        [ -n "$TOOL" ] || { echo "objdump is not on this machine, so the import listing did not run" >&2; exit 2; }
+        "$TOOL" -p "$BIN" > "$LIST" || { echo "::error::objdump failed on $BIN" >&2; exit 1; }
+        ;;
+      macos)
+        TOOL=$(command -v otool || true)
+        [ -n "$TOOL" ] || { echo "otool is only available on macOS, so the import listing did not run" >&2; exit 2; }
+        "$TOOL" -L "$BIN" > "$LIST" || { echo "::error::otool failed on $BIN" >&2; exit 1; }
+        ;;
+      linux)
+        TOOL=$(command -v ldd || true)
+        [ -n "$TOOL" ] || { echo "ldd is only available on Linux, so the import listing did not run" >&2; exit 2; }
+        "$TOOL" "$BIN" > "$LIST" || { echo "::error::ldd failed on $BIN" >&2; exit 1; }
+        ;;
+      *) echo "::error::Unknown platform: $PLATFORM" >&2; exit 2 ;;
+    esac
+    BINARY_LABEL=$BIN
+    ;;
+  --imports)
+    LIST_ARG=${2:-}
+    PLATFORM=${3:-}
+    [ -n "$LIST_ARG" ] && [ -n "$PLATFORM" ] || { echo "usage: $0 --imports <listing> <windows|macos|linux>" >&2; exit 2; }
+    [ -f "$LIST_ARG" ] || { echo "::error::Import listing not found: $LIST_ARG" >&2; exit 1; }
+    LIST=$LIST_ARG
+    BINARY_LABEL=$LIST_ARG
+    ;;
+  *) ;;
+esac
+
+if [ "${1:-}" = "--binary" ] || [ "${1:-}" = "--imports" ]; then
+  # The guard polices these three lines because they name the retired shell's
+  # libraries; the refusal below is the reason they exist.
+  case "$PLATFORM" in
+    windows) RETIRED='webview2loader|webkit|tauri|wry' ;;  # trace-exempt: library names this guard refuses in a shipped binary
+    macos) RETIRED='webkit|webview|tauri|wry' ;;           # trace-exempt: library names this guard refuses in a shipped binary
+    linux) RETIRED='webkit2gtk|webkitgtk|javascriptcoregtk|appindicator|tauri|wry' ;;  # trace-exempt: library names this guard refuses in a shipped binary
+  esac
+  HITS=$(grep -iE "$RETIRED" "$LIST" || true)
+  if [ -n "$HITS" ]; then
+    printf '%s\n' "$HITS" >&2
+    echo "::error::$BINARY_LABEL links a runtime this repository no longer contains (pattern: $RETIRED)" >&2
+    exit 1
+  fi
+  echo "imports ok: $BINARY_LABEL carries none of the retired runtime libraries ($PLATFORM)"
+  exit 0
+fi
 
 ARCHIVE=${1:-}
 PLATFORM=${2:-}
