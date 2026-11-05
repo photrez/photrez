@@ -372,6 +372,7 @@ impl Runner {
         let row = serde_json::json!({
             "shot": "measure-frames",
             "harness": "canvas_bridge",
+            "profile": crate::common::build_profile(),
             "mode": self.cfg.mode.as_str(),
             "size": self.width,
             "requested_size": if self.cfg.demo { None } else { Some(self.cfg.size) },

@@ -106,6 +106,16 @@ pub(crate) fn copy_region(
     out
 }
 
+/// The build profile this measurement ran under, recorded so a timing number always
+/// carries the only fact that decides whether it is comparable to another run.
+pub(crate) fn build_profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "release"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{copy_region, disc_bounds, fixture_layer_pixels};

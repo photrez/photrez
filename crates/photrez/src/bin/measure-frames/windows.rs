@@ -380,6 +380,7 @@ fn fail(cfg: &Config, message: &str) -> ! {
     let row = serde_json::json!({
         "shot": "measure-frames",
         "harness": "canvas_bridge",
+        "profile": crate::common::build_profile(),
         "mode": cfg.mode.as_str(),
         "size": cfg.size,
         "width": cfg.width,

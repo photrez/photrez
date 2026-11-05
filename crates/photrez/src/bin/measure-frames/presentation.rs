@@ -56,6 +56,7 @@ impl Runner {
         let row = serde_json::json!({
             "shot": "measure-frames-control",
             "harness": "canvas_bridge",
+            "profile": crate::common::build_profile(),
             "control": true,
             "diagnostic_only": true,
             "mode": self.cfg.mode.as_str(),
