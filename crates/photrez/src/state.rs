@@ -893,6 +893,7 @@ impl AppState {
         match id? {
             "real-dialog-new-document" => Some(DialogId::NewDocument),
             "real-dialog-export" => Some(DialogId::Export),
+            "real-dialog-print" => Some(DialogId::Print),
             _ => None,
         }
     }

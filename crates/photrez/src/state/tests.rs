@@ -268,6 +268,11 @@ fn real_dialog_shot_names_the_live_dialog_only() {
         Some(DialogId::Export)
     );
     assert_eq!(AppState::real_dialog_shot(Some("dialog-export")), None);
+    assert_eq!(
+        AppState::real_dialog_shot(Some("real-dialog-print")),
+        Some(DialogId::Print)
+    );
+    assert_eq!(AppState::real_dialog_shot(Some("dialog-print")), None);
     assert_eq!(AppState::real_dialog_shot(Some("shell-full-page")), None);
     assert_eq!(AppState::real_dialog_shot(None), None);
 }
