@@ -70,6 +70,39 @@ impl Camera {
         Self::new(x, y, page_w / doc_w)
     }
 
+    /// A stated zoom, centered on both axes.
+    ///
+    /// Recorded captures carry the zoom the reference was showing, which is
+    /// not the live fit: hiding the dock grows the canvas and a fit recomputes
+    /// the scale. This is the seam that lets a fixture be drawn at the
+    /// reference's own scale instead.
+    pub fn centred_at(
+        viewport_w: f32,
+        viewport_h: f32,
+        doc_w: f32,
+        doc_h: f32,
+        zoom: f32,
+    ) -> Option<Self> {
+        if !viewport_w.is_finite()
+            || !viewport_h.is_finite()
+            || !doc_w.is_finite()
+            || !doc_h.is_finite()
+            || !zoom.is_finite()
+            || viewport_w <= 0.
+            || viewport_h <= 0.
+            || doc_w <= 0.
+            || doc_h <= 0.
+            || zoom <= 0.
+        {
+            return None;
+        }
+        Self::new(
+            (viewport_w - doc_w * zoom) / 2.,
+            (viewport_h - doc_h * zoom) / 2.,
+            zoom,
+        )
+    }
+
     /// Page rectangle `(x, y, width, height)` in element-local pixels.
     pub fn placement(&self, doc_w: f32, doc_h: f32) -> Option<(f32, f32, f32, f32)> {
         if !doc_w.is_finite() || !doc_h.is_finite() || doc_w <= 0. || doc_h <= 0. {

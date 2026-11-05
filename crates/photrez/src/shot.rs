@@ -63,6 +63,19 @@ fn matches(active: Option<&str>, query: &str) -> bool {
     active.is_some_and(|a| a.starts_with(query))
 }
 
+/// The scale a capture asked for, as a zoom factor (`0.88` for 88 %).
+static ZOOM: OnceLock<Option<f32>> = OnceLock::new();
+
+/// Records the requested zoom. The first caller wins, like the shot id.
+pub fn set_zoom(zoom: f32) {
+    let _ = ZOOM.set(Some(zoom));
+}
+
+/// The zoom this process was asked to render at, or `None` to use the live fit.
+pub fn zoom() -> Option<f32> {
+    ZOOM.get().and_then(|v| *v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

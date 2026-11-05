@@ -4,6 +4,7 @@ use super::attached_catalog;
 use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
 use super::occlusion_refusal;
+use super::parse_zoom_percent;
 use super::LocaleSource;
 use super::{child_args, CaptureSpec};
 use std::path::PathBuf;
@@ -125,11 +126,13 @@ fn child_args_forward_shot_and_open_only_when_given() {
         wait_ms: 30_000,
         expect_client: None,
         open: None,
+        zoom: None,
     };
     assert_eq!(child_args(&base), Vec::<String>::new());
     let both = CaptureSpec {
         shot: Some("move".to_string()),
         open: Some("baseline.ptz".to_string()),
+        zoom: Some("97".to_string()),
         ..base
     };
     assert_eq!(
@@ -138,9 +141,22 @@ fn child_args_forward_shot_and_open_only_when_given() {
             "--shot".to_string(),
             "move".to_string(),
             "--open".to_string(),
-            "baseline.ptz".to_string()
+            "baseline.ptz".to_string(),
+            "--zoom".to_string(),
+            "97".to_string(),
         ]
     );
+}
+
+/// A zoom that is not a positive percent is refused at the command line, so a
+/// typo cannot produce a capture the guard still calls 1366x820.
+#[test]
+fn zoom_percent_accepts_scales_and_refuses_the_rest() {
+    assert_eq!(parse_zoom_percent("88"), Some(0.88));
+    assert_eq!(parse_zoom_percent(" 97.5 "), Some(0.975));
+    for bad in ["0", "-12", "abc", "", "88%"] {
+        assert_eq!(parse_zoom_percent(bad), None, "`{bad}` is not a percent");
+    }
 }
 
 /// The reference environment: 100% scale, exact 1366x820 client.

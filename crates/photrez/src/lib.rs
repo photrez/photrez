@@ -53,12 +53,27 @@ const CLIENT_H: f32 = 820.;
 struct StartupArgs {
     shot: Option<String>,
     open_path: Option<PathBuf>,
+    zoom: Option<f32>,
+}
+
+/// A capture scale written as a percent (`88`, `97.5`).
+///
+/// Rejected unless it parses to a finite positive number, because a zoom of
+/// `0` or `NaN` would leave the page unscaled rather than telling the operator
+/// the flag was wrong.
+fn parse_zoom(value: &str) -> Option<f32> {
+    let percent: f32 = value.trim().parse().ok()?;
+    if !percent.is_finite() || percent <= 0. {
+        return None;
+    }
+    Some(percent / 100.)
 }
 
 fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
     let mut args = args.into_iter().peekable();
     let mut shot = None;
     let mut open_path = None;
+    let mut zoom = None;
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--shot")
@@ -75,6 +90,17 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
             {
                 open_path = args.next().map(PathBuf::from)
             }
+            Some("--zoom")
+                if args
+                    .peek()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| parse_zoom(value).is_some()) =>
+            {
+                zoom = args
+                    .next()
+                    .and_then(|value| value.into_string().ok())
+                    .and_then(|value| parse_zoom(&value));
+            }
             _ => {}
         }
     }
@@ -82,6 +108,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
     StartupArgs {
         shot,
         open_path: if has_shot { None } else { open_path },
+        zoom,
     }
 }
 
@@ -123,6 +150,9 @@ pub fn run() {
     let startup_args = parse_startup_args(std::env::args_os().skip(1));
     if let Some(id) = startup_args.shot {
         shot::set_active(id);
+    }
+    if let Some(zoom) = startup_args.zoom {
+        shot::set_zoom(zoom);
     }
     let open_path = startup_args.open_path;
     gpui_kit::application().run(|cx: &mut App| {
@@ -230,6 +260,24 @@ mod startup_args_tests {
     #[test]
     fn open_without_value_is_ignored() {
         assert_eq!(parse(&["--open"]).open_path, None);
+    }
+
+    /// A capture that names its scale must survive to the camera, or the
+    /// display live-fits and the page grows whenever chrome is hidden.
+    #[test]
+    fn zoom_percent_is_parsed_as_a_scale() {
+        assert_eq!(parse(&["--zoom", "88"]).zoom, Some(0.88));
+        assert_eq!(parse(&["--zoom", "97.5"]).zoom, Some(0.975));
+        assert_eq!(parse(&["--zoom", "abc"]).zoom, None);
+        assert_eq!(parse(&["--zoom", "0"]).zoom, None);
+        assert_eq!(parse(&["--zoom"]).zoom, None);
+    }
+
+    #[test]
+    fn parse_zoom_refuses_non_positive_input() {
+        assert_eq!(parse_zoom("88"), Some(0.88));
+        assert_eq!(parse_zoom("-12"), None);
+        assert_eq!(parse_zoom(""), None);
     }
 
     #[test]

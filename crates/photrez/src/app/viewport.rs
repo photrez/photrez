@@ -46,7 +46,31 @@ pub(crate) struct PanDrag {
 
 impl App {
     pub(crate) fn active_camera(&self) -> Option<Camera> {
-        self.active_document.as_ref()?.camera
+        if let Some(camera) = self
+            .active_document
+            .as_ref()
+            .and_then(|document| document.camera)
+        {
+            return Some(camera);
+        }
+        self.capture_camera()
+    }
+
+    /// The camera for a capture that named its zoom.
+    ///
+    /// A `--shot` launch has no document session, so the display live-fits and
+    /// the page scale changes with whatever chrome is hidden: 87 % with the
+    /// dock open, 98 % with it closed. Recorded captures carry the zoom the
+    /// reference was showing, so a named zoom has to survive the layout.
+    pub(crate) fn capture_camera(&self) -> Option<Camera> {
+        let zoom = crate::shot::zoom()?;
+        let (doc_w, doc_h) = self
+            .active_document
+            .as_ref()
+            .map(|document| document.canvas.dimensions())
+            .or_else(|| self.demo_canvas.as_ref().map(|canvas| canvas.dimensions()))?;
+        let (viewport_w, viewport_h) = self.viewport_size()?;
+        Camera::centred_at(viewport_w, viewport_h, doc_w as f32, doc_h as f32, zoom)
     }
 
     pub(crate) fn viewport_size(&self) -> Option<(f32, f32)> {

@@ -89,6 +89,10 @@ pub struct CaptureSpec {
     /// state alone seeds a blank white page, which is not the fixture most
     /// surfaces were captured against.
     pub open: Option<String>,
+    /// The scale to render at, as a percent, forwarded as `--zoom <pct>`.
+    /// Without it a shot launch live-fits, so the page grows whenever chrome
+    /// is hidden, and no recorded zoom can be reproduced.
+    pub zoom: Option<String>,
 }
 
 /// The arguments the captured process starts with.
@@ -104,7 +108,21 @@ pub fn child_args(spec: &CaptureSpec) -> Vec<String> {
     if let Some(path) = &spec.open {
         args.extend(["--open".to_string(), path.clone()]);
     }
+    if let Some(zoom) = &spec.zoom {
+        args.extend(["--zoom".to_string(), zoom.clone()]);
+    }
     args
+}
+
+/// A capture scale written as a percent, or `None` when it is not a positive
+/// finite number. The app rejects the same input; checking here turns a typo
+/// into a refusal at the command line instead of a silently refitted capture.
+pub fn parse_zoom_percent(value: &str) -> Option<f32> {
+    let percent: f32 = value.trim().parse().ok()?;
+    if !percent.is_finite() || percent <= 0. {
+        return None;
+    }
+    Some(percent / 100.)
 }
 
 // ---------------------------------------------------------------------------

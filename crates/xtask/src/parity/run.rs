@@ -384,6 +384,7 @@ fn resolve_candidate(
         wait_ms: 60_000,
         expect_client: None,
         open: None,
+        zoom: None,
     };
     capture::capture(&spec)?;
     RgbaImage::load(&spec.out)
