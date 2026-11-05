@@ -22,6 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `.ptz` files are written by the Rust core; current format version is v3 and remains backward-compatible from v0.1.0.
 - **Fewer Linux runtime dependencies.** The WebKitGTK, appindicator and CUPS packages that the web-view shell required are no longer needed. A Linux build now needs an X11 or Wayland session, fontconfig/freetype, and a Vulkan or GL driver.
 - Version numbers are derived from the crate manifest only.
+- **Keyboard access.** Every inline numeric field and every dialog field is now a tab stop with one shared focus treatment, Tab cannot leave an open dialog, and closing a dialog returns focus to whatever held it beforehand.
+- **Tooltips on the tool rail.** Hovering a tool button shows its name and shortcut key, including the variant suffix on tools that offer right-click options; the foreground colour swatch shows its name.
+- **Print paper sizes come from the printer.** The Paper Size field lists the sizes the selected printer reports and only offers the unlisted value when the driver returns none, instead of assuming every printer's list is empty.
+
+### Fixed
+
+- A long layer name clips to its row instead of wrapping onto a second line inside the fixed-height row.
+- The navigator's viewport indicator and thumbnail track the document again after the compositor changes.
 
 ### Removed
 
