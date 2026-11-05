@@ -362,6 +362,21 @@ fn process_shot(
     result
 }
 
+/// The camera a fresh capture of this shot must use. A run-level flag applies
+/// to every shot, so it wins; otherwise the manifest's own per-shot camera
+/// places the page where the reference frame has it.
+fn camera_for_shot(shot: &Shot, opts: &ParityOpts) -> (Option<String>, Option<String>) {
+    let recorded = shot.camera.as_ref();
+    (
+        opts.zoom
+            .clone()
+            .or_else(|| recorded.and_then(|c| c.zoom.clone())),
+        opts.pan
+            .clone()
+            .or_else(|| recorded.and_then(|c| c.pan.clone())),
+    )
+}
+
 /// Resolve the candidate image for a shot.
 fn resolve_candidate(
     shot: &Shot,
@@ -382,7 +397,8 @@ fn resolve_candidate(
         return RgbaImage::load(candidate);
     }
 
-    // No candidate: capture fresh.
+    // No candidate: capture fresh, at the camera this shot's reference frame has.
+    let (zoom, pan) = camera_for_shot(shot, opts);
     let spec = capture::CaptureSpec {
         shot: Some(shot.id.clone()),
         exe: None,
@@ -390,8 +406,8 @@ fn resolve_candidate(
         wait_ms: 60_000,
         expect_client: None,
         open: None,
-        zoom: opts.zoom.clone(),
-        pan: opts.pan.clone(),
+        zoom,
+        pan,
         hover: None,
     };
     capture::capture(&spec)?;
@@ -548,8 +564,9 @@ pub(crate) fn write_json<T: serde::Serialize>(path: PathBuf, value: &T) -> Resul
 }
 #[cfg(test)]
 mod tests {
-    use super::{resolve_mask, LEGACY_METRICS_MASK};
-    use crate::parity::manifest::MetricsMask;
+    use super::{camera_for_shot, resolve_mask, LEGACY_METRICS_MASK};
+    use crate::parity::manifest::{MetricsMask, Shot, ShotBox, ShotCamera};
+    use std::path::PathBuf;
 
     fn declared(w: u32, h: u32) -> MetricsMask {
         MetricsMask {
@@ -604,5 +621,62 @@ mod tests {
     fn legacy_constant_is_pinned() {
         assert_eq!(LEGACY_METRICS_MASK.viewport_width, 1366);
         assert_eq!(LEGACY_METRICS_MASK.viewport_height, 820);
+    }
+
+    fn shot(camera: Option<(&str, &str)>) -> Shot {
+        Shot {
+            id: "dock-closed".to_owned(),
+            file: "dock-closed.png".to_owned(),
+            category: String::new(),
+            note: String::new(),
+            selector: None,
+            needs_doc: false,
+            bounds: ShotBox {
+                x: 0.0,
+                y: 0.0,
+                width: 1366.0,
+                height: 820.0,
+            },
+            reason: None,
+            camera: camera.map(|(z, p)| ShotCamera {
+                zoom: Some(z.to_owned()),
+                pan: Some(p.to_owned()),
+            }),
+        }
+    }
+
+    fn opts(zoom: Option<&str>, pan: Option<&str>) -> super::ParityOpts {
+        super::ParityOpts {
+            baseline: PathBuf::from("baseline"),
+            shots: Vec::new(),
+            candidate: None,
+            report_dir: PathBuf::from("report"),
+            mask_metrics: false,
+            accept_ink_residual: false,
+            zoom: zoom.map(str::to_owned),
+            pan: pan.map(str::to_owned),
+        }
+    }
+
+    /// A recorded camera reaches the capture only when the run did not ask for
+    /// its own, so a flag sweep still covers every shot at one scale.
+    #[test]
+    fn a_run_level_camera_overrides_the_recorded_one() {
+        let recorded = shot(Some(("87.375", "41,73")));
+        assert_eq!(
+            camera_for_shot(&recorded, &opts(None, None)),
+            (Some("87.375".to_owned()), Some("41,73".to_owned())),
+            "the shot's own camera applies when the run states none"
+        );
+        assert_eq!(
+            camera_for_shot(&recorded, &opts(Some("100"), None)),
+            (Some("100".to_owned()), Some("41,73".to_owned())),
+            "the flag replaces the scale but the shot still supplies the origin"
+        );
+        assert_eq!(
+            camera_for_shot(&shot(None), &opts(None, None)),
+            (None, None),
+            "a shot without a camera captures at the live fit"
+        );
     }
 }

@@ -53,7 +53,7 @@ pub struct MetricsMask {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)] // mirrors the published manifest schema; the pipeline reads id, file and box only
+#[allow(dead_code)] // mirrors the published manifest schema; the pipeline reads id, file, box and camera
 pub struct Shot {
     pub id: String,
     pub file: String,
@@ -71,6 +71,22 @@ pub struct Shot {
     pub bounds: ShotBox,
     #[serde(default)]
     pub reason: Option<String>,
+    /// The camera the reference frame was taken at, when it differs from the
+    /// live fit. Parity replays it so a zoomed or panned baseline is scored
+    /// against the same page placement rather than against a scaled artifact.
+    #[serde(default)]
+    pub camera: Option<ShotCamera>,
+}
+
+/// A per-shot capture camera: a zoom percent and a page origin in element-local
+/// screen pixels (`"41,73"`), in the same text form `--zoom` and `--pan` take.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShotCamera {
+    #[serde(default)]
+    pub zoom: Option<String>,
+    #[serde(default)]
+    pub pan: Option<String>,
 }
 
 /// The element box the shot was cropped from, in viewport coordinates.
@@ -327,6 +343,25 @@ mod tests {
         let m = with.metrics_mask.expect("mask present");
         assert_eq!((m.x0, m.y0, m.x1, m.y1), (10, 20, 30, 40));
         assert_eq!((m.viewport_width, m.viewport_height), (1920, 1020));
+    }
+
+    /// A shot's camera parses, and a shot without one keeps the pre-camera shape.
+    /// The field is what lets parity replay the placement a reference frame was
+    /// taken at, so a wrong rename here would silently score at the live fit.
+    #[test]
+    fn shot_camera_is_optional() {
+        let shot = r#""id":"dock-closed","file":"dock-closed.png","box":{"x":0,"y":0,"width":10,"height":10}"#;
+        let bare: Manifest = serde_json::from_str(&format!(r#"{{"shots":[{{{shot}}}]}}"#))
+            .expect("no camera parses");
+        assert!(bare.shots[0].camera.is_none());
+
+        let with: Manifest = serde_json::from_str(&format!(
+            r#"{{"shots":[{{{shot},"camera":{{"zoom":"87.375","pan":"41,73"}}}}]}}"#
+        ))
+        .expect("declared camera parses");
+        let c = with.shots[0].camera.as_ref().expect("camera present");
+        assert_eq!(c.zoom.as_deref(), Some("87.375"));
+        assert_eq!(c.pan.as_deref(), Some("41,73"));
     }
 
     /// The provenance fields bind to the camelCase keys the capture writes. This

@@ -382,6 +382,10 @@
       "id": "chrome-hidden",
       "category": "shell",
       "file": "chrome-hidden.png",
+      "camera": {
+        "zoom": "87.375",
+        "pan": "41,73"
+      },
       "ok": true,
       "problems": [],
       "needsDoc": true,
@@ -1082,6 +1086,10 @@
       "id": "dock-closed",
       "category": "dock",
       "file": "dock-closed.png",
+      "camera": {
+        "zoom": "87.375",
+        "pan": "41,73"
+      },
       "ok": true,
       "problems": [],
       "needsDoc": true,
