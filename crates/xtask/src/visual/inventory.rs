@@ -7,7 +7,7 @@
 //! (Tauri `.rs` files, frozen tests) from that tree instead of carrying
 //! HEAD-era numbers.
 //!
-//! Row kinds: `F` = oracle production file (the parity target), `O` =
+//! Row kinds: `F` = oracle production file (a file this port must cover), `O` =
 //! out-of-target file (exists only in the current tree; kept so the inventory
 //! stays a complete map of both trees), `R` = reference artifact.
 
@@ -226,7 +226,7 @@ fn test_manifest(test_files: &[String]) -> String {
 }
 
 pub struct InventoryOpts {
-    /// Tree whose `src/` defines the parity target - a checkout of the
+    /// Tree whose `src/` lists the files this port must cover - a checkout of the
     /// archived reference application, whose sources no longer live in this
     /// repository. An empty value falls back to a legacy in-repo location
     /// that a fresh clone does not contain, so pass `--reference-root` at an
