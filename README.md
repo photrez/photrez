@@ -155,7 +155,7 @@ cargo test --workspace
 
 <details>
 <summary><b>What do Save, Save As, and Export do?</b></summary>
-<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project, every layer fully re-editable later. For a new or unsaved document it opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
+<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project. Text, shape and pixel layers each stay editable after a save, except a layer you have rasterized: it keeps its pixels and no longer carries the text or shape parameters that made them. For a new or unsaved document Save opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
 </details>
 
 <details>
