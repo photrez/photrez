@@ -21,7 +21,11 @@
 //!     numbers against the recorded reports.
 //! ```
 //!
-//! Both `parity` commands are read-only with respect to the repository: reports
+//! `xtask set-version <semver>`, the register checks (`xtask parity coverage`,
+//! `surfaces`, `strings`, `inventory`) and `xtask parity perceptual-diff`
+//! complete the command set; `--help` states each one's flags.
+//!
+//! The `parity` commands are read-only with respect to the repository: reports
 //! go to `--report` (default `target/xtask-parity`), never into the baseline
 //! directory.
 
@@ -94,6 +98,7 @@ fn print_help() {
          \x20     is already on PATH).\n\
          \x20 xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]\n\
          \x20              [--report <dir>] [--mask-metrics] [--accept-ink-residual]\n\
+         \x20              [--zoom <pct>] [--pan x,y]\n\
          \x20 xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>\n\
          \x20 xtask parity diff --a <png> --b <png> [--out <json>] [--max-diff <pct>]\n\
          \x20 xtask parity band-diff --a <png> --b <png> [--threshold <f>]\n\
@@ -113,6 +118,23 @@ fn print_help() {
          \x20 xtask parity class-diff --a <png> --b <png> [--max <pct>]\n\
          \x20     Recompute a class-map verdict: pixels that differ at all, and how\n\
          \x20     many of those change class under the shell palette classifier.\n\
+         \n\
+         \x20 xtask parity perceptual-diff --a <png> --b <png> [--threshold <f>]\n\
+         \x20     Compare two frames the way the percentage floor is measured.\n\
+         \n\
+         \x20 xtask parity coverage --inventory <csv> --surfaces <csv>\n\
+         \x20 xtask parity surfaces --inventory <csv> --surfaces <csv> --bundles <dir>\n\
+         \x20                   --oracle-commit <sha> --build-id <id>\n\
+         \x20 xtask parity strings --surfaces <csv> --root <dir> --map <csv>\n\
+         \x20 xtask parity inventory --oracle-root <dir> --head-root <dir> --out <csv>\n\
+         \x20     Register checks over the surface and text inventories. Every file\n\
+         \x20     and commit they read is operator-supplied: no path to a file this\n\
+         \x20     repository does not carry is built in.\n\
+         \n\
+         \x20 xtask set-version <semver>\n\
+         \x20     Rewrite the app crate version in one place and confirm it through\n\
+         \x20     cargo metadata. A lower release number is refused, and a refused\n\
+         \x20     read-back restores the manifest bytes it replaced.\n\
          \n\
          Defaults: --baseline crates/photrez/tests/baseline, --report target/xtask-parity."
     );
