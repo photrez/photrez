@@ -3,8 +3,10 @@ name = "rust-decode-bench"
 version = "0.1.0"
 edition = "2021"
 
-# standalone: opt OUT of the repo root workspace (its profile sets
-# opt-level="s" for photrez-core; this bench wants full speed)
+# standalone: opt OUT of the repo root workspace. Cargo ignores a `[profile.*]`
+# table in a member manifest ("profiles for the non root package will be
+# ignored, specify profiles at the workspace root"), so this empty `[workspace]`
+# is what keeps the release tuning below in force.
 [workspace]
 
 [dependencies]
