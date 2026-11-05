@@ -1,7 +1,8 @@
 # rust-decode-bench
 
 A standalone benchmark, deliberately outside the repository workspace: its `Cargo.toml` declares an empty
-`[workspace]` so the root profiles never apply to it.
+`[workspace]` so the root profiles never apply to it. Its own `Cargo.lock` belongs to that non-member crate;
+the product graph is locked by the root `Cargo.lock` and nothing else.
 
 Run it from this directory:
 
