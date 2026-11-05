@@ -4,6 +4,8 @@ use super::attached_catalog;
 use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
 use super::LocaleSource;
+use super::{child_args, CaptureSpec};
+use std::path::PathBuf;
 
 /// 2x2 bottom-up BGRA buffer:
 ///
@@ -109,6 +111,35 @@ fn single_row_identity() {
     let src: [u8; 4] = [10, 20, 30, 40]; // B=10 G=20 R=30 A=40
     let out = bgra_to_rgba_top_down(&src, 1, 1, 4).expect("1x1");
     assert_eq!(out, vec![30, 20, 10, 40]); // R=30 G=20 B=10 A=40
+}
+
+/// The shot selects a UI state and an open path names a document; both reach
+/// the child, and neither is invented when the caller leaves it out.
+#[test]
+fn child_args_forward_shot_and_open_only_when_given() {
+    let base = CaptureSpec {
+        shot: None,
+        exe: None,
+        out: PathBuf::from("out.png"),
+        wait_ms: 30_000,
+        expect_client: None,
+        open: None,
+    };
+    assert_eq!(child_args(&base), Vec::<String>::new());
+    let both = CaptureSpec {
+        shot: Some("move".to_string()),
+        open: Some("baseline.ptz".to_string()),
+        ..base
+    };
+    assert_eq!(
+        child_args(&both),
+        vec![
+            "--shot".to_string(),
+            "move".to_string(),
+            "--open".to_string(),
+            "baseline.ptz".to_string()
+        ]
+    );
 }
 
 /// The reference environment: 100% scale, exact 1366x820 client.

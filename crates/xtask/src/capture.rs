@@ -80,6 +80,26 @@ pub struct CaptureSpec {
     /// ratified default; an explicit size is how a run matches the geometry a
     /// given evidence set was taken at.
     pub expect_client: Option<(i32, i32)>,
+    /// A document to open at startup, forwarded as `--open <path>`. The shot
+    /// state alone seeds a blank white page, which is not the fixture most
+    /// surfaces were captured against.
+    pub open: Option<String>,
+}
+
+/// The arguments the captured process starts with.
+///
+/// Split out from the spawn so the forwarding rules are testable without a
+/// window. A shot selects a UI state, an open path names the document, and a
+/// caller that gives neither gets the app's own startup state.
+pub fn child_args(spec: &CaptureSpec) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(id) = &spec.shot {
+        args.extend(["--shot".to_string(), id.clone()]);
+    }
+    if let Some(path) = &spec.open {
+        args.extend(["--open".to_string(), path.clone()]);
+    }
+    args
 }
 
 // ---------------------------------------------------------------------------
@@ -562,8 +582,8 @@ pub fn capture(spec: &CaptureSpec) -> Result<PathBuf, String> {
     cmd.env(LOCALE_ENV, CAPTURE_LOCALE)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    if let Some(ref id) = spec.shot {
-        cmd.arg("--shot").arg(id);
+    for arg in child_args(spec) {
+        cmd.arg(arg);
     }
     let mut child = cmd
         .spawn()

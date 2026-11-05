@@ -637,6 +637,7 @@ fn cmd_capture(args: &[String]) -> i32 {
         out: PathBuf::from(out),
         wait_ms,
         expect_client,
+        open: flag(args, "--open").map(str::to_owned),
     };
     match capture::capture(&spec) {
         Ok(p) => {

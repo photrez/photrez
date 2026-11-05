@@ -383,6 +383,7 @@ fn resolve_candidate(
         out: out_path,
         wait_ms: 60_000,
         expect_client: None,
+        open: None,
     };
     capture::capture(&spec)?;
     RgbaImage::load(&spec.out)
