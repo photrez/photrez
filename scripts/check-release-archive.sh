@@ -150,4 +150,18 @@ for retired in photrez-desktop; do
   fi
 done
 
+# A browser runtime reaches a user as files, not as a link, so the payload rule
+# needs both halves: the library scan looks at what the binary asks for, and
+# this loop looks at what sits next to it in the archive. Photrez ships a native
+# binary plus three text files, so any of these is a second renderer travelling
+# with it.
+for payload in '\.html$' '\.htm$' '\.js$' '\.css$' '\.wasm$'; do
+  HITS=$(grep -E "$payload" "$LISTING" || true)
+  if [ -n "$HITS" ]; then
+    printf '%s\n' "$HITS" >&2
+    echo "::error::Archive carries a browser runtime payload (pattern: $payload): $ARCHIVE" >&2
+    exit 1
+  fi
+done
+
 echo "release archive ok: $ARCHIVE ($SIZE bytes, $PLATFORM)"

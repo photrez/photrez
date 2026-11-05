@@ -91,3 +91,7 @@ webgl	scripts/check-public-terminology.sh	allowlist
 # that one script and these two tokens; it weakens no other surface.
 tauri	scripts/check-release-archive.sh	allowlist
 webview	scripts/check-release-archive.sh	allowlist
+# allowlist (2026-11-05): same reason as the two records above. The release guard
+# refuses a browser bundle travelling with the native binary, so it has to spell
+# the file types it refuses, and wasm is one of them. Scope: this one script.
+wasm	scripts/check-release-archive.sh	allowlist
