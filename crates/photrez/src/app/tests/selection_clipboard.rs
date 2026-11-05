@@ -211,7 +211,7 @@ fn cross_document_paste_adds_the_clipboard_to_the_active_document(
         assert_eq!(labels.last().map(String::as_str), Some("Paste"));
 
         content.update(cx, |app, cx| {
-            app.activate_document("parity-doc", cx)
+            app.activate_document("bounded-raster-doc", cx)
                 .expect("the source document is still open");
         });
         window.render_frame(cx);

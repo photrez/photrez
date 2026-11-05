@@ -140,7 +140,7 @@ fn autosave_writes_the_other_dirty_sessions_when_one_snapshot_fails(
     .expect("test window remains open");
 
     assert!(
-        autosave_dir.join("parity-doc.ptz").is_file(),
+        autosave_dir.join("bounded-raster-doc.ptz").is_file(),
         "a sibling document still gets its snapshot"
     );
     let entries = crate::services::autosave::AutosaveStore::new(&cache_root)
@@ -151,7 +151,7 @@ fn autosave_writes_the_other_dirty_sessions_when_one_snapshot_fails(
             .iter()
             .map(|entry| entry.doc_id())
             .collect::<Vec<_>>(),
-        vec!["parity-doc"],
+        vec!["bounded-raster-doc"],
         "only the session that wrote an archive is listed"
     );
 }

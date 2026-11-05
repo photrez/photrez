@@ -64,7 +64,7 @@ fn startup_preparation_loads_bounded_fixture_into_canvas() {
     let loaded = services::document::load_document_candidate(&file_io, &fixture_path)
         .expect("production loader accepts approved fixture");
 
-    assert_eq!(prepared.document_id(), "parity-doc");
+    assert_eq!(prepared.document_id(), "bounded-raster-doc");
     assert_eq!(loaded.document_id(), prepared.document_id());
     assert_eq!((prepared.display_width, prepared.display_height), (2, 1));
     let (width, height, rgba) = loaded.canonical_rgba();
@@ -141,7 +141,7 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
                 .active_document
                 .as_ref()
                 .expect("startup document is active");
-            assert_eq!(active.doc_id, "parity-doc");
+            assert_eq!(active.doc_id, "bounded-raster-doc");
             assert_eq!(active.canvas.tile_count(), 1);
             approved(&initial_path);
 
@@ -153,7 +153,7 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
                 .active_document
                 .as_ref()
                 .expect("failed open preserves active");
-            assert_eq!(active.doc_id, "parity-doc");
+            assert_eq!(active.doc_id, "bounded-raster-doc");
             assert_eq!(active.canvas.tile_count(), 1);
 
             app.open_startup_path(&later_path, cx)
@@ -162,7 +162,7 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
                 .active_document
                 .as_ref()
                 .expect("later document is active");
-            assert_eq!(active.doc_id, "parity-doc");
+            assert_eq!(active.doc_id, "bounded-raster-doc");
             assert_eq!(active.canvas.tile_count(), 1);
             approved(&later_path);
         });

@@ -447,7 +447,7 @@ mod tests {
             .receipt
             .expect("the committed stroke emits an observation receipt");
         assert_eq!(receipt.sample_id, sample_id);
-        assert_eq!(receipt.doc_id, "parity-doc");
+        assert_eq!(receipt.doc_id, "bounded-raster-doc");
         assert_eq!(receipt.layer_id, "raster-1");
         assert!(receipt.t_down <= receipt.t_up && receipt.t_up <= receipt.t_commit);
         assert!(

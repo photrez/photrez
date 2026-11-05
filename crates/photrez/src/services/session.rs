@@ -334,12 +334,12 @@ mod tests {
     #[test]
     fn dirty_revision_is_tracked_and_enumerated() {
         let (_directory, _files, mut registry, _) = session_fixture();
-        assert_eq!(registry.get("parity-doc").unwrap().revision(), 0);
-        assert!(!registry.get("parity-doc").unwrap().is_dirty());
+        assert_eq!(registry.get("bounded-raster-doc").unwrap().revision(), 0);
+        assert!(!registry.get("bounded-raster-doc").unwrap().is_dirty());
 
-        assert_eq!(registry.mark_dirty("parity-doc").unwrap(), 1);
-        assert_eq!(registry.mark_dirty("parity-doc").unwrap(), 2);
-        let session = registry.get("parity-doc").unwrap();
+        assert_eq!(registry.mark_dirty("bounded-raster-doc").unwrap(), 1);
+        assert_eq!(registry.mark_dirty("bounded-raster-doc").unwrap(), 2);
+        let session = registry.get("bounded-raster-doc").unwrap();
         assert_eq!(session.revision(), 2);
         assert_eq!(session.saved_revision(), 0);
         assert!(session.is_dirty());
@@ -349,45 +349,45 @@ mod tests {
                 .iter()
                 .map(|session| session.doc_id())
                 .collect::<Vec<_>>(),
-            ["parity-doc"]
+            ["bounded-raster-doc"]
         );
     }
 
     #[test]
     fn successful_save_updates_path_after_archive_finalizes() {
         let (directory, files, mut registry, _) = session_fixture();
-        registry.mark_dirty("parity-doc").unwrap();
+        registry.mark_dirty("bounded-raster-doc").unwrap();
         let target = directory.path().join("saved.ptz");
         let receipt = registry
-            .save("parity-doc", &files, &target, &SaveStream)
+            .save("bounded-raster-doc", &files, &target, &SaveStream)
             .expect("save completes");
 
         let file = fs::File::open(&target).expect("final archive exists");
         let mut archive = zip::ZipArchive::new(file).expect("final archive is complete");
         assert!(archive.by_name("document.json").is_ok());
-        let session = registry.get("parity-doc").unwrap();
+        let session = registry.get("bounded-raster-doc").unwrap();
         assert_eq!(session.source_path(), Some(target.as_path()));
         assert_eq!(session.revision(), 1);
         assert_eq!(session.saved_revision(), 1);
         assert!(!session.is_dirty());
         registry
-            .close_after_save("parity-doc", &receipt)
+            .close_after_save("bounded-raster-doc", &receipt)
             .expect("matching receipt closes session");
-        assert!(registry.get("parity-doc").is_none());
+        assert!(registry.get("bounded-raster-doc").is_none());
     }
 
     #[test]
     fn failed_save_preserves_path_dirty_and_open_state() {
         let (directory, files, mut registry, source_path) = session_fixture();
-        registry.mark_dirty("parity-doc").unwrap();
+        registry.mark_dirty("bounded-raster-doc").unwrap();
         let target = directory.path().join("rejected.png");
         let error = registry
-            .save("parity-doc", &files, &target, &SaveStream)
+            .save("bounded-raster-doc", &files, &target, &SaveStream)
             .expect_err("non-project target is rejected");
         assert_eq!(error.code(), "E_VALIDATION");
         assert!(!target.exists());
 
-        let session = registry.get("parity-doc").unwrap();
+        let session = registry.get("bounded-raster-doc").unwrap();
         assert_eq!(session.source_path(), Some(source_path.as_path()));
         assert_eq!(session.revision(), 1);
         assert_eq!(session.saved_revision(), 0);
@@ -400,43 +400,47 @@ mod tests {
         let (directory, files, mut registry, _) = session_fixture();
         let target = directory.path().join("saved.ptz");
         let receipt = registry
-            .save("parity-doc", &files, &target, &SaveStream)
+            .save("bounded-raster-doc", &files, &target, &SaveStream)
             .expect("save completes");
-        registry.mark_dirty("parity-doc").unwrap();
+        registry.mark_dirty("bounded-raster-doc").unwrap();
 
-        assert!(registry.close_after_save("parity-doc", &receipt).is_err());
+        assert!(registry
+            .close_after_save("bounded-raster-doc", &receipt)
+            .is_err());
         registry
-            .cancel("parity-doc")
+            .cancel("bounded-raster-doc")
             .expect("cancel keeps session open");
-        let session = registry.get("parity-doc").unwrap();
+        let session = registry.get("bounded-raster-doc").unwrap();
         assert!(session.is_dirty());
         assert!(!session.is_closed());
-        assert!(registry.close_after_save("parity-doc", &receipt).is_err());
-        assert!(registry.get("parity-doc").is_some());
+        assert!(registry
+            .close_after_save("bounded-raster-doc", &receipt)
+            .is_err());
+        assert!(registry.get("bounded-raster-doc").is_some());
     }
 
     #[test]
     fn replace_refuses_dirty_and_swaps_clean_session() {
         let (directory, files, mut registry, source_path) = session_fixture();
-        registry.mark_dirty("parity-doc").unwrap();
+        registry.mark_dirty("bounded-raster-doc").unwrap();
 
         let replacement = load_document_candidate(&files, &source_path).expect("document reloads");
         let error = registry
             .replace(replacement, "Replacement", Some(source_path.clone()))
             .expect_err("a dirty session is not replaced silently");
         assert!(matches!(error, ServiceError::Conflict(_)));
-        assert!(registry.get("parity-doc").unwrap().is_dirty());
+        assert!(registry.get("bounded-raster-doc").unwrap().is_dirty());
         assert_eq!(registry.dirty_sessions().len(), 1);
 
         let target = directory.path().join("saved.ptz");
         registry
-            .save("parity-doc", &files, &target, &SaveStream)
+            .save("bounded-raster-doc", &files, &target, &SaveStream)
             .expect("save clears dirty");
         let replacement = load_document_candidate(&files, &source_path).expect("document reloads");
         registry
             .replace(replacement, "Replacement", Some(source_path.clone()))
             .expect("a clean session is replaced");
-        let session = registry.get("parity-doc").unwrap();
+        let session = registry.get("bounded-raster-doc").unwrap();
         assert_eq!(session.display_name(), "Replacement");
         assert_eq!(session.revision(), 0);
         assert_eq!(session.saved_revision(), 0);
@@ -446,15 +450,15 @@ mod tests {
     #[test]
     fn discard_closes_while_cancel_keeps_dirty_session_open() {
         let (_directory, _files, mut registry, _) = session_fixture();
-        registry.mark_dirty("parity-doc").unwrap();
+        registry.mark_dirty("bounded-raster-doc").unwrap();
         registry
-            .cancel("parity-doc")
+            .cancel("bounded-raster-doc")
             .expect("cancel is non-destructive");
-        assert!(registry.get("parity-doc").unwrap().is_dirty());
+        assert!(registry.get("bounded-raster-doc").unwrap().is_dirty());
         registry
-            .discard("parity-doc")
+            .discard("bounded-raster-doc")
             .expect("discard closes session");
-        assert!(registry.get("parity-doc").is_none());
+        assert!(registry.get("bounded-raster-doc").is_none());
         assert!(registry.dirty_sessions().is_empty());
     }
 
@@ -463,17 +467,19 @@ mod tests {
         let (directory, files, mut registry, source_path) = session_fixture();
         let target = directory.path().join("saved.ptz");
         let receipt = registry
-            .save("parity-doc", &files, &target, &SaveStream)
+            .save("bounded-raster-doc", &files, &target, &SaveStream)
             .expect("save completes");
         registry
-            .discard("parity-doc")
+            .discard("bounded-raster-doc")
             .expect("first session closes");
 
         let replacement = load_document_candidate(&files, &source_path).expect("document reloads");
         registry
             .open(replacement, "Fixture", Some(source_path))
             .expect("replacement session opens");
-        assert!(registry.close_after_save("parity-doc", &receipt).is_err());
-        assert!(!registry.get("parity-doc").unwrap().is_closed());
+        assert!(registry
+            .close_after_save("bounded-raster-doc", &receipt)
+            .is_err());
+        assert!(!registry.get("bounded-raster-doc").unwrap().is_closed());
     }
 }

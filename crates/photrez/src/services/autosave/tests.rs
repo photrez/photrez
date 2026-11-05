@@ -63,7 +63,9 @@ fn dirty_fixture(directory: &TestDirectory) -> (LocalFileIo, SessionRegistry, Pa
     sessions
         .open(loaded, "Fixture", Some(source_path.clone()))
         .expect("session opens");
-    sessions.mark_dirty("parity-doc").expect("session is dirty");
+    sessions
+        .mark_dirty("bounded-raster-doc")
+        .expect("session is dirty");
     (files, sessions, source_path)
 }
 
@@ -245,21 +247,21 @@ fn dirty_loaded_fixture_autosaves_canonically_without_changing_session_state() {
     let directory = TestDirectory::new();
     let (files, sessions, source_path) = dirty_fixture(&directory);
     let store = AutosaveStore::new(directory.path());
-    let session = sessions.get("parity-doc").unwrap();
+    let session = sessions.get("bounded-raster-doc").unwrap();
     assert!(store
-        .autosave("parity-doc", session, &files, &SaveStream, 1234)
+        .autosave("bounded-raster-doc", session, &files, &SaveStream, 1234)
         .expect("dirty document autosaves"));
 
     let entries = store.list().expect("manifest lists saved document");
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].doc_id, "parity-doc");
+    assert_eq!(entries[0].doc_id, "bounded-raster-doc");
     assert_eq!(entries[0].display_name, "Fixture");
     assert_eq!(entries[0].unix_ms, Some(1234));
     let recovery_path = store
         .recovery_path(&entries[0])
         .expect("recovery path resolves");
     assert!(recovery_path.is_file());
-    let session = sessions.get("parity-doc").unwrap();
+    let session = sessions.get("bounded-raster-doc").unwrap();
     assert_eq!(session.source_path(), Some(source_path.as_path()));
     assert!(session.is_dirty());
 
@@ -267,7 +269,7 @@ fn dirty_loaded_fixture_autosaves_canonically_without_changing_session_state() {
         .approve_path(&recovery_path)
         .expect("cache archive is approved for read");
     let recovered = load_document_candidate(&files, &recovery_path).expect("autosave reloads");
-    assert_eq!(recovered.document_id(), "parity-doc");
+    assert_eq!(recovered.document_id(), "bounded-raster-doc");
 }
 
 #[test]
@@ -275,7 +277,7 @@ fn autosave_rejects_document_id_mismatch_and_does_not_write_manifest_on_save_fai
     let directory = TestDirectory::new();
     let (files, sessions, _) = dirty_fixture(&directory);
     let store = AutosaveStore::new(directory.path());
-    let session = sessions.get("parity-doc").unwrap();
+    let session = sessions.get("bounded-raster-doc").unwrap();
     assert_eq!(
         store
             .autosave("other-id", session, &files, &SaveStream, 1)
@@ -290,12 +292,15 @@ fn autosave_rejects_document_id_mismatch_and_does_not_write_manifest_on_save_fai
     let other_store = AutosaveStore::new(other_directory.path());
     assert_eq!(
         other_store
-            .autosave("parity-doc", session, &files, &SaveStream, 2)
+            .autosave("bounded-raster-doc", session, &files, &SaveStream, 2)
             .unwrap_err()
             .code(),
         "E_VALIDATION"
     );
     assert!(!other_store.manifest_path().exists());
-    assert!(!other_store.archive_path("parity-doc").unwrap().exists());
+    assert!(!other_store
+        .archive_path("bounded-raster-doc")
+        .unwrap()
+        .exists());
     assert!(session.is_dirty());
 }

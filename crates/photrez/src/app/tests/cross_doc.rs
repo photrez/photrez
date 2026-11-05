@@ -9,7 +9,7 @@ use crate::app::cross_doc::{LayerDragPayload, LayerDropTarget};
 use gpui_kit::test::TestWindowExt;
 use photrez_core::ptz::content::{PtzDocumentContent, PtzLayer};
 
-const FIXTURE_DOC: &str = "parity-doc";
+const FIXTURE_DOC: &str = "bounded-raster-doc";
 const FIXTURE_PNG: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/bounded-raster.layer.png"

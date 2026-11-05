@@ -31,7 +31,7 @@ fn ctrl_shift_s_cancel_preserves_the_dirty_document(cx: &mut gpui_kit::TestAppCo
         content.update(cx, |app, cx| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc"),
+                Some("bounded-raster-doc"),
                 "cancelling Save As must not close the document"
             );
             assert_eq!(

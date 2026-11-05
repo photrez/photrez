@@ -41,7 +41,7 @@ fn ctrl_w_cancel_keeps_the_document_dirty(cx: &mut gpui_kit::TestAppContext) {
         content.update(cx, |app, _| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc")
+                Some("bounded-raster-doc")
             );
             assert_eq!(
                 app.active_document_save_state_for_test(),
@@ -156,7 +156,7 @@ fn ctrl_w_save_failure_keeps_dirty(cx: &mut gpui_kit::TestAppContext) {
         content.update(cx, |app, cx| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc"),
+                Some("bounded-raster-doc"),
                 "a failed save must keep the document open"
             );
             assert_eq!(

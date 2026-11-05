@@ -134,17 +134,17 @@ fn approved_fixture_loads_to_canonical_rgba_accepted_by_canvas_image() {
     let loaded = load_document_candidate(&file_io, &fixture_path)
         .expect("production loader accepts fixture");
 
-    assert_eq!(loaded.document_id(), "parity-doc");
+    assert_eq!(loaded.document_id(), "bounded-raster-doc");
     let content = loaded
         .content_snapshot()
         .expect("loaded document has typed content");
-    assert_eq!(content.id, "parity-doc");
+    assert_eq!(content.id, "bounded-raster-doc");
     assert_eq!((content.width, content.height), (2.0, 1.0));
     assert_eq!(content.layers.len(), 1);
     assert_eq!(content.layers[0].id, "raster-1");
 
     let snapshot = loaded.document_snapshot();
-    assert_eq!(snapshot.id, "parity-doc");
+    assert_eq!(snapshot.id, "bounded-raster-doc");
     assert_eq!(snapshot.active_layer_id, None);
     assert_eq!(snapshot.viewport.zoom, 1.0);
     assert!(!snapshot.dirty);

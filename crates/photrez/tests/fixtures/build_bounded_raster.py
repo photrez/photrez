@@ -7,7 +7,7 @@ from zlib import compress, crc32
 ROOT = Path(__file__).resolve().parent
 RGBA = bytes([12, 34, 56, 255, 200, 150, 100, 255])
 DOCUMENT = (
-    b'{"format":"photrez-ptz","version":3,"id":"parity-doc","name":"Parity fixture",'
+    b'{"format":"photrez-ptz","version":3,"id":"bounded-raster-doc","name":"Bounded raster document",'
     b'"width":2,"height":1,"layers":[{"id":"raster-1","name":"Raster",'
     b'"type":"raster","visible":true,"opacity":1.0,"locked":false,'
     b'"blendMode":"normal","transform":{"x":0.0,"y":0.0,"scaleX":1.0,'

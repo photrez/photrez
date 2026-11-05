@@ -31,7 +31,7 @@ fn opening_a_second_document_adds_a_tab_and_keeps_the_first(cx: &mut gpui_kit::T
             open_second_document(app, cx, &directory);
             assert_eq!(
                 app.open_tab_ids_for_test(),
-                vec!["parity-doc".to_string(), "multi-doc".to_string()]
+                vec!["bounded-raster-doc".to_string(), "multi-doc".to_string()]
             );
             assert_eq!(app.active_tab_id_for_test().as_deref(), Some("multi-doc"));
             assert_eq!(app.active_core_layer_count_for_test(), Some(2));
@@ -44,9 +44,12 @@ fn opening_a_second_document_adds_a_tab_and_keeps_the_first(cx: &mut gpui_kit::T
         }
 
         content.update(cx, |app, cx| {
-            app.activate_document("parity-doc", cx)
+            app.activate_document("bounded-raster-doc", cx)
                 .expect("the first tab activates");
-            assert_eq!(app.active_tab_id_for_test().as_deref(), Some("parity-doc"));
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("bounded-raster-doc")
+            );
             assert_eq!(app.active_core_layer_count_for_test(), Some(1));
         });
     })
@@ -68,7 +71,7 @@ fn switching_tabs_restores_the_per_document_camera(cx: &mut gpui_kit::TestAppCon
                 app.camera_for_test().is_none(),
                 "the new tab starts in fit mode"
             );
-            app.activate_document("parity-doc", cx)
+            app.activate_document("bounded-raster-doc", cx)
                 .expect("switch back");
             assert_eq!(
                 app.camera_for_test(),
@@ -89,8 +92,11 @@ fn closing_a_clean_tab_activates_the_neighbour_and_dirty_tabs_prompt(
         content.update(cx, |app, cx| {
             open_second_document(app, cx, &directory);
             assert!(app.close_document_tab("multi-doc", cx));
-            assert_eq!(app.open_tab_ids_for_test(), vec!["parity-doc"]);
-            assert_eq!(app.active_tab_id_for_test().as_deref(), Some("parity-doc"));
+            assert_eq!(app.open_tab_ids_for_test(), vec!["bounded-raster-doc"]);
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("bounded-raster-doc")
+            );
 
             open_second_document(app, cx, &directory);
             app.mark_active_document_dirty_for_test()
@@ -115,7 +121,10 @@ fn closing_a_clean_tab_activates_the_neighbour_and_dirty_tabs_prompt(
                 1,
                 "discard closes the tab"
             );
-            assert_eq!(app.active_tab_id_for_test().as_deref(), Some("parity-doc"));
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("bounded-raster-doc")
+            );
 
             open_second_document(app, cx, &directory);
             app.mark_active_document_dirty_for_test()
@@ -526,7 +535,7 @@ fn dropped_project_paths_open_as_tabs(cx: &mut gpui_kit::TestAppContext) {
             app.submit_dropped_paths(cx);
             assert_eq!(
                 app.open_tab_ids_for_test(),
-                vec!["parity-doc".to_string(), "multi-doc".to_string()]
+                vec!["bounded-raster-doc".to_string(), "multi-doc".to_string()]
             );
             assert_eq!(app.active_tab_id_for_test().as_deref(), Some("multi-doc"));
         });
@@ -541,10 +550,10 @@ fn tabs_reorder_without_changing_the_active_document(cx: &mut gpui_kit::TestAppC
     cx.update_window(window.into(), |_, _window, cx| {
         content.update(cx, |app, cx| {
             open_second_document(app, cx, &directory);
-            assert!(app.move_document_tab("multi-doc", "parity-doc", cx));
+            assert!(app.move_document_tab("multi-doc", "bounded-raster-doc", cx));
             assert_eq!(
                 app.open_tab_ids_for_test(),
-                vec!["multi-doc".to_string(), "parity-doc".to_string()]
+                vec!["multi-doc".to_string(), "bounded-raster-doc".to_string()]
             );
             assert_eq!(
                 app.active_tab_id_for_test().as_deref(),

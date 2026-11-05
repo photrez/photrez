@@ -660,7 +660,7 @@ fn file_menu_recent_row_opens_the_recorded_project(cx: &mut gpui_kit::TestAppCon
             );
             assert_eq!(
                 app.active_tab_id_for_test().as_deref(),
-                Some("parity-doc"),
+                Some("bounded-raster-doc"),
                 "the first project is the one left active"
             );
             app.state_for_test().update(cx, |state, _| {

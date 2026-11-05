@@ -4,7 +4,9 @@
 with Python's standard-library `struct`, `zlib`, and `zipfile`; it is not
 produced by `SaveStream`. The script writes the expected RGBA bytes directly
 from the literal pixel values `0c 22 38 ff c8 96 64 ff`; it does not decode the
-PNG or derive expectations from production code. The generator is unchanged.
+PNG or derive expectations from production code. Nothing edits its output by
+hand: when the document's own fields change, they change in the script and the
+files are regenerated with it.
 
 The archive contains `document.json` followed by `layers/raster-1.png`, both
 Deflate level 6 with timestamp 1980-01-01 00:00:00. It has two Zip32 entries,
@@ -18,19 +20,28 @@ RGBA. SHA-256:
 
 | File | Bytes | SHA-256 |
 |---|---:|---|
-| `bounded-raster.document.json` | 345 | `b75cc2fe1ebab8f70fc60cd6e93bc00d98e1c237102b0aa15333a3489a27f3fc` |
+| `bounded-raster.document.json` | 362 | `391d54389c10365f774a53e5be7f054e2e2a8c4b3a1961694459376ab5029a2b` |
 | `bounded-raster.layer.png` | 74 | `25aef9d34b1deb088f8a34eb8f56ad00de14e2c628866e952f7c2005d9dae36b` |
 | `bounded-raster.rgba` | 8 | `8ba85dcaf96c47f964e5b6f6996fc1e2e1bc87d79c4318a757cae4ba5515a955` |
-| `bounded-raster.ptz` | 519 | `e151ff38209d26b72b051a109838219977016ada1e423fda703e55f06adaecb0` |
+| `bounded-raster.ptz` | 526 | `4c313007acfc559d2806657789c7b4d2e21c36daf15b56b94c027f14f08e4f35` |
 
 ## Production-writer golden
 
-`bounded-raster.save-stream.golden.ptz` is a pinned 527-byte output from the
+`bounded-raster.save-stream.golden.ptz` is a pinned 533-byte output from the
 production `SaveStream`; tests only read it and never regenerate it. Its
 SHA-256 is
-`12a2663245b63ba9b460825caeee5c9ae516320468b424874fb41e9da5e9ad0c`.
+`e1f0d47d5ea3772af33969ac3f7fcc6f778924129e15d84c45d9ec7aca369386`.
 
-It was generated once with a scratch Rust program outside the test path. The
+It was re-recorded on 2026-11-05, when the fixture document's own id and display
+name changed. The new bytes came from the production writer itself: a temporary
+`#[ignore]`d test called the same `SaveStream` path the assertion uses and wrote
+the bytes out, the dump was produced twice and compared byte-for-byte (identical,
+and identical again after the sidecars were regenerated), and the temporary test
+was then deleted. Only `document.json` inside the archive differs from the
+previous golden: it grew from 345 to 362 bytes with those two strings, and
+`layers/raster-1.png` is unchanged.
+
+The first recording was made with a scratch Rust program outside the test path. The
 program read the two sidecars above, created a `LocalFileIo` save target, and
 called `SaveStream::begin`, `write_layer`, and `end`. It linked the production
 library built from this checkout using Rust 1.95.0 and the lockfile that then

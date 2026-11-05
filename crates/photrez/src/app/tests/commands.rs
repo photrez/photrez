@@ -194,7 +194,7 @@ fn ctrl_s_rewrites_the_source_archive_and_clears_dirty(cx: &mut gpui_kit::TestAp
         content.update(cx, |app, _| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc")
+                Some("bounded-raster-doc")
             );
             assert_eq!(
                 app.active_document_save_state_for_test(),
@@ -223,7 +223,7 @@ fn ctrl_s_rewrites_the_source_archive_and_clears_dirty(cx: &mut gpui_kit::TestAp
             );
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc")
+                Some("bounded-raster-doc")
             );
             assert!(
                 app.state_for_test().read(cx).status_error.is_none(),
@@ -277,7 +277,7 @@ fn ctrl_s_failure_keeps_dirty_and_surfaces_the_error(cx: &mut gpui_kit::TestAppC
             );
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc"),
+                Some("bounded-raster-doc"),
                 "a failed save must keep the document open"
             );
             let state = app.state_for_test().read(cx);
@@ -339,7 +339,7 @@ fn open_refuses_to_replace_a_dirty_document(cx: &mut gpui_kit::TestAppContext) {
             assert!(error.contains("unsaved changes"), "{error}");
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc")
+                Some("bounded-raster-doc")
             );
             assert_eq!(
                 app.active_document_save_state_for_test(),
@@ -429,7 +429,7 @@ fn ctrl_p_sends_the_active_document_to_the_print_backend(cx: &mut gpui_kit::Test
     let call = &calls[0];
     assert_eq!((call.width, call.height), (2, 1));
     assert_eq!(call.pixels, EXPECTED_CANONICAL_RGBA);
-    assert_eq!(call.document_name, "Parity fixture");
+    assert_eq!(call.document_name, "Bounded raster document");
     assert_eq!(call.paper_mm, (210.0, 297.0));
     assert_eq!(call.output_path, None);
 }
@@ -721,7 +721,7 @@ fn ctrl_o_opens_a_project_through_the_dialog(cx: &mut gpui_kit::TestAppContext) 
         content.update(cx, |app, _| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc")
+                Some("bounded-raster-doc")
             );
             assert_eq!(
                 app.active_document_save_state_for_test(),
@@ -851,7 +851,7 @@ fn autosave_writes_dirty_sessions_to_the_cache(cx: &mut gpui_kit::TestAppContext
             let store = crate::services::autosave::AutosaveStore::new(&cache_root);
             let entries = store.list().expect("the manifest reads");
             assert_eq!(entries.len(), 1);
-            assert_eq!(entries[0].doc_id(), "parity-doc");
+            assert_eq!(entries[0].doc_id(), "bounded-raster-doc");
             let path = store
                 .recovery_path(&entries[0])
                 .expect("the recovery path is inside the cache");
@@ -899,7 +899,7 @@ fn ctrl_p_failure_reports_and_recovers(cx: &mut gpui_kit::TestAppContext) {
         content.update(cx, |app, cx| {
             assert_eq!(
                 app.active_document_id_for_test().as_deref(),
-                Some("parity-doc"),
+                Some("bounded-raster-doc"),
                 "a failed print must keep the document open"
             );
             assert_eq!(
