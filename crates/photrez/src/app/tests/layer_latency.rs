@@ -55,7 +55,7 @@ fn layer_eye_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S028_LAYER_EYE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "LAYER_EYE_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -120,7 +120,7 @@ fn properties_status_refresh_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S044_PROPERTIES_REFRESH_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "PROPERTIES_REFRESH_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -204,7 +204,7 @@ fn background_lock_toast_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S060_TOAST_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "TOAST_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(

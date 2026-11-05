@@ -548,7 +548,7 @@ fn crop_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
         sorted.sort_by(f64::total_cmp);
         let p50 = sorted[sorted.len() / 2];
         let p95 = sorted[(sorted.len() as f64 * 0.95).ceil() as usize - 1];
-        eprintln!("S033_CROP_TOGGLE_MS samples={samples:?} p50={p50:.3} p95={p95:.3}");
+        eprintln!("CROP_TOGGLE_MS samples={samples:?} p50={p50:.3} p95={p95:.3}");
         assert!(
             p95 <= 33.3,
             "crop toggle p95 {p95:.3} ms exceeds the 33.3 ms budget"

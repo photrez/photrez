@@ -408,7 +408,7 @@ fn new_document_preset_latency(cx: &mut gpui_kit::TestAppContext) {
         sorted.sort_by(f64::total_cmp);
         let p50 = sorted[sorted.len() / 2];
         let p95 = sorted[(sorted.len() as f64 * 0.95).ceil() as usize - 1];
-        eprintln!("S018_NEW_DOC_MS samples={samples:?} p50={p50:.3} p95={p95:.3}");
+        eprintln!("NEW_DOC_MS samples={samples:?} p50={p50:.3} p95={p95:.3}");
         assert!(
             p95 <= 33.3,
             "preset press p95 {p95:.3} ms exceeds the 33.3 ms budget"
@@ -854,7 +854,7 @@ fn document_tab_presentation_and_activation_latency(cx: &mut gpui_kit::TestAppCo
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S055_TAB_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "TAB_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
     })

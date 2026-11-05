@@ -37,7 +37,7 @@ fn move_bar_toggle_click_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S030_MOVE_BAR_TOGGLE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "MOVE_BAR_TOGGLE_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -95,7 +95,7 @@ fn dock_tab_switch_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S050_DOCK_TAB_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "DOCK_TAB_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -158,7 +158,7 @@ fn brush_overflow_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S031_BRUSH_OVERFLOW_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "BRUSH_OVERFLOW_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -225,7 +225,7 @@ fn shape_kind_menu_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S038_SHAPE_KIND_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "SHAPE_KIND_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -499,7 +499,7 @@ fn bucket_tolerance_preset_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S032_BUCKET_TOL_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "BUCKET_TOL_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -543,7 +543,7 @@ fn eyedropper_hex_tooltip_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S034_HEX_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "HEX_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -610,7 +610,7 @@ fn gradient_type_menu_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S035_GRAD_TYPE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "GRAD_TYPE_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(

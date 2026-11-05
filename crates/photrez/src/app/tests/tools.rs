@@ -450,7 +450,7 @@ fn selection_shape_menu_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S037_SELECT_SHAPE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "SELECT_SHAPE_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -791,7 +791,7 @@ fn snap_tooltip_hover_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S061_SNAP_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "SNAP_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(

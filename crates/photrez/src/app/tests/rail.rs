@@ -69,7 +69,7 @@ fn rail_tool_click_switches_and_stays_fluid(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S053_RAIL_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "RAIL_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
     })

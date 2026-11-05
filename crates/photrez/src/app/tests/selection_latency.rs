@@ -69,7 +69,7 @@ fn cross_document_paste_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S013_CROSS_DOC_PASTE_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "CROSS_DOC_PASTE_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -170,7 +170,7 @@ fn selection_marquee_commit_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S046_MARQUEE_COMMIT_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "MARQUEE_COMMIT_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -285,7 +285,7 @@ fn selection_rotation_commit_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S047_ROTATE_COMMIT_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "ROTATE_COMMIT_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(

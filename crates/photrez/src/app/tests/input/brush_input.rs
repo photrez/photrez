@@ -438,7 +438,7 @@ fn hover_highlight_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S007_HOVER_HIGHLIGHT_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "HOVER_HIGHLIGHT_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(

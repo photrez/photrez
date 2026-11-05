@@ -547,7 +547,7 @@ fn canvas_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S010_MENU_OPEN_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "MENU_OPEN_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[2], sorted[4]
         );
     })
@@ -600,7 +600,7 @@ fn edit_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S052_EDIT_MENU_OPEN_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "EDIT_MENU_OPEN_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
     })

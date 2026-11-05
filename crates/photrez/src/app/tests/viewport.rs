@@ -141,7 +141,7 @@ fn status_zoom_readout_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S054_STATUS_ZOOM_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "STATUS_ZOOM_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
@@ -383,7 +383,7 @@ fn navigator_click_latency(cx: &mut gpui_kit::TestAppContext) {
         let mut sorted = samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         println!(
-            "S029_NAVIGATOR_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
+            "NAVIGATOR_CLICK_MS samples={samples:?} p50={:.3} p95={:.3}",
             sorted[4], sorted[8]
         );
         assert!(
