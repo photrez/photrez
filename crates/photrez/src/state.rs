@@ -547,6 +547,9 @@ pub struct AppState {
     pub resize_field_foci: Vec<gpui_kit::FocusHandle>,
     /// Tabbable focus handle for the Rename prompt's text field.
     pub rename_field_focus: Option<gpui_kit::FocusHandle>,
+    /// The handle that holds the open dialog's subtree in the keyboard cycle,
+    /// so Tab cannot reach the shell behind a modal.
+    pub dialog_trap_focus: Option<gpui_kit::FocusHandle>,
     /// Laid-out bounds of the Paint Bucket tolerance slider (pointer mapping).
     pub tolerance_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
@@ -789,6 +792,7 @@ impl Default for AppState {
             new_document_field_foci: Vec::new(),
             resize_field_foci: Vec::new(),
             rename_field_focus: None,
+            dialog_trap_focus: None,
             tolerance_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             opacity_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             slider_capture: std::rc::Rc::new(std::cell::Cell::new(None)),

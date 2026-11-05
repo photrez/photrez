@@ -221,6 +221,11 @@ pub struct App {
     /// Focus target for the generic dialog chrome (Escape dismisses a dialog
     /// that has no field of its own to focus).
     pub(crate) dialog_focus: gpui_kit::FocusHandle,
+    /// The focus to give back when a dialog closes. Twelve paths set
+    /// `active_dialog` to none and none is a choke point, so the transition is
+    /// watched in render rather than in each of them.
+    shell_focus_before_dialog: Option<gpui_kit::FocusHandle>,
+    dialog_was_open: bool,
     /// A New Document dialog opened by a shortcut; the next render focuses it
     /// because a window-global action has no `Window` to focus with.
     pending_new_document_focus: bool,
@@ -568,6 +573,19 @@ impl Render for App {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if std::mem::take(&mut self.pending_window_close) {
             window.remove_window();
+        }
+        // A dialog that has just closed gives focus back to whatever held it
+        // before. The saved handle is refreshed only while no dialog is up, so
+        // on the frame a dialog disappears it still names the pre-dialog element.
+        let dialog_open = self.state.read(cx).active_dialog.is_some();
+        if self.dialog_was_open && !dialog_open {
+            if let Some(handle) = self.shell_focus_before_dialog.take() {
+                handle.focus(window, cx);
+            }
+        }
+        self.dialog_was_open = dialog_open;
+        if !dialog_open {
+            self.shell_focus_before_dialog = window.focused(cx);
         }
         #[cfg(feature = "input-measurement")]
         let render_identity = self.active_document.as_ref().and_then(|document| {

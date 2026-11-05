@@ -81,7 +81,7 @@
 //!   alpha mask, and the previous renderer's font-smoothing hint covers type
 //!   only, not SVG.
 
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex, FocusTrapElement};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -685,12 +685,20 @@ pub fn render_dialog(
         // The backdrop owns dismissal; a press on the dialog's own surface
         // (padding, body text, a slider) must not bubble out to it. Every
         // control inside already stops propagation; this covers the rest.
+        // The trap host keeps Tab inside the panel: the reference wraps at the
+        // cycle's ends, and here focus cannot leave at all.
         .child(
             div()
                 .id("dialog-surface")
                 .test_support()
                 .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
-                .child(framed),
+                .child(match state.read(cx).dialog_trap_focus.clone() {
+                    Some(trap) => div()
+                        .child(framed)
+                        .focus_trap("dialog-trap", &trap)
+                        .into_any_element(),
+                    None => framed.into_any_element(),
+                }),
         )
         // The design fades the dialog panel in over 200ms. The backdrop this
         // group paints is transparent, so fading the group reaches the panel and

@@ -256,6 +256,7 @@ impl App {
             .map(|_| cx.focus_handle().tab_stop(true))
             .collect();
         let rename_field_focus = cx.focus_handle().tab_stop(true);
+        let dialog_trap_focus = cx.focus_handle();
         let mut app = Self {
             state: cx.new(|_| {
                 let mut state = state;
@@ -267,6 +268,7 @@ impl App {
                 state.new_document_field_foci = new_document_field_foci;
                 state.resize_field_foci = resize_field_foci;
                 state.rename_field_focus = Some(rename_field_focus);
+                state.dialog_trap_focus = Some(dialog_trap_focus);
                 state
             }),
             canvas_focus_handle: cx.focus_handle().tab_stop(true),
@@ -274,6 +276,8 @@ impl App {
             resize_focus: cx.focus_handle(),
             new_document_focus: cx.focus_handle(),
             dialog_focus: cx.focus_handle(),
+            shell_focus_before_dialog: None,
+            dialog_was_open: false,
             pending_new_document_focus: false,
             picker_focus: cx.focus_handle(),
             demo_canvas,

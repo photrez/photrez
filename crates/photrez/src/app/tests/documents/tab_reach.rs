@@ -101,3 +101,69 @@ fn tab_reaches_the_resize_fields_and_types_into_the_focused_one(cx: &mut gpui_ki
     })
     .expect("test window remains open");
 }
+
+/// The ids outside an open dialog that a keyboard user must not reach while it
+/// is up. Each is a real tab stop in the shell, so an escaping Tab lands on one.
+const SHELL_STOPS: [&str; 4] = ["canvas-hitbox", "num-x", "prop-x", "menus.file"];
+
+/// The reference wraps Tab at the dialog's last control and Shift+Tab at its
+/// first, so focus never leaves the open dialog.
+#[gpui_kit::test]
+fn tab_stays_inside_the_open_dialog_and_wraps(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        crate::app::tests::input::tab_to_canvas(window, cx);
+        content.update(cx, |app, cx| app.open_new_document(cx));
+        window.render_frame(cx);
+
+        let mut name_hits = 0;
+        for _ in 0..30 {
+            window.press("tab", cx);
+            window.render_frame(cx);
+            for stop in SHELL_STOPS {
+                assert_ne!(
+                    window.find(stop).focused(),
+                    Some(true),
+                    "Tab escaped the open dialog to `{stop}`"
+                );
+            }
+            if window.find("new-doc-name").focused() == Some(true) {
+                name_hits += 1;
+            }
+        }
+        assert!(
+            name_hits >= 2,
+            "the traversal never came back around to the Name field, so it did not wrap \
+             (hits: {name_hits})"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Closing returns focus to whatever held it before the dialog opened, which is
+/// what the reference's `restoreFocusTo` does.
+#[gpui_kit::test]
+fn closing_a_dialog_returns_focus_to_what_had_it(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        crate::app::tests::input::tab_to_canvas(window, cx);
+        assert_eq!(
+            window.find("canvas-hitbox").focused(),
+            Some(true),
+            "the canvas holds focus before the dialog opens"
+        );
+        content.update(cx, |app, cx| app.open_new_document(cx));
+        window.render_frame(cx);
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("canvas-hitbox").focused(),
+            Some(true),
+            "Escape must give focus back to the element that had it before the dialog"
+        );
+    })
+    .expect("test window remains open");
+}

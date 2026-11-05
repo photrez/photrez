@@ -243,8 +243,6 @@ fn the_export_quality_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppContex
         window.render_frame(cx);
         window.click("export-format-jpg", cx);
         window.render_frame(cx);
-        crate::app::tests::input::tab_to_canvas(window, cx);
-
         let mut reached = false;
         for _ in 0..40 {
             window.press("tab", cx);
