@@ -5,7 +5,7 @@
 //! the 2026-08-16 oracle running in its Tauri shell alike. Same DPI-aware GDI
 //! client-area path as the launch mode; the environment assertion is not
 //! applied here because the comparison environment deliberately runs at 125%
-//! scaling, which the launch mode refuses for the frozen baseline size.
+//! scaling, which the launch mode refuses for the golden-master baseline size.
 
 use std::time::{Duration, Instant};
 

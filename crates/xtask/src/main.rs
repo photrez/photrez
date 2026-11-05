@@ -1,4 +1,4 @@
-//! Workspace automation for the Photrez native port.
+//! Workspace automation for the Photrez editor.
 //!
 //! Commands:
 //!
@@ -10,12 +10,14 @@
 //!
 //! xtask parity [--baseline <dir>] [--shot <id|prefix>]... [--candidate <dir|png>]
 //!              [--report <dir>] [--mask-metrics] [--accept-ink-residual]
+//!              [--zoom <pct>] [--pan x,y]
 //!     Compare captured shots against the golden-master baselines. Without
-//!     --candidate each shot is captured first. Exits 0 only when every
+//!     --candidate each shot is captured first, at the camera its baseline
+//!     records unless --zoom or --pan says otherwise. Exits 0 only when every
 //!     compared shot is green (see parity::run for the verdict rule).
 //!
 //! xtask parity cross-check --case shape|diff|zoom|measure --a <png> --b <png>
-//!     Re-runs the ported tooling on the frozen fixture pair and checks the
+//!     Re-runs each comparator on a checked-in fixture pair and checks the
 //!     numbers against the recorded reports.
 //! ```
 //!
@@ -76,7 +78,7 @@ fn main() {
 
 fn print_help() {
     println!(
-        "xtask - workspace automation for the Photrez native port\n\
+        "xtask - workspace automation for the Photrez editor\n\
          \n\
          USAGE:\n\
          \x20 xtask capture --shot <id> --out <png> [--exe <path>] [--wait-ms <n>] [--client WxH] [--zoom <pct>] [--pan x,y] [--hover x,y]\n\
