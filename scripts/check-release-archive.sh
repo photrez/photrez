@@ -82,7 +82,21 @@ if [ "${1:-}" = "--binary" ] || [ "${1:-}" = "--imports" ]; then
     echo "::error::$BINARY_LABEL links a runtime this repository no longer contains (pattern: $RETIRED)" >&2
     exit 1
   fi
-  echo "imports ok: $BINARY_LABEL carries none of the retired runtime libraries ($PLATFORM)"
+  # A scan over an empty input is not a pass. If nothing that looks like a
+  # library was read, the listing came from the wrong tool, the wrong file type
+  # or a stripped binary, and "no retired runtime found" would describe the
+  # input rather than the payload.
+  case "$PLATFORM" in
+    windows) LIBRARY_MARKER='\.(dll|ocx)' ;;
+    macos) LIBRARY_MARKER='\.(dylib|framework)' ;;
+    linux) LIBRARY_MARKER='\.so|statically linked' ;;
+  esac
+  SEEN=$(grep -icE "$LIBRARY_MARKER" "$LIST" || true)
+  if [ "${SEEN:-0}" -lt 1 ]; then
+    echo "::error::no libraries parsed from $BINARY_LABEL (expected a line matching $LIBRARY_MARKER), so this scan cannot report a pass" >&2
+    exit 2
+  fi
+  echo "imports ok: $BINARY_LABEL carries none of the retired runtime libraries ($PLATFORM, $SEEN library lines read)"
   exit 0
 fi
 
