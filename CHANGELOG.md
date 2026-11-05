@@ -130,7 +130,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 - Elliptical marquee selection - drag draws an ellipse; copy/cut/delete scope to the ellipse interior; Rect/Ellipse toggle in the option bar (M / Shift+M).
 - Gradient tool - linear + radial, selection-aware, undoable, option bar with type/direction controls.
 - Paint bucket tool - tolerance-based fill, selection-aware, undoable.
-- WASM export encoding - `photrez-core` PNG/JPEG/WebP encoders compiled to WebAssembly via `wasm-pack`, wired zero-copy into `exportDocument.ts` with automatic Canvas fallback (parity-tested vs the TypeScript encoder).
+- WASM export encoding - `photrez-core` PNG/JPEG/WebP encoders compiled to WebAssembly via `wasm-pack`, wired zero-copy into `exportDocument.ts` with automatic Canvas fallback (output checked against the TypeScript encoder).
 - Move tool improvements - canvas-edge snap boost, locked-layer fallthrough, alpha-aware layer hit-test (transparent pixels pass through to the layer underneath).
 - Eyedropper option bar - HEX readout, copy, auto-copy to clipboard.
 - Print pipeline performance phases 1-3 - native-DPI 1:1 composite, raw `Uint8Array` IPC (no temp file / base64), and a raw-RGBA zero-encode path to GDI.
@@ -201,7 +201,7 @@ Highlights:
 - High-zoom canvas preview may appear pixelated due to 4096px backing-buffer clamp.
 - WebGL2 `readPixels` is synchronous - brief hitch possible on first "Apply & Paint" for large layers.
 - macOS and Linux are not yet tested in CI - Windows is the only supported platform for alpha.
-- Blend modes beyond Normal/Multiply/Screen/Overlay are blocked from UI (parity tests pending).
+- Blend modes beyond Normal/Multiply/Screen/Overlay are blocked from UI (tests against the previous editor pending).
 - Selection is rectangular only (lasso/magic wand not in MVP scope).
 - PSD import is not supported (non-goal for MVP).
 
