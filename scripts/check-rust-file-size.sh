@@ -25,9 +25,10 @@ recorded_for() {
 
 files=$(find crates -name '*.rs' -not -path '*/target/*' 2>/dev/null)
 if [ -z "$files" ]; then
-    echo "check-rust-file-size: no Rust sources found under crates/ or apps/" >&2
+    echo "check-rust-file-size: no Rust sources found under crates/, so the ratchet has nothing to measure" >&2
     exit 1
 fi
+scanned=$(printf '%s\n' "$files" | wc -l | tr -d '[:space:]')
 
 hard_cap=1000
 warning_at=900
@@ -58,8 +59,8 @@ done
 IFS=$old_ifs
 
 if [ "$fail" -eq 0 ]; then
-    echo "check-rust-file-size: PASS (non-baseline hard cap $hard_cap; warning threshold $warning_at; warnings $warnings; grandfathered baseline entries held at their recorded size)"
+    echo "check-rust-file-size: PASS (scanned $scanned sources; non-baseline hard cap $hard_cap; warning threshold $warning_at; warnings $warnings; grandfathered baseline entries held at their recorded size)"
 else
-    echo "check-rust-file-size: FAIL (non-baseline hard cap $hard_cap or baseline ratchet; warning threshold $warning_at; warnings $warnings; a grandfathered file grew past its recorded size)"
+    echo "check-rust-file-size: FAIL (scanned $scanned sources; non-baseline hard cap $hard_cap or baseline ratchet; warning threshold $warning_at; warnings $warnings; a grandfathered file grew past its recorded size)"
 fi
 exit "$fail"
