@@ -101,12 +101,14 @@
 
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla};
+use gpui_kit::{div, hsla, px, BoxShadow, Context, Div, Entity, FontWeight, Hsla};
 
 use crate::components::ui;
 use crate::i18n::t;
 use crate::shot;
+use crate::state::{AppState, SelectionShape};
 use crate::tokens::color;
+use gpui_kit::TestSupportExt;
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
 
@@ -120,6 +122,18 @@ const FRAME_H: f32 = 820.0;
 /// previous renderer); pinned here because GPUI's Inter line box is not that
 /// renderer's — see the module docs.
 pub const TOOLTIP_H: f32 = 26.0;
+
+/// Where the reference puts a rail tooltip, measured from its frames: the Move
+/// button is at (8,54) 36x36 and its tooltip at (50,59).
+const RAIL_TIP_X: f32 = 50.0;
+const RAIL_TIP_Y: f32 = 59.0;
+/// The rail's button pitch, from the measured 54 / 92 / 168 rows.
+const RAIL_ROW_PITCH: f32 = 38.0;
+/// The tooltip-id prefix the rail buttons publish.
+const RAIL_TOOLTIP_PREFIX: &str = "rail-tooltip-";
+/// The foreground swatch's tooltip, measured at (42,743) with no shortcut.
+const SWATCH_TIP_X: f32 = 42.0;
+const SWATCH_TIP_Y: f32 = 743.0;
 
 /// 8px horizontal padding; label ink starts at crop x=10, i.e. 1 border
 /// + 8 padding + the "M" glyph's ~1px side bearing.
@@ -254,7 +268,7 @@ pub fn render() -> impl IntoElement {
 /// A label that stays on one line needs no equivalent: without a width
 /// constraint GPUI does not wrap, which is the same reason the source needs its
 /// no-wrap rule in the first place.
-fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
+pub(crate) fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
     let mut row = h_flex().items_center().gap(px(GAP)).child(label_run(label));
     if let Some(keys) = shortcut {
         row = row.child(kbd(keys));
@@ -270,6 +284,68 @@ fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
         .bg(color::PANEL)
         .shadow(tooltip_shadow())
         .child(row)
+}
+
+/// The live rail tooltip's origin, label and shortcut, from the same measured
+/// table the fixture reads. `None` for an id the rail does not publish.
+fn live_spec(
+    id: &str,
+    selection_shape: SelectionShape,
+) -> Option<(f32, String, Option<&'static str>)> {
+    let name = id.strip_prefix(RAIL_TOOLTIP_PREFIX)?;
+    if name == "fg" {
+        return Some((SWATCH_TIP_Y, t("tools.foregroundColor"), None));
+    }
+    let index = crate::views::tool_rail::tool_index(name)?;
+    let (label, shortcut) = if name == "selection" {
+        let key = match selection_shape {
+            SelectionShape::Rect => "tools.rectSelect",
+            SelectionShape::Ellipse => "tools.ellipseSelect",
+        };
+        (
+            format!("{} ({})", t(key), t("tools.rightClickOptions")),
+            "M",
+        )
+    } else {
+        let (key, shortcut) = crate::views::tool_rail::tool_tooltip(name)?;
+        (t(key).to_string(), shortcut)
+    };
+    Some((
+        RAIL_TIP_Y + RAIL_ROW_PITCH * index as f32,
+        label,
+        Some(shortcut),
+    ))
+}
+
+/// The overlay that carries a live rail tooltip. It paints nothing unless a
+/// rail button is hovered, and it has to be appended after the shell because
+/// GPUI paints in tree order and the tooltip overlaps the canvas.
+pub(crate) fn render_live(
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let (hovered, selection_shape) = {
+        let s = state.read(cx);
+        (s.tooltip.clone(), s.selection_shape)
+    };
+    let Some(id) = hovered.filter(|id| id.starts_with(RAIL_TOOLTIP_PREFIX)) else {
+        return div().into_any_element();
+    };
+    let Some((y, label, shortcut)) = live_spec(&id, selection_shape) else {
+        return div().into_any_element();
+    };
+    let x = if id.ends_with("-fg") {
+        SWATCH_TIP_X
+    } else {
+        RAIL_TIP_X
+    };
+    tooltip(&label, shortcut)
+        .id(id)
+        .test_support()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .into_any_element()
 }
 
 /// The label run — 11px sans in the text colour, carrying the content

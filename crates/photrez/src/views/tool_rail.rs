@@ -44,8 +44,25 @@ struct Tool {
     /// buttons are hit-testable (gpui only hit-tests an element that has an
     /// id).
     id: &'static str,
+    /// The tooltip label key, already in the catalog.
+    label_key: &'static str,
+    /// The shortcut letter the tooltip shows, matching the rail's own key bindings.
+    shortcut: &'static str,
     icon: &'static [u8],
     has_variants: bool,
+}
+
+/// The rail entry's position in the column, for the tooltip overlay's origin.
+pub(crate) fn tool_index(id: &str) -> Option<usize> {
+    TOOLS.iter().position(|tool| tool.id == id)
+}
+
+/// The tooltip label key and shortcut letter a rail entry publishes.
+pub(crate) fn tool_tooltip(id: &str) -> Option<(&'static str, &'static str)> {
+    TOOLS
+        .iter()
+        .find(|tool| tool.id == id)
+        .map(|tool| (tool.label_key, tool.shortcut))
 }
 
 /// The tool list, in rail order - the same order the reference tool list uses.
@@ -53,60 +70,80 @@ const TOOLS: &[Tool] = &[
     Tool {
         tool_id: ToolId::Move,
         id: "move",
+        label_key: "tools.move",
+        shortcut: "V",
         icon: icons::CURSOR,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Selection,
         id: "selection",
+        label_key: "tools.select",
+        shortcut: "M",
         icon: icons::SQUARE_DASHED,
         has_variants: true,
     },
     Tool {
         tool_id: ToolId::Crop,
         id: "crop",
+        label_key: "tools.crop",
+        shortcut: "C",
         icon: icons::CROP,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Eyedropper,
         id: "eyedropper",
+        label_key: "tools.eyedropper",
+        shortcut: "I",
         icon: icons::PIPETTE,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Brush,
         id: "brush",
+        label_key: "tools.brush",
+        shortcut: "B",
         icon: icons::BRUSH,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Eraser,
         id: "eraser",
+        label_key: "tools.eraser",
+        shortcut: "E",
         icon: icons::ERASER,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::PaintBucket,
         id: "paintBucket",
+        label_key: "tools.paintBucket",
+        shortcut: "G",
         icon: icons::PAINT_BUCKET,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Gradient,
         id: "gradient",
+        label_key: "tools.gradient",
+        shortcut: "Shift+G",
         icon: icons::SWATCH,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Shape,
         id: "shape",
+        label_key: "tools.shape",
+        shortcut: "U",
         icon: icons::RECTANGLE,
         has_variants: false,
     },
     Tool {
         tool_id: ToolId::Text,
         id: "text",
+        label_key: "tools.text",
+        shortcut: "T",
         icon: icons::TYPE,
         has_variants: false,
     },
@@ -231,7 +268,8 @@ fn tool_button(
     });
     let state_for_hover = state.clone();
     let hover_tool_id = tool.tool_id;
-    let on_hover = cx.listener(move |_, hovered: &bool, _window, cx| {
+    let tooltip_id = format!("rail-tooltip-{}", tool.id);
+    let on_hover = cx.listener(move |app, hovered: &bool, _window, cx| {
         let next = hovered.then_some(hover_tool_id);
         let changed = state_for_hover.update(cx, |s, _| {
             if s.hovered_tool == next {
@@ -241,6 +279,10 @@ fn tool_button(
                 true
             }
         });
+        // The tooltip itself is painted by the shell's overlay, because GPUI
+        // has no z-index and a panel inside the rail is covered by the canvas
+        // it overlaps.
+        app.set_tooltip(hovered.then(|| tooltip_id.clone()), cx);
         if changed {
             cx.notify();
         }
@@ -475,6 +517,9 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         .bg(fill)
         .shadow(shadows)
         .cursor_pointer()
+        .on_hover(cx.listener(|app, hovered: &bool, _, cx| {
+            app.set_tooltip(hovered.then(|| "rail-tooltip-fg".to_string()), cx);
+        }))
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             cx.stop_propagation();
             app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);

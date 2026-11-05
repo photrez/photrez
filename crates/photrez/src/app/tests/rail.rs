@@ -108,3 +108,39 @@ fn rail_hover_publishes_and_clears_the_hovered_tool(cx: &mut gpui_kit::TestAppCo
     })
     .expect("test window remains open");
 }
+
+/// A hovered rail button carries its tooltip, the way the reference rail does.
+///
+/// RED proof: remove the `rail_tooltip` child from `tool_button` and the second
+/// assert fails with "hovering the Move button shows its tooltip".
+#[gpui_kit::test]
+fn rail_hover_shows_the_tool_tooltip(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, _content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("rail-tooltip-move").is_none(),
+            "no rail tooltip at rest"
+        );
+        window.hover("move", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("rail-tooltip-move").is_some(),
+            "hovering the Move button shows its tooltip"
+        );
+        window.hover("canvas-hitbox", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("rail-tooltip-move").is_none(),
+            "leaving the button takes the tooltip away"
+        );
+        window.hover("fg-swatch", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("rail-tooltip-fg").is_some(),
+            "hovering the foreground swatch shows its tooltip"
+        );
+    })
+    .expect("test window remains open");
+}

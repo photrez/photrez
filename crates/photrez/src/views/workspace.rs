@@ -412,6 +412,10 @@ pub(crate) fn render(
         .when(shot::starts_with("loading-"), |el| {
             el.child(loading::render())
         })
+        // A hovered rail button's own tooltip, painted here because the panel
+        // overlaps the canvas and GPUI has no z-index. The `tooltip-*` fixture
+        // above is the captured equivalent.
+        .child(tooltips::render_live(state, cx))
         // Last child in the window-sized root: the host stacks at level 50
         // there, and GPUI paints in tree order, so anything appended earlier
         // sits under the dock (`views::toasts` module docs).
