@@ -3,6 +3,7 @@ use super::assert_capture_environment;
 use super::attached_catalog;
 use super::bgra_to_rgba_top_down;
 use super::locale_request_ok;
+use super::occlusion_refusal;
 use super::LocaleSource;
 use super::{child_args, CaptureSpec};
 use std::path::PathBuf;
@@ -183,4 +184,18 @@ fn capture_environment_rejects_clamped_client() {
     let err = assert_capture_environment(1366, 816, 96, (1366, 820))
         .expect_err("clamped client must be rejected");
     assert!(err.contains("clamped"), "message names the cause: {err}");
+}
+
+/// The refusal must name both processes: the operator's next move is to find
+/// the window that owns the screen, and a message that only says "not
+/// frontmost" leaves them guessing.
+#[test]
+fn occlusion_refusal_names_the_window_that_stole_the_frame() {
+    let err = occlusion_refusal(4321, 9012);
+    assert!(err.contains("4321"), "the launched pid is named: {err}");
+    assert!(
+        err.contains("9012"),
+        "the pid owning those pixels is named: {err}"
+    );
+    assert!(err.contains("top-most"), "the cause is named: {err}");
 }

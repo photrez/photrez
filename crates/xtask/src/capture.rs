@@ -16,6 +16,9 @@
 //! - capture is the client area only (excludes title bar and drop shadow),
 //!   read from the screen at the window's origin - the same region the
 //!   baselines were cropped from;
+//! - the launched window must be top-most and hit-tested at its client centre
+//!   before the grab, because a screen read of an occluded window saves the
+//!   occluding application's pixels instead;
 //! - any previously running `photrez` process is killed before launch (a live
 //!   instance holds the executable open and would fail the next link).
 //!
@@ -62,7 +65,9 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, GetSystemMetrics, GetWindowThreadProcessId,
-    IsWindowVisible, SetCursorPos, SetForegroundWindow, HWND_DESKTOP, SM_CYSCREEN,
+    IsWindowVisible, SetCursorPos, SetForegroundWindow, SetWindowPos, WindowFromPoint,
+    HWND_DESKTOP, HWND_NOTOPMOST, HWND_TOPMOST, SM_CYSCREEN, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE,
 };
 
 /// One capture request: which shot the app should render, which executable to
@@ -155,6 +160,20 @@ fn assert_capture_environment(
         ));
     }
     Ok(())
+}
+
+/// The refusal a capture writes when the launched app is not the window the
+/// desktop is showing.
+///
+/// Both pids are named because the operator's next step is to find out what
+/// else was on screen: a grab taken anyway saves a frame of that other
+/// application, and it looks plausible whenever the two windows are the same
+/// size.
+fn occlusion_refusal(target_pid: u32, owner_pid: u32) -> String {
+    format!(
+        "refused: the pixels at the launched app's centre belong to pid {owner_pid}, not to the app (pid {target_pid}). \
+         The app is not top-most, so a grab now would save the other window's frame. Close or minimise it and re-run."
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -539,10 +558,47 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
         return Err("ClientToScreen returned false".into());
     }
 
-    // Elevate the window so its pixels are on top (CopyFromScreen reads the
-    // screen, not the window directly).
+    // The grab reads the screen, so what has to be true is that the launched
+    // app owns the pixels of its own client box. Focus is neither enough nor
+    // required: Windows refuses a foreground change asked for by a background
+    // process, and a grab taken anyway saves whatever window was on top - a
+    // frame of another application that can still match the expected client
+    // size, so the size guard passes and the evidence is silently foreign.
+    // Top-most plus a hit-test at the client centre is the proof.
     unsafe { SetForegroundWindow(hwnd) };
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    };
     std::thread::sleep(Duration::from_millis(300));
+    let centre = POINT {
+        x: origin.x + w / 2,
+        y: origin.y + h / 2,
+    };
+    let hit = unsafe { WindowFromPoint(centre) };
+    let mut hit_pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hit, &mut hit_pid) };
+    if hit_pid != child_pid {
+        let _ = unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+        return Err(occlusion_refusal(child_pid, hit_pid));
+    }
 
     // Park the cursor outside the client box, capture, then restore.
     let mut prev: POINT = POINT { x: 0, y: 0 };
@@ -556,6 +612,19 @@ fn capture_inner(spec: &CaptureSpec, child_pid: u32) -> Result<PathBuf, String> 
     std::thread::sleep(Duration::from_millis(500));
 
     let rgba = unsafe { capture_client(origin.x, origin.y, w, h)? };
+
+    // Restore the desktop's own stacking once the pixels are in hand.
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+    };
 
     // Restore cursor regardless of capture success.
     let _ = unsafe { SetCursorPos(prev.x, prev.y) };
