@@ -479,8 +479,8 @@ mod tests {
     ///
     /// The harness cannot read a painted shadow (gpui-kit's `TestWindowExt`
     /// snapshot exposes bounds and visibility only), so this pins the values the
-    /// call sites hand to `.shadow(...)`; the per-site wiring is cited in the
-    /// G25 register rows these wells close.
+    /// call sites hand to `.shadow(...)`; each site is cited by the surface
+    /// that uses it.
     ///
     /// RED proof: drop `.inset()` from any helper and its `inset` assertion
     /// fails; edit an offset, blur or alpha and that row fails.

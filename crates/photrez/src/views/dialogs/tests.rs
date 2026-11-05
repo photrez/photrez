@@ -229,7 +229,7 @@ fn resize_pill_colours_are_the_reference_tiers() {
 /// The About dialog's version pill: the same ruling as the resize pill, on a
 /// different surface. The reference asks an accent/40 edge over an accent/10
 /// fill; the edge that paints is the global border grey and the fill is
-/// accent/10. The S015 about capture measures rgb(51,51,51) on the pill's
+/// accent/10. The measured About capture shows rgb(51,51,51) on the pill's
 /// border rows over an accent wash, which is what separates a measured edge
 /// from a reading of the rule.
 ///

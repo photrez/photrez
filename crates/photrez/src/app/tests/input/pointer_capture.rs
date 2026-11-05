@@ -265,7 +265,7 @@ fn run_pointer_sequence(
 
 #[gpui_kit::test]
 fn identical_pointer_sequences_produce_identical_pixels(cx: &mut gpui_kit::TestAppContext) {
-    // G9 decision: no app-side event accumulator, so both a single dispatch
+    // No app-side event accumulator, so both a single dispatch
     // burst and a render between every event must produce the same canonical
     // pixels (no dropped or duplicated dab).
     let first_dir = TestDirectory::new();

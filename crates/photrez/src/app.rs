@@ -355,7 +355,7 @@ pub struct App {
     pending_gesture: Option<crate::input::PendingGesture>,
     /// Held for the window's lifetime: dropping a subscription cancels it.
     _window_watch: Vec<Subscription>,
-    /// Full-document composites performed for this window (G9 proof).
+    /// Full-document composites performed for this window.
     #[cfg(test)]
     full_composites: Cell<usize>,
     /// Accepted brush previews for this window (multi-layer proof).
