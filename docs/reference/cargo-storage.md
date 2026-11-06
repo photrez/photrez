@@ -1,7 +1,8 @@
 # Cargo storage guidance
 
 Checked 2026-10-22 against the official Cargo Book; restated 2026-10-28 for the
-single-root-workspace layout. This is advisory; it does not change workspace
+single-root-workspace layout, and 2026-11-06 against the current `target/` tree, the
+`dev` profile and `cargo tree -d`. This is advisory; it does not change workspace
 profiles or machine-wide settings.
 
 ## Keep build artifacts off the system drive
@@ -42,12 +43,14 @@ If builds across many workspaces need shared dependency artifacts, Cargo's build
 
 ## 2026-10-22: Shrinking build artifacts without losing the debugger
 
-Advisory only. Nothing below was applied: no profile was edited, no config file was
-changed, no artifact was deleted. Every recommendation is a one-command, per-invocation
-experiment that is undone by closing the shell. The sizes below describe the
-pre-consolidation per-crate target directory; after the workspace consolidation the
-root `target/` is the only build tree, and the old `crates/photrez/target/` numbers are
-historical.
+Advisory only when written on 2026-10-22: no artifact was deleted and no config file was
+changed. The project later applied one recommendation from below: `fc0c0dbd` (2026-11-01)
+sets `debug = "line-tables-only"` in the `dev` profile, in place of the full-debug-info
+default. The other experiments remain unapplied. Each is a one-command, per-invocation
+change, and closing the shell undoes it.
+The sizes below describe the pre-consolidation per-crate target directory; after the
+workspace consolidation the root `target/` is the only build tree, and the old
+`crates/photrez/target/` numbers are historical.
 
 ### What actually occupies the space in this repo
 
@@ -64,8 +67,14 @@ Inside `debug/deps/`, by extension: `.exe` 9,358 MiB (16 files), `.rlib` 2,876 M
 `.rmeta` 1,138 MiB (915), `.dll` 372 MiB (45), `.o` 132 MiB (767), `.d` 11 MiB (976).
 There are no `.pdb` files: this tree is built with the `x86_64-pc-windows-gnu` toolchain
 (`rustc 1.95.0`), so debug info is embedded in the executables themselves rather than
-split into a separate symbol file. The single largest artifact is
+split into a separate symbol file. The single largest artifact on that date was
 `crates/photrez/target/debug/photrez.exe` at 631 MiB.
+
+Measured 2026-11-06 in the root `target/`, after the consolidation and the `debug`
+change above: `target/debug/photrez.exe` is 290 MiB, `target/dev-ui/photrez.exe` is
+296 MiB, and the two profiling binaries `target/debug/measure-input.exe` and
+`target/debug/measure-frames.exe` are 305 MiB and 300 MiB. The largest single files are
+the test and example binaries under `target/debug/deps/`, about 324 MiB each.
 
 Two consequences worth keeping in view:
 
@@ -74,6 +83,14 @@ Two consequences worth keeping in view:
   level shrinks the executables themselves, not just a side-car file.
 - `incremental/` is only 936 MiB, about 6% of the tree. Disabling incremental compilation
   is a poor trade here: it gives up fast rebuilds for a small fraction of the space.
+
+Both bullets are 2026-10-22 readings of the per-crate tree, and two later changes move
+them. The `debug = 2` note applies to binaries built before 2026-11-01; the `dev` profile
+now builds with line tables. In the consolidated root `target/`, `incremental/` is a much
+larger share than 6%: a `du -sm` read on 2026-11-06, taken while another build ran,
+measured 8.6 GiB under `target/debug/incremental` against 28.8 GiB under
+`target/debug/deps`, and `du -sh target` reported 43 GB for the whole tree. Re-measure
+before you act on either ratio.
 
 The `debug` directory holds both the `dev` and `test` profiles, and `release` holds both
 `release` and `bench`; the directory names are historical and do not match the profile
@@ -87,13 +104,18 @@ command itself produces, and leaves no configuration behind.
 **1. Measure before touching anything (official).**
 
 ```powershell
-cd crates\photrez
 cargo clean --dry-run
 ```
 
 `--dry-run` "displays a summary of what would be deleted without deleting anything"; add
 `--verbose` to list the actual files
 ([cargo-clean](https://doc.rust-lang.org/cargo/commands/cargo-clean.html)).
+
+Scope matters more than the directory you run it from. Checked 2026-11-06 with
+`cargo metadata --no-deps` inside `crates/photrez`: `workspace_root` is the repository
+root and `target_directory` is the root `target/`. One command from a member crate
+therefore reports, and without `--dry-run` deletes, every crate's artifacts. Use `-p`
+or `--profile` to narrow the scope, not `cd`.
 
 **2. Reduce debug info for one invocation, no file changes (verified).**
 
@@ -152,10 +174,13 @@ debug = true
 with the stated trade-offs: faster codegen, faster links, smaller target directory, and
 "requires a full rebuild to have a high-quality debugger experience". Applying it as a
 checked-in profile is a persistent change and should be a separate, deliberate decision,
-not a side effect of a disk-pressure cleanup.
+not a side effect of a disk-pressure cleanup. The project took that decision on
+2026-11-01 and set `debug = "line-tables-only"` under `[profile.dev]`. It did not add the
+`[profile.debugging]` profile above.
 
-Previewing before any cleanup: `cargo clean --dry-run` in `crates/photrez` reports
-`Summary 10568 files, 15.4GiB total` / `warning: no files deleted due to --dry-run`
+Previewing before any cleanup, on the pre-consolidation tree: `cargo clean --dry-run` in
+`crates/photrez` reported `Summary 10568 files, 15.4GiB total` / `warning: no files
+deleted due to --dry-run`
 ([cargo-clean](https://doc.rust-lang.org/cargo/commands/cargo-clean.html)).
 
 **3. Targeted clean, not a full wipe (official).**
@@ -169,8 +194,9 @@ cargo clean --doc                 # only target/doc
 All three are official `cargo clean` options. `-p` cleans "only the specified packages";
 `--profile` removes "all artifacts in the directory with the given profile name". Because
 `dev` and `test` share the `debug/` directory, verify which files a `--profile` run would
-remove with `--dry-run` first. Always pass the intended `--target-dir` explicitly so the
-root workspace tree is never the one that gets deleted.
+remove with `--dry-run` first. With one workspace there is one build tree, so scoping
+comes from these options; `CARGO_TARGET_DIR` and `--target-dir` move the whole workspace
+to another tree instead of narrowing the delete.
 
 **4. Disable incremental compilation for one invocation (official).**
 
@@ -180,10 +206,12 @@ $env:CARGO_INCREMENTAL = '0'; cargo build
 
 `CARGO_INCREMENTAL=0` "will force disabling it" for the current compilation
 ([Environment Variables](https://doc.rust-lang.org/cargo/reference/environment-variables.html)).
-Per the Profiles reference, incremental data "is stored in the target directory". Measured
-here that directory is 936 MiB, so the payoff is small and the cost is slower rebuilds;
-use it only when a one-off artifact dump matters more than iteration speed. This prevents
-new incremental data but does not delete existing cache files; preview a targeted clean
+Per the Profiles reference, incremental data "is stored in the target directory". The
+2026-10-22 reading above measured that directory at 936 MiB, about 6% of that tree, and
+the consolidated root tree holds far more incremental data now: see the note there.
+Measure the current size before you decide, and weigh it against slower rebuilds. Use
+this only when a one-off artifact dump matters more than iteration speed. It prevents new
+incremental data but does not delete existing cache files; preview a targeted clean
 before removing them.
 
 ### What does not help, and why
@@ -229,11 +257,13 @@ before removing them.
 | Switching debug level to line tables is the usual community fix | [r/rust](https://www.reddit.com/r/rust/comments/1bms2gj/media_ran_out_of_disk_space_on_my_1tb_machine_a/), [r/rust](https://www.reddit.com/r/rust/comments/1eyfl57/rust_target_folder_is_big_in_size/) |
 | `cargo tree -d` to find duplicate dependency versions | [Rust Users Forum](https://users.rust-lang.org/t/is-there-a-way-to-make-the-size-of-whole-project-files-smaller/100758) |
 
-Measured here, `cargo tree -d` in `crates/photrez` does report duplicated versions
-(`base64` 0.22.1/0.23.1, `bitflags` 1.3.2/2.13.2, `itertools` 0.11/0.13/0.14, `png`
-0.17.16/0.18.1, and others). They come from the upstream `gpui-kit` / `gpui-pre` trees and
-are not removable from this repository without upstream changes; each duplicate adds a
-second compiled copy to `deps/`.
+Measured 2026-11-06 with `cargo tree -d --offline` at the repository root: 49 crates
+resolve to more than one version, 94 version entries in total, for example `bitflags`
+1.3.2/2.13.0, `itertools` 0.11.0/0.13.0/0.14.0, `png` 0.17.16/0.18.1, `fontdb`
+0.20.0/0.23.0, and `windows-sys` 0.52.0/0.61.2. The 2026-10-22 reading in `crates/photrez`
+named `base64` 0.22.1/0.23.1 among them; that pair is no longer reported. Most come from
+the upstream `gpui-kit` / `gpui-pre` trees and are not removable from this repository
+without upstream changes; each duplicate adds a second compiled copy to `deps/`.
 
 Third-party cleaners exist but add a dependency and are not needed here:
 [`cargo-sweep`](https://github.com/holmgr/cargo-sweep) (its README now warns the project is
