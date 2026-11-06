@@ -10,5 +10,6 @@ cargo test -p photrez-format --lib tests::writer_golden
 cargo test -p photrez-format --lib export::tests
 ```
 
-Each command selects one module, so the result is small enough to read. The first selects 4 tests, the second
-selects 1 test and 1 ignored, the third selects 14. Run them from the workspace root.
+Each command selects one module, so the result is small enough to read. Checked
+2026-11-06: the first selects 4 tests, the second selects 1 test and 1 ignored, the third
+selects 14. Run them from the workspace root.
