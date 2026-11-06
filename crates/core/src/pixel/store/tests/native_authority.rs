@@ -166,9 +166,9 @@ fn undo_command_steps_the_pixel_cursor_and_returns_the_before_tiles() {
     );
 }
 
-/// The exact JSON key names the host parses. Pins the wire contract: a
-/// host mock that guesses different keys is testing a shape the engine
-/// never emits, which is how a green DOM-mock test can hide a broken app.
+/// The exact JSON key names the host parses. Pins the wire contract: a mock
+/// that guesses different keys tests a shape the engine never emits, so it can
+/// stay green while the real caller reads nothing.
 #[test]
 fn pixel_handoff_serializes_to_the_keys_the_host_parses() {
     let mut reg = PixelStoreRegistry::new();
