@@ -4,7 +4,7 @@
 use super::*;
 
 #[gpui_kit::test]
-fn brush_preset_button_cycles_the_reference_presets(cx: &mut gpui_kit::TestAppContext) {
+fn brush_preset_button_cycles_the_pinned_presets(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {

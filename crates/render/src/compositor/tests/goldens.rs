@@ -57,7 +57,7 @@ fn two_layer_order_opacity_and_visibility_match_the_source_over_golden() {
 }
 
 #[test]
-fn all_blend_modes_match_reference_goldens_within_rounding() {
+fn all_blend_modes_match_their_pinned_goldens_within_rounding() {
     let cases = [
         (
             BlendMode::Normal,
@@ -247,7 +247,7 @@ fn all_blend_modes_match_reference_goldens_within_rounding() {
 }
 
 #[test]
-fn integer_translation_and_flips_match_reference_goldens() {
+fn integer_translation_and_flips_match_their_pinned_goldens() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];
@@ -285,7 +285,7 @@ fn integer_translation_and_flips_match_reference_goldens() {
 }
 
 #[test]
-fn transformed_layers_match_reference_goldens_within_one_unit() {
+fn transformed_layers_match_their_pinned_goldens_within_one_unit() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];

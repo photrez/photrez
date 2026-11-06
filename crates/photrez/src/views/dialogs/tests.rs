@@ -205,7 +205,7 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
 /// and the locked edge, the unlocked edge and the unlocked fill assertions all
 /// fail by name.
 #[test]
-fn resize_pill_colours_are_the_reference_tiers() {
+fn resize_pill_colours_are_the_pinned_tiers() {
     let locked = resize_pill_colours(true);
     assert_eq!(
         locked.edge,

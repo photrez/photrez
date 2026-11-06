@@ -1,10 +1,9 @@
 //! Design tokens for the native Photrez shell.
 //!
-//! Source of truth: the design's original theme token block.
-//! The (stale) `docs/reference/design-tokens.md` disagrees with the shipped
-//! code in places - e.g. it describes a 35px diagonal clip-path swatch, while
-//! the tool rail actually renders two overlapping 28px circles. This file
-//! follows the shipped code, not the doc.
+//! Source of truth: this file. The views read these constants, so a token
+//! change is a code change with a test that can notice it. The swatch pair is
+//! the example: `dim::SWATCH` is 28px, `views/tool_rail.rs` draws both colour
+//! circles at that size, and the tests below pin the value.
 //!
 //! # Why HSL and not OKLCH
 //!
@@ -98,7 +97,7 @@ pub mod color {
 
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     ///
-    /// This is the divider value the original theme names - but see
+    /// This is the divider value the 0.1 theme names - but see
     /// [`BORDER`] before using it as one: it is only what reaches the screen
     /// when the thing carrying it is a **background**.
     pub const DIVIDER: Hsla = Hsla {
@@ -518,7 +517,7 @@ mod tests {
     /// The bar's own popovers paint `#1D2026`, one step above the bar itself and
     /// a different fill again from the shared dropdown list.
     #[test]
-    fn bar_popover_paints_the_reference_popover_fill() {
+    fn bar_popover_paints_the_pinned_fill() {
         assert_eq!(hsla_to_rgb(color::BAR_POPOVER), (29, 32, 38));
         assert_eq!(hsla_to_rgb(color::TOOLBAR), (27, 27, 27));
     }
@@ -526,7 +525,7 @@ mod tests {
     /// The lists sit a step below the panel they open from, so the neutral panel
     /// colour is not an acceptable substitute.
     #[test]
-    fn menu_list_paints_the_reference_dropdown_fill() {
+    fn menu_list_paints_the_pinned_fill() {
         assert_eq!(hsla_to_rgb(color::MENU_LIST), (27, 29, 34));
         assert_eq!(hsla_to_rgb(color::PANEL), (30, 30, 30));
     }

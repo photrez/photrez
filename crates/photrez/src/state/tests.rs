@@ -92,7 +92,7 @@ fn option_tool_seeds_are_pinned() {
 
 /// Brush defaults: 20 px, 80 % hard, full strength.
 #[test]
-fn brush_defaults_match_the_reference() {
+fn brush_defaults_match_the_pinned_values() {
     let state = AppState::seeded(None);
     assert_eq!(state.brush_size, 20.0);
     assert_eq!(state.brush_hardness, 0.8);

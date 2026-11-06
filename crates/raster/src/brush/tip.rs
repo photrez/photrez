@@ -7,7 +7,7 @@
 //! tip rasters via the env-gated test in `brush/tests/tip.rs`.
 
 pub const BRUSH_HARD_EDGE_THRESHOLD: f64 = 0.97;
-/// Alpha contour the paint cursor ring marks (reference hardness profile).
+/// Alpha contour the paint cursor ring marks (the 0.1 build's hardness profile).
 pub const BRUSH_CURSOR_ALPHA_CONTOUR: f64 = 0.2;
 pub const MIN_RELIABLE_BRUSH_DIAMETER_PX: f64 = 22.0;
 pub const MIN_VISIBLE_ALPHA_8BIT: f64 = 0.5 / 255.0;
@@ -319,7 +319,7 @@ pub(crate) fn premul_to_straight_in_place(buf: &mut [u8]) {
 }
 
 /// Entry point: build the diameter-space tip with the same result the
-/// reference brush commit produced, but with every formerly external
+/// 0.1 brush commit produced, but with every formerly external
 /// scaling step replaced by the documented deterministic operations above.
 pub fn build_brush_tip(spec: &TipSpec) -> BrushTip {
     let (diameter, data_size, mask) =

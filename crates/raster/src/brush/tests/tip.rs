@@ -88,13 +88,13 @@ fn c1_cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
     }
 }
 
-/// Offline golden validation vs a captured reference tip raster.
-/// Run: PHOTREZ_C1_GOLDEN=<bin path> cargo test -p photrez-core brush::tests::tip c1_golden -- --ignored --nocapture
+/// Offline golden validation vs a tip raster captured from the 0.1 build.
+/// Run: PHOTREZ_TIP_GOLDEN=<bin path> cargo test -p photrez-raster brush::tests::tip::c1_golden -- --ignored --nocapture
 /// Bin format: u32LE tipW | u32LE tipH | RGBA bytes (274*274*4).
 #[test]
 #[ignore]
 fn c1_golden_interior_and_rim_tolerance() {
-    let path = match std::env::var("PHOTREZ_C1_GOLDEN") {
+    let path = match std::env::var("PHOTREZ_TIP_GOLDEN") {
         Ok(p) => p,
         Err(_) => return, // silently skip when not provided (default CI)
     };
@@ -185,7 +185,7 @@ fn c1_golden_interior_and_rim_tolerance() {
     );
     assert!(
         straight_interior_max <= 1,
-        "canonical gate: straight interior beyond reference-capture noise: {straight_interior_max}"
+        "canonical gate: straight interior beyond capture noise: {straight_interior_max}"
     );
 }
 

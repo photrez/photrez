@@ -4,7 +4,7 @@
 use super::*;
 
 impl App {
-    /// Reference brush Shift behaviour: once the pointer has moved 5 screen px,
+    /// The 0.1 build's brush Shift rule: once the pointer has moved 5 screen px,
     /// lock the stroke to the dominant document axis from the start point.
     pub(super) fn brush_axis_point(
         &mut self,

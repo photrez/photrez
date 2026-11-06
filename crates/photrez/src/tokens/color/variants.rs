@@ -102,7 +102,7 @@ pub const WHITE_80: Hsla = Hsla {
 
 /// Red at 85% on hover - the close-window button.
 ///
-/// The original's red stop is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
+/// The 0.1 build's red stop is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
 /// rgb(251, 44, 54). Converted to HSL: max 251, min 44, delta 207,
 /// hue 60 * ((44 - 54) / 207) = -2.90deg = 357.10deg, l = 147.5 / 255,
 /// s = delta / (2 - max - min) = 0.8118 / 0.8431.

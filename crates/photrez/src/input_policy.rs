@@ -50,7 +50,8 @@ pub(crate) struct CursorContext {
 
 pub(crate) fn cursor_policy_for_tool(tool: ToolId) -> CursorPolicy {
     match tool {
-        // Move's reference cursor varies by handle; this hitbox has no handle-specific regions.
+        // The 0.1 build's Move cursor varies by handle; this hitbox has no
+        // handle-specific regions.
         ToolId::Move | ToolId::Brush | ToolId::Eraser => CursorPolicy::SystemDefault,
         ToolId::Selection
         | ToolId::Crop

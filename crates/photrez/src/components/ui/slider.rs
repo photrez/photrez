@@ -68,7 +68,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
             //
             // GPUI cannot clip a box to a polygon, and this is the one gap in the
             // Slider that is *visible* at rest rather than only under interaction: a
-            // `brush-size` slider in the original is a wedge that grows to
+            // `brush-size` slider in the 0.1 build is a wedge that grows to
             // the right, and here it is a rectangle. Worth knowing before the
             // brush panel lands — the shape would have to be a filled
             // path, not a clipped box, and `gpui_kit` exposes no such helper

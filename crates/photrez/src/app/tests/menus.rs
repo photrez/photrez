@@ -457,7 +457,7 @@ fn keyboard_undo_redo_and_deselect_no_op_silently_at_their_boundaries(
 /// 208 px wide (210 minus the two 1 px borders) and 28 px tall, matching the
 /// captured menu box (442,462 210x280) and its 28 px rows.
 #[gpui_kit::test]
-fn canvas_context_menu_uses_the_reference_210_shell(cx: &mut gpui_kit::TestAppContext) {
+fn canvas_context_menu_uses_the_210px_shell(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -482,7 +482,7 @@ fn canvas_context_menu_uses_the_reference_210_shell(cx: &mut gpui_kit::TestAppCo
 }
 
 #[gpui_kit::test]
-fn canvas_menu_row_set_matches_the_reference(cx: &mut gpui_kit::TestAppContext) {
+fn canvas_menu_row_set_matches_the_pinned_rows(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -611,7 +611,7 @@ fn edit_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
 /// for X/Y and 58 px for rotation - rather than being squeezed by the
 /// flex row.
 #[gpui_kit::test]
-fn move_field_widths_match_the_reference(cx: &mut gpui_kit::TestAppContext) {
+fn move_field_widths_match_the_pinned_px(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {

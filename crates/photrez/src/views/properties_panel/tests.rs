@@ -34,7 +34,7 @@ fn transform_rows_read_the_layer_or_fall_back_to_the_baseline() {
 }
 
 #[test]
-fn action_table_matches_reference() {
+fn action_table_matches_the_pinned_rows() {
     assert_eq!(ACTIONS.len(), 3);
     assert_eq!(ACTIONS[0].0, icons::FLIP_H);
     assert_eq!(t(ACTIONS[0].1), "Flip H");
@@ -45,7 +45,7 @@ fn action_table_matches_reference() {
 }
 
 #[test]
-fn quick_icons_match_reference() {
+fn quick_icons_match_the_pinned_glyphs() {
     assert_eq!(QUICK_ICONS.len(), 4);
     assert_eq!(QUICK_ICONS[0], icons::ALIGN_H);
     assert_eq!(QUICK_ICONS[1], icons::ALIGN_V);

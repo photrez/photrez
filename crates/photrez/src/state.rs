@@ -486,7 +486,7 @@ pub struct AppState {
     /// state in the 0.1 build; it starts on.
     pub constrain_ratio: bool,
     /// Which not-yet-built adjustment groups are expanded, by section id. The
-    /// reference opens each one independently and shows its In Development card.
+    /// 0.1 build opens each one independently and shows its In Development card.
     pub open_adjustment_sections: Vec<String>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,

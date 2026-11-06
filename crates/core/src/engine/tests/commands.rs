@@ -312,8 +312,8 @@ fn transform_layer_flip_projects_onto_render_layer() {
 
 #[test]
 fn unknown_id_is_noop_for_metadata_arms() {
-    // Mirrors DeleteLayer: a missing id is a silent no-op (no error). The pinned
-    // reference's apply ops were guarded the same way; that behavior is kept.
+    // Mirrors DeleteLayer: a missing id is a silent no-op (no error). The
+    // 0.1 build guarded the same apply arm the same way, and that behaviour is kept.
     let mut e = engine();
     let before = e.snapshot().layers.len();
     for cmd in [

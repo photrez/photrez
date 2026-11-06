@@ -4,7 +4,7 @@ use super::*;
 /// draws the 800x600 page as a 701x525.75 box at (40, 71.125) - exactly
 /// the fit formula's prediction.
 #[test]
-fn fit_placement_matches_the_reference_capture() {
+fn fit_placement_matches_the_pinned_geometry() {
     let (x, y, w, h) = fit_placement(781., 668., 800., 600.).expect("fits");
     assert!((x - 40.).abs() < 0.01, "x: {x}");
     assert!((y - 71.125).abs() < 0.01, "y: {y}");

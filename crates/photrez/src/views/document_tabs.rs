@@ -24,7 +24,7 @@
 //! colour change, as in
 //! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
 //!
-//! With **zero** documents the original still paints this strip — the tab list
+//! With **zero** documents the 0.1 build still paints this strip — the tab list
 //! simply renders no tab, so the flexible list comes up empty while the `+`
 //! and the utility cluster stay where they are. That state is *not*
 //! implemented here; this module renders the captured one-document state,
@@ -42,7 +42,7 @@
 //!   this component — there is no divider fill on it either.
 //! * **Two hover names refer to colours that do not exist.** No shipped
 //!   token declares a topbar-hover or app-hover value, so those
-//!   hovers paint nothing: both hovers are no-ops in the original and are
+//!   hovers paint nothing: both hovers are no-ops in the 0.1 build and are
 //!   recorded as such below rather than invented.
 //! * **`Export…` is the resolved translation**, not the `"Export"` fallback
 //!   in the catalogue key: `assets/i18n/en.json:51` is `"Export…"` (one
@@ -100,7 +100,7 @@ use crate::tokens::color;
 use gpui_kit::Div;
 
 // ---------------------------------------------------------------------------
-// Dimensions. The original rem scale has a 16px root: every value below is
+// Dimensions. The 0.1 build's rem scale has a 16px root: every value below is
 // already resolved to pixels, and each const names the part it measures.
 // ---------------------------------------------------------------------------
 
@@ -347,7 +347,7 @@ fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
 /// holding the `x` glyph at 14px with a 1.75 stroke.
 ///
 /// The close button's hover fill is omitted deliberately: no app-hover token
-/// exists anywhere in the app, so nothing backs it and the original's hover
+/// exists anywhere in the app, so nothing backs it and the 0.1 build's hover
 /// background is transparent too.
 fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
@@ -403,7 +403,7 @@ fn active_underline() -> impl IntoElement {
 /// 1.75 stroke.
 ///
 /// Clicking opens the New Document dialog, the same command as File > New. The
-/// reference also cancels an active transform session and refuses when the
+/// 0.1 build also cancels an active transform session and refuses when the
 /// workspace is full; neither has a native counterpart yet.
 fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
@@ -469,7 +469,7 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
 /// The export button's border paints #333333 like every other border, and
 /// its hover text colour is a no-op (the label is already
 /// full-brightness text), so only the background changes on hover — and the
-/// chevron keeps the dim colour in the original too, because it has
+/// chevron keeps the dim colour in the 0.1 build too, because it has
 /// its own colour rather than inheriting one.
 ///
 /// Its width is content-driven: 2*12 padding + 2 border + 8 gap + 14 icon +
@@ -477,7 +477,7 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
 /// `shell-full-page.png` has its two border columns.
 ///
 /// Clicking opens the Export dialog, the same command as File > Export. The
-/// reference first opens a quick-export menu whose three formats have no native
+/// 0.1 build first opens a quick-export menu whose three formats have no native
 /// command yet, so the strip goes to the dialog.
 fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()

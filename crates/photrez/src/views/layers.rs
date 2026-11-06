@@ -148,7 +148,7 @@ const THUMB: f32 = 34.0;
 
 /// The mean of `LayerThumb`'s two checkerboard tones, as one flat colour.
 ///
-/// The original alternates `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)`
+/// The 0.1 build alternates `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)`
 /// in 6px cells; GPUI's `checkerboard()` is not a `Styled` method,
 /// and would take one colour anyway. See `properties_panel.rs` for the full
 /// derivation of this value.
@@ -683,7 +683,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn footer_icons_match_reference() {
+    fn footer_icons_match_the_pinned_glyphs() {
         assert_eq!(FOOTER_ICONS.len(), 5);
         assert_eq!(FOOTER_ICONS[0].svg, icons::PLUS);
         assert!(!FOOTER_ICONS[0].trailing);
@@ -698,8 +698,8 @@ mod tests {
     }
 
     /// Each row closes with a 1px rule, and the rule is the colour that
-    /// actually paints rather than the `border-editor-divider/10` the
-    /// reference's class names: the app-wide border override wins, so this is
+    /// actually paints rather than the 0.1 build's
+    /// `border-editor-divider/10` class name: the app-wide border override wins, so this is
     /// rgb(51,51,51) over the rgb(30,30,30) panel, not DIVIDER at 10%.
     /// RED proof by mutation: point [`rows::row_hairline_colour`] at
     /// `color::DIVIDER` and this fails by name; the surface capture is what
@@ -720,7 +720,7 @@ mod tests {
     /// the alpha, and this fails at its named middle assertion while the active
     /// and resting assertions stay green.
     #[test]
-    fn layer_row_fill_follows_the_three_reference_branches() {
+    fn layer_row_fill_follows_the_three_pinned_branches() {
         assert_eq!(
             rows::row_fill(true, true),
             color::ROW_ACTIVE,
@@ -767,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn lock_toggles_match_the_reference_order_and_glyphs() {
+    fn lock_toggles_match_the_pinned_order_and_glyphs() {
         let toggles = lock_toggles(Some(flags()));
         let glyphs: Vec<&[u8]> = toggles.iter().map(|toggle| toggle.svg).collect();
         assert_eq!(

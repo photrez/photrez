@@ -357,7 +357,7 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
 ///
 /// The side-panel toggle is hidden at large widths: it exists below
 /// 1024px and is absent from the 1366px baseline. The branch is decided from
-/// the live window width so the 74-shot reference comparison is unchanged.
+/// the live window width so the 74-shot baseline comparison is unchanged.
 fn right_group(
     window: &mut Window,
     state: &Entity<AppState>,
@@ -477,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn menus_array_is_reference_order() {
+    fn menus_array_is_the_pinned_order() {
         assert_eq!(
             MENUS,
             &[

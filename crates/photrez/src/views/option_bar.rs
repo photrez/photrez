@@ -19,9 +19,9 @@
 use gpui_kit::base::{h_flex, StyledExt};
 use gpui_kit::component::Icon;
 // `h_flex` is both the free fn and the `StyledExt` trait method (`.h_flex()`);
-// both live in `gpui_kit::base` (re-export of the `gpui_base` crate). The
-// reference imports them together (`gpui_kit::base::{StyledExt, h_flex}`) so
-// both call forms resolve.
+// both live in `gpui_kit::base` (re-export of the `gpui_base` crate). Import
+// them together (`gpui_kit::base::{StyledExt, h_flex}`) so both call forms
+// resolve.
 use gpui_kit::prelude::*;
 use gpui_kit::{
     checkerboard, div, hsla, linear_color_stop, linear_gradient, px, BoxShadow, Div, FontWeight,
@@ -603,7 +603,7 @@ mod bar_width_tests {
     use super::*;
 
     #[test]
-    fn container_queries_match_the_reference_at_781_and_wide() {
+    fn container_queries_match_the_pinned_widths() {
         set_bar_width(781.0);
         assert!(!show_main_controls(), "main controls are hidden below 880");
         assert!(show_more_dropdown(), "the overflow button shows below 880");

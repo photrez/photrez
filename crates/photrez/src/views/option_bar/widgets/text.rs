@@ -162,7 +162,7 @@ pub(in super::super) fn text_icon_action(
 /// single-open select slot, so Escape and an outside click dismiss it like
 /// the other dropdowns. The current mode is read from the live text-edit
 /// session; with no session the resting point mode is shown, matching the
-/// reference fallback.
+/// 0.1 build's fallback.
 pub(in super::super) fn box_mode_control(
     state: &gpui_kit::Entity<AppState>,
     cx: &gpui_kit::Context<crate::app::App>,
@@ -312,7 +312,7 @@ fn box_mode_row(
 
 /// The 0.1 build's `setBoxMode` value patch: point mode clears the box
 /// dimensions; area mode keeps a positive width and seeds the 200 px the
-/// reference uses for a layer that never had one.
+/// 0.1 build uses for a layer that never had one.
 fn apply_box_mode(data: &mut photrez_core::document::layer_params::TextData, area: bool) {
     use photrez_core::document::layer_params::TextBoxMode;
     if area {

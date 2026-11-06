@@ -115,7 +115,7 @@ fn invert_without_selection_falls_back_to_full_canvas() {
     );
     assert_eq!(e.version(), v0 + 1, "invert fallback bumps version");
 
-    // Reference: SelectAll on the same seeded dims.
+    // Control: SelectAll on the same seeded dims.
     let mut ref_e = DocumentCore::new();
     ref_e.seed_ptz(sel_doc());
     ref_e.seed_layers(vec![layer()], 0);

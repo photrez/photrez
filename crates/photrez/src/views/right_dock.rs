@@ -61,8 +61,8 @@
 //! * Known deviation: the Presets tab's 50% opacity is omitted; re-add
 //!   `.opacity(0.5)` if the baseline flags it as too bright.
 //! * Navigator header's zoom controls, collapsible chevron button, and
-//!   `Fit Screen` button are omitted; its simplified reference is a label and
-//!   canvas placeholder.
+//!   `Fit Screen` button are omitted; the 0.1 build's simplified header is a
+//!   label and canvas placeholder.
 
 use crate::components::ui;
 use crate::display::canvas_bridge::{self, Camera, CanvasImage};

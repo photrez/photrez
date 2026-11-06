@@ -268,7 +268,7 @@ fn large_brush_samples_the_whole_tip_not_its_corner() {
 }
 
 #[test]
-fn digest_matches_reference_pipeline_shape() {
+fn digest_matches_the_pinned_pipeline_shape() {
     let mut tb = TipBuf { data: Vec::new() };
     let tip = tip_owned(&mut tb, 8, [10, 20, 30, 255]);
     let dabs = vec![RasterDab {

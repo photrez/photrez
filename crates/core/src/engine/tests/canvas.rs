@@ -258,7 +258,7 @@ fn apply_crop_plain_rect_recenters_layer() {
     }))
     .unwrap();
 
-    // Reference: center (200,150) -> crop center (100,100) -> offset (100,50),
+    // Worked calculation: center (200,150) -> crop center (100,100) -> offset (100,50),
     // rotated 0 -> final center (150,100) -> new top-left (50,50).
     let a = layer_by(&e, "A");
     assert!(close(a.x, 50.0));
@@ -270,7 +270,7 @@ fn apply_crop_plain_rect_recenters_layer() {
 }
 
 #[test]
-fn apply_crop_with_rotation_and_target_matches_reference() {
+fn apply_crop_with_rotation_and_target_matches_the_worked_numbers() {
     let mut e = DocumentCore::new();
     // Layer at (100,100), 200x100, rotation 179; crop 50x50 at (10,10) rotated -5,
     // written out to 100x200 (forces a normalize_rotation wrap on

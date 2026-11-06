@@ -169,7 +169,7 @@ impl App {
 
     /// Opens one of the editable transform fields: the Move bar's (`num-*`) or
     /// the Properties panel's (`prop-*`). A row whose lock flag is set keeps the
-    /// reference's disabled state, so its click does nothing.
+    /// 0.1 build's disabled state, so its click does nothing.
     pub(crate) fn begin_transform_field(
         &mut self,
         id: &'static str,

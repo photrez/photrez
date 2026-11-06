@@ -541,7 +541,7 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
 /// The Text bar's box-mode control is the 0.1 build's two-item list, not a
 /// closed trigger: choosing Fixed Box rewrites the selected text layer's
 /// `box_mode` to Area through core history (with a box width, as the
-/// reference seeds), choosing Auto Width returns it to Point with the box
+/// 0.1 build seeds it), choosing Auto Width returns it to Point with the box
 /// dimensions cleared; Escape and an outside click dismiss the list.
 #[gpui_kit::test]
 fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAppContext) {

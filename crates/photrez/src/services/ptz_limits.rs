@@ -6,7 +6,7 @@ pub const MAX_LAYER_COUNT: usize = 200;
 pub const MAX_STRUCTURAL_ENTRIES: usize = 201;
 pub const MAX_DOCUMENT_JSON_BYTES: u64 = 1_048_576;
 pub const MAX_ARCHIVE_ENTRY_BYTES: u64 = 2_147_483_648;
-/// Imported image bytes stay under the pinned reference's file boundary.
+/// Imported image bytes stay under the file boundary the 0.1 build enforced.
 pub const MAX_IMAGE_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 pub fn validate_layer_id(layer_id: &str) -> Result<(), ServiceError> {

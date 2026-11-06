@@ -139,6 +139,6 @@ fn geometry_constants_are_pinned() {
 /// The active tab underline is 2px - the height the 0.1 markup gives
 /// the underline.
 #[test]
-fn underline_height_matches_the_reference() {
+fn underline_height_matches_the_pinned_px() {
     assert_eq!(UNDERLINE_H, 2.0);
 }

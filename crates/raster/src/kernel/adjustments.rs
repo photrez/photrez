@@ -130,7 +130,7 @@ pub fn trim_bbox(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
 
 /// Brush dab stamp — bilinear resample of the precomputed tip into the
 /// mask with saturating accumulation `cur + (255-cur)*a`. Reproduces the
-/// reference rasteriser's stamp exactly (same bounds/clamp semantics).
+/// 0.1 build's rasteriser stamp exactly (same bounds/clamp semantics).
 #[allow(clippy::too_many_arguments)] // Flat args kept for the host call site
 pub fn brush_stamp(
     mask: &mut [u8],

@@ -40,7 +40,7 @@ struct Tool {
     /// `ToolId` - the typed tool the button represents. Compared against
     /// `active_tool` in `tool_button`.
     tool_id: ToolId,
-    /// `id` - the tool's reference id string, reused as the GPUI `ElementId` so
+    /// `id` - the tool's id string, reused as the GPUI `ElementId` so
     /// buttons are hit-testable (gpui only hit-tests an element that has an
     /// id).
     id: &'static str,
@@ -225,7 +225,7 @@ fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
 /// A tool row: a 36px rounded square centring an 18px icon, plus the optional
 /// sub-variant triangle.
 ///
-/// The original wraps the button in its own positioned div purely to anchor
+/// The 0.1 build wraps the button in its own positioned div purely to anchor
 /// the fly-out popover, which this build omits - so that positioning moves onto
 /// the button itself, where it is needed for the absolute triangle.
 ///
@@ -455,7 +455,8 @@ fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoE
 }
 
 /// The background swatch: a 28px circle flush to the box's bottom-right, stacked
-/// below the foreground one, with a 1px border (white at 20% in the original), a
+/// below the foreground one, with a 1px border (white at 20% in the 0.1 build),
+/// a
 /// medium shadow, and 5% larger on hover.
 ///
 /// Rendered first so the foreground swatch overlaps it - which is what the
@@ -499,7 +500,7 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// as the medium shadow layers rather than using the `.shadow_md()` shorthand.
 fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut shadows = vec![
-        // The 1px black-at-40% outer ring the original draws with an outline
+        // The 1px black-at-40% outer ring the 0.1 build draws with an outline
         BoxShadow::new(px(0.), px(0.), color::BLACK_40).spread_radius(px(1.)),
     ];
     shadows.extend(shadow_md_layers());
@@ -607,10 +608,10 @@ mod tests {
     /// Pin the `ToolId -> (id, icon, has_variants)` table.
     ///
     /// RED proof: swap any `tool_id` arm (e.g. `Crop` -> `Brush`) and this
-    /// fails. GREEN: every variant maps to its reference id + its rail icon, in
+    /// fails. GREEN: every variant maps to its id + its rail icon, in
     /// rail order, and only `Selection` carries the sub-variant indicator.
     #[test]
-    fn tool_table_maps_each_toolid_its_reference_id_and_icon() {
+    fn tool_table_maps_each_toolid_its_id_and_icon() {
         assert_eq!(TOOLS.len(), 10);
 
         let expected: &[(&str, ToolId)] = &[
