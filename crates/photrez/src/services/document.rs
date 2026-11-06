@@ -28,14 +28,14 @@ pub use loader::{load_document_candidate, LoadedDocument};
 #[cfg(test)]
 mod tests;
 
-/// The document size the recorded captures were taken at: the New Document
-/// dialog's defaults, which is what the capture tooling opened.
+/// The demo document size the app seeds at startup.
 pub const DEFAULT_DOC_WIDTH: u32 = 800;
 /// Height of that same document.
 pub const DEFAULT_DOC_HEIGHT: u32 = 600;
 
-/// The blank white document the recorded captures were taken with: one opaque
-/// white layer at 800x600, the dialog's defaults.
+/// The demo document `app::startup` seeds when the app opens with a document:
+/// one opaque white layer at 800x600, the size
+/// `blank_document_is_800x600_opaque_white` pins.
 ///
 /// Returns `(width, height, rgba)` with `rgba.len() == width * height * 4`,
 /// snapshotted through [`PixelLayer::snapshot_region`], the owned-region

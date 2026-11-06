@@ -144,16 +144,15 @@
 //! # State: `shot::active()`, nothing else
 //!
 //! ```text
-//! PHOTREZ_SHOT=toast-info    "Layer merged"
-//! PHOTREZ_SHOT=toast-warn    "Could not write the file"
-//! PHOTREZ_SHOT=toast-error   "Export failed"
-//! PHOTREZ_SHOT=toast-stacked "Opened" / "Copied" / "Disk full"
-//! unset / anything else      toast-info
+//! --shot toast-info     "Layer merged"
+//! --shot toast-warn     "Could not write the file"
+//! --shot toast-error    "Export failed"
+//! --shot toast-stacked  "Opened" / "Copied" / "Disk full"
+//! unset / anything else the info stack
 //! ```
 //!
-//! The four messages are the capture tooling's own literals, in the
-//! order it fires them (info, warn, error) for the stack — so the stack reads
-//! top-to-bottom info/warn/error, as the shot does.
+//! The four messages are fixed copy this view owns, held in severity order
+//! (info, warn, error) so the stacked state reads top-to-bottom that way.
 //!
 //! # Deliberately omitted — behaviour, not pixels
 //!
@@ -278,22 +277,17 @@ const SHADOW_10: Hsla = Hsla {
     a: 0.1,
 };
 
-// ── The captured labels ──
+// ── The shot labels ──
 //
-// The capture tooling decides what each shot says; these are its
-// literals, not invented copy. In the live component they are whatever the
-// operation hands to the toast queue, and this view has no engine to ask.
+// Fixed copy the shot path paints, not copy invented for this file. In the
+// live component they are whatever the operation hands to the toast queue, and
+// this view has no engine to ask.
 
-/// The capture fires "Layer merged" at severity `info`.
 const MSG_INFO: &str = "Layer merged"; // i18n-exempt: not in catalog
-
-/// The capture fires "Could not write the file" at severity `warn`.
 const MSG_WARN: &str = "Could not write the file"; // i18n-exempt: not in catalog
-
-/// The capture fires "Export failed" at severity `error`.
 const MSG_ERROR: &str = "Export failed"; // i18n-exempt: not in catalog
 
-/// The stack's three, in the order the capture fires them.
+/// The stacked state's three, held in severity order.
 const MSG_STACK_INFO: &str = "Opened"; // i18n-exempt: not in catalog
 const MSG_STACK_WARN: &str = "Copied"; // i18n-exempt: not in catalog
 const MSG_STACK_ERROR: &str = "Disk full"; // i18n-exempt: not in catalog

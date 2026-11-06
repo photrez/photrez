@@ -281,9 +281,8 @@ pub fn t_plural(base: &str, count: u32) -> String {
 
 // ── startup detection ────────────────────────────────────────────────────────
 
-/// The environment override the capture driver pins (`PHOTREZ_LOCALE=en`; see
-/// the `xtask` capture runner). It outranks the stored preference so a recorded
-/// capture resolves `en` on any machine.
+/// `PHOTREZ_LOCALE` forces a locale at startup, for example `PHOTREZ_LOCALE=en`.
+/// It outranks the stored preference, so one variable fixes the locale on any machine.
 const ENV_LOCALE: &str = "PHOTREZ_LOCALE";
 
 /// The startup detection order: the `PHOTREZ_LOCALE` override, then the stored

@@ -12,12 +12,12 @@ fn severity_border_map_is_border() {
     assert_eq!(Severity::Error.border(), color::BORDER);
 }
 
-/// The six captured labels are the capture tooling's own literals, verbatim.
+/// Pins the six shot labels, so copy drift fails here rather than in a screen.
 ///
 /// RED proof: change any `MSG_*` constant to a different string and this
-/// fails. GREEN: every label matches the baseline spec.
+/// fails.
 #[test]
-fn captured_labels_match_baseline() {
+fn shot_labels_are_pinned() {
     assert_eq!(MSG_INFO, "Layer merged");
     assert_eq!(MSG_WARN, "Could not write the file");
     assert_eq!(MSG_ERROR, "Export failed");
