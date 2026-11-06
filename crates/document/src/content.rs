@@ -25,7 +25,7 @@
 // EXCLUDED FIELDS (deliberate, with reason):
 //   - LayerNode.bitmapEpoch: transient in-memory freshness epoch,
 //     explicitly "not persisted to .ptz". Not document content.
-//   - The two bitmap slots the previous host kept on each layer node: live pixel
+//   - The two bitmap slots the 0.1 layer nodes carried: live pixel
 //     references. Pixels are NEVER stored in the model.
 //     Replaced by `resource_id: Option<ResourceId>` (a token handle mirroring
 //     LayerMeta.resource_id in layer.rs).

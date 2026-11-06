@@ -5,11 +5,9 @@
 //! visibility, opacity, all twelve blend modes, and the existing transforms.
 //! A visible unsupported layer is rejected rather than silently skipped.
 //!
-//! The reference is the previous host engine's compositor: source-over
-//! compositing, drawing the layer array from last to first. The
-//! goldens in the tests were captured from that reference compositor with the
-//! same draw order before this code existed, so they are independent of this
-//! implementation.
+//! The goldens in the tests were captured from the 0.1 compositor, source-over
+//! compositing with the layer array drawn from last to first, before this code
+//! existed, so they are independent of this implementation.
 
 use super::{shape, text};
 use crate::input::RenderInput;
