@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.2.0] - unreleased
 
-**0.2.0 - The Native Update.** The editor now runs on a native Rust UI instead of an embedded web view.
+**0.2.0 - The Native Update.** The editor is one native Rust application: GPUI draws the window, the menus, the canvas and the panels.
 
 ### Added
 
@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Native application shell.** The window, menus, dialogs, canvas, panels and tool bars are Rust (GPUI) code; there is no embedded browser engine, no JavaScript runtime and no IPC bridge in the product path.
 - Rust `photrez-core` is the canonical document, pixel, and history authority.
 - `.ptz` files are written by the Rust core; current format version is v3 and remains backward-compatible from v0.1.0.
-- **Fewer Linux runtime dependencies.** The WebKitGTK, appindicator and CUPS packages that the web-view shell required are no longer needed. A Linux build now needs an X11 or Wayland session, fontconfig/freetype, and a Vulkan or GL driver.
+- **Fewer Linux runtime dependencies.** A Linux build needs an X11 or Wayland session, fontconfig/freetype, and a Vulkan or GL driver. It needs no WebKitGTK, appindicator or CUPS packages.
 - Version numbers are derived from the crate manifest only.
 - **Keyboard access.** Every inline numeric field and every dialog field is now a tab stop with one shared focus treatment, Tab cannot leave an open dialog, and closing a dialog returns focus to whatever held it beforehand.
 - **Tooltips on the tool rail.** Hovering a tool button shows its name and shortcut key, including the variant suffix on tools that offer right-click options; the foreground colour swatch shows its name.
