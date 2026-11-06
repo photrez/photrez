@@ -267,7 +267,7 @@ fn rasterize_mask(
 
 /// Bilinear resampler operating on PREMULTIPLIED pixels with
 /// half-pixel centers, then emitted back to straight-RGBA (round-half unpremul).
-/// This is the explicitly specified replacement for the reference build's
+/// This is the explicitly specified replacement for the 0.1 build's
 /// filtered image upscale.
 pub fn bilinear_resize_premul(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     let mut out = vec![0u8; (dw * dh) as usize * 4];

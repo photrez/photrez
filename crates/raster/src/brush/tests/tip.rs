@@ -163,7 +163,7 @@ fn c1_golden_interior_and_rim_tolerance() {
             }
         }
     }
-    // Decision: the reference build's resampling is NOT canonical, so rim
+    // Decision: the 0.1 build's resampling is NOT canonical, so rim
     // divergence against the captured golden is a DOCUMENTED COMPATIBILITY
     // DELTA and is REPORT-ONLY. Canonical correctness = interior + alpha bounds
     // below.
