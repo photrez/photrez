@@ -28,7 +28,7 @@ fn e_invalid(msg: &str) -> ProtocolError {
 }
 
 /// Read the canonical-shadow document dims, or E_INVALID when no shadow is seeded.
-/// The reference engine read the document's own width/height directly; the
+/// The 0.1 engine read the document's own width/height directly; the
 /// native arm reads the
 /// seeded canonical shadow instead (the engine keeps no doc dims of its own), so a
 /// merge/flatten before the host seeds the shadow rejects rather than guessing.

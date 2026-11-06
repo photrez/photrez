@@ -45,8 +45,8 @@ impl DocumentCore {
     /// `None`/`false` is not.
     ///
     /// Trust boundary: reject non-finite inputs with E_INVALID before any mutation
-    /// (the reference engine lets NaN/Inf silently slip through its `<= 0` comparisons and
-    /// would proceed (a stricter-than-reference divergence). Non-positive width/height
+    /// (the 0.1 engine lets NaN/Inf silently slip through its `<= 0` comparisons and
+    /// would proceed (a divergence that is stricter than the 0.1 engine). Non-positive width/height
     /// is a SILENT no-op (no history entry; the apply() tail still bumps DV),
     /// mirroring the reference guard `if (width <= 0 || height <= 0) return;`. x/y may be
     /// any sign (negative offsets are legal).
@@ -115,7 +115,7 @@ impl DocumentCore {
     /// `flips` are preserved unchanged.
     ///
     /// Trust boundary: reject non-finite x/y/width/height/rotation with E_INVALID
-    /// before any mutation (the reference engine would proceed with NaN). A target size
+    /// before any mutation (the 0.1 engine would proceed with NaN). A target size
     /// given as a half-pair (one of targetWidth/targetHeight without the other) is
     /// invalid (the target size is taken as a complete {w,h} pair). Non-positive
     /// width/height is a SILENT no-op (the first guard, checked before reading the
@@ -319,7 +319,7 @@ impl DocumentCore {
     /// resize: only the document size changes, no layer is touched.
     ///
     /// Trust boundary: reject non-finite dims with E_INVALID before mutation (the
-    /// reference engine would proceed with NaN). Non-positive dims are a SILENT no-op (no
+    /// 0.1 engine would proceed with NaN). Non-positive dims are a SILENT no-op (no
     /// entry; DV still bumps at the tail). The arm emits an EMPTY layer delta; its
     /// real effect (the document size) is not expressible as a layer delta, so
     /// consumers must re-read the snapshot (which now carries the dims). The entry

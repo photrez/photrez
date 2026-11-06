@@ -12,7 +12,7 @@ impl DocumentCore {
     ) -> Result<Vec<LayerChange>, ProtocolError> {
         match command {
             // ── Metadata arms ──
-            // Unknown id is a no-op, the same way the reference engine's apply ops
+            // Unknown id is a no-op, the same way the 0.1 engine's apply ops
             // are guarded, so the native-authority path stays bug-compatible
             // with that engine's observable behaviour.
             Command::SetVisible { id, visible } => {

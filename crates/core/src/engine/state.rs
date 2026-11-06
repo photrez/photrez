@@ -52,7 +52,7 @@ pub struct DocumentCore {
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
     // Engine document size (canvas width/height). The native DocumentCore keeps
-    // its own document dims (the reference engine read the document's own
+    // its own document dims (the 0.1 engine read the document's own
     // width/height directly; the
     // structural arms instead read the seeded canonical shadow). `None` until a
     // canvas-size command (Crop Canvas / Apply Crop / Resize Canvas) sets it or a
