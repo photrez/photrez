@@ -102,7 +102,7 @@ pub struct TextEditSession {
     pub doc_x: f64,
     pub doc_y: f64,
     pub content: String,
-    pub data: photrez_core::ptz::layer_params::TextData,
+    pub data: photrez_core::document::layer_params::TextData,
     /// Rasterized preview size in document pixels, refreshed per keystroke.
     pub preview: (u32, u32),
 }

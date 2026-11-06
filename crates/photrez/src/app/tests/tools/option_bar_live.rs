@@ -695,11 +695,11 @@ fn text_option_controls_reach_the_created_layer(cx: &mut gpui_kit::TestAppContex
         assert_eq!(data.font_weight, 700.0);
         assert_eq!(
             data.font_style,
-            photrez_core::ptz::layer_params::TextFontStyle::Italic
+            photrez_core::document::layer_params::TextFontStyle::Italic
         );
         assert_eq!(
             data.align,
-            photrez_core::ptz::layer_params::TextAlign::Center
+            photrez_core::document::layer_params::TextAlign::Center
         );
     })
     .expect("test window remains open");

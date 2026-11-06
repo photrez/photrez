@@ -179,20 +179,20 @@ fn shape_layers_save_in_document_json_without_a_png_entry() {
     let background = png_rgba(8, 8, &[0, 0, 255, 255].repeat(64));
     let shape = super::typed_layer(
         "shape",
-        photrez_core::ptz::content::LayerType::Shape,
+        photrez_core::document::content::LayerType::Shape,
         4.0,
         4.0,
         (1.0, 1.0),
-        Some(photrez_core::ptz::content::ShapeParams {
-            kind: photrez_core::ptz::content::ShapeKind::Rect,
+        Some(photrez_core::document::content::ShapeParams {
+            kind: photrez_core::document::content::ShapeKind::Rect,
             width: 4.0,
             height: 4.0,
             radius: 0.0,
-            fill: photrez_core::ptz::content::ShapeFill {
-                kind: photrez_core::ptz::content::ShapeFillKind::Solid,
+            fill: photrez_core::document::content::ShapeFill {
+                kind: photrez_core::document::content::ShapeFillKind::Solid,
                 color: "#ff0000".to_owned(),
             },
-            stroke: photrez_core::ptz::content::ShapeStroke {
+            stroke: photrez_core::document::content::ShapeStroke {
                 enabled: false,
                 color: "#000000".to_owned(),
                 width: 1.0,
@@ -275,8 +275,8 @@ fn save_stream_cancel_after_layer_failure_removes_temporary_archive() {
 #[test]
 fn multi_layer_shape_text_save_reload_preserves_composite_and_params() {
     use super::typed_layer;
-    use photrez_core::ptz::content::LayerType;
-    use photrez_core::ptz::layer_params::{
+    use photrez_core::document::content::LayerType;
+    use photrez_core::document::layer_params::{
         ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextData,
     };
 

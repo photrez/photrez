@@ -4,7 +4,7 @@
 //! right dock and status bar. Every nested region is a function call so
 //! each can be `cargo check`ed in isolation.
 
-use crate::render::canvas_bridge::{self, Camera, CanvasImage, CheckerCache};
+use crate::display::canvas_bridge::{self, Camera, CanvasImage, CheckerCache};
 use crate::shot;
 use crate::state::AppState;
 use crate::tokens::color;
@@ -77,13 +77,13 @@ pub(crate) fn render(
     dialog_focus: &gpui_kit::FocusHandle,
     picker_focus: &gpui_kit::FocusHandle,
     capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
-    cursor: crate::input::CursorPolicy,
+    cursor: crate::input_policy::CursorPolicy,
     has_pixel_selection: bool,
     has_copyable_selection: bool,
     has_selection_clipboard: bool,
     can_undo: bool,
     can_redo: bool,
-    committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    committed_selection: Option<photrez_core::document::content::SelectionState>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -563,7 +563,7 @@ fn text_editor_overlay(
 fn canvas_hitbox(
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     doc_size: (u32, u32),
-    cursor: crate::input::CursorPolicy,
+    cursor: crate::input_policy::CursorPolicy,
     focus_handle: &gpui_kit::FocusHandle,
     capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
     text_editing: bool,
@@ -621,23 +621,33 @@ fn canvas_hitbox(
         // whole page in 55% black after any keyboard shortcut.
         .focus_visible(|style| style.border_1().border_color(color::ACCENT));
     let hitbox = match cursor {
-        crate::input::CursorPolicy::SystemDefault => hitbox,
-        crate::input::CursorPolicy::Crosshair => hitbox.cursor(gpui_kit::CursorStyle::Crosshair),
-        crate::input::CursorPolicy::Text => hitbox.cursor(gpui_kit::CursorStyle::IBeam),
-        crate::input::CursorPolicy::Grabbing => hitbox.cursor(gpui_kit::CursorStyle::ClosedHand),
-        crate::input::CursorPolicy::Cloning => hitbox.cursor(gpui_kit::CursorStyle::DragCopy),
-        crate::input::CursorPolicy::OpenHand => hitbox.cursor(gpui_kit::CursorStyle::OpenHand),
-        crate::input::CursorPolicy::ResizeNwse => {
+        crate::input_policy::CursorPolicy::SystemDefault => hitbox,
+        crate::input_policy::CursorPolicy::Crosshair => {
+            hitbox.cursor(gpui_kit::CursorStyle::Crosshair)
+        }
+        crate::input_policy::CursorPolicy::Text => hitbox.cursor(gpui_kit::CursorStyle::IBeam),
+        crate::input_policy::CursorPolicy::Grabbing => {
+            hitbox.cursor(gpui_kit::CursorStyle::ClosedHand)
+        }
+        crate::input_policy::CursorPolicy::Cloning => {
+            hitbox.cursor(gpui_kit::CursorStyle::DragCopy)
+        }
+        crate::input_policy::CursorPolicy::OpenHand => {
+            hitbox.cursor(gpui_kit::CursorStyle::OpenHand)
+        }
+        crate::input_policy::CursorPolicy::ResizeNwse => {
             hitbox.cursor(gpui_kit::CursorStyle::ResizeUpLeftDownRight)
         }
-        crate::input::CursorPolicy::ResizeNesw => {
+        crate::input_policy::CursorPolicy::ResizeNesw => {
             hitbox.cursor(gpui_kit::CursorStyle::ResizeUpRightDownLeft)
         }
-        crate::input::CursorPolicy::ResizeEw => {
+        crate::input_policy::CursorPolicy::ResizeEw => {
             hitbox.cursor(gpui_kit::CursorStyle::ResizeLeftRight)
         }
-        crate::input::CursorPolicy::ResizeNs => hitbox.cursor(gpui_kit::CursorStyle::ResizeUpDown),
-        crate::input::CursorPolicy::NotAllowed => {
+        crate::input_policy::CursorPolicy::ResizeNs => {
+            hitbox.cursor(gpui_kit::CursorStyle::ResizeUpDown)
+        }
+        crate::input_policy::CursorPolicy::NotAllowed => {
             hitbox.cursor(gpui_kit::CursorStyle::OperationNotAllowed)
         }
     };

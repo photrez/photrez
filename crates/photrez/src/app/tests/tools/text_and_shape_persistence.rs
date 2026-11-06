@@ -168,7 +168,7 @@ fn mounted_shape_saves_and_reloads_as_a_shape_layer(cx: &mut gpui_kit::TestAppCo
         assert!(
             types
                 .iter()
-                .any(|kind| matches!(kind, photrez_core::ptz::content::LayerType::Shape)),
+                .any(|kind| matches!(kind, photrez_core::document::content::LayerType::Shape)),
             "the shape layer survives save/reload: {types:?}"
         );
         let _ = source;

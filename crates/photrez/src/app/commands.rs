@@ -13,7 +13,7 @@ use super::{
     ensure_ptz_path, App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument,
     PrintDocument, SaveDocument, SaveDocumentAs, ToggleSidePanelsAction,
 };
-use crate::render::canvas_bridge::CanvasImage;
+use crate::display::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
 use crate::services::error::ServiceError;
 use crate::services::image_files::{self, ImageFormat};

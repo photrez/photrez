@@ -113,7 +113,7 @@ fn tab_stays_inside_the_open_dialog_and_wraps(cx: &mut gpui_kit::TestAppContext)
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
         content.update(cx, |app, cx| app.open_new_document(cx));
         window.render_frame(cx);
 
@@ -148,7 +148,7 @@ fn closing_a_dialog_returns_focus_to_what_had_it(cx: &mut gpui_kit::TestAppConte
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
         assert_eq!(
             window.find("canvas-hitbox").focused(),
             Some(true),

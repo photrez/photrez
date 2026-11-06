@@ -1,4 +1,4 @@
-use super::input::{mount_archive_app, select_layer};
+use super::canvas_input::{mount_archive_app, select_layer};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
@@ -64,7 +64,7 @@ fn row_lock_toggle_round_trips_and_blocks_painting(cx: &mut gpui_kit::TestAppCon
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -94,7 +94,7 @@ fn properties_transform_status_follows_the_layer_locks(cx: &mut gpui_kit::TestAp
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -152,7 +152,7 @@ fn row_lock_never_toggles_the_background_layer(cx: &mut gpui_kit::TestAppContext
             rows_and_flags[1].is_background,
             "the fixture bottom row is the Background"
         );
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let bottom = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("bottom"))
@@ -189,7 +189,7 @@ fn background_lock_click_shows_the_warn_toast(cx: &mut gpui_kit::TestAppContext)
             window.try_find("toast-1").is_none(),
             "the live host is empty at rest"
         );
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let bottom = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("bottom"))
@@ -269,7 +269,7 @@ fn header_lock_toggles_drive_core_and_disable_the_partial_locks(cx: &mut gpui_ki
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -336,7 +336,7 @@ fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::Tes
     // Row ids are projection positions and are reassigned on every
     // reprojection, so order is asserted through `core_id`, which is stable.
     let core_ids = |content: &Entity<App>, cx: &mut gpui_kit::App| -> Vec<String> {
-        super::input::layer_rows(content, cx)
+        super::canvas_input::layer_rows(content, cx)
             .0
             .into_iter()
             .map(|row| row.core_id.expect("the fixture layers have core ids"))
@@ -344,7 +344,7 @@ fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::Tes
     };
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2, "the fixture opens two layers");
         assert_eq!(
             rows[0].core_id.as_deref(),
@@ -409,7 +409,7 @@ fn adjustments_indicator_follows_the_core_flag(cx: &mut gpui_kit::TestAppContext
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2);
         assert!(
             window
@@ -664,7 +664,7 @@ fn raster_layers_get_thumbnails_and_shape_layers_keep_the_checker(
             });
         });
         window.render_frame(cx);
-        super::input::drag_doc(window, (2, 1), (0.1, 0.1), (0.9, 0.9), cx);
+        super::canvas_input::drag_doc(window, (2, 1), (0.1, 0.1), (0.9, 0.9), cx);
         assert_eq!(
             content.read(cx).layer_thumb_stats_for_test(),
             (3, 2),
@@ -724,7 +724,7 @@ fn ctrl_click_and_plain_click_manage_the_multi_selection(cx: &mut gpui_kit::Test
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2, "the fixture has two layers");
         let (first, second) = (rows[0].id, rows[1].id);
 
@@ -757,7 +757,7 @@ fn ctrl_click_and_plain_click_manage_the_multi_selection(cx: &mut gpui_kit::Test
 
         window.click("layer-action-0", cx);
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 3, "the footer adds a third layer");
         let (top, middle, bottom) = (rows[0].id, rows[1].id, rows[2].id);
 
@@ -834,7 +834,7 @@ fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestA
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -896,7 +896,7 @@ fn layer_drag_ghost_carries_the_icon_tile(cx: &mut gpui_kit::TestAppContext) {
             window.try_find("layer-drag-ghost-tile").is_none(),
             "nothing is dragged, so the tile is absent"
         );
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let start = window
             .find(format!("layer-row-{}", rows[0].id))
             .bounds()
@@ -940,7 +940,7 @@ fn layer_drag_ghost_carries_the_icon_tile(cx: &mut gpui_kit::TestAppContext) {
             "the tile goes away when the drag ends"
         );
         assert_eq!(
-            super::input::layer_rows(&content, cx).0.len(),
+            super::canvas_input::layer_rows(&content, cx).0.len(),
             2,
             "releasing over the canvas reorders nothing"
         );

@@ -14,12 +14,12 @@
 //! `SetAdjustment None`. This drives that two-step sequence end-to-end on the
 //! SHARED registry instance and pins the engine-stream contract.
 
-use crate::pixel::*;
-use crate::protocol::{Command, CommandEnvelope, CommandResult, PayloadKind};
-use crate::ptz::content::{
+use crate::document::content::{
     BasicAdjustment, BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D,
 };
-use crate::render::layer::RenderLayer;
+use crate::document::layer::LayerMeta;
+use crate::pixel::*;
+use crate::protocol::{Command, CommandEnvelope, CommandResult, PayloadKind};
 
 // The global REGISTRY is process-global and tests run in parallel, so a
 // collision-free key is required (never reuse a sibling test's key).
@@ -43,8 +43,8 @@ fn seeded_adjustment() -> BasicAdjustment {
     }
 }
 
-fn engine_layer() -> RenderLayer {
-    RenderLayer {
+fn engine_layer() -> LayerMeta {
+    LayerMeta {
         id: BAKE_LAYER.to_string(),
         name: "Bake".to_string(),
         visible: true,

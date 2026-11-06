@@ -4,7 +4,7 @@
 # comparison fails there while passing on machines that check out LF. Pin them
 # to LF everywhere, and mark the opaque formats as binary so no filter touches
 # them at all.
-crates/core/src/ptz/tests/fixtures/*.json text eol=lf
+crates/format/tests/fixtures/*.json text eol=lf
 crates/photrez/tests/fixtures/*.json text eol=lf
 crates/photrez/tests/baseline/manifest.json text eol=lf
 crates/photrez/assets/i18n/*.json text eol=lf

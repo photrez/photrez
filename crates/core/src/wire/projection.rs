@@ -3,10 +3,10 @@
 // delta helpers that translate Arc<StateNode> states to the host-facing TilePatch
 // form, and the error DTO. The history view DTOs live in `wire::history`.
 
-use crate::pixel::state_node::{StateNode, TILE};
-use crate::pixel::tile::TilePatch;
-use crate::ptz::content::SelectionState;
-use crate::render::layer::{RenderLayer, RenderLayerChange};
+use crate::document::content::SelectionState;
+use crate::document::layer::{LayerChange, LayerMeta};
+use crate::raster::state_node::{StateNode, TILE};
+use crate::raster::tile::TilePatch;
 use crate::wire::command::DocumentVersion;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use std::sync::Arc;
 #[serde(rename_all = "camelCase")]
 pub struct RenderSnapshot {
     pub version: DocumentVersion,
-    pub layers: Vec<RenderLayer>,
+    pub layers: Vec<LayerMeta>,
     // Additive: selection rides the whole-document snapshot (host-side undo history).
     // Optional so pre-selection envelopes still parse; skip when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -36,7 +36,7 @@ pub struct RenderSnapshot {
 pub struct RenderDelta {
     pub base_version: DocumentVersion,
     pub version: DocumentVersion,
-    pub changes: Vec<RenderLayerChange>,
+    pub changes: Vec<LayerChange>,
     // Additive: document size affected by this delta. Set by the canvas-size arms
     // (Crop Canvas / Apply Crop / Resize Canvas) and by the undo/redo restoration
     // of those entries, so consumers can resize the canvas from the delta without
@@ -123,7 +123,7 @@ pub struct ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ptz::content::SelectionShape;
+    use crate::document::content::SelectionShape;
 
     // Additive field: a snapshot JSON that predates the `selection` field must still
     // parse (selection defaults to None). Guards the wire-compat contract.

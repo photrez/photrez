@@ -5,16 +5,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::document::DocumentCore;
-use crate::pixel::layer::PixelLayer;
-use crate::pixel::state_node::{LayerState, RegionChange, StateNode};
-use crate::pixel::tile::TilePatch;
+use crate::engine::DocumentCore;
+use crate::raster::layer::PixelLayer;
+use crate::raster::state_node::{LayerState, RegionChange, StateNode};
+use crate::raster::tile::TilePatch;
 
-use crate::document::history::PixelDelta;
+use crate::engine::history::PixelDelta;
 
 /// Re-export of the document snapshot DTO so `pixel::store` reaches it through
 /// this module only: the pixel -> document edge stays one-way.
-pub(crate) use crate::document::DocumentSnapshot;
+pub(crate) use crate::engine::DocumentSnapshot;
 
 /// Per-document pixel store: owns one `PixelLayer` per raster layer id AND the
 /// document's authoritative history stream. Created/destroyed by the enclosing
@@ -107,7 +107,7 @@ impl DocumentPixelStore {
                 layer.width,
                 layer.height,
                 &layer.pixels,
-                layer.epoch,
+                layer.epoch(),
             );
             self.state_nodes.insert(layer_id.to_string(), ls);
         }
@@ -228,14 +228,14 @@ impl DocumentPixelStore {
     /// entry is the undo unit, and undoing it returns the layer to its
     /// parametric form (the materialized buffer then sits unused until a
     /// re-rasterize replaces it).
-    fn apply_rasterize_pixels(&mut self, plan: crate::document::rasterize_bake::RasterizePlan) {
+    fn apply_rasterize_pixels(&mut self, plan: crate::engine::rasterize_bake::RasterizePlan) {
         self.init_layer(&plan.layer_id, plan.width, plan.height, plan.rgba);
     }
 
     /// Execute the pixel half of a destructive crop: discard every pixel that
     /// fell outside the new document, then fold the resulting before/after
     /// states into the crop's metadata entry. One command, one history step.
-    fn apply_crop_bake(&mut self, plan: crate::document::crop_bake::CropBakePlan) {
+    fn apply_crop_bake(&mut self, plan: crate::engine::crop_bake::CropBakePlan) {
         let mut deltas = Vec::new();
         if let Some(fill) = &plan.fill {
             // Bake the colour UNDER the Background and replace its bitmap with
@@ -248,7 +248,7 @@ impl DocumentPixelStore {
                 .map(|ls| ls.current_state().clone());
             let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
             if let (Some(before), Some(source)) = (before, source) {
-                let bytes = crate::document::crop_bake::composite_layer_over_fill(
+                let bytes = crate::engine::crop_bake::composite_layer_over_fill(
                     &source,
                     fill.width,
                     fill.height,
@@ -262,7 +262,7 @@ impl DocumentPixelStore {
                     layer.width = doc_w;
                     layer.height = doc_h;
                     layer.pixels = bytes;
-                    layer.epoch += 1;
+                    layer.bump_epoch();
                 }
                 if let Some(ls) = self.layer_state(&fill.layer_id) {
                     let after = ls.current_state().clone();
@@ -278,12 +278,12 @@ impl DocumentPixelStore {
             let Some(px) = self.layers.get(&layer.layer_id) else {
                 continue;
             };
-            let (w, h, epoch) = (px.width, px.height, px.epoch);
+            let (w, h, epoch) = (px.width, px.height, px.epoch());
             if w == 0 || h == 0 {
                 continue;
             }
             let mut bytes = px.pixels.clone();
-            let discarded = crate::document::crop_bake::discard_outside_document(
+            let discarded = crate::engine::crop_bake::discard_outside_document(
                 &mut bytes,
                 w,
                 h,
@@ -308,7 +308,7 @@ impl DocumentPixelStore {
             };
             if let Some(px) = self.layers.get_mut(&layer.layer_id) {
                 px.write_tile(&patch);
-                px.epoch += 1;
+                px.bump_epoch();
             }
             deltas.push(PixelDelta {
                 layer_id: layer.layer_id.clone(),
@@ -341,8 +341,7 @@ impl DocumentPixelStore {
             let epoch = match self.layers.get_mut(layer_id) {
                 Some(layer) => {
                     *layer = PixelLayer::new(node_w, node_h, bytes);
-                    layer.epoch += 1;
-                    layer.epoch
+                    layer.bump_epoch()
                 }
                 None => 0,
             };
@@ -358,8 +357,7 @@ impl DocumentPixelStore {
                 for t in tiles {
                     layer.write_tile(t);
                 }
-                layer.epoch += 1;
-                layer.epoch
+                layer.bump_epoch()
             }
             None => 0,
         }

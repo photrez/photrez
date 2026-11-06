@@ -4,7 +4,7 @@
 //! to `views/` (dependency injection). It is the only module allowed to know
 //! the concrete wiring of `services/`.
 //!
-//! Must not own: canvas painting (`render/`), pointer policy (`input/`), or
+//! Must not own: canvas painting (`display/`), pointer policy (`input_policy/`), or
 //! any document logic - document truth lives in `photrez-core` and is reached
 //! in-process through the bridge below.
 
@@ -21,9 +21,9 @@ use gpui_kit::{
     AppContext, Bounds, Context, Entity, IntoElement, KeyBinding, Pixels, Point, Render,
     RenderImage, Subscription, Window, WindowBounds,
 };
-use photrez_core::ptz::content::LayerType;
+use photrez_core::document::content::LayerType;
 
-use crate::render::canvas_bridge::{
+use crate::display::canvas_bridge::{
     thumbnail_image, BrushCursor, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine,
     TransformFrame,
 };
@@ -44,11 +44,11 @@ mod commands;
 mod crop;
 pub(crate) mod cross_doc;
 mod documents;
-pub(crate) use input::canvas_doc_coords_free;
+pub(crate) use canvas_input::canvas_doc_coords_free;
+mod canvas_input;
 mod drop;
 mod edge_scroll;
 mod history;
-mod input;
 mod layer_marquee;
 mod layer_projection;
 mod layers;
@@ -168,9 +168,10 @@ const PROBE_DOCUMENT_JSON: &str = r#"{
 // the probe payload is a compile-time constant; a parse failure is a defect, not a runtime condition
 #[allow(dead_code)] // only reachable from the bridge test until the shell wires it into a view
 pub fn probe_document_size() -> (f64, f64) {
-    let doc =
-        photrez_core::ptz::content::PtzDocumentContent::from_ptz_document_json(PROBE_DOCUMENT_JSON)
-            .expect("probe document must parse");
+    let doc = photrez_core::document::content::PtzDocumentContent::from_ptz_document_json(
+        PROBE_DOCUMENT_JSON,
+    )
+    .expect("probe document must parse");
     (doc.width, doc.height)
 }
 
@@ -257,7 +258,7 @@ pub struct App {
     /// The live Move-tool transform drag.
     transform_drag: Option<transform_move::TransformDrag>,
     /// The live Selection-tool rotation of the committed selection.
-    selection_rotation_drag: Option<input::SelectionRotationDrag>,
+    selection_rotation_drag: Option<canvas_input::SelectionRotationDrag>,
     /// Selection transform mode (Ctrl+T): paints the eight
     /// resize handles and the rotate pin, and arms the pin drag.
     selection_edit_mode: bool,
@@ -269,7 +270,7 @@ pub struct App {
     snap_guides: Vec<(bool, f64)>,
     /// Last hovered canvas position (window coords) for crop cursors.
     hover_pos: Option<Point<Pixels>>,
-    last_cursor: crate::input::CursorPolicy,
+    last_cursor: crate::input_policy::CursorPolicy,
     /// Edge auto-scroll state: holding the pointer near a canvas edge pans
     /// the view while a drag is in flight.
     edge_pointer: Option<Point<Pixels>>,
@@ -311,13 +312,13 @@ pub struct App {
     /// close rather than a window close.
     pending_tab_close: Option<String>,
     /// In-flight canvas gesture state (brush chain; later tools join here).
-    input: crate::input::InputState,
+    input: crate::input_policy::InputState,
     /// App-local pixel clipboard (the in-memory selection buffer).
     clipboard: Option<selection::ClipboardImage>,
     /// Brush tip keyed by size/hardness/colour; see `BrushTipCache`.
-    brush_tips: crate::input::BrushTipCache,
+    brush_tips: crate::input_policy::BrushTipCache,
     /// Per-stroke pointer smoothing (`PaintSmoother`).
-    paint_smoother: input::PaintSmoother,
+    paint_smoother: canvas_input::PaintSmoother,
     /// Shift-held brush drag: `Some(true)` locks to the horizontal axis,
     /// `Some(false)` to the vertical one, `None` before the 5px threshold.
     brush_axis_lock: Option<bool>,
@@ -328,7 +329,7 @@ pub struct App {
     /// instead of painting.
     alt_sampling: bool,
     /// Alt+Right brush adjustment drag: the size/hardness at pointer-down.
-    brush_adjust: Option<input::BrushAdjust>,
+    brush_adjust: Option<canvas_input::BrushAdjust>,
     /// The canvas hitbox that currently owns the captured pointer. Shared with
     /// the custom pointer surface, whose hitbox id changes every frame.
     canvas_capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
@@ -352,7 +353,7 @@ pub struct App {
     #[cfg(feature = "input-measurement")]
     measurement: measurement::InputMeasurement,
     /// A non-brush pointer drag waiting for pointer-up.
-    pending_gesture: Option<crate::input::PendingGesture>,
+    pending_gesture: Option<crate::input_policy::PendingGesture>,
     /// Held for the window's lifetime: dropping a subscription cancels it.
     _window_watch: Vec<Subscription>,
     /// Full-document composites performed for this window.
@@ -670,5 +671,4 @@ impl Render for App {
 }
 
 #[cfg(test)]
-#[path = "app/tests.rs"]
 mod tests;

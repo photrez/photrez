@@ -2,7 +2,6 @@ use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
 
-#[path = "documents/tab_reach.rs"]
 mod tab_reach;
 
 pub(super) fn open_second_document(
@@ -63,7 +62,7 @@ fn switching_tabs_restores_the_per_document_camera(cx: &mut gpui_kit::TestAppCon
     cx.update_window(window.into(), |_, _window, cx| {
         content.update(cx, |app, cx| {
             app.set_camera(
-                crate::render::canvas_bridge::Camera::new(11., 22., 2.).unwrap(),
+                crate::display::canvas_bridge::Camera::new(11., 22., 2.).unwrap(),
                 cx,
             );
             open_second_document(app, cx, &directory);
@@ -75,7 +74,7 @@ fn switching_tabs_restores_the_per_document_camera(cx: &mut gpui_kit::TestAppCon
                 .expect("switch back");
             assert_eq!(
                 app.camera_for_test(),
-                crate::render::canvas_bridge::Camera::new(11., 22., 2.)
+                crate::display::canvas_bridge::Camera::new(11., 22., 2.)
             );
         });
     })

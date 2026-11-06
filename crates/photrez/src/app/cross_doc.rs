@@ -11,10 +11,10 @@
 use std::path::PathBuf;
 
 use gpui_kit::Context;
+use photrez_core::document::content::{LayerType, PtzLayer, Transform2D};
 use photrez_core::protocol::{Command, CommandEnvelope, CONTRACT_VERSION};
-use photrez_core::ptz::content::{LayerType, PtzLayer, Transform2D};
 
-use super::input::next_layer_id;
+use super::canvas_input::next_layer_id;
 use super::App;
 use crate::state::{NewDocBackground, ToastSeverity};
 

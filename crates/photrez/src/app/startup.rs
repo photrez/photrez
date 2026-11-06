@@ -109,30 +109,62 @@ impl App {
             KeyBinding::new("ctrl-w", CloseDocument, None),
         ]);
         cx.bind_keys([
-            KeyBinding::new("v", input::SetCanvasTool(ToolId::Move), Some("Canvas")),
-            KeyBinding::new("m", input::SetCanvasTool(ToolId::Selection), Some("Canvas")),
-            KeyBinding::new("c", input::SetCanvasTool(ToolId::Crop), Some("Canvas")),
             KeyBinding::new(
-                "i",
-                input::SetCanvasTool(ToolId::Eyedropper),
+                "v",
+                canvas_input::SetCanvasTool(ToolId::Move),
                 Some("Canvas"),
             ),
-            KeyBinding::new("b", input::SetCanvasTool(ToolId::Brush), Some("Canvas")),
-            KeyBinding::new("e", input::SetCanvasTool(ToolId::Eraser), Some("Canvas")),
+            KeyBinding::new(
+                "m",
+                canvas_input::SetCanvasTool(ToolId::Selection),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "c",
+                canvas_input::SetCanvasTool(ToolId::Crop),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "i",
+                canvas_input::SetCanvasTool(ToolId::Eyedropper),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "b",
+                canvas_input::SetCanvasTool(ToolId::Brush),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "e",
+                canvas_input::SetCanvasTool(ToolId::Eraser),
+                Some("Canvas"),
+            ),
             KeyBinding::new(
                 "g",
-                input::SetCanvasTool(ToolId::PaintBucket),
+                canvas_input::SetCanvasTool(ToolId::PaintBucket),
                 Some("Canvas"),
             ),
             KeyBinding::new(
                 "shift-g",
-                input::SetCanvasTool(ToolId::Gradient),
+                canvas_input::SetCanvasTool(ToolId::Gradient),
                 Some("Canvas"),
             ),
-            KeyBinding::new("u", input::SetCanvasTool(ToolId::Shape), Some("Canvas")),
-            KeyBinding::new("t", input::SetCanvasTool(ToolId::Text), Some("Canvas")),
-            KeyBinding::new("shift-m", input::ToggleSelectionShape, Some("Canvas")),
-            KeyBinding::new("escape", input::CancelCanvasGesture, Some("Canvas")),
+            KeyBinding::new(
+                "u",
+                canvas_input::SetCanvasTool(ToolId::Shape),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "t",
+                canvas_input::SetCanvasTool(ToolId::Text),
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "shift-m",
+                canvas_input::ToggleSelectionShape,
+                Some("Canvas"),
+            ),
+            KeyBinding::new("escape", canvas_input::CancelCanvasGesture, Some("Canvas")),
             KeyBinding::new("ctrl-z", history::UndoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-shift-z", history::RedoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-y", history::RedoDocument, Some("Canvas")),
@@ -192,10 +224,18 @@ impl App {
                 selection::DeleteSelectionAction,
                 Some("Canvas"),
             ),
-            KeyBinding::new("[", input::DecreaseBrushSize, Some("Canvas")),
-            KeyBinding::new("]", input::IncreaseBrushSize, Some("Canvas")),
-            KeyBinding::new("shift-[", input::DecreaseBrushHardness, Some("Canvas")),
-            KeyBinding::new("shift-]", input::IncreaseBrushHardness, Some("Canvas")),
+            KeyBinding::new("[", canvas_input::DecreaseBrushSize, Some("Canvas")),
+            KeyBinding::new("]", canvas_input::IncreaseBrushSize, Some("Canvas")),
+            KeyBinding::new(
+                "shift-[",
+                canvas_input::DecreaseBrushHardness,
+                Some("Canvas"),
+            ),
+            KeyBinding::new(
+                "shift-]",
+                canvas_input::IncreaseBrushHardness,
+                Some("Canvas"),
+            ),
         ]);
 
         let mut window_watch = Vec::new();
@@ -299,7 +339,7 @@ impl App {
             transform_drag_frame_generation: 0,
             snap_guides: Vec::new(),
             hover_pos: None,
-            last_cursor: crate::input::CursorPolicy::SystemDefault,
+            last_cursor: crate::input_policy::CursorPolicy::SystemDefault,
             edge_pointer: None,
             edge_scroll_active: false,
             edge_scroll_generation: 0,
@@ -316,10 +356,10 @@ impl App {
             close_after_dirty: false,
             pending_window_close: false,
             pending_tab_close: None,
-            input: crate::input::InputState::new(),
+            input: crate::input_policy::InputState::new(),
             clipboard: None,
-            brush_tips: crate::input::BrushTipCache::default(),
-            paint_smoother: input::PaintSmoother::default(),
+            brush_tips: crate::input_policy::BrushTipCache::default(),
+            paint_smoother: canvas_input::PaintSmoother::default(),
             brush_axis_lock: None,
             brush_stroke_start: None,
             brush_stroke_start_screen: None,
@@ -366,22 +406,31 @@ impl App {
         register_global_action::<ExportDocument>(cx, App::export_document_action);
         register_global_action::<PrintDocument>(cx, App::print_document_action);
         register_global_action::<CloseDocument>(cx, App::close_document_action);
-        register_global_action::<input::SetCanvasTool>(cx, App::set_canvas_tool_action);
-        register_global_action::<input::ToggleSelectionShape>(
+        register_global_action::<canvas_input::SetCanvasTool>(cx, App::set_canvas_tool_action);
+        register_global_action::<canvas_input::ToggleSelectionShape>(
             cx,
             App::toggle_selection_shape_action,
         );
-        register_global_action::<input::DecreaseBrushSize>(cx, App::decrease_brush_size_action);
-        register_global_action::<input::IncreaseBrushSize>(cx, App::increase_brush_size_action);
-        register_global_action::<input::DecreaseBrushHardness>(
+        register_global_action::<canvas_input::DecreaseBrushSize>(
+            cx,
+            App::decrease_brush_size_action,
+        );
+        register_global_action::<canvas_input::IncreaseBrushSize>(
+            cx,
+            App::increase_brush_size_action,
+        );
+        register_global_action::<canvas_input::DecreaseBrushHardness>(
             cx,
             App::decrease_brush_hardness_action,
         );
-        register_global_action::<input::IncreaseBrushHardness>(
+        register_global_action::<canvas_input::IncreaseBrushHardness>(
             cx,
             App::increase_brush_hardness_action,
         );
-        register_global_action::<input::CancelCanvasGesture>(cx, App::cancel_canvas_gesture_action);
+        register_global_action::<canvas_input::CancelCanvasGesture>(
+            cx,
+            App::cancel_canvas_gesture_action,
+        );
         register_global_action::<history::UndoDocument>(cx, App::undo_document_action);
         register_global_action::<history::RedoDocument>(cx, App::redo_document_action);
         register_global_action::<viewport::ZoomInAction>(cx, App::zoom_in_action);

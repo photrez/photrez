@@ -23,7 +23,7 @@
 //! ones are private - in BOTH the anchor's copy of T and the fresh copy.
 
 use super::*;
-use crate::pixel::tile::TilePatch;
+use crate::raster::tile::TilePatch;
 
 fn tile(x: i64, y: i64, w: usize, h: usize, fill: u8) -> TilePatch {
     TilePatch {
@@ -191,7 +191,7 @@ fn the_layer_anchor_is_counted_even_with_no_history() {
         .layer_state(&layer)
         .expect("layer state materializes");
     let (before, after) = ls.cow_batch(
-        &[crate::pixel::state_node::RegionChange::new(
+        &[crate::raster::state_node::RegionChange::new(
             0,
             0,
             2,
@@ -355,7 +355,7 @@ fn one_untouched_tile_of_four_shares_exactly_that_tile() {
 }
 
 /// THE ARENA-RESET CASE. `StateNode` ids are minted per `LayerState` from that
-/// LayerState's own `Arena`, starting at 0 (`pixel/state_node/cow.rs`,
+/// LayerState's own `Arena`, starting at 0 (`raster/state_node/cow.rs`,
 /// `LayerState::new`). `init_layer` and
 /// `resize_layer` both drop the `LayerState` (`pixel/document_store.rs`),
 /// and both call `history.invalidate_layer`, which EARLY-RETURNS while a

@@ -20,7 +20,7 @@ use text::*;
 pub(super) fn fade_in_row(
     state: &gpui_kit::Entity<AppState>,
     active_tool: &ToolId,
-    committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    committed_selection: Option<photrez_core::document::content::SelectionState>,
     readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -281,7 +281,7 @@ pub(super) fn selection_field_value(value: f64) -> String {
 fn selection_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
-    committed: Option<photrez_core::ptz::content::SelectionState>,
+    committed: Option<photrez_core::document::content::SelectionState>,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let (shape, open, cursor, more_open) = {

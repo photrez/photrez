@@ -2,9 +2,9 @@
 //! Registry access: document and layer lifecycle plus the read accessors.
 
 use super::PixelStoreRegistry;
+use crate::document::content::{LayerType, PtzDocumentContent};
 use crate::pixel::document_store::DocumentPixelStore;
-use crate::pixel::layer::PixelLayer;
-use crate::ptz::content::{LayerType, PtzDocumentContent};
+use crate::raster::layer::PixelLayer;
 use std::collections::HashSet;
 
 fn validate_layer_pixels(width: u32, height: u32, byte_len: usize) -> Result<(), String> {
@@ -178,5 +178,23 @@ impl PixelStoreRegistry {
         self.get_layer(doc_id, layer_id)
             .map(|l| l.epoch())
             .ok_or_else(|| format!("layer not initialized: {layer_id}"))
+    }
+}
+
+impl crate::render::input::RenderInput for PixelStoreRegistry {
+    /// The committed canonical pixels of one layer. This is the render path's
+    /// whole view of the store: it cannot reach the mutable accessor or the
+    /// history stream through it.
+    fn layer_pixels(
+        &self,
+        document_id: &str,
+        layer_id: &str,
+    ) -> Option<crate::render::input::RenderLayerPixels<'_>> {
+        let layer = self.get_layer(document_id, layer_id)?;
+        Some(crate::render::input::RenderLayerPixels {
+            width: layer.width,
+            height: layer.height,
+            pixels: &layer.pixels,
+        })
     }
 }

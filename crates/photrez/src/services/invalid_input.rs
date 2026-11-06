@@ -12,7 +12,7 @@ use crate::services::ptz_limits::{
 };
 use crate::services::save_stream::SaveStream;
 use crate::services::settings::{FileSettings, SettingsStore};
-use photrez_core::ptz::content::PtzDocumentContent;
+use photrez_core::document::content::PtzDocumentContent;
 
 static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(1);
 

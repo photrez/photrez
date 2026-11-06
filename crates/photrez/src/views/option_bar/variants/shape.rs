@@ -44,7 +44,7 @@ pub(super) fn shape_items(
     row: Div,
     cx: &Context<crate::app::App>,
 ) -> Div {
-    use photrez_core::ptz::layer_params::ShapeFillKind;
+    use photrez_core::document::layer_params::ShapeFillKind;
 
     let (
         kind,

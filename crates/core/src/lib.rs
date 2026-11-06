@@ -1,28 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Brush geometry: the stroke dab producer and the brush-tip builder.
-pub mod brush;
 // The persisted `.ptz` model: the document content, the file envelope, the
 // nested per-layer payloads, the render-side projection bridge, the derived
 // document replica, the seed-payload validation, and the shared test fixtures.
 pub mod ptz;
-// Runtime document bounded context: the `DocumentCore` engine, its history
-// stream, and the document snapshot DTO. Public so its engine types —
-// `DocumentCore` and `LayerMeta`, re-exported by `protocol` — and
-// the snapshot DTO stay reachable from outside the crate.
+// The document engine: the authoritative `DocumentCore` state, its history
+// stream, command dispatch, the structural and canvas command families, the
+// structural-sharing layer set, and the document snapshot DTO. Public so its
+// engine types reach the facade.
+pub mod engine;
+// The document model, owned by `photrez-document` and re-exported so callers keep
+// one entry point.
 pub mod document;
 pub mod geometry;
-// The paint rasterizer, whose bytes are what the host's paint path is checked
-// against.
-pub mod paint;
 pub mod parallel;
-// Pixel ownership: the authoritative per-layer buffers, the per-layer
-// `StateNode` store, the packed tile-major store, the native compute kernels,
-// and the document-namespaced registry the host drives.
+// Pixel ownership: the document-namespaced registry, the store that binds
+// buffers to a document's history, its byte accounting, and the image payload
+// codecs. The buffers, tiles, and kernels themselves are the raster primitives
+// in `raster`.
 pub mod pixel;
 pub mod protocol;
-// Render-side layer DTOs, the CPU compositor entry point the native host renders
-// through, and the crate-internal wire command/projection types. The wire
-// module stays crate-private; `render::compositor` is the justified public
-// document-to-pixels entry point.
-pub mod render;
+// The raster primitives: the canonical pixel buffer, tiles, the copy-on-write
+// state-node seam, the compute kernels, and the paint and brush geometry that
+// prepares the stamps those kernels apply. They hold pixels, not document state.
+pub use photrez_raster as raster;
+// Render-side compositing: the CPU compositor entry point the native host
+// renders through, plus the crate-private shape and text rasterizers. The layer
+// metadata it draws lives in `document`.
+pub use photrez_render as render;
 pub(crate) mod wire;

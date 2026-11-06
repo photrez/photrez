@@ -1,7 +1,7 @@
 use super::{reg, tile};
+use crate::document::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
 use crate::pixel::store::PixelStoreRegistry;
 use crate::pixel::{HistoryDepth, PixelStoreBytes};
-use crate::ptz::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
 
 fn seed_content(doc_id: &str, layer_id: &str, width: f64, height: f64) -> PtzDocumentContent {
     PtzDocumentContent {

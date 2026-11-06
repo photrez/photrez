@@ -2,13 +2,13 @@
 //! snapshot and commit validators that keep a sample honest.
 
 use gpui_kit::{point, px, Bounds, Pixels};
-use photrez_core::ptz::content::LayerType;
+use photrez_core::document::content::LayerType;
 
 use crate::app::measurement::{
     InputMeasurementReceipt, InputMeasurementRender, InputMeasurementSnapshot, RefreshOutcome,
 };
 use crate::app::App;
-use crate::render::canvas_bridge::fit_placement;
+use crate::display::canvas_bridge::fit_placement;
 
 use super::CanonicalState;
 

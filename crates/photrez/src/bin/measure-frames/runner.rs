@@ -1,11 +1,11 @@
-use crate::common::{copy_region, disc_bounds};
 use crate::presentmon;
+use crate::support::{copy_region, disc_bounds};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::timing::Pacing;
 use super::{probe, timing};
-use photrez::render::canvas_bridge::union_rect;
+use photrez::display::canvas_bridge::union_rect;
 
 use super::{
     clone_rgba, dot_position, emit, fail, machine_line, paint_disc, round2, round6, since, Runner,
@@ -372,7 +372,7 @@ impl Runner {
         let row = serde_json::json!({
             "shot": "measure-frames",
             "harness": "canvas_bridge",
-            "profile": crate::common::build_profile(),
+            "profile": crate::support::build_profile(),
             "mode": self.cfg.mode.as_str(),
             "size": self.width,
             "requested_size": if self.cfg.demo { None } else { Some(self.cfg.size) },

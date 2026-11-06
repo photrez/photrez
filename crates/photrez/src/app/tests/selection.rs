@@ -1,13 +1,11 @@
-use super::input::{history_cursor, page, pixels, set_tool, tab_to_canvas, window_point};
+use super::canvas_input::{history_cursor, page, pixels, set_tool, tab_to_canvas, window_point};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
-use photrez_core::ptz::content::{SelectionShape, SelectionState};
+use photrez_core::document::content::{SelectionShape, SelectionState};
 
-#[path = "selection/commands.rs"]
 mod commands;
-#[path = "selection/rotate.rs"]
 mod rotate;
 
 pub(super) fn dispatch(

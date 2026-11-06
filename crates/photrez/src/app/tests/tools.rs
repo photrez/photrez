@@ -1,4 +1,4 @@
-use super::input::{
+use super::canvas_input::{
     drag_doc, layer_rows, mount_archive_app, page, pixels, select_layer, set_tool, tab_to_canvas,
     window_point,
 };
@@ -6,18 +6,13 @@ use super::*;
 use crate::state::{ShapeTool, ToolId};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
-use photrez_core::ptz::content::{LayerType, SelectionShape, SelectionState};
-use photrez_core::ptz::layer_params::{ShapeFillKind, ShapeKind};
+use photrez_core::document::content::{LayerType, SelectionShape, SelectionState};
+use photrez_core::document::layer_params::{ShapeFillKind, ShapeKind};
 
-#[path = "tools/brush_preview_and_move.rs"]
 mod brush_preview_and_move;
-#[path = "tools/latency.rs"]
 mod latency;
-#[path = "tools/layer_edits.rs"]
 mod layer_edits;
-#[path = "tools/option_bar_live.rs"]
 mod option_bar_live;
-#[path = "tools/text_and_shape_persistence.rs"]
 mod text_and_shape_persistence;
 
 pub(super) fn set_state(
@@ -32,7 +27,7 @@ pub(super) fn set_state(
 
 #[gpui_kit::test]
 fn brush_cursor_ring_follows_size_hardness_and_tool(cx: &mut gpui_kit::TestAppContext) {
-    use photrez_core::brush::tip::get_brush_cursor_radius_scale;
+    use photrez_core::raster::brush::tip::get_brush_cursor_radius_scale;
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -376,7 +371,7 @@ fn eyedropper_samples_the_composite_not_the_selected_layer(cx: &mut gpui_kit::Te
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let bottom = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("bottom"))
@@ -837,7 +832,7 @@ fn typography_section_edits_the_selected_text_layer(cx: &mut gpui_kit::TestAppCo
             .expect("text data exists");
         assert_eq!(
             data.align,
-            photrez_core::ptz::layer_params::TextAlign::Center
+            photrez_core::document::layer_params::TextAlign::Center
         );
 
         window.click("prop-text-stroke", cx);

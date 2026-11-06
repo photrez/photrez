@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use super::timing;
 use super::timing::Pacing;
-use photrez::render::canvas_bridge::CanvasImage;
+use photrez::display::canvas_bridge::CanvasImage;
 
 use super::{emit, fail, machine_line, probe, round2, round6, Runner, WaitMode};
 
@@ -56,7 +56,7 @@ impl Runner {
         let row = serde_json::json!({
             "shot": "measure-frames-control",
             "harness": "canvas_bridge",
-            "profile": crate::common::build_profile(),
+            "profile": crate::support::build_profile(),
             "control": true,
             "diagnostic_only": true,
             "mode": self.cfg.mode.as_str(),

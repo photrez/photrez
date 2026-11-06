@@ -5,7 +5,7 @@
 use super::tile;
 use crate::pixel::store::{registry, PixelStoreRegistry};
 use crate::protocol::{
-    Command, CommandEnvelope, CommandResult, DocumentCore, HistoryQuery, RenderLayerChange,
+    Command, CommandEnvelope, CommandResult, DocumentCore, HistoryQuery, LayerChange,
 };
 
 fn envelope(cmd: Command) -> CommandEnvelope {
@@ -48,10 +48,7 @@ fn native_apply_add_layer_records_entry_and_bumps_version_and_snapshot() {
 
     assert_eq!(res.document_version, 1, "version advanced on apply");
     assert_eq!(res.delta.changes.len(), 1, "one layer upsert in delta");
-    assert!(matches!(
-        res.delta.changes[0],
-        RenderLayerChange::Upsert { .. }
-    ));
+    assert!(matches!(res.delta.changes[0], LayerChange::Upsert { .. }));
 
     // history_query shows the single applied entry at the tip.
     let q: HistoryQuery = reg.docs.get("doc1").unwrap().history.history_query();

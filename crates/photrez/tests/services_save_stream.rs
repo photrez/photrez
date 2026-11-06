@@ -9,7 +9,7 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use photrez::render::canvas_bridge::CanvasImage;
+use photrez::display::canvas_bridge::CanvasImage;
 use photrez::services::document::load_document_candidate;
 use photrez::services::file_io::{FileIo, LocalFileIo};
 use photrez::services::save_stream::SaveStream;

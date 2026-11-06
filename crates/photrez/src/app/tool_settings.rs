@@ -6,8 +6,10 @@
 //! clamps match the tool defaults the bars are built on.
 
 use gpui_kit::Context;
+use photrez_core::document::layer_params::{
+    BasicAdjustment, ShapeFillKind, ShapeKind, ShapeParams,
+};
 use photrez_core::protocol::{Command, TransformPatch};
-use photrez_core::ptz::layer_params::{BasicAdjustment, ShapeFillKind, ShapeKind, ShapeParams};
 
 use super::App;
 
@@ -478,7 +480,7 @@ impl App {
     pub(crate) fn edit_selected_text(
         &mut self,
         cx: &mut Context<Self>,
-        mutate: impl FnOnce(&mut photrez_core::ptz::layer_params::TextData),
+        mutate: impl FnOnce(&mut photrez_core::document::layer_params::TextData),
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut data = layer
@@ -507,22 +509,22 @@ impl App {
 
     fn sync_text_defaults(
         &mut self,
-        data: &photrez_core::ptz::layer_params::TextData,
+        data: &photrez_core::document::layer_params::TextData,
         cx: &mut Context<Self>,
     ) {
         self.state.update(cx, |state, _| {
             state.text_font_size = data.font_size;
             state.text_font_weight = data.font_weight;
             state.text_italic =
-                data.font_style == photrez_core::ptz::layer_params::TextFontStyle::Italic;
+                data.font_style == photrez_core::document::layer_params::TextFontStyle::Italic;
             state.text_align = match data.align {
-                photrez_core::ptz::layer_params::TextAlign::Left => {
+                photrez_core::document::layer_params::TextAlign::Left => {
                     crate::state::TextAlignTool::Left
                 }
-                photrez_core::ptz::layer_params::TextAlign::Center => {
+                photrez_core::document::layer_params::TextAlign::Center => {
                     crate::state::TextAlignTool::Center
                 }
-                photrez_core::ptz::layer_params::TextAlign::Right => {
+                photrez_core::document::layer_params::TextAlign::Right => {
                     crate::state::TextAlignTool::Right
                 }
             };
@@ -533,7 +535,7 @@ impl App {
             state.text_stroke_align = data
                 .stroke
                 .align
-                .unwrap_or(photrez_core::ptz::layer_params::TextStrokeAlign::Outside);
+                .unwrap_or(photrez_core::document::layer_params::TextStrokeAlign::Outside);
             if let Some(color) = crate::palette::parse_hex(&data.stroke.color) {
                 state.text_stroke_color = color;
             }
@@ -649,14 +651,14 @@ impl App {
             .clone()
             .ok_or_else(|| "the selected layer is not text".to_string())?;
         data.font_style = match data.font_style {
-            photrez_core::ptz::layer_params::TextFontStyle::Italic => {
-                photrez_core::ptz::layer_params::TextFontStyle::Normal
+            photrez_core::document::layer_params::TextFontStyle::Italic => {
+                photrez_core::document::layer_params::TextFontStyle::Normal
             }
-            _ => photrez_core::ptz::layer_params::TextFontStyle::Italic,
+            _ => photrez_core::document::layer_params::TextFontStyle::Italic,
         };
         self.state.update(cx, |state, _| {
             state.text_italic =
-                data.font_style == photrez_core::ptz::layer_params::TextFontStyle::Italic;
+                data.font_style == photrez_core::document::layer_params::TextFontStyle::Italic;
         });
         self.apply_core_command(
             &doc_id,
@@ -683,13 +685,13 @@ impl App {
         self.edit_selected_text(cx, |data| {
             data.align = match align {
                 crate::state::TextAlignTool::Left => {
-                    photrez_core::ptz::layer_params::TextAlign::Left
+                    photrez_core::document::layer_params::TextAlign::Left
                 }
                 crate::state::TextAlignTool::Center => {
-                    photrez_core::ptz::layer_params::TextAlign::Center
+                    photrez_core::document::layer_params::TextAlign::Center
                 }
                 crate::state::TextAlignTool::Right => {
-                    photrez_core::ptz::layer_params::TextAlign::Right
+                    photrez_core::document::layer_params::TextAlign::Right
                 }
             };
         })
@@ -804,7 +806,7 @@ impl App {
 
     pub(crate) fn set_text_stroke_align(
         &mut self,
-        align: photrez_core::ptz::layer_params::TextStrokeAlign,
+        align: photrez_core::document::layer_params::TextStrokeAlign,
         cx: &mut Context<Self>,
     ) {
         if !self.is_text_layer_selected(cx) {

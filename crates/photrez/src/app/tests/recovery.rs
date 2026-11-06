@@ -5,7 +5,6 @@ use super::*;
 use crate::services::error::ServiceError;
 use crate::services::file_io::SaveTarget;
 use gpui_kit::test::TestWindowExt as _;
-#[path = "recovery/offer.rs"]
 mod offer;
 
 #[gpui_kit::test]

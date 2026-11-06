@@ -118,7 +118,7 @@ impl Default for AppState {
             shape_arrow_head: false,
             text_stroke_width: 0.0,
             text_stroke_color: [0, 0, 0, 255],
-            text_stroke_align: photrez_core::ptz::layer_params::TextStrokeAlign::Outside,
+            text_stroke_align: photrez_core::document::layer_params::TextStrokeAlign::Outside,
             auto_copy_hex: false,
             layer_opacity: 1.0,
             layer_blend: "Normal".to_string(),
@@ -136,7 +136,8 @@ impl Default for AppState {
             selected_text_color: None,
             selected_text_stroke_width: 0.0,
             selected_text_stroke_color: None,
-            selected_text_stroke_align: photrez_core::ptz::layer_params::TextStrokeAlign::Outside,
+            selected_text_stroke_align:
+                photrez_core::document::layer_params::TextStrokeAlign::Outside,
             selected_shape: None,
             text_underline: false,
             text_strikethrough: false,

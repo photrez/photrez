@@ -1,6 +1,6 @@
-use super::input::{drag_doc, page, pixels, set_tool, tab_to_canvas, window_point};
+use super::canvas_input::{drag_doc, page, pixels, set_tool, tab_to_canvas, window_point};
 use super::*;
-use crate::app::input::SetCanvasTool;
+use crate::app::canvas_input::SetCanvasTool;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};

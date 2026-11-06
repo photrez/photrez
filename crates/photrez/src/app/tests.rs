@@ -357,101 +357,69 @@ fn mount_app_with_settings(
 /// RED proof: remove the key binding or the root `on_action` and the
 /// pressed shortcut leaves the session at revision 1 / saved 0 and the
 /// deleted archive is not recreated.
-#[path = "tests/color_picker.rs"]
 mod color_picker;
 
-#[path = "tests/layers_footer.rs"]
 mod layers_footer;
 
-#[path = "tests/option_bar.rs"]
 mod option_bar;
 
-#[path = "tests/close_guard.rs"]
 mod close_guard;
 
-#[path = "tests/commands.rs"]
 mod commands;
 
-#[path = "tests/tab_strip.rs"]
 mod tab_strip;
 
-#[path = "tests/save_as_cancel.rs"]
 mod save_as_cancel;
 
-#[path = "tests/crop.rs"]
 mod crop;
 
-#[path = "tests/adjustments.rs"]
 mod adjustments;
 
-#[path = "tests/empty_state.rs"]
 mod empty_state;
 
-#[path = "tests/brush_menu.rs"]
 mod brush_menu;
 
-#[path = "tests/dialogs_locale.rs"]
 mod dialogs_locale;
 
-#[path = "tests/documents.rs"]
 mod documents;
 
-#[path = "tests/print.rs"]
 mod print;
 
-#[path = "tests/export.rs"]
 mod export;
 
-#[path = "tests/recovery.rs"]
 mod recovery;
 
-#[path = "tests/input.rs"]
-mod input;
+mod canvas_input;
 
-#[path = "tests/layer_latency.rs"]
 mod layer_latency;
 
-#[path = "tests/layers_panel.rs"]
 mod layers_panel;
 
-#[path = "tests/menus.rs"]
 mod menus;
 
-#[path = "tests/rail.rs"]
 mod rail;
 
-#[path = "tests/selection_clipboard.rs"]
 mod selection_clipboard;
 
-#[path = "tests/selection_latency.rs"]
 mod selection_latency;
 
-#[path = "tests/selection.rs"]
 mod selection;
 
-#[path = "tests/tools.rs"]
 mod tools;
 
-#[path = "tests/transform.rs"]
 mod transform;
 
-#[path = "tests/history.rs"]
 mod history;
 
-#[path = "tests/viewport.rs"]
 mod viewport;
 
-#[path = "tests/cross_doc.rs"]
 mod cross_doc;
 
-#[path = "tests/picker_channels.rs"]
 mod picker_channels;
 
-#[path = "tests/picker_eyedropper.rs"]
 mod picker_eyedropper;
 
-#[path = "tests/properties.rs"]
 mod properties;
 
-#[path = "tests/keyboard.rs"]
 mod keyboard;
+mod nav_regression;

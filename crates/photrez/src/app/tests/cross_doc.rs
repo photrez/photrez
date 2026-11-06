@@ -7,7 +7,7 @@
 use super::*;
 use crate::app::cross_doc::{LayerDragPayload, LayerDropTarget};
 use gpui_kit::test::TestWindowExt;
-use photrez_core::ptz::content::{PtzDocumentContent, PtzLayer};
+use photrez_core::document::content::{PtzDocumentContent, PtzLayer};
 
 const FIXTURE_DOC: &str = "bounded-raster-doc";
 const FIXTURE_PNG: &str = concat!(
@@ -308,7 +308,7 @@ fn layer_drag_refuses_a_full_target_document(cx: &mut gpui_kit::TestAppContext) 
                         index: 0,
                         x: None,
                         y: None,
-                        layer_type: Some(photrez_core::ptz::content::LayerType::Raster),
+                        layer_type: Some(photrez_core::document::content::LayerType::Raster),
                         shape_params: None,
                         text_data: None,
                     },

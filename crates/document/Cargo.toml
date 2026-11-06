@@ -1,0 +1,21 @@
+[package]
+name = "photrez-document"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "AGPL-3.0-or-later"
+description = "Canonical Photrez document model: layers, transforms, and layer parameters"
+repository = "https://github.com/photrez/photrez"
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# `float_roundtrip` keeps the f64 text spelling stable, which the `.ptz` writer
+# golden depends on. Match `photrez-core`.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }

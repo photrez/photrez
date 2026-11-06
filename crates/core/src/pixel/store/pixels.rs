@@ -3,8 +3,8 @@
 //! pixel undo/redo replay.
 
 use super::PixelStoreRegistry;
-use crate::paint::raster::{raster_shadow, RasterDab, RasterTip};
-use crate::pixel::tile::TilePatch;
+use crate::raster::paint::raster::{raster_shadow, RasterDab, RasterTip};
+use crate::raster::tile::TilePatch;
 use std::time::Instant;
 
 /// Where one brush commit spent its time, plus the tile-aligned crop it
@@ -60,7 +60,7 @@ impl PixelStoreRegistry {
         let doc = self.docs.get_mut(doc_id)?;
         // Validate the layer exists BEFORE opening a history entry, so a failed
         // commit (missing layer) does NOT leave a phantom cursor movement.
-        let epoch = doc.layers.get(layer_id)?.epoch;
+        let epoch = doc.layers.get(layer_id)?.epoch();
         // Build the before/after `Arc<StateNode>` pair by COW-ing the change
         // regions into the maintained per-layer canon. The `before`/`after`
         // tile-patch args are the caller's pre/post image; they stay unchanged
@@ -73,8 +73,8 @@ impl PixelStoreRegistry {
         for t in &after {
             layer.write_tile(t);
         }
-        layer.epoch += 1;
-        Some((after, layer.epoch, version))
+        let epoch_after = layer.bump_epoch();
+        Some((after, epoch_after, version))
     }
 
     /// Fill: write an explicit RGBA region into the canonical buffer as ONE
@@ -478,11 +478,11 @@ impl PixelStoreRegistry {
                 for t in &tiles {
                     layer.write_tile(t);
                 }
-                layer.epoch += 1;
+                let epoch_after = layer.bump_epoch();
                 if let Some(ls) = doc.state_nodes.get_mut(&layer_id) {
                     ls.set_current(node);
                 }
-                Some((layer_id, tiles, layer.epoch, doc.history.version()))
+                Some((layer_id, tiles, epoch_after, doc.history.version()))
             }
             _ => None,
         }
@@ -498,11 +498,11 @@ impl PixelStoreRegistry {
                 for t in &tiles {
                     layer.write_tile(t);
                 }
-                layer.epoch += 1;
+                let epoch_after = layer.bump_epoch();
                 if let Some(ls) = doc.state_nodes.get_mut(&layer_id) {
                     ls.set_current(node);
                 }
-                Some((layer_id, tiles, layer.epoch, doc.history.version()))
+                Some((layer_id, tiles, epoch_after, doc.history.version()))
             }
             _ => None,
         }

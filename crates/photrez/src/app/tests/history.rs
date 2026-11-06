@@ -1,4 +1,4 @@
-use super::input::{drag_doc, pixels, set_tool};
+use super::canvas_input::{drag_doc, pixels, set_tool};
 use super::*;
 use crate::app::history::{RedoDocument, UndoDocument};
 use crate::state::ToolId;

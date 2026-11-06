@@ -24,9 +24,13 @@ legacy-host = []
 # fixture JSON is not compiled into the shipped library; the core test build
 # gets the same module through `cfg(any(test, feature = ...))`, so a host that
 # wants to reuse the fixtures enables this explicitly.
-ptz-test-fixtures = []
+ptz-test-fixtures = ["photrez-format/ptz-test-fixtures"]
 
 [dependencies]
+photrez-document = { path = "../document" }
+photrez-format = { path = "../format" }
+photrez-raster = { path = "../raster" }
+photrez-render = { path = "../render" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "tiff", "gif", "bmp"] }
@@ -34,3 +38,9 @@ uuid = { version = "1.7", features = ["v4", "js"] }
 rayon = "1.12.0"
 tiny-skia = "0.11.4"
 cosmic-text = "0.19.0"
+
+[dev-dependencies]
+# The store tests check the packed canon against raster's independent reference
+# copy. The feature exists only for test builds; the shipped binary compiles the
+# reference module out.
+photrez-raster = { path = "../raster", features = ["test-reference"] }

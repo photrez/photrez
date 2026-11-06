@@ -5,7 +5,7 @@
 use gpui_kit::{Context, KeyDownEvent, Window};
 use photrez_core::protocol::Command;
 
-use crate::render::canvas_bridge::MAX_CANVAS_DIM;
+use crate::display::canvas_bridge::MAX_CANVAS_DIM;
 use crate::state::{ResizeSession, ToastSeverity};
 use crate::units::DimensionUnit;
 

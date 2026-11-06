@@ -27,7 +27,7 @@ pub enum PayloadKind {
     Snapshot,
     /// A host-adapter logical transition (host-handoff: the host steps the cursor).
     External,
-    /// Native metadata (`RenderLayer`) payload (handled by the walker).
+    /// Native metadata (`LayerMeta`) payload (handled by the walker).
     Metadata,
 }
 

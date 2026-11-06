@@ -421,7 +421,7 @@ pub struct AppState {
     /// mode and synced by edit-mode changes.
     pub text_stroke_width: f64,
     pub text_stroke_color: [u8; 4],
-    pub text_stroke_align: photrez_core::ptz::layer_params::TextStrokeAlign,
+    pub text_stroke_align: photrez_core::document::layer_params::TextStrokeAlign,
     /// The selected layer's opacity and blend label, projected with the rows.
     pub layer_opacity: f64,
     pub layer_blend: String,
@@ -448,10 +448,10 @@ pub struct AppState {
     /// parameters; `None` colour when the projected layer has no text data.
     pub selected_text_stroke_width: f64,
     pub selected_text_stroke_color: Option<[u8; 4]>,
-    pub selected_text_stroke_align: photrez_core::ptz::layer_params::TextStrokeAlign,
+    pub selected_text_stroke_align: photrez_core::document::layer_params::TextStrokeAlign,
     /// The selected shape layer's parameters, `None` when the projected layer
     /// is not a shape. Drives the shape bar's edit mode.
-    pub selected_shape: Option<photrez_core::ptz::layer_params::ShapeParams>,
+    pub selected_shape: Option<photrez_core::document::layer_params::ShapeParams>,
     pub text_underline: bool,
     pub text_strikethrough: bool,
     pub text_uppercase: bool,

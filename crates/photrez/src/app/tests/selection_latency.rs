@@ -2,7 +2,7 @@
 // rotation commit. Each is `#[ignore]`d and run serially on purpose, because parallel
 // load inflates the p95, and each times a dispatch plus the committed frame.
 
-use super::input::{page, set_tool, tab_to_canvas, window_point};
+use super::canvas_input::{page, set_tool, tab_to_canvas, window_point};
 use super::selection::{dispatch, set_selection};
 use super::*;
 use crate::state::ToolId;

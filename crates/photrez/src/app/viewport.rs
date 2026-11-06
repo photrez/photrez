@@ -10,7 +10,7 @@ use gpui_kit::{
     ScrollWheelEvent,
 };
 
-use crate::render::canvas_bridge::Camera;
+use crate::display::canvas_bridge::Camera;
 
 use super::App;
 
@@ -231,13 +231,15 @@ impl App {
         else {
             return false;
         };
-        let Some(layout) = crate::render::canvas_bridge::navigator_layout(doc_w, doc_h) else {
+        let Some(layout) = crate::display::canvas_bridge::navigator_layout(doc_w, doc_h) else {
             return false;
         };
-        let local_x =
-            f32::from(position.x) - f32::from(nav.origin.x) - crate::render::canvas_bridge::NAV_PAD;
-        let local_y =
-            f32::from(position.y) - f32::from(nav.origin.y) - crate::render::canvas_bridge::NAV_PAD;
+        let local_x = f32::from(position.x)
+            - f32::from(nav.origin.x)
+            - crate::display::canvas_bridge::NAV_PAD;
+        let local_y = f32::from(position.y)
+            - f32::from(nav.origin.y)
+            - crate::display::canvas_bridge::NAV_PAD;
         let x = (local_x - layout.offset_x) / layout.scale;
         let y = (local_y - layout.offset_y) / layout.scale;
         if x < 0. || y < 0. || x > doc_w || y > doc_h {

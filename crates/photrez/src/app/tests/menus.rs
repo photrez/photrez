@@ -1,4 +1,4 @@
-use super::input::{drag_doc, layer_rows, page, select_layer, set_tool, window_point};
+use super::canvas_input::{drag_doc, layer_rows, page, select_layer, set_tool, window_point};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -178,7 +178,7 @@ fn canvas_menu_gates_cut_and_copy_on_the_active_layer_bitmap(cx: &mut gpui_kit::
         set_tool(&content, cx, ToolId::Shape, 1.0);
         window.render_frame(cx);
         drag_doc(window, (200, 150), (100.0, 10.0), (150.0, 50.0), cx);
-        let (rows, selected) = super::input::layer_rows(&content, cx);
+        let (rows, selected) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2, "the shape adds one layer to the Background");
         let shape = rows
             .iter()

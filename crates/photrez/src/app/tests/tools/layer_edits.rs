@@ -210,11 +210,11 @@ fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit
         assert_eq!(data.font_weight, 700.0);
         assert_eq!(
             data.font_style,
-            photrez_core::ptz::layer_params::TextFontStyle::Italic
+            photrez_core::document::layer_params::TextFontStyle::Italic
         );
         assert_eq!(
             data.align,
-            photrez_core::ptz::layer_params::TextAlign::Center
+            photrez_core::document::layer_params::TextAlign::Center
         );
         assert_eq!(data.underline, Some(true));
         assert_eq!(data.strikethrough, Some(true));
@@ -254,7 +254,7 @@ fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit
             .expect("selected layer");
         assert_eq!(
             layer_type,
-            photrez_core::ptz::content::LayerType::Text,
+            photrez_core::document::content::LayerType::Text,
             "the refused rasterize leaves the layer parametric"
         );
         // Not proven here: that the option-bar trigger reports this refusal. The
@@ -313,7 +313,7 @@ fn text_rasterize_materializes_pixels_and_composites(cx: &mut gpui_kit::TestAppC
         });
         assert_eq!(
             layer_type,
-            photrez_core::ptz::content::LayerType::Raster,
+            photrez_core::document::content::LayerType::Raster,
             "rasterize converts the parametric layer"
         );
         let (width, height, len, layer_w, layer_h) =
@@ -413,7 +413,7 @@ fn text_bar_size_commit_latency(cx: &mut gpui_kit::TestAppContext) {
 fn text_stroke_popover_edits_the_layer_and_the_next_text_defaults(
     cx: &mut gpui_kit::TestAppContext,
 ) {
-    use photrez_core::ptz::layer_params::TextStrokeAlign;
+    use photrez_core::document::layer_params::TextStrokeAlign;
 
     let directory = TestDirectory::new();
     // The 1920x1080 client at 125% scaling gives a 1536 px layout width: the

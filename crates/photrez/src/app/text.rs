@@ -7,8 +7,8 @@
 //! fire.
 
 use gpui_kit::{Context, KeyDownEvent};
+use photrez_core::document::layer_params::TextData;
 use photrez_core::protocol::Command;
-use photrez_core::ptz::layer_params::TextData;
 
 use crate::state::{TextEditSession, ToolId};
 
@@ -180,7 +180,7 @@ impl App {
     #[cfg(test)]
     pub(crate) fn text_layer_data_for_test(
         &self,
-    ) -> Option<photrez_core::ptz::layer_params::TextData> {
+    ) -> Option<photrez_core::document::layer_params::TextData> {
         let doc_id = self.active_document.as_ref()?.doc_id.clone();
         let content = self
             .sessions

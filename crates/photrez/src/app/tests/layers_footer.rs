@@ -1,7 +1,7 @@
 //! The layers panel's footer action buttons: what each icon button does
 //! to the document, and the enabled/disabled gate around it.
 
-use super::input::{mount_archive_app, select_layer};
+use super::canvas_input::{mount_archive_app, select_layer};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 
@@ -32,7 +32,7 @@ fn footer_adds_and_deletes_layers_with_undo(cx: &mut gpui_kit::TestAppContext) {
             "undo removes the added layer"
         );
 
-        let (rows, selected) = super::input::layer_rows(&content, cx);
+        let (rows, selected) = super::canvas_input::layer_rows(&content, cx);
         let selected_core = rows
             .iter()
             .find(|row| row.id == selected)
@@ -73,7 +73,7 @@ fn footer_actions_disable_on_the_background_and_last_layer(cx: &mut gpui_kit::Te
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let bottom = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("bottom"))
@@ -134,7 +134,7 @@ fn footer_duplicate_button_runs_only_while_enabled(cx: &mut gpui_kit::TestAppCon
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, selected) = super::input::layer_rows(&content, cx);
+        let (rows, selected) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2, "the archive projects two rows");
 
         select_layer(&content, cx, selected);

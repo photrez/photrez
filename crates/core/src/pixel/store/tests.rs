@@ -4,10 +4,10 @@
 //! exercises.
 
 use super::*;
-use crate::paint::raster::{RasterDab, RasterTip};
-use crate::pixel::layer::PixelLayer;
-use crate::pixel::reference::assert_byte_eq;
-use crate::pixel::tile::TilePatch;
+use crate::raster::layer::PixelLayer;
+use crate::raster::paint::raster::{RasterDab, RasterTip};
+use crate::raster::reference::assert_byte_eq;
+use crate::raster::tile::TilePatch;
 
 mod crop_bake;
 mod history_round_trip;

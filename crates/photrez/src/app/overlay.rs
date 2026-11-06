@@ -10,7 +10,7 @@ impl App {
     /// state. A live drag wins so the marquee follows the pointer before the
     /// core command commits.
     pub(super) fn canvas_overlay(&self, cx: &Context<Self>) -> CanvasOverlay {
-        use photrez_core::ptz::content::SelectionShape as CoreSelectionShape;
+        use photrez_core::document::content::SelectionShape as CoreSelectionShape;
         let mut overlay = CanvasOverlay::default();
         let mut selection_inverted = false;
         if let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) {
@@ -20,7 +20,7 @@ impl App {
                 .and_then(|session| session.loaded_document().content_snapshot())
                 .and_then(|content| content.selection.clone())
             {
-                overlay.selection = Some(crate::render::canvas_bridge::SelectionOverlay {
+                overlay.selection = Some(crate::display::canvas_bridge::SelectionOverlay {
                     x: selection.x,
                     y: selection.y,
                     w: selection.width,
@@ -34,7 +34,7 @@ impl App {
         }
         let state = self.state.read(cx);
         if let Some(drag) = state.selection_drag {
-            overlay.selection = Some(crate::render::canvas_bridge::SelectionOverlay {
+            overlay.selection = Some(crate::display::canvas_bridge::SelectionOverlay {
                 x: drag[0],
                 y: drag[1],
                 w: drag[2],
@@ -89,7 +89,7 @@ impl App {
                             top_mid.x + normal.x * 24.0 / zoom,
                             top_mid.y + normal.y * 24.0 / zoom,
                         );
-                        if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                        if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
                             position,
                             &self.canvas_bounds,
                             doc_size,
@@ -110,7 +110,7 @@ impl App {
                     .as_ref()
                     .map(|document| document.canvas.dimensions())
                 {
-                    if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
                         position,
                         &self.canvas_bounds,
                         doc_size,
@@ -125,7 +125,7 @@ impl App {
                             crate::app::transform_geometry::Point { x, y },
                         ) + 45.0;
                         overlay.rotate_cursor =
-                            Some(crate::render::canvas_bridge::RotateCursorOverlay {
+                            Some(crate::display::canvas_bridge::RotateCursorOverlay {
                                 position: [f32::from(position.x), f32::from(position.y)],
                                 angle: angle as f32,
                             });
@@ -229,7 +229,7 @@ impl App {
                     .map(|document| document.canvas.dimensions())
                     .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
                 if let Some(doc_size) = doc_size {
-                    if let Some((x, y)) = crate::app::input::canvas_doc_coords(
+                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
                         position,
                         &self.canvas_bounds,
                         doc_size,
@@ -302,7 +302,7 @@ impl App {
                         .map(|document| document.canvas.dimensions())
                         .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
                     if let Some(doc_size) = doc_size {
-                        if let Some(center) = crate::app::input::canvas_doc_position(
+                        if let Some(center) = crate::app::canvas_input::canvas_doc_position(
                             position,
                             &self.canvas_bounds,
                             doc_size,
@@ -315,7 +315,9 @@ impl App {
                                 (state.brush_size, state.brush_hardness)
                             };
                             let scale =
-                                photrez_core::brush::tip::get_brush_cursor_radius_scale(hardness);
+                                photrez_core::raster::brush::tip::get_brush_cursor_radius_scale(
+                                    hardness,
+                                );
                             let base = (size / 2.0) * scale;
                             let (scale_x, scale_y, rotation) = self
                                 .selected_layer_for_cursor(cx)
@@ -351,7 +353,7 @@ impl App {
     pub(crate) fn rotate_cursor_for_test(
         &self,
         cx: &Context<Self>,
-    ) -> Option<crate::render::canvas_bridge::RotateCursorOverlay> {
+    ) -> Option<crate::display::canvas_bridge::RotateCursorOverlay> {
         self.canvas_overlay(cx).rotate_cursor
     }
     #[cfg(test)]

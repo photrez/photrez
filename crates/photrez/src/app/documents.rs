@@ -6,7 +6,7 @@
 
 use gpui_kit::Context;
 
-use crate::render::canvas_bridge::CanvasImage;
+use crate::display::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
 use crate::state::TabRow;
 

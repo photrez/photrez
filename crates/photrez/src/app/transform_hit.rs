@@ -3,7 +3,7 @@
 //! auto-select click that turns a hit into a selection.
 
 use gpui_kit::Context;
-use photrez_core::ptz::content::LayerType;
+use photrez_core::document::content::LayerType;
 
 use crate::app::transform_geometry::{document_to_layer_local, layer_corners, Point};
 
@@ -14,7 +14,7 @@ impl App {
     pub(crate) fn selected_layer_for_cursor(
         &self,
         cx: &gpui_kit::App,
-    ) -> Result<(String, photrez_core::ptz::content::PtzLayer), String> {
+    ) -> Result<(String, photrez_core::document::content::PtzLayer), String> {
         let doc_id = self
             .active_document
             .as_ref()

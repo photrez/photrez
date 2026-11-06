@@ -280,7 +280,7 @@ fn the_properties_opacity_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppCo
             });
         });
         window.render_frame(cx);
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
 
         let mut reached = false;
         for _ in 0..32 {

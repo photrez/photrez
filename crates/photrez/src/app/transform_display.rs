@@ -3,7 +3,7 @@
 //! Nothing here writes canonical content or history.
 
 use gpui_kit::Context;
-use photrez_core::ptz::content::{LayerType, Transform2D};
+use photrez_core::document::content::{LayerType, Transform2D};
 
 use super::transform_move::{GroupMember, LayerBounds};
 use super::App;
@@ -251,7 +251,7 @@ impl App {
         pixels: Vec<u8>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let canvas = crate::render::canvas_bridge::CanvasImage::from_rgba(width, height, pixels)
+        let canvas = crate::display::canvas_bridge::CanvasImage::from_rgba(width, height, pixels)
             .map_err(|error| format!("{error:?}"))?;
         if let Some(active) = self.active_document.as_mut() {
             let retired = std::mem::replace(&mut active.canvas, canvas);

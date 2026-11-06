@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Golden file for the `.ptz` `document.json` writer.
+//!
+//! This tracked golden records the input fixtures and the bytes produced by
+//! `PtzDocument::to_json`, pinning the writer's on-disk format.
+//!
+//! The generator is `#[ignore]`d, so normal tests never rewrite the golden.
+//! Regenerate deliberately, and only when the writer's output is INTENTIONALLY
+//! changing:
+//!
+//! ```text
+//! cargo test -p photrez-format --lib -- --ignored ptz_writer_golden
+//! ```
+//!
+//! The resulting diff is the record of what changed in the on-disk format. If
+//! the diff is not something you meant, the writer is wrong.
+//!
+//! THE GOLDEN MUST BE COMMITTED. It is not gitignored, and
+//! `ptz_writer_golden_is_up_to_date` — which runs in the normal gates — fails
+//! with "golden file missing" if it is absent, so a fresh clone that never
+//! stages it fails the build. Regenerate it and `git add` it together with the
+//! writer change.
+//!
+//! The golden holds each case as `input` (the fixture the Rust writer was
+//! given) plus `expected` (the bytes it wrote), so changes can be reviewed
+//! against the source fixture.
+
+use crate::file::PtzDocument;
+
+/// Where the golden is written, relative to the `crates/format` manifest dir.
+const GOLDEN_REL_PATH: &str = "tests/fixtures/ptzWriterGolden.json";
+
+/// Build the golden payload: one entry per fixture.
+fn golden_json() -> String {
+    use crate::fixtures::{LEGACY_TEXT_LAYER_MODEL, MIXED_LAYER_TYPES_MODEL, REAL_DUMPED_MODEL};
+
+    let cases: [(&str, &str); 3] = [
+        ("realDumpedModel", REAL_DUMPED_MODEL),
+        ("mixedLayerTypes", MIXED_LAYER_TYPES_MODEL),
+        ("legacyTextLayer", LEGACY_TEXT_LAYER_MODEL),
+    ];
+
+    let mut out = serde_json::Map::new();
+    for (name, input) in cases {
+        let expected = PtzDocument::from_json(input)
+            .unwrap_or_else(|e| panic!("fixture {} must parse: {}", name, e))
+            .to_json()
+            .unwrap_or_else(|e| panic!("fixture {} must serialize: {}", name, e));
+        out.insert(
+            name.to_string(),
+            serde_json::json!({ "input": input, "expected": expected }),
+        );
+    }
+    let mut golden = serde_json::Value::Object(out);
+    golden.sort_all_objects();
+    serde_json::to_string_pretty(&golden).expect("golden serializes")
+}
+
+#[test]
+#[ignore = "regenerates a tracked golden file; run deliberately"]
+fn ptz_writer_golden_regenerate() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_REL_PATH);
+    std::fs::write(&path, golden_json()).expect("golden file is writable");
+    eprintln!("wrote {}", path.display());
+}
+
+/// Guards that the tracked golden is current WITHOUT rewriting it: the normal
+/// gates run this, so a writer change that was not regenerated fails here
+/// rather than silently invalidating the pinned writer format.
+#[test]
+fn ptz_writer_golden_is_up_to_date() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(GOLDEN_REL_PATH);
+    let on_disk = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "golden file missing at {} ({}). Regenerate with: cargo test -p photrez-format --lib -- --ignored ptz_writer_golden",
+            path.display(),
+            e
+        )
+    });
+    assert_eq!(
+        on_disk.trim(),
+        golden_json().trim(),
+        "the .ptz writer output changed but the golden was not regenerated. \
+         Review the diff: it IS the on-disk format change. Then run \
+         `cargo test -p photrez-format --lib -- --ignored ptz_writer_golden` \
+         and commit the updated golden."
+    );
+}

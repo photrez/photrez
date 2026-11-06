@@ -5,15 +5,15 @@
 //! are produced by `photrez-core` primitives - the same region snapshot the
 //! display seam uses - never by this module or the views.
 //!
-//! Must not own: rendering (`render/`), UI state (`state.rs`), or direct file
+//! Must not own: rendering (`display/`), UI state (`state.rs`), or direct file
 //! access. Project bytes enter only through the approved `FileIo` boundary.
 
 use std::path::Path;
 
+use photrez_core::document::content::{LayerType, PtzDocumentContent};
 use photrez_core::pixel::export::encode_image;
-use photrez_core::pixel::PixelLayer;
-use photrez_core::ptz::content::{LayerType, PtzDocumentContent};
 use photrez_core::ptz::file::PtzDocument;
+use photrez_core::raster::PixelLayer;
 
 use crate::services::error::ServiceError;
 use crate::services::file_io::FileIo;

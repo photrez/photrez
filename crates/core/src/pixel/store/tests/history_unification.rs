@@ -4,7 +4,7 @@
 
 use super::tile;
 use crate::pixel::store::PixelStoreRegistry;
-use crate::pixel::tile::TilePatch;
+use crate::raster::tile::TilePatch;
 
 // History unification
 // Proof target: the caller's non-pixel edits and the engine's pixel edits share EXACTLY ONE

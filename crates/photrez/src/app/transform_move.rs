@@ -4,8 +4,8 @@
 //! commits one `TransformLayer` history entry on pointer-up.
 
 use gpui_kit::Context;
+use photrez_core::document::content::Transform2D;
 use photrez_core::protocol::{Command, TransformPatch};
-use photrez_core::ptz::content::Transform2D;
 
 use crate::app::transform_geometry::{
     apply_resize_handle, apply_rotation_drag, detect_press_handle, layer_center, Handle, Point,

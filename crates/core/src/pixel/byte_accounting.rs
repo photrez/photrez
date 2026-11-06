@@ -53,9 +53,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::document::history::EntryPayload;
+use crate::engine::history::EntryPayload;
 
-use super::{DocumentPixelStore, PixelLayer, PixelStoreRegistry};
+use super::{DocumentPixelStore, PixelStoreRegistry};
+use crate::raster::PixelLayer;
 
 /// Pixel bytes retained by the tile graph, split by how many committed states
 /// reference each TILE. Every field counts tiles the store actually holds; none is
@@ -173,15 +174,6 @@ struct TileTally {
     owners: HashSet<usize>,
 }
 
-impl PixelLayer {
-    /// The row-major buffer's own length, in bytes. O(1), and exact for the
-    /// mirror: the buffer is allocated at `width*height*4` and never resized
-    /// afterwards (a tile write copies into it, it does not grow it).
-    pub fn row_major_bytes(&self) -> u64 {
-        self.pixels.len() as u64
-    }
-}
-
 impl DocumentPixelStore {
     /// Layers whose packed canon does not exist yet, and the bytes it will cost
     /// when it is built: `width*height*4` each.
@@ -255,7 +247,7 @@ impl DocumentPixelStore {
         let visit = |tiles: &mut HashMap<(usize, usize), TileTally>,
                      states: &mut HashSet<usize>,
                      refs: &mut u64,
-                     node: &Arc<crate::pixel::state_node::StateNode>| {
+                     node: &Arc<crate::raster::state_node::StateNode>| {
             // A layer's anchor is ALSO the `before` of its first entry, so the
             // same state arrives more than once. Visiting it once keeps
             // `tile_reference_count` the number of references that EXIST rather

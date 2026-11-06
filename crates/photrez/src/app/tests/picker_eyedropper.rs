@@ -21,7 +21,7 @@
 //! read, so the document looks untouched. The last mutation above therefore writes a
 //! different colour and restores the slot afterwards.
 
-use super::input::{drag_doc, mount_archive_app, page, set_tool, window_point};
+use super::canvas_input::{drag_doc, mount_archive_app, page, set_tool, window_point};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;

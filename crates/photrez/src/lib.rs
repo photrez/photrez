@@ -14,25 +14,22 @@
 //! re-implementing startup.
 //!
 //! The startup path (`run`) must not own: document state (`app/` +
-//! `photrez-core`), canvas painting (`render/`), or input policy (`input/`).
+//! `photrez-core`), canvas painting (`display/`), or input policy (`input_policy/`).
 
 pub mod app;
 pub mod components;
 pub(crate) mod crop_aspect;
+pub mod display;
 pub mod i18n;
 pub mod icons;
-pub mod input;
+pub mod input_policy;
 pub mod palette;
-pub mod render;
 pub mod services;
 pub mod shot;
 pub mod state;
 pub mod tokens;
 pub mod units;
 pub mod views;
-
-#[cfg(test)]
-mod nav_regression_tests;
 
 use gpui_kit::{px, size, App, AppContext, TitlebarOptions, WindowBounds, WindowOptions};
 use std::ffi::OsString;

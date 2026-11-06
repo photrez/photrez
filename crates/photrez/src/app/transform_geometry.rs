@@ -4,7 +4,7 @@
 //! degrees, positive = clockwise in screen space (Y-down), the convention the
 //! handles and the rotate pin are measured in.
 
-use photrez_core::ptz::content::{LayerType, PtzLayer, Transform2D};
+use photrez_core::document::content::{LayerType, PtzLayer, Transform2D};
 
 pub(crate) const DEG: f64 = std::f64::consts::PI / 180.0;
 pub(crate) const HANDLE_HIT_PX: f64 = 16.0;

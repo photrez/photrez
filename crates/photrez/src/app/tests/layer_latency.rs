@@ -1,7 +1,7 @@
 // Latency probes for the Layers panel. Each one is `#[ignore]`d and run explicitly,
 // because parallel load inflates the p95: the eye toggle, the Properties refresh after a
 // lock, the guarded background-lock click plus its toast, and the blend control press.
-use super::input::{mount_archive_app, select_layer};
+use super::canvas_input::{mount_archive_app, select_layer};
 use super::layers_panel::flags;
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
@@ -19,7 +19,7 @@ fn layer_eye_toggle_latency(cx: &mut gpui_kit::TestAppContext) {
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -79,7 +79,7 @@ fn properties_status_refresh_latency(cx: &mut gpui_kit::TestAppContext) {
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let top = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("top"))
@@ -144,7 +144,7 @@ fn background_lock_toast_latency(cx: &mut gpui_kit::TestAppContext) {
     );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        let (rows, _) = super::input::layer_rows(&content, cx);
+        let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         let bottom = rows
             .iter()
             .find(|row| row.core_id.as_deref() == Some("bottom"))

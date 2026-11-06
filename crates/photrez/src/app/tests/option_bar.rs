@@ -2,7 +2,7 @@
 //! fold into the overflow dropdown, and what a stepper or tooltip does to the
 //! running tool.
 
-use super::input::{drag_doc, history_cursor, pixels, set_tool, tab_to_canvas};
+use super::canvas_input::{drag_doc, history_cursor, pixels, set_tool, tab_to_canvas};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -545,7 +545,7 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
 /// dimensions cleared; Escape and an outside click dismiss the list.
 #[gpui_kit::test]
 fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAppContext) {
-    use photrez_core::ptz::layer_params::TextBoxMode;
+    use photrez_core::document::layer_params::TextBoxMode;
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {

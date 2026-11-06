@@ -172,16 +172,16 @@ impl App {
                     state.selected_text_font_weight = data.font_weight;
                     state.selected_text_italic = matches!(
                         data.font_style,
-                        photrez_core::ptz::layer_params::TextFontStyle::Italic
+                        photrez_core::document::layer_params::TextFontStyle::Italic
                     );
                     state.selected_text_align = match data.align {
-                        photrez_core::ptz::layer_params::TextAlign::Left => {
+                        photrez_core::document::layer_params::TextAlign::Left => {
                             crate::state::TextAlignTool::Left
                         }
-                        photrez_core::ptz::layer_params::TextAlign::Center => {
+                        photrez_core::document::layer_params::TextAlign::Center => {
                             crate::state::TextAlignTool::Center
                         }
-                        photrez_core::ptz::layer_params::TextAlign::Right => {
+                        photrez_core::document::layer_params::TextAlign::Right => {
                             crate::state::TextAlignTool::Right
                         }
                     };
@@ -192,7 +192,7 @@ impl App {
                     state.selected_text_stroke_align = data
                         .stroke
                         .align
-                        .unwrap_or(photrez_core::ptz::layer_params::TextStrokeAlign::Outside);
+                        .unwrap_or(photrez_core::document::layer_params::TextStrokeAlign::Outside);
                     state.selected_text_stroke_color =
                         crate::palette::parse_hex(&data.stroke.color);
                 }

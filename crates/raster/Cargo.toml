@@ -1,0 +1,29 @@
+[package]
+name = "photrez-raster"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "AGPL-3.0-or-later"
+description = "Photrez pixel buffers, tiles, copy-on-write state, compute kernels, and paint and brush geometry"
+repository = "https://github.com/photrez/photrez"
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Exposes the independent-copy reference module to another package's tests.
+# Never enabled by a production build of this workspace.
+test-reference = []
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+# Only the paint measurement experiments parallelize, and they are test code,
+# so this stays out of the package's production dependency set. The version
+# matches the one the workspace already resolves for `photrez-core`.
+rayon = "1.12.0"

@@ -67,18 +67,14 @@ struct Config {
 }
 
 #[cfg(any(windows, test))]
-#[path = "args.rs"]
 mod args;
 #[cfg(any(windows, test))]
-#[path = "presentmon.rs"]
 mod presentmon;
 
 #[cfg(any(windows, test))]
-#[path = "common.rs"]
-mod common;
+mod support;
 
 #[cfg(windows)]
-#[path = "windows.rs"]
 mod windows;
 
 #[cfg(windows)]

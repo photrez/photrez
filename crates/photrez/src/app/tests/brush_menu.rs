@@ -1,4 +1,4 @@
-use super::input::{set_tool, tab_to_canvas};
+use super::canvas_input::{set_tool, tab_to_canvas};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};

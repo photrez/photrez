@@ -1,4 +1,4 @@
-use super::input::{drag_doc, page};
+use super::canvas_input::{drag_doc, page};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -72,8 +72,8 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
         window.render_frame(cx);
         let before = transform(&content, cx);
         let (bounds, placement) = page(window, (200, 150));
-        let start = super::input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
-        let moved = super::input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
+        let start = super::canvas_input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -105,7 +105,7 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
             let active = app.active_document.as_ref().expect("active document");
             let live_preview = matches!(
                 active.canvas.read_region_rgba(0, 0, 200, 150),
-                Err(crate::render::canvas_bridge::FrameError::PendingPreviews)
+                Err(crate::display::canvas_bridge::FrameError::PendingPreviews)
             );
             let loaded = app
                 .sessions
@@ -124,7 +124,7 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
                 .expect("dragged layer");
             assert!(matches!(
                 &layer.layer_type,
-                photrez_core::ptz::content::LayerType::Raster
+                photrez_core::document::content::LayerType::Raster
             ));
             layer.transform = drag.preview.clone();
             let expected = photrez_core::render::compositor::composite_layers_with_font_data(
@@ -175,8 +175,8 @@ fn alt_drag_duplicates_the_layer_and_moves_the_copy(cx: &mut gpui_kit::TestAppCo
         window.render_frame(cx);
         assert_eq!(content.read(cx).active_core_layer_count_for_test(), Some(1));
         let (bounds, placement) = page(window, (200, 150));
-        let start = super::input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
-        let moved = super::input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
+        let start = super::canvas_input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
         let alt = gpui_kit::Modifiers {
             alt: true,
             ..Default::default()
@@ -240,7 +240,7 @@ fn arrow_keys_nudge_the_selected_layer_in_move_mode(cx: &mut gpui_kit::TestAppCo
     cx.update_window(window.into(), |_, window, cx| {
         new_doc(&content, cx, 200, 150);
         window.render_frame(cx);
-        super::input::tab_to_canvas(window, cx);
+        super::canvas_input::tab_to_canvas(window, cx);
         let before = transform(&content, cx);
         window.press("right", cx);
         let after = transform(&content, cx);
@@ -260,8 +260,8 @@ fn move_snaps_to_the_canvas_edge_and_shows_a_guide(cx: &mut gpui_kit::TestAppCon
         new_doc(&content, cx, 200, 150);
         window.render_frame(cx);
         let (bounds, placement) = page(window, (200, 150));
-        let start = super::input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
-        let moved = super::input::window_point(bounds, placement, (200, 150), 63.0, 60.0);
+        let start = super::canvas_input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 63.0, 60.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -372,8 +372,8 @@ fn transform_drag_publishes_and_clears_the_hud(cx: &mut gpui_kit::TestAppContext
         new_doc(&content, cx, 400, 300);
         window.render_frame(cx);
         let (bounds, placement) = page(window, (400, 300));
-        let start = super::input::window_point(bounds, placement, (400, 300), 400.0, 300.0);
-        let moved = super::input::window_point(bounds, placement, (400, 300), 440.0, 320.0);
+        let start = super::canvas_input::window_point(bounds, placement, (400, 300), 400.0, 300.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (400, 300), 440.0, 320.0);
         let modifiers = gpui_kit::Modifiers::default();
 
         let _ = window.dispatch_event(
@@ -430,14 +430,14 @@ fn draw_two_shapes(
     content.update(cx, |app, cx| {
         app.create_document(200, 150, cx).expect("blank document");
     });
-    super::input::set_tool(content, cx, ToolId::Shape, 1.0);
+    super::canvas_input::set_tool(content, cx, ToolId::Shape, 1.0);
     window.render_frame(cx);
     drag_doc(window, (200, 150), (10.0, 10.0), (80.0, 80.0), cx);
     // The second press starts outside the selected shape's adaptive rotate
     // ring (31 px for a 70 px frame), so the Shape tool draws again instead
     // of starting a rotation.
     drag_doc(window, (200, 150), (120.0, 10.0), (190.0, 80.0), cx);
-    super::input::set_tool(content, cx, ToolId::Move, 1.0);
+    super::canvas_input::set_tool(content, cx, ToolId::Move, 1.0);
     window.render_frame(cx);
     // Newest-first projection: the second drag is row 0, the first is row 1.
     let row = |index: usize| {
@@ -523,7 +523,7 @@ fn move_empty_click_clears_the_layer_selection(cx: &mut gpui_kit::TestAppContext
     cx.update_window(window.into(), |_, window, cx| {
         draw_two_shapes(window, &content, cx);
         let (bounds, placement) = page(window, (200, 150));
-        let empty = super::input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
+        let empty = super::canvas_input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -568,7 +568,7 @@ fn canvas_click_latency(cx: &mut gpui_kit::TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         let (a, b) = draw_two_shapes(window, &content, cx);
         let (bounds, placement) = page(window, (200, 150));
-        let empty = super::input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
+        let empty = super::canvas_input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
         let press = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App| {
             let _ = window.dispatch_event(
                 gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
@@ -629,8 +629,8 @@ fn shift_drag_marquee_adds_layers_to_the_existing_selection(cx: &mut gpui_kit::T
         select_rows(&content, cx, vec![b]);
         window.render_frame(cx);
         let (bounds, placement) = page(window, (200, 150));
-        let start = super::input::window_point(bounds, placement, (200, 150), 5.0, 5.0);
-        let moved = super::input::window_point(bounds, placement, (200, 150), 185.0, 85.0);
+        let start = super::canvas_input::window_point(bounds, placement, (200, 150), 5.0, 5.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 185.0, 85.0);
         let modifiers = gpui_kit::Modifiers {
             shift: true,
             ..Default::default()
@@ -673,7 +673,7 @@ fn shift_drag_marquee_adds_layers_to_the_existing_selection(cx: &mut gpui_kit::T
             selected,
             "releasing an additive session keeps the selection"
         );
-        let empty = super::input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
+        let empty = super::canvas_input::window_point(bounds, placement, (200, 150), 5.0, 140.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -712,8 +712,8 @@ fn cancelling_a_move_marquee_restores_the_initial_selection(cx: &mut gpui_kit::T
         select_rows(&content, cx, vec![b]);
         window.render_frame(cx);
         let (bounds, placement) = page(window, (200, 150));
-        let start = super::input::window_point(bounds, placement, (200, 150), 5.0, 5.0);
-        let moved = super::input::window_point(bounds, placement, (200, 150), 190.0, 90.0);
+        let start = super::canvas_input::window_point(bounds, placement, (200, 150), 5.0, 5.0);
+        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 190.0, 90.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -788,14 +788,14 @@ fn transform_commit_latency(cx: &mut gpui_kit::TestAppContext) {
         for _ in 0..9 {
             let (x, y, _, _, _) = transform(&content, cx);
             let center = (x + 35.0, y + 35.0);
-            let from = super::input::window_point(
+            let from = super::canvas_input::window_point(
                 bounds,
                 placement,
                 (200, 150),
                 center.0 as f32,
                 center.1 as f32,
             );
-            let to = super::input::window_point(
+            let to = super::canvas_input::window_point(
                 bounds,
                 placement,
                 (200, 150),

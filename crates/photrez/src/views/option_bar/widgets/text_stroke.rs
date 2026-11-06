@@ -76,7 +76,7 @@ pub(super) fn text_stroke_pill(
 pub(in super::super) fn text_stroke_control(
     width: f64,
     color_value: [u8; 4],
-    align: photrez_core::ptz::layer_params::TextStrokeAlign,
+    align: photrez_core::document::layer_params::TextStrokeAlign,
     open: bool,
     editing: Option<String>,
     field_focus: Option<gpui_kit::FocusHandle>,
@@ -117,7 +117,7 @@ pub(in super::super) fn text_stroke_control(
 fn text_stroke_popover(
     width: f64,
     color_value: [u8; 4],
-    align: photrez_core::ptz::layer_params::TextStrokeAlign,
+    align: photrez_core::document::layer_params::TextStrokeAlign,
     editing: Option<String>,
     field_focus: Option<gpui_kit::FocusHandle>,
     slider_focus: Option<gpui_kit::FocusHandle>,
@@ -179,22 +179,22 @@ fn text_stroke_popover(
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-outside",
                     t("tools.options.strokeOutside"),
-                    photrez_core::ptz::layer_params::TextStrokeAlign::Outside,
-                    align == photrez_core::ptz::layer_params::TextStrokeAlign::Outside,
+                    photrez_core::document::layer_params::TextStrokeAlign::Outside,
+                    align == photrez_core::document::layer_params::TextStrokeAlign::Outside,
                     cx,
                 ))
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-center",
                     t("tools.options.strokeCenter"),
-                    photrez_core::ptz::layer_params::TextStrokeAlign::Center,
-                    align == photrez_core::ptz::layer_params::TextStrokeAlign::Center,
+                    photrez_core::document::layer_params::TextStrokeAlign::Center,
+                    align == photrez_core::document::layer_params::TextStrokeAlign::Center,
                     cx,
                 ))
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-inside",
                     t("tools.options.strokeInside"),
-                    photrez_core::ptz::layer_params::TextStrokeAlign::Inside,
-                    align == photrez_core::ptz::layer_params::TextStrokeAlign::Inside,
+                    photrez_core::document::layer_params::TextStrokeAlign::Inside,
+                    align == photrez_core::document::layer_params::TextStrokeAlign::Inside,
                     cx,
                 )),
         );
@@ -443,7 +443,7 @@ fn text_stroke_color_row(color_value: [u8; 4], cx: &Context<crate::app::App>) ->
 fn text_stroke_position_segment(
     id: &'static str,
     label: String,
-    value: photrez_core::ptz::layer_params::TextStrokeAlign,
+    value: photrez_core::document::layer_params::TextStrokeAlign,
     active: bool,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {

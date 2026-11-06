@@ -31,7 +31,7 @@ fn menu_shortcut_bindings_drive_their_commands(cx: &mut gpui_kit::TestAppContext
 
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
         let (rows, selected, snap) = content.update(cx, |app, cx| {
             let state = app.state_for_test().read(cx);
             (

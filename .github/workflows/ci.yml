@@ -57,6 +57,27 @@ jobs:
       - name: Core tests
         run: cargo test -p photrez-core
 
+      # The document model builds and tests without the engine, so a model
+      # change reports on its own rather than through the core suite.
+      - name: Document model tests
+        run: cargo test -p photrez-document
+
+      # The raster primitives hold no document state, so their kernel, tile and
+      # copy-on-write checks run without the engine too.
+      - name: Raster tests
+        run: cargo test -p photrez-raster
+
+      # The `.ptz` golden, envelope round trip, and codec checks belong to the
+      # format package, so a saved-file change reports on the package that owns
+      # the bytes.
+      - name: PTZ format package tests
+        run: cargo test -p photrez-format
+
+      # Compositing and the shape and text rasterizers read pixels through
+      # `RenderInput`, so their golden proofs run without the engine.
+      - name: Render tests
+        run: cargo test -p photrez-render
+
       # Lint gate: `-D warnings` keeps new code clippy-clean; fmt --check
       # keeps the tree rustfmt-stable (run `cargo fmt` locally when this fails).
       - name: Clippy (deny warnings)
@@ -92,6 +113,12 @@ jobs:
         shell: bash
         run: sh scripts/check-rust-file-size.sh
 
+      # Each package keeps one function. An edge outside the allowed graph means
+      # a type was left in the wrong package, which no test would catch.
+      - name: Package boundaries
+        shell: bash
+        run: sh scripts/check-package-boundaries.sh
+
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a
   # transitive RUSTSEC advisory shouldn't paint every push red. Eight entries
@@ -118,15 +145,15 @@ jobs:
       - name: Cargo audit
         run: cargo audit
 
-  # ─── CONTRIBUTIONS: public-artifact terminology guard ───
-  # Machine-enforced rule: public artifacts (commit/PR messages and source) must
-  # NEVER leak internal plan/milestone terminology that lives in gitignored docs
-  # (e.g. "Phase E pilot", "Option A", "flip-on"). Same logic as the local
-  # pre-commit hook, driven from one shared script (scripts/check-public-terminology.sh)
-  # so it cannot diverge between local and CI. PR titles are additionally
-  # validated against Conventional Commits by .github/workflows/lint-pr.yml.
+  # ─── CONTRIBUTIONS: public surface guard ───
+  # Machine-enforced rule: public source and docs must not link to files a
+  # fresh clone cannot contain, or claim a runtime the project no longer ships.
+  # User-visible text uses the message catalog. The same public checks run in
+  # the local pre-commit hook (scripts/check-public-terminology.sh).
+  # PR titles are validated against Conventional Commits by
+  # .github/workflows/lint-pr.yml.
   contributions:
-    name: Public-artifact terminology guard
+    name: Public surface guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -134,7 +161,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Scan changed source and public markdown for internal terminology
+      - name: Scan changed source and public markdown for public-surface violations
         shell: bash
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
@@ -142,7 +169,7 @@ jobs:
           # `|| true`: with no changed files the filter exits 1, which
           # bash -o pipefail turns into a failed step before the skip branch
           # below can run. Docs-only and config-only commits must pass.
-          # The script itself decides which `.md` paths are public set vs internal.
+          # Only the tracked public set is scanned.
           FILES=$(git diff --name-only --diff-filter=ACM "$BASE" "$HEAD" | grep -E '\.(rs|md)$' | tr '\n' ' ' || true)
           if [ -n "$FILES" ]; then
             sh scripts/check-public-terminology.sh --files "$FILES"
@@ -157,10 +184,3 @@ jobs:
       - name: Scan public stack surfaces for staleness
         shell: bash
         run: sh scripts/check-public-terminology.sh --staleness
-
-      - name: Check PR title for internal terminology
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: sh scripts/check-public-terminology.sh --msg "$PR_TITLE"

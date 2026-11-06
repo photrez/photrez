@@ -65,9 +65,9 @@
 //!   canvas placeholder.
 
 use crate::components::ui;
+use crate::display::canvas_bridge::{self, Camera, CanvasImage};
 use crate::i18n::t;
 use crate::icons;
-use crate::render::canvas_bridge::{self, Camera, CanvasImage};
 use crate::state::{AppState, InspectorTab, LayerTab};
 use crate::tokens::color;
 use crate::views::{adjustments_panel, history, layers, properties_panel};

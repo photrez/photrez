@@ -1,5 +1,5 @@
 use super::{Config, PATCH_COMMIT_MOVES, USAGE};
-use photrez::render::canvas_bridge::{MAX_CANVAS_DIM, TILE_SIZE};
+use photrez::display::canvas_bridge::{MAX_CANVAS_DIM, TILE_SIZE};
 
 /// Raster layers a fixture document may carry; the canonical fixture has three.
 const MAX_LAYERS: usize = 4;

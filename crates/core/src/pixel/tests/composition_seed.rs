@@ -30,9 +30,9 @@
 //! and the structural one must still be there, so one undo press reaches the
 //! STRUCTURAL restore rather than a pixel entry the gesture never earned.
 
+use crate::document::layer::LayerMeta;
 use crate::pixel::*;
 use crate::protocol::{Command, CommandEnvelope, PayloadKind};
-use crate::render::layer::RenderLayer;
 
 /// Collision-free namespace: the registry is process-global and tests run in
 /// parallel, so a sibling test's doc key is never reused.
@@ -51,8 +51,8 @@ fn envelope(cmd: Command) -> CommandEnvelope {
     }
 }
 
-fn engine_layer(id: &str) -> RenderLayer {
-    RenderLayer {
+fn engine_layer(id: &str) -> LayerMeta {
+    LayerMeta {
         id: id.to_string(),
         name: id.to_string(),
         visible: true,

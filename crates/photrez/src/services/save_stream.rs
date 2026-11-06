@@ -416,5 +416,4 @@ fn map_zip_error(error: zip::result::ZipError) -> ServiceError {
 }
 
 #[cfg(test)]
-#[path = "save_stream/tests.rs"]
 mod tests;

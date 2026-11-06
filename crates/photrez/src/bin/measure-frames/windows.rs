@@ -53,10 +53,13 @@ use gpui_kit::{
     px, size, AnyWindowHandle, App, AppContext, Context, IntoElement, ParentElement, Render,
     RenderImage, Styled, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
 };
-use photrez::render::canvas_bridge::{canvas_element, CanvasImage};
+use photrez::display::canvas_bridge::{canvas_element, CanvasImage};
+use photrez_core::document::content::{
+    BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D,
+};
 use photrez_core::pixel::export::encode_image;
-use photrez_core::pixel::{PixelLayer, PixelStoreRegistry};
-use photrez_core::ptz::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
+use photrez_core::pixel::PixelStoreRegistry;
+use photrez_core::raster::PixelLayer;
 use photrez_core::render::compositor::composite_layers;
 
 use crate::args::parse_args;
@@ -187,7 +190,7 @@ fn layered_fixture(width: u32, height: u32, layers: usize) -> Result<(u32, u32, 
         // Content order is top-most first; the compositor draws it bottom-up.
         let depth = layers - 1 - index;
         let id = format!("raster-{}", index + 1);
-        let pixels = crate::common::fixture_layer_pixels(depth, width, height)?;
+        let pixels = crate::support::fixture_layer_pixels(depth, width, height)?;
         registry
             .add_layer(FIXTURE_DOC_ID, &id, width, height, pixels)
             .map_err(|error| format!("cannot seed fixture layer {id}: {error}"))?;
@@ -380,7 +383,7 @@ fn fail(cfg: &Config, message: &str) -> ! {
     let row = serde_json::json!({
         "shot": "measure-frames",
         "harness": "canvas_bridge",
-        "profile": crate::common::build_profile(),
+        "profile": crate::support::build_profile(),
         "mode": cfg.mode.as_str(),
         "size": cfg.size,
         "width": cfg.width,

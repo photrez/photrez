@@ -7,11 +7,11 @@
 //! drop buffers that are unreachable on both history branches.
 
 use gpui_kit::Context;
+use photrez_core::document::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer};
 use photrez_core::protocol::{Command, CommandEnvelope, LockKind, CONTRACT_VERSION};
-use photrez_core::ptz::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer};
 use photrez_core::render::compositor::{composite_layers_with_font_data, CompositedRgba};
 
-use super::input::next_layer_id;
+use super::canvas_input::next_layer_id;
 use super::App;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]

@@ -1,13 +1,13 @@
-use super::input::tab_to_canvas;
+use super::canvas_input::tab_to_canvas;
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
     point, px, Bounds, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     PlatformInput, Point, ScrollDelta, ScrollWheelEvent,
 };
-use photrez_core::ptz::content::{SelectionShape, SelectionState};
+use photrez_core::document::content::{SelectionShape, SelectionState};
 
-use crate::render::canvas_bridge::Camera;
+use crate::display::canvas_bridge::Camera;
 
 fn set_camera(content: &Entity<App>, cx: &mut gpui_kit::App, camera: Camera) {
     content.update(cx, |app, cx| app.set_camera(camera, cx));

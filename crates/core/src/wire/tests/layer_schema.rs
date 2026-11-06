@@ -1,6 +1,6 @@
-// Wire-compat guards for the extended RenderLayer schema (sibling of the
+// Wire-compat guards for the extended LayerMeta schema (sibling of the
 // moved model tests; kept separate to stay under the file-size guard).
-use crate::render::layer::RenderLayer;
+use crate::document::layer::LayerMeta;
 
 #[test]
 fn old_shape_envelope_parses_with_all_extended_fields_none() {
@@ -8,7 +8,7 @@ fn old_shape_envelope_parses_with_all_extended_fields_none() {
     // deserialize; every extended field defaults to None so old senders
     // keep working within the same build.
     let json = r#"{"id":"L1","name":"Old","visible":true,"opacity":0.5,"resourceId":4,"x":1.0,"y":2.0,"scaleX":1.0,"scaleY":1.0,"rotation":0.0,"dirtyRect":null}"#;
-    let layer: RenderLayer = serde_json::from_str(json).expect("old shape parses");
+    let layer: LayerMeta = serde_json::from_str(json).expect("old shape parses");
     assert_eq!(layer.id, "L1");
     assert_eq!(layer.resource_id, 4);
     assert!(layer.layer_type.is_none());
@@ -25,7 +25,7 @@ fn old_shape_envelope_parses_with_all_extended_fields_none() {
 
 #[test]
 fn extended_fields_round_trip_when_present() {
-    let layer = RenderLayer {
+    let layer = LayerMeta {
         id: "L2".into(),
         name: "Ext".into(),
         visible: true,
@@ -37,8 +37,8 @@ fn extended_fields_round_trip_when_present() {
         scale_y: 1.0,
         rotation: 0.0,
         dirty_rect: None,
-        layer_type: Some(crate::ptz::content::LayerType::Text),
-        blend_mode: Some(crate::ptz::content::BlendMode::Multiply),
+        layer_type: Some(crate::document::content::LayerType::Text),
+        blend_mode: Some(crate::document::content::BlendMode::Multiply),
         locked: Some(true),
         width: Some(64.0),
         height: Some(32.0),
@@ -49,16 +49,16 @@ fn extended_fields_round_trip_when_present() {
     assert!(json.contains("\"layerType\":\"text\""));
     assert!(json.contains("\"blendMode\":\"multiply\""));
     assert!(!json.contains("lockTransparency"));
-    let back: RenderLayer = serde_json::from_str(&json).expect("parses back");
+    let back: LayerMeta = serde_json::from_str(&json).expect("parses back");
     assert_eq!(back, layer, "value-identical round trip");
 }
 
 #[test]
 fn nested_params_serialize_and_skip_when_none() {
-    use crate::ptz::content::{BasicAdjustment, LayerType, ShapeKind, ShapeParams};
+    use crate::document::content::{BasicAdjustment, LayerType, ShapeKind, ShapeParams};
 
     // Present nested payloads serialize with camelCase keys.
-    let layer = RenderLayer {
+    let layer = LayerMeta {
         id: "L3".into(),
         name: "Nested".into(),
         visible: true,
@@ -87,11 +87,11 @@ fn nested_params_serialize_and_skip_when_none() {
             width: 120.0,
             height: 80.0,
             radius: 6.0,
-            fill: crate::ptz::content::ShapeFill {
-                kind: crate::ptz::content::ShapeFillKind::Solid,
+            fill: crate::document::content::ShapeFill {
+                kind: crate::document::content::ShapeFillKind::Solid,
                 color: "#E15A17".into(),
             },
-            stroke: crate::ptz::content::ShapeStroke {
+            stroke: crate::document::content::ShapeStroke {
                 enabled: true,
                 color: "#000000".into(),
                 width: 2.0,
@@ -112,12 +112,12 @@ fn nested_params_serialize_and_skip_when_none() {
         !json.contains("\"textData\""),
         "absent Option must be skipped"
     );
-    let back: RenderLayer = serde_json::from_str(&json).expect("parses back");
+    let back: LayerMeta = serde_json::from_str(&json).expect("parses back");
     assert_eq!(back, layer);
 
     // A payload WITHOUT the nested keys still parses (None fields).
     let legacy = r#"{"id":"L4","name":"Legacy","visible":true,"opacity":1,"resourceId":2,"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,"dirtyRect":null,"layerType":"raster","width":10,"height":10}"#;
-    let parsed: RenderLayer = serde_json::from_str(legacy).expect("legacy parses");
+    let parsed: LayerMeta = serde_json::from_str(legacy).expect("legacy parses");
     assert!(parsed.shape_params.is_none());
     assert!(parsed.text_data.is_none());
     assert!(parsed.basic_adjustment.is_none());

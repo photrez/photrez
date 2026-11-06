@@ -45,7 +45,7 @@ fn tab_reaches_the_properties_position_rows_and_types_into_the_focused_one(
             });
         });
         window.render_frame(cx);
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
 
         window.click("prop-x", cx);
         window.render_frame(cx);
@@ -88,9 +88,9 @@ fn tab_reaches_the_brush_size_field_and_types_into_the_focused_one(
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
-        crate::app::tests::input::set_tool(&content, cx, ToolId::Brush, 1.0);
+        crate::app::tests::canvas_input::set_tool(&content, cx, ToolId::Brush, 1.0);
         window.render_frame(cx);
-        crate::app::tests::input::tab_to_canvas(window, cx);
+        crate::app::tests::canvas_input::tab_to_canvas(window, cx);
 
         assert!(
             tab_until_focused(window, "opt-brush-size", cx),

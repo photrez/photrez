@@ -10,7 +10,7 @@
 //! * giving `ColorTarget::Text` the foreground branch fails
 //!   `text_swatch_opens_the_picker_and_edits_the_selected_layer`.
 
-use super::input::{drag_doc, mount_archive_app, pixels, set_tool};
+use super::canvas_input::{drag_doc, mount_archive_app, pixels, set_tool};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;

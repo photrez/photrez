@@ -233,8 +233,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::GesturePhase;
-    use crate::render::canvas_bridge::fit_placement;
+    use crate::display::canvas_bridge::fit_placement;
+    use crate::input_policy::GesturePhase;
     use crate::services::file_io::{FileIo, LocalFileIo};
     use crate::state::ToolId;
     use gpui_kit::test::TestWindowExt as _;

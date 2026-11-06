@@ -403,7 +403,7 @@ pub fn brush_params(eraser: bool) -> BrushParams {
 pub fn render(
     state: &gpui_kit::Entity<AppState>,
     width: f32,
-    committed_selection: Option<photrez_core::ptz::content::SelectionState>,
+    committed_selection: Option<photrez_core::document::content::SelectionState>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {

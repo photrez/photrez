@@ -2,7 +2,7 @@
 // cut clears the mask and undo brings the pixels back, delete clears only masked pixels,
 // and a paste into a second document adds the clipboard there.
 
-use super::input::{history_cursor, pixels};
+use super::canvas_input::{history_cursor, pixels};
 use super::selection::{history_rows, set_selection};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;

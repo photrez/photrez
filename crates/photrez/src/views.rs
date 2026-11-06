@@ -5,7 +5,7 @@
 //! hold, handed down from `app/`.
 //!
 //! Must not own: reusable visual vocabulary (that is `components/`), canvas
-//! painting (`render/`), or document truth (`photrez-core`).
+//! painting (`display/`), or document truth (`photrez-core`).
 
 pub mod adjustments_panel;
 pub mod brush_menu;

@@ -2,7 +2,7 @@
 // Command wire types (ADR 0008 C1: version-stable envelope). These cross the
 // host/engine boundary and must not change their serialized shape.
 
-use crate::ptz::content::{
+use crate::document::content::{
     BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData, Transform2D,
 };
 use crate::wire::projection::RenderDelta;
@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 pub const CONTRACT_VERSION: u32 = 2;
 
 pub type DocumentVersion = u64;
-pub type ResourceId = u32;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TransformPatch {
@@ -56,7 +55,7 @@ pub struct RasterizePixels {
     pub rgba: Vec<u8>,
 }
 /// The four layer-lock kinds on the wire: `base`, `transparency`, `position`
-/// and `rotation`. `base` maps to `RenderLayer.locked`; the other three map to
+/// and `rotation`. `base` maps to `LayerMeta.locked`; the other three map to
 /// their named lock fields (`lock_transparency` / `lock_position` /
 /// `lock_rotation`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -180,7 +179,7 @@ pub enum Command {
         adjustment: Option<BasicAdjustment>,
     },
     // Duplicate a layer verbatim, inserting the clone directly above the source.
-    // The happy path clones the source RenderLayer, derives a numeric-suffix name
+    // The happy path clones the source LayerMeta, derives a numeric-suffix name
     // from the engine layer set, mints a fresh resource id (the clone owns an
     // independent bitmap), and clears the background / bottom flags. Unknown id is
     // a silent no-op (engine no-ops like DeleteLayer); the host-side duplicate op
@@ -403,7 +402,7 @@ pub struct CommandResult {
 #[serde(rename_all = "camelCase")]
 pub struct PixelPatchHandoff {
     pub layer_id: String,
-    pub tiles: Vec<crate::pixel::tile::TilePatch>,
+    pub tiles: Vec<crate::raster::tile::TilePatch>,
     pub epoch: u64,
     pub version: u64,
 }
