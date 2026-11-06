@@ -88,7 +88,7 @@ fn cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
     }
 }
 
-/// Offline golden validation vs a tip raster captured from the 0.1.0 release.
+/// Offline golden validation against a tip raster from the 0.1.0 release.
 /// Run: PHOTREZ_TIP_GOLDEN=<bin path> cargo test -p photrez-raster brush::tests::tip::golden -- --ignored --nocapture
 /// Bin format: u32LE tipW | u32LE tipH | RGBA bytes (274*274*4).
 #[test]
@@ -178,14 +178,14 @@ fn golden_interior_and_rim_tolerance() {
         pm_interior_max <= 1,
         "canonical gate: premul interior beyond storage noise: {pm_interior_max}"
     );
-    // rim metrics intentionally REPORT-ONLY (0.1.0 capture compatibility delta)
+    // rim metrics intentionally REPORT-ONLY (0.1.0 release compatibility delta)
     assert!(
         alpha_max <= 1,
-        "canonical gate: alpha beyond the 0.1.0 capture roundtrip bound: {alpha_max}"
+        "canonical gate: alpha beyond the 0.1.0 release roundtrip bound: {alpha_max}"
     );
     assert!(
         straight_interior_max <= 1,
-        "canonical gate: straight interior beyond capture noise: {straight_interior_max}"
+        "canonical gate: straight interior beyond golden rounding noise: {straight_interior_max}"
     );
 }
 

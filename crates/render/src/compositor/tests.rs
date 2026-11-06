@@ -10,7 +10,7 @@ mod goldens;
 
 const GOLDEN_WIDTH: u32 = 4;
 const GOLDEN_HEIGHT: u32 = 4;
-// Captured from 0.1.0: bottom red 4x4 opaque, top blue 2x2 at (0,0) with
+// Pinned expectation: bottom red 4x4 opaque, top blue 2x2 at (0,0) with
 // opacity 0.5, source-over, read back row-major RGBA.
 const SOURCE_OVER_GOLDEN: [u8; 64] = [
     127, 0, 128, 255, 127, 0, 128, 255, 255, 0, 0, 255, 255, 0, 0, 255, //
@@ -19,7 +19,7 @@ const SOURCE_OVER_GOLDEN: [u8; 64] = [
     255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
 ];
 
-// Captured from 0.1.0, 4x4: a 2x2 pattern at (1,1) with each flip variant.
+// Pinned expectation, 4x4: a 2x2 pattern at (1,1) with each flip variant.
 const TRANSLATE_GOLDEN: [u8; 64] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
     0, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 0, //

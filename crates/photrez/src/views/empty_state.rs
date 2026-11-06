@@ -112,10 +112,10 @@
 //!   (a 10px tag). Its 28px icon box is centred in the inner 33, i.e.
 //!   +2.5 - and the baseline puts it at **+2** (`#1e1e1e` rows 192..219).
 //!
-//! The two are the same half-pixel and 0.1.0 rounds them **differently**, so
-//! both offsets are written as literals. A line-height of 1.5 is what makes
+//! The two are the same half-pixel and the recorded rows round them **differently**,
+//! so both offsets are written as literals. A line-height of 1.5 is what makes
 //! 21 / 18 / 15 integers at all; the one exception is the 11px heading's
-//! 16.5, which 0.1.0 spends as **17** (the "Quick Presets" line box is crop
+//! 16.5, which the capture spends as **17** (the "Quick Presets" line box is crop
 //! 154..170, and 17 + 10 of heading margin puts the first tile on crop row
 //! 181 exactly).
 //!

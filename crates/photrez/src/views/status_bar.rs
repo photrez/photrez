@@ -89,7 +89,7 @@ const BAR_PX: f32 = 12.0;
 const TEXT_SIZE: f32 = 10.5;
 
 /// Line box height for every run in the bar; see the module docs for why it is
-/// 15 rather than the 15.75 that 0.1.0 measured, or GPUI's default.
+/// 15 rather than 15.75, or GPUI's default.
 const LINE_H: f32 = 15.0;
 
 /// 0.75rem (12px) between the cells of the left group.

@@ -5,9 +5,9 @@
 //! visibility, opacity, all twelve blend modes, and the existing transforms.
 //! A visible unsupported layer is rejected rather than silently skipped.
 //!
-//! Each test golden is a 0.1.0 capture: source-over compositing with the layer
-//! array drawn from last to first, recorded before this code existed, so the
-//! goldens are independent of this implementation.
+//! Each test golden was recorded before this module existed, so the pinned bytes
+//! are independent of this implementation. Source-over draws the layer array from
+//! last to first.
 
 use super::{shape, text};
 use crate::input::RenderInput;
@@ -678,8 +678,9 @@ fn opacity_alpha(opacity: f64) -> u32 {
 
 /// Straight-alpha source-over with a premultiplied 8-bit rounding at each step.
 ///
-/// The 0.1.0 capture returns 127/128 for 50% blue over opaque red; keeping the
-/// premultiplied intermediate and rounding at each step reproduces that split.
+/// 50% blue over opaque red resolves to 127/128, the split the pinned
+/// source-over golden checks. The premultiplied intermediate and the rounding
+/// at each step are what reproduce it.
 fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) {
     let sa = div255(src[3] as u32 * opacity);
     if sa == 0 {

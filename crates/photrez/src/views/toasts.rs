@@ -57,11 +57,10 @@
 //! # Height: 36.75, which the manifest displays as 37
 //!
 //! `1 (border) + 8 (vertical padding) + 18.75 + 8 (vertical padding) + 1 =
-//! 36.75`. The line box is 12.5 x 1.5: the web baseline left a line height of
-//! 1.5 inherited — the same reason `status_bar.rs` pins its own `LINE_H`;
-//! GPUI's default line box is neither 15 nor 15.75 there and is neither 18.75
-//! here, so it is
-//! spelled out. Glyph ink corroborates the box: cap tops at crop row 12 and
+//! 36.75`. The line box is 12.5 x 1.5. `status_bar.rs` pins its own `LINE_H`
+//! for the same reason: GPUI's default line box is neither 15 nor 15.75 there
+//! and is neither 18.75 here, so this number is spelled out.
+//! Glyph ink corroborates the box: cap tops at crop row 12 and
 //! the baseline at ~22 in all three single shots, i.e. the line box occupies
 //! element rows 9..27.75 exactly as border + padding + line box says.
 //!
@@ -201,7 +200,7 @@
 //!   them, so each is a non-event here rather than an approximation.
 //! * Padding is already whole (8/16), so the "padding rounds to whole px"
 //!   gap is inert. The 18.75px line box is *not* whole: GPUI snaps a half
-//!   pixel down where 0.1.0 rounds up, so the glyphs may land 1px off
+//!   pixel down where whole-pixel rounding would go up, so the glyphs may land 1px off
 //!   vertically while the box (1 + 8 + 18.75 + 8 + 1) stays put. First
 //!   thing to check if a capture shows the text a row high.
 
@@ -259,9 +258,9 @@ const TEXT_SIZE: f32 = 12.5;
 
 /// Line box for the toast text: 12.5 x 1.5.
 ///
-/// The 1.5 is the line height the 0.1.0 capture inherited, the same way
-/// `status_bar.rs` derives its own `LINE_H`. GPUI's default is neither that
-/// number nor what 0.1.0 would produce, and the box height (36.75) hangs off this
+/// The 1.5 is the line height this text uses, the same way
+/// `status_bar.rs` derives its own `LINE_H`. GPUI's default is not that
+/// number, and the box height (36.75) hangs off this
 /// number, so it has to be exact rather than stylistic.
 const LINE_H: f32 = 18.75;
 

@@ -2,9 +2,9 @@
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
-// ── PNG decode offload (measured 1.8x over the 0.1.0 decode) ────
-// Bench (2026-08-21): image-crate png path 145ms @4K vs the 0.1.0
-// decode at 262ms. Decode-into-pinned-buffer shape: the file
+// PNG decode offload.
+// Bench (2026-08-21): the image-crate path decodes a 4K PNG in 145ms.
+// Decode-into-pinned-buffer shape: the file
 // bytes cross the host boundary once; decoded RGBA stays in memory for
 // zero-copy readout. Two-step (dimensions first) lets the caller apply its own
 // max-dimension guard BEFORE allocating pixel memory.
