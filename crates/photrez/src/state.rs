@@ -483,7 +483,7 @@ pub struct AppState {
     pub show_transform_controls: bool,
     /// Keep the two size axes at one ratio. Shared by the Move bar's ratio
     /// toggle and the Properties panel's link button, which drive the same
-    /// state in the reference; it starts on.
+    /// state in the 0.1 build; it starts on.
     pub constrain_ratio: bool,
     /// Which not-yet-built adjustment groups are expanded, by section id. The
     /// reference opens each one independently and shows its In Development card.

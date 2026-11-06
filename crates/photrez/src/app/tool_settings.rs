@@ -413,7 +413,7 @@ impl App {
     }
 
     /// Hold the two size axes at one ratio. The Move bar's ratio button and the
-    /// Properties panel's link share this state, as they do in the reference.
+    /// Properties panel's link share this state, as they do in the 0.1 build.
     pub(crate) fn toggle_constrain_ratio(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.constrain_ratio = !state.constrain_ratio

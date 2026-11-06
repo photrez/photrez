@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-command-arm tests: Duplicate / MergeDown / MergeSelected /
-// Flatten / RasterizeLayer. These pin the reference layer-operation contract
+// Flatten / RasterizeLayer. These pin the layer-operation contract
 // and the document graph (document.rs). Each arm is a native undoable graph transition
 // (begin_forward / finish_forward) that emits Removes for vanished ids followed by
 // an Upsert of every surviving / new layer in final engine order. The implementation

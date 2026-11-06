@@ -643,7 +643,7 @@ fn move_button(
 
 /// The chip GPUI paints under the pointer while a row is dragged.
 ///
-/// `dragGhost` in the reference is the row itself floating above the list;
+/// `dragGhost` in the 0.1 build is the row itself floating above the list;
 /// this is the same 50px row minus the layer bitmap, drawn only mid-drag so the
 /// resting tree stays identical to the baseline. [`ghost_tile`] stands in for
 /// the thumbnail so the chip still names a layer.

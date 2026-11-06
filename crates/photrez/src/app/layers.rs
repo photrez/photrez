@@ -625,7 +625,7 @@ impl App {
     }
 
     /// Set the selected layer's opacity outright. The Properties panel's track
-    /// drags to this; a locked layer answers nothing, as in the reference.
+    /// drags to this; a locked layer answers nothing, as the 0.1 build does.
     pub(crate) fn set_selected_layer_opacity(
         &mut self,
         opacity: f64,

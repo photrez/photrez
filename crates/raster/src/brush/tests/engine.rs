@@ -4,7 +4,7 @@
 
 use crate::brush::engine::*;
 
-// Cases below pin the reference dab-interpolation edge cases (zero distance,
+// Cases below pin the dab-interpolation edge cases (zero distance,
 // sub-spacing moves, carry overflow) plus segment identity.
 
 fn dab(engine: &mut BrushStrokeEngine, x: f64, y: f64) -> Vec<(f64, f64)> {

@@ -713,7 +713,7 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
         );
         assert!(
             window.try_find("opt-more-panel").is_some(),
-            "the panel stays open after acting, as in the reference"
+            "the panel stays open after acting, as the 0.1 build leaves it"
         );
 
         content.update(cx, |app, cx| {

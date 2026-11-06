@@ -216,7 +216,7 @@ pub fn accent_well() -> gpui_kit::BoxShadow {
 ///
 /// An inset ring and a 1px border put the same line on the same pixel edge, but
 /// only the ring leaves the content box alone, so children stay exactly where
-/// they would sit in the reference. Two inset spreads cannot stack: both bands
+/// the 0.1 build put them. Two inset spreads cannot stack: both bands
 /// start at the same edge, so the later one overwrites the earlier.
 pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour)

@@ -36,7 +36,7 @@ pub fn crop_params() -> CropParams {
 /// omits that trigger: the crop bar contributes no overflow group, and the
 /// guide and classic-mode selectors it would open are not implemented, so a
 /// painted trigger would open nothing. One divider still separates the swatch
-/// group from `Cancel`, as in the reference.
+/// group from `Cancel`, as the 0.1 build draws it.
 pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,

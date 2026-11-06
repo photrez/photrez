@@ -153,7 +153,7 @@ const TOOLS: &[Tool] = &[
 // background). `AppState::default` carries the same pair and is the live
 // source the swatches paint from, so no constant is needed here.
 
-/// The sub-variant triangle, from the inline `<svg>` in the reference markup -
+/// The sub-variant triangle, from the inline `<svg>` the 0.1 build used -
 /// trace-exempt: that markup is the asset itself, copied verbatim into the const
 /// below. It is not a lucide icon but a raw `<polygon points="6,6 0,6 6,0">` on
 /// a 6x6 viewBox. `currentColor` becomes `#ffffff` - GPUI tints by alpha, see
