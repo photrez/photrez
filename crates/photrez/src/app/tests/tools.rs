@@ -913,8 +913,8 @@ fn text_typing_preview_latency(cx: &mut gpui_kit::TestAppContext) {
 
 /// The reference gates its rest transform frame on a multi-layer selection,
 /// so one selected layer under Move paints no frame at all. Measured: the
-/// reference's Move frame holds 0 accent pixels inside the canvas box, the
-/// port held 2,653.
+/// reference's Move frame holds 0 accent pixels inside the canvas box; this
+/// build measured 2,653 before that gate landed.
 #[gpui_kit::test]
 fn move_with_one_selected_layer_paints_no_rest_transform_frame(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

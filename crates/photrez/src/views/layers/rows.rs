@@ -51,7 +51,7 @@ pub(super) fn row_hairline_colour() -> Hsla {
 /// active, and nothing on the rest.
 ///
 /// The middle tier is a 5/255 step over the panel - the ratified pixel gate
-/// cannot see it, which is exactly why it was never ported. It is still the
+/// cannot see it, which is why this build does not paint it. It is still the
 /// state the reference paints, and a multi-selection reads as one bright row
 /// plus a column of dimmed ones rather than a block of identical ones.
 pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {

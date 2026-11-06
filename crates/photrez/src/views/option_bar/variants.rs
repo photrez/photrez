@@ -427,7 +427,7 @@ fn selection_items(
 /// The Selection bar's `MoreDropdown`: the clipboard grid the reference folds
 /// at narrow widths. Without a committed
 /// selection every row keeps the reference's inert `pointer-events-none`
-/// state. The reference's first row, the Transform toggle, is not ported: the
+/// state. The reference's first row, the Transform toggle, is absent here: the
 /// native edit mode is only reachable through `ToggleSelectionEditModeAction`,
 /// whose type stays inside the private `app::selection` module, so a bar click
 /// has no entry point yet.
