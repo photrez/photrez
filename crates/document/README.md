@@ -5,7 +5,7 @@ The canonical Photrez document model. The package is workspace-internal
 
 ## Owns
 
-- `content`: the persisted document content model — layers, transforms, blend
+- `content`: the persisted document content model. It carries layers, transforms, blend
   modes, viewport, and selection state.
 - `layer_params`: the nested per-layer payloads (shape, text, basic adjustment).
 - `layer`: `LayerMeta`, the per-layer metadata value the engine stores in

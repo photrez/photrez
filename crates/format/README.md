@@ -5,9 +5,9 @@ and depends only on `photrez-document`.
 
 ## Owns
 
-- `file`: the `document.json` envelope, its writer and its reader — the format
-  header, the session fields the loader restores, and the per-layer bitmap keys
-  that must stay null.
+- `file`: the `document.json` envelope, its writer and its reader. The format header, the
+  session fields the loader restores, and the per-layer bitmap keys that must stay null
+  are all defined here.
 - `validate`: the native seed-payload parse.
 - `export`: the image payload codecs. They work on byte buffers and dimensions, so
   they name no document or pixel type.

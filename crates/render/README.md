@@ -5,7 +5,7 @@ CPU compositing and the rasterizers behind it. The package is workspace-internal
 
 ## Owns
 
-- `compositor`: the document-to-pixels entry point — layer stacking, blend modes,
+- `compositor`: the document-to-pixels entry point. It covers layer stacking, blend modes,
   opacity, transforms, and the clipped-region path the editor redraws through.
 - `shape` and `text`: the shape and text rasterizers a committed layer bakes from.
 - `input`: `RenderInput` and `RenderLayerPixels`, the read-only pixel source the
