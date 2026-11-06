@@ -34,7 +34,7 @@ use crate::icons;
 use crate::state::{AppState, SelectionShape, ToolId};
 use crate::tokens::{color, dim};
 
-/// One rail entry, shaped like the reference tool list's item. `has_variants`
+/// One rail entry, shaped like the 0.1 tool list's item. `has_variants`
 /// drives the bottom-right micro-indicator; only `selection` has variants.
 struct Tool {
     /// `ToolId` - the typed tool the button represents. Compared against
@@ -65,7 +65,7 @@ pub(crate) fn tool_tooltip(id: &str) -> Option<(&'static str, &'static str)> {
         .map(|tool| (tool.label_key, tool.shortcut))
 }
 
-/// The tool list, in rail order - the same order the reference tool list uses.
+/// The tool list, in rail order - the same order the 0.1 tool list uses.
 const TOOLS: &[Tool] = &[
     Tool {
         tool_id: ToolId::Move,
@@ -149,7 +149,7 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
-// The reference tool defaults (`#E15A17` foreground, `#FFFFFF`
+// The 0.1 tool defaults (`#E15A17` foreground, `#FFFFFF`
 // background). `AppState::default` carries the same pair and is the live
 // source the swatches paint from, so no constant is needed here.
 
@@ -536,7 +536,7 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// indistinguishable - invisible at rest, fully visible on hover. The missing
 /// piece is only the 150ms scale-*animation*.
 ///
-/// Note this icon keeps `stroke-width` 2: the reference markup passes no
+/// Note this icon keeps `stroke-width` 2: the 0.1 markup passes no
 /// `strokeWidth`, unlike the tool buttons.
 fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     div()

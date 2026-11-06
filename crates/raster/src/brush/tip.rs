@@ -1,6 +1,6 @@
 //! Authoritative brush-tip construction + defined resampler.
 //!
-//! Implements the reference tip-mask and hardness-profile semantics verbatim as
+//! Implements the 0.1 tip-mask and hardness-profile semantics verbatim as
 //! explicit Rust contract code, then defines the previously scale-operation-owned
 //! upscale step as a deterministic bilinear-premultiplied half-pixel resampler.
 //! No production wiring yet: validated offline against captured golden
@@ -21,7 +21,7 @@ pub struct ProfileParams {
     pub n: f64,
 }
 
-/// Fritsch-Carlson monotone cubic — reproduces the reference interpolator's
+/// Fritsch-Carlson monotone cubic — reproduces the 0.1 interpolator's
 /// operations one-for-one.
 struct MonotoneCubic {
     xs: Vec<f64>,
@@ -114,7 +114,7 @@ pub fn get_brush_profile_parameters(hardness: f64) -> ProfileParams {
     }
 }
 
-/// Super-gaussian soft profile — the reference brush-alpha curve.
+/// Super-gaussian soft profile — the 0.1 brush-alpha curve.
 pub fn brush_alpha(r_norm: f64, hardness: f64) -> f64 {
     let h = clamp_hardness(hardness);
     if h >= BRUSH_HARD_EDGE_THRESHOLD {
@@ -206,7 +206,7 @@ fn outer_radius(radius: f64, hardness: f64, curve: Curve) -> f64 {
     }
 }
 
-/// Rasterizes the tip mask to match the reference curve: f32 mask storage,
+/// Rasterizes the tip mask to match the 0.1 curve: f32 mask storage,
 /// half-pixel offsets, scale=diameter/data_size, distance=sqrt, soft ⇒
 /// `brush_alpha(dist/R_nominal,h)`, small/hard branches preserved.
 fn rasterize_mask(

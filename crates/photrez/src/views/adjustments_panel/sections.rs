@@ -455,7 +455,7 @@ pub(super) fn coming_soon_section(
         .when(open, |section| section.child(in_development_card(id)))
 }
 
-/// The card the reference expands under every unfinished adjustment group: a
+/// The card the 0.1 build expands under every unfinished adjustment group: a
 /// dashed well holding the In Development eyebrow and one description line.
 /// `bg-white/[0.015]` is the well's fill; the runtime expresses no
 /// letter-spacing, so the uppercase eyebrow runs untracked.

@@ -744,7 +744,7 @@ mod tests {
     }
 
     /// The hover tier is white at 3%, and it is colourless - a hue would show
-    /// through on the panel and the reference asks plain white.
+    /// through on the panel and the 0.1 build asks plain white.
     /// RED proof by mutation: raise the alpha or give it a saturation and this
     /// fails at the named assertion.
     #[test]

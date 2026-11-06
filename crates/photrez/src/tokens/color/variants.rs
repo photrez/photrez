@@ -128,7 +128,7 @@ pub const ACCENT_15: Hsla = Hsla {
     a: 0.15,
 };
 
-/// Tool mark at 8% - the navigator's viewport tint. The reference composites
+/// Tool mark at 8% - the navigator's viewport tint. The 0.1 build composites
 /// `color-mix(in srgb, #E15A17 8%, transparent)` over the thumbnail, which
 /// turns its white page (253, 242, 237) in shell-navigator.png, measured;
 /// the same blend over (255,255,255) at 8% is what that triple is.

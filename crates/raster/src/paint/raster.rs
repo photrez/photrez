@@ -6,7 +6,7 @@
 //! Digest pipeline contract, pinned EXACTLY:
 //!   key = "tx,ty"; combined = sorted("key:fnv1a(bytes);"...) ; digest = fnv1a(utf8(combined))
 
-/// FNV-1a (32-bit) — must match the reference digest bit-for-bit.
+/// FNV-1a (32-bit) — must match the recorded digest bit-for-bit.
 pub fn fnv1a(bytes: &[u8]) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     for &b in bytes {

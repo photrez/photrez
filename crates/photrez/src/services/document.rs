@@ -108,7 +108,7 @@ impl LoadedDocument {
         }
         let original = self.document_snapshot();
         let mut layers = content.layers.clone();
-        // `resourceId` is a live store token, not file metadata: the reference
+        // `resourceId` is a live store token, not file metadata: the 0.1 build
         // envelope has no such field, and writing it would change every
         // unmodified round-trip.
         for layer in &mut layers {

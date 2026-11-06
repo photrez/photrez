@@ -35,11 +35,11 @@ const GHOST_TILE_ICON: f32 = 12.0;
 
 /// The colour of the 1px rule closing every layer row.
 ///
-/// The reference asks `border-b border-editor-divider/10` for it, which names
+/// The 0.1 build asks `border-b border-editor-divider/10` for it, which names
 /// DIVIDER at 10% over the row - a 2/255 step a capture would never notice. The
 /// rule that actually reaches the screen is the app-wide border override
 /// ([`color::BORDER`]), so this is rgb(51,51,51): a 21/255 step over the
-/// rgb(30,30,30) panel, in a row the reference draws and the native did not.
+/// rgb(30,30,30) panel, in a row the 0.1 build draws and the native did not.
 /// Kept as a function so the tier is assertable without a window; the width is
 /// the fixed 1px the 0.1 build's `border-b` gives it.
 pub(super) fn row_hairline_colour() -> Hsla {
@@ -72,7 +72,7 @@ pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
 
 /// White at 3%, the fill an unselected row takes while the pointer is on it.
 ///
-/// The reference only asks for it in its third branch, so a selected row keeps
+/// The 0.1 build only asks for it in its third branch, so a selected row keeps
 /// its own fill tier and never takes this one; the step it makes over the panel
 /// is 7/255.
 pub(super) fn row_hover_fill() -> Hsla {
@@ -86,7 +86,7 @@ pub(super) fn row_hover_fill() -> Hsla {
 
 /// The locked badge's three tiers: fill, edge, label.
 ///
-/// The reference pill is `bg-editor-accent/5` with a `border-editor-accent/20`
+/// The 0.1 pill is `bg-editor-accent/5` with a `border-editor-accent/20`
 /// edge. Its label asks `text-editor-accent/70`, which measures 3.33:1 on that
 /// fill over the active row's `ROW_ACTIVE`, under the 4.5:1 floor for 11px
 /// text, so the native label keeps full `color::ACCENT` (5.18:1 there, 6.38:1
@@ -150,7 +150,7 @@ fn ghost_tile() -> impl IntoElement {
         .rounded(px(GHOST_TILE_RADIUS))
         .border_1()
         .border_color(color::WHITE_10)
-        // The reference asks `bg-black/50`; no token sits on that alpha
+        // The 0.1 build asks `bg-black/50`; no token sits on that alpha
         // (`BLACK_40` and `BLACK_55` flank it), so the tile names it here.
         .bg(Hsla {
             h: 0.0,

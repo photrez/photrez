@@ -174,7 +174,7 @@ pub(super) fn align_clicked(
     }
 }
 
-/// The `handleFlip` click body, same lock guard as the reference.
+/// The `handleFlip` click body, same lock guard as the 0.1 build.
 pub(super) fn flip_clicked(
     horizontal: bool,
 ) -> impl Fn(&mut crate::app::App, &mut Context<crate::app::App>) {

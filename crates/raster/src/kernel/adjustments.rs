@@ -255,7 +255,7 @@ fn stamp_into(
 }
 
 /// Straight-alpha-over composite of a paint mask into an RGBA buffer,
-/// restricted to a dirty rect. Blend order matches the reference rasteriser.
+/// restricted to a dirty rect. Blend order matches the 0.1 rasteriser.
 #[allow(clippy::too_many_arguments)]
 pub fn composite_mask(
     dst: &mut [u8],

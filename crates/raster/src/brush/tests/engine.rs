@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Stroke-engine tests: the dab spacing/carry state machine checked against
-//! the reference dab-interpolation cases.
+//! the 0.1 dab-interpolation cases.
 
 use crate::brush::engine::*;
 

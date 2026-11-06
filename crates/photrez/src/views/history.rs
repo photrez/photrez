@@ -212,7 +212,7 @@ const HINT_TEXT_KEY: &str = "history.editsAppearHere";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
-/// The row's visual state, which the reference marks on each row element.
+/// The row's visual state, which the 0.1 build marks on each row element.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Step {
     /// The cursor is on this entry.

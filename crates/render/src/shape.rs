@@ -517,7 +517,7 @@ mod tests {
     }
 
     fn shape_tolerance(name: &str) -> u8 {
-        // Measured premultiplied maxima against the reference-compositor goldens. These are
+        // Measured premultiplied maxima against the 0.1 build-compositor goldens. These are
         // AA/stroke differences, not geometry drift; the line is the largest
         // because its 1px diagonal stroke lands on subpixel boundaries.
         match name {

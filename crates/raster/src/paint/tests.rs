@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Paint-level tests: the reference rasterizer's own tests and the measurement
+//! Paint-level tests: the candidate rasterizer's own tests and the measurement
 //! experiments that attribute pipeline cost. Neither is part of the public
 //! surface.
 

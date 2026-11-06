@@ -216,10 +216,10 @@ pub(crate) fn rasterize_text(
     let mut pixels = vec![0u8; width as usize * height as usize * 4];
     // The 0.1 build's top-baseline mode places the ink top at the padding.
     // cosmic-text's line box has a different top offset; align the measured ink
-    // top to the same padding so the bitmap origin matches the reference.
+    // top to the same padding so the bitmap origin matches the 0.1 build.
     let draw_x = PADDING + stroke_pad;
     let draw_y = PADDING + stroke_pad - (font_px / 8.0 + 1.0);
-    // The reference strokes before filling for outside alignment (the fill then
+    // The 0.1 build strokes before filling for outside alignment (the fill then
     // covers the inner half of the doubled line) and fills first for the center
     // and inside alignments.
     if let Some(stroke) = stroke
@@ -378,9 +378,9 @@ impl StrokeSpec {
 }
 
 /// Rasterize every glyph outline as one stroked path and composite it onto
-/// `pixels`. The reference strokes a line's glyphs as a single path, so overlapping
+/// `pixels`. The 0.1 build strokes a line's glyphs as a single path, so overlapping
 /// glyphs must not blend twice. `source_atop` carries the fill's alpha mask for
-/// the inside alignment, which the reference implements with `source-atop`.
+/// the inside alignment, which the 0.1 build implements with `source-atop`.
 #[allow(clippy::too_many_arguments)] // flat draw context; a struct would add no validation
 fn stroke_buffer(
     buffer: &mut Buffer,

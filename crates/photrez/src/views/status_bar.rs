@@ -541,7 +541,7 @@ fn right_group(
 /// master shows dim. Clicking shows the History panel and opens the dock.
 ///
 /// The `data-status-history-trigger` hook and `aria-pressed` have no GPUI
-/// surface, so they stay with the reference; the wiring is real.
+/// surface, so they stay with the 0.1 build; the wiring is real.
 ///
 /// [`HIT_PY`] pads the button's 15px content box out to the 24px minimum
 /// target size; symmetric, so the icon and label do not move.

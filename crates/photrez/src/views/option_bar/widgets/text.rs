@@ -255,7 +255,7 @@ fn box_mode_list(
 
 /// One box-mode row. The click mirrors `setBoxMode`: the selected text
 /// layer and the live edit session both take the mode, then the list closes.
-/// With neither present the reference writes nothing, and neither does this.
+/// With neither present the 0.1 build writes nothing, and neither does this.
 fn box_mode_row(
     id: &'static str,
     label: &'static str,

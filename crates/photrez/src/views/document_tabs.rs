@@ -55,7 +55,7 @@
 //! * **The layout toggle was captured, and is removed.** The baseline paints
 //!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
 //!   8 gap + 92 export + 16 right padding), which put its left border at
-//!   exactly x=680, where `shell-full-page.png` has #333333. The reference
+//!   exactly x=680, where `shell-full-page.png` has #333333. The 0.1 build
 //!   switches the right dock between side-by-side and stacked there, and tints
 //!   the glyph with the accent only in the stacked layout. This app ships one
 //!   dock layout, so the control had no handler: a painted control that answers
@@ -82,11 +82,11 @@
 //! * The transition timings, the text-selection lock, the
 //!   ARIA roles and tab order have no pixel consequence and are dropped. The
 //!   pointer cursor is applied to the controls that work, and the icon-only `+`
-//!   carries the accessible name the reference gives it.
+//!   carries the accessible name the 0.1 build gives it.
 
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
-// centred single row the reference markup expresses.
+// centred single row the 0.1 markup expresses.
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;

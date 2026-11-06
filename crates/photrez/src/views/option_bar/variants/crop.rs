@@ -27,12 +27,12 @@ pub fn crop_params() -> CropParams {
 /// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fill_enabled`
 /// is true, and the `@min-[880px]` inline advanced group (straighten / rotate /
 /// guide / classic toggle) is hidden — so none of those paint. Element order
-/// follows the reference markup fragment line-for-line:
+/// follows the 0.1 markup fragment line-for-line:
 ///
 /// `pill` ⟵ `Divider` ⟵ `Aspect Ratio: Free` ⟵ `Divider` ⟵ `Delete` ⟵
 /// `Fill BG` ⟵ `white swatch + Use BG` ⟵ `Divider` ⟵ `Cancel` ⟵ `Apply`.
 ///
-/// The reference places a `MoreDropdown` between two dividers. This build
+/// The 0.1 build places a `MoreDropdown` between two dividers. This build
 /// omits that trigger: the crop bar contributes no overflow group, and the
 /// guide and classic-mode selectors it would open are not implemented, so a
 /// painted trigger would open nothing. One divider still separates the swatch

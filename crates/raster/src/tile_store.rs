@@ -287,9 +287,9 @@ mod tests {
             let bytes = row_major(w, h, 11);
             let s = TileStore::new(w, h, &bytes);
             let pr = PixelReader::new(w, h, bytes.clone());
-            // Whole packed buffer must byte-match the reference tile-major.
+            // Whole packed buffer must byte-match the independent PixelReader path.
             assert_byte_eq(&s.packed, &pr.to_tile_major().bytes, &format!("{w}x{h}"));
-            // Per-tile extract must match the reference per-tile.
+            // Per-tile extract must match the PixelReader extract.
             for ty in 0..s.tiles_h {
                 for tx in 0..s.tiles_w {
                     assert_byte_eq(

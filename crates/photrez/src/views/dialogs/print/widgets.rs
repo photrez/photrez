@@ -185,10 +185,10 @@ where
     }
 }
 
-/// The page shape the reference draws inside each orientation button: a bordered
+/// The page shape the 0.1 build draws inside each orientation button: a bordered
 /// rectangle in the page's own aspect, with two text lines across it.
 /// `icons.rs` has no page outline that matches, so this composes the shape from
-/// divs the way the reference composes it from an SVG `rect` and two `line`s.
+/// divs the way the 0.1 build composes it from an SVG `rect` and two `line`s.
 /// The strokes follow the button's own text colour, so an active button keeps
 /// its inverted look.
 pub(super) fn page_glyph(id: &'static str, landscape: bool, on: bool) -> AnyElement {

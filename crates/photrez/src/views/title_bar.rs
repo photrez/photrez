@@ -19,7 +19,7 @@
 //! letter-spacing = 0.3px after every glyph, including the last. GPUI has no
 //! letter-spacing field: `LineLayout`/`ShapedGlyph` and `Styled` carry none.
 //!
-//! Inline triggers accumulate width deficits. The reference origins are the
+//! Inline triggers accumulate width deficits. The 0.1 origins are the
 //! `menu-*` boxes in `tests/baseline/manifest.json` (dropdown x equals trigger
 //! x); the native column below is this bar's own rendered origins.
 //!
@@ -221,7 +221,7 @@ pub(crate) fn logo(size: f32) -> impl IntoElement {
 
 /// The menu bar: one full-height row, centred, 2px between triggers.
 ///
-/// The reference hides this bar below its medium breakpoint and shows it as a
+/// The 0.1 build hides this bar below its medium breakpoint and shows it as a
 /// row from there up: the baseline is 1366px wide, past the 768px breakpoint.
 fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()

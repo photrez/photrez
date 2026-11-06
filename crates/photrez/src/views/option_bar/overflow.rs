@@ -150,7 +150,7 @@ pub(super) fn overflow_icon_button(
 }
 
 /// A labelled action button inside the overflow panel (24px tall, 3px
-/// radius, field border and fill). `enabled` is the reference gate: a
+/// radius, field border and fill). `enabled` is the 0.1 gate: a
 /// missing selection or a locked layer leaves the row inert and dimmed.
 pub(super) fn overflow_action_button(
     id: &'static str,

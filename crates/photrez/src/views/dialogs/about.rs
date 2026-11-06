@@ -63,7 +63,7 @@ const ABOUT_PILL_FILL: Hsla = Hsla {
 /// The version pill's painted edge, fill and text, kept out of the view
 /// builder so the tiers can be asserted without a window.
 ///
-/// The reference asks this pill for a 40%-alpha accent edge over a 10%-alpha
+/// The 0.1 build asks this pill for a 40%-alpha accent edge over a 10%-alpha
 /// accent fill. Only the fill ever arrives: one app-wide rule outranks the
 /// border colour a component asks for (see [`color::BORDER`]), so the edge that
 /// paints is the global border grey. Measured in the about-dialog capture -

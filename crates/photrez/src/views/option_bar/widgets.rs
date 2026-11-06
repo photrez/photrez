@@ -90,7 +90,7 @@ pub(super) fn position_group(
 }
 
 /// A non-shrinking, centred row (the shared inner gap) around the W and H
-/// fields. The reference types a size here only during a transform session, so
+/// fields. The 0.1 build types a size here only during a transform session, so
 /// a typed size belongs to the Properties rows.
 pub(super) fn size_group(readout: Option<crate::state::LayerTransformReadout>) -> impl IntoElement {
     let size = |value: Option<f64>| {

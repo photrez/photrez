@@ -171,7 +171,7 @@ pub struct LayerFlags {
 /// the scaled frame, so a layer at half scale reads half its source width.
 ///
 /// The three lock flags decide which rows answer an edit: `locked` stops all of
-/// them, `lock_position` stops X and Y, `lock_rotation` stops R. The reference
+/// them, `lock_position` stops X and Y, `lock_rotation` stops R. The 0.1 build
 /// product guards the same three ways, per row rather than for the panel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerTransformReadout {

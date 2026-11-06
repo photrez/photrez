@@ -136,7 +136,7 @@ fn geometry_constants_are_pinned() {
     assert_eq!(NAV_H - NAV_HEADER_H - SPLIT_BORDER, 146.0);
 }
 
-/// The active tab underline is 2px - the height the reference markup gives
+/// The active tab underline is 2px - the height the 0.1 markup gives
 /// the underline.
 #[test]
 fn underline_height_matches_the_reference() {

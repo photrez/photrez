@@ -52,7 +52,7 @@ fn two_layer_order_opacity_and_visibility_match_the_source_over_golden() {
     assert_eq!((result.width, result.height), (GOLDEN_WIDTH, GOLDEN_HEIGHT));
     assert_eq!(
         result.pixels, SOURCE_OVER_GOLDEN,
-        "CPU composite must match the reference source-over capture"
+        "CPU composite must match the 0.1 source-over capture"
     );
 }
 
@@ -289,7 +289,7 @@ fn transformed_layers_match_reference_goldens_within_one_unit() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];
-    // The four axis-aligned cases are byte-exact. At 45 degrees the reference
+    // The four axis-aligned cases are byte-exact. At 45 degrees the 0.1 build
     // color sample rounds 127.5 down once; no case may exceed one unit.
     let cases = [
         ("scale2", 1.0, 1.0, 2.0, 2.0, 0.0, SCALE2_GOLDEN, 0u8),
