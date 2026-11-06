@@ -158,7 +158,7 @@ fn move_items(
 }
 
 /// The Move bar's `MoreDropdown` body: the Align and Flip groups and
-/// Reset Transform, the controls the reference folds below 880 px. A locked
+/// Reset Transform, the controls the 0.1 build folds below 880 px. A locked
 /// selection keeps the design's inert look: dimmed sections, clickable nothing.
 fn move_more_dropdown(
     state: &gpui_kit::Entity<AppState>,
@@ -424,10 +424,10 @@ fn selection_items(
     })
 }
 
-/// The Selection bar's `MoreDropdown`: the clipboard grid the reference folds
+/// The Selection bar's `MoreDropdown`: the clipboard grid the 0.1 build folds
 /// at narrow widths. Without a committed
-/// selection every row keeps the reference's inert `pointer-events-none`
-/// state. The reference's first row, the Transform toggle, is absent here: the
+/// selection every row keeps the inert state that build set with
+/// `pointer-events-none`. Its first row, the Transform toggle, is absent here: the
 /// native edit mode is only reachable through `ToggleSelectionEditModeAction`,
 /// whose type stays inside the private `app::selection` module, so a bar click
 /// has no entry point yet.

@@ -226,7 +226,7 @@ pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
 
 /// The same spread with no `.inset()`: a halo that grows *outside* the box,
 /// which is what a plain `ring-1` is. [`inset_ring`] and this are not
-/// interchangeable — the reference uses the inset form for layer rows and the
+/// interchangeable; the 0.1 build uses the inset form for layer rows and the
 /// outset form for field halos, and they land on different pixels.
 ///
 /// A drop shadow fills its whole dilated rect, and only the background painted

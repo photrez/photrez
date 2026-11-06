@@ -60,9 +60,9 @@ pub(crate) fn navigator_viewport_frame(
 /// What the indicator actually paints inside a preview box: the soft fill over
 /// the part that survives the cut, then each edge only where it was not cut.
 ///
-/// The reference clips with `overflow: hidden`, so an edge that falls outside
+/// The 0.1 build clips with `overflow: hidden`, so an edge that falls outside
 /// the preview disappears. Redrawing it along the clip line would put two
-/// horizontal rules across the thumbnail that the reference does not have.
+/// horizontal rules across the thumbnail that the 0.1 build does not have.
 /// Rectangles are `(x, y, width, height)`; edges come back 1 px thick.
 pub(crate) fn navigator_indicator_paint(
     frame: NavRect,

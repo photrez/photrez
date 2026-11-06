@@ -72,10 +72,10 @@ impl Camera {
 
     /// A stated zoom, centered on both axes.
     ///
-    /// Recorded captures carry the zoom the reference was showing, which is
+    /// Recorded captures carry the zoom the 0.1 build was showing, which is
     /// not the live fit: hiding the dock grows the canvas and a fit recomputes
     /// the scale. This is the seam that lets a fixture be drawn at the
-    /// reference's own scale instead.
+    /// recorded scale instead.
     pub fn centred_at(
         viewport_w: f32,
         viewport_h: f32,

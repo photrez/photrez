@@ -668,7 +668,7 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
             );
         }
 
-        // No committed selection yet: the reference keeps the rows inert.
+        // No committed selection yet: the 0.1 build keeps the rows inert.
         window.click("opt-sel-copy", cx);
         window.render_frame(cx);
         assert!(

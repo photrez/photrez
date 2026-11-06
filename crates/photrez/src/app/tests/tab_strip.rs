@@ -3,7 +3,7 @@
 
 use super::*;
 
-/// The tab strip mounts no layout toggle. The reference paints one in the
+/// The tab strip mounts no layout toggle. The 0.1 build paints one in the
 /// utility cluster; this app ships one dock layout, so that control answered
 /// no click and it is not mounted here.
 ///
