@@ -7,6 +7,3 @@ and the writer's output is guarded by a tracked golden fixture
 change fails a test rather than a release. Regenerate that golden deliberately
 with `cargo test -p photrez-format --lib -- --ignored ptz_writer_golden`, and
 stage it in the same change as the writer.
-
-The dated migration working notes that accompanied the native rewrite were an
-internal record of that rewrite; they are not part of this repository.
