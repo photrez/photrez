@@ -22,7 +22,7 @@ pub(crate) enum CursorPolicy {
     Crosshair,
     Text,
     Grabbing,
-    /// The clone affordance: the reference switches to `cursor: copy` while the
+    /// The clone affordance: the 0.1 build switches to `cursor: copy` while the
     /// pointer holds Alt during a Move drag.
     Cloning,
     OpenHand,

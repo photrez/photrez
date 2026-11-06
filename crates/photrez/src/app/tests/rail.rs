@@ -109,7 +109,7 @@ fn rail_hover_publishes_and_clears_the_hovered_tool(cx: &mut gpui_kit::TestAppCo
     .expect("test window remains open");
 }
 
-/// A hovered rail button carries its tooltip, the way the reference rail does.
+/// A hovered rail button carries its tooltip, the way the 0.1 rail does.
 ///
 /// RED proof: remove the `rail_tooltip` child from `tool_button` and the second
 /// assert fails with "hovering the Move button shows its tooltip".

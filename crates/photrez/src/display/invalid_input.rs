@@ -64,7 +64,7 @@ fn nan_or_negative_transform_places_nothing() {
 
 #[test]
 fn tiny_viewport_clamps_zoom_instead_of_overflowing() {
-    // Below the 80px padding the raw ratio is negative; the reference viewport
+    // Below the 80px padding the raw ratio is negative; the 0.1 viewport
     // clamps it at 0.05, so an 800x600 page draws as 40x30, centered.
     let (x, y, w, h) = fit_placement(50., 50., 800., 600.).expect("fits");
     assert!((x - 5.).abs() < 0.01, "x: {x}");

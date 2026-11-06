@@ -129,7 +129,7 @@ impl App {
         }
     }
 
-    /// Fire a zoom action around the viewport centre, like the reference
+    /// Fire a zoom action around the viewport centre, like the 0.1
     /// command path's animated zoom to the viewport midpoint.
     fn zoom_around_centre(&mut self, factor: f32, cx: &mut Context<Self>) {
         let Some((viewport_w, viewport_h)) = self.viewport_size() else {

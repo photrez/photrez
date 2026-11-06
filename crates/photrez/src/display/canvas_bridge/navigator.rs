@@ -126,7 +126,7 @@ pub(crate) fn navigator_element(
             let Some(layout) = navigator_layout(doc_w, doc_h) else {
                 return;
             };
-            // The reference centres its 208px canvas with `px-4` plus a flex
+            // The 0.1 build centres its 208px canvas with `px-4` plus a flex
             // row, and 16 + (w - 32 - 208)/2 is the same place as (w - 208)/2,
             // so the box is centred horizontally. Vertically it only pads the
             // top, so the 16px stays there.
@@ -197,7 +197,7 @@ pub(crate) fn navigator_element(
 
 /// 16px padding around the Navigator canvas.
 pub(crate) const NAV_PAD: f32 = 16.;
-/// The thumbnail box inside that padding. The reference clips its navigator
+/// The thumbnail box inside that padding. The 0.1 build clips its navigator
 /// canvas to this rect, and the viewport indicator is cut by it rather than by
 /// the document.
 pub(crate) const NAV_BOX_W: f32 = 208.;

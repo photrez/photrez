@@ -24,7 +24,7 @@ fn e_invalid(msg: &str) -> ProtocolError {
 
 /// Normalize a rotation angle in degrees to the canonical (-180, 180] range:
 /// `angle % 360`, then `> 180 -> -360`, then `< -180 -> +360`. Verified against
-/// the reference viewport geometry (e.g. -270 -> 90, 360 -> 0, 181 -> -179).
+/// the 0.1 build's viewport geometry (e.g. -270 -> 90, 360 -> 0, 181 -> -179).
 fn normalize_rotation(angle_deg: f64) -> f64 {
     let mut a = angle_deg % 360.0;
     if a > 180.0 {
@@ -38,7 +38,7 @@ fn normalize_rotation(angle_deg: f64) -> f64 {
 
 impl DocumentCore {
     /// Crop the canvas: shift every unlocked layer's position by (-x, -y) and set
-    /// the document size to (width, height). Follows the reference non-destructive
+    /// the document size to (width, height). Follows the 0.1 build's non-destructive
     /// crop-canvas math, which offsets unlocked layers and
     /// resizes the document. Locked layers are untouched (the guard is `!layer.locked`);
     /// `LayerMeta.locked` is `Option<bool>`, so `Some(true)` is locked and
@@ -48,7 +48,7 @@ impl DocumentCore {
     /// (the 0.1 engine lets NaN/Inf silently slip through its `<= 0` comparisons and
     /// would proceed (a divergence that is stricter than the 0.1 engine). Non-positive width/height
     /// is a SILENT no-op (no history entry; the apply() tail still bumps DV),
-    /// mirroring the reference guard `if (width <= 0 || height <= 0) return;`. x/y may be
+    /// mirroring the 0.1 build's guard `if (width <= 0 || height <= 0) return;`. x/y may be
     /// any sign (negative offsets are legal).
     pub(crate) fn apply_crop_canvas(
         &mut self,
@@ -315,7 +315,7 @@ impl DocumentCore {
             .collect())
     }
 
-    /// Resize the canvas to (width, height). The non-layer effect of the reference
+    /// Resize the canvas to (width, height). The non-layer effect of the 0.1 build's
     /// resize: only the document size changes, no layer is touched.
     ///
     /// Trust boundary: reject non-finite dims with E_INVALID before mutation (the

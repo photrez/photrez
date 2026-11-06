@@ -88,7 +88,7 @@ fn the_properties_transform_rows_describe_and_edit_the_layer(cx: &mut gpui_kit::
     .expect("test window remains open");
 }
 
-/// The reference guards each axis with its own flag: the position lock stops X
+/// The 0.1 build guards each axis with its own flag: the position lock stops X
 /// and Y only, and the rotation row keeps answering.
 /// The opacity row follows the layer the same way the transform rows do: the
 /// Layers panel's step buttons move the projected value the row prints.

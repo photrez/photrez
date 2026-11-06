@@ -99,7 +99,7 @@ impl App {
     }
 
     /// The status bar's History trigger: show the dock's History panel.
-    /// The reference opens the dock as well, since a closed dock would show
+    /// The 0.1 build opens the dock as well, since a closed dock would show
     /// a panel the user cannot see.
     pub(crate) fn show_history_panel(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {

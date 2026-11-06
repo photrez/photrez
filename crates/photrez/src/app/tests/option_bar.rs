@@ -387,7 +387,7 @@ fn inline_full_strength_helper_sets_the_eraser_to_full(cx: &mut gpui_kit::TestAp
 /// Flip group, and Reset Transform; Align Left rewrites the selected layer's
 /// x to 0 through core history, Flip Horizontal toggles the layer's flip and
 /// Reset clears the offsets. Escape and a click anywhere outside the panel
-/// (the reference backdrop) dismiss it.
+/// (the 0.1 backdrop) dismiss it.
 #[gpui_kit::test]
 fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -532,7 +532,7 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
         window.render_frame(cx);
         assert!(
             window.try_find("opt-more-panel").is_none(),
-            "a click outside the panel (the reference backdrop) closes it"
+            "a click outside the panel (the 0.1 backdrop) closes it"
         );
     })
     .expect("test window remains open");
@@ -626,7 +626,7 @@ fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAp
     .expect("test window remains open");
 }
 
-/// The Selection bar's overflow trigger hosts the clipboard grid the reference
+/// The Selection bar's overflow trigger hosts the clipboard grid the 0.1 build
 /// folds at narrow widths. With no
 /// committed selection the rows stay inert (the 0.1 build's
 /// `pointer-events-none`); once one exists, Invert rewrites it, Delete clears

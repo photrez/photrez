@@ -278,7 +278,7 @@ pub fn outline_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
 
 /// The layers a labelled number field carries while it is being edited.
 ///
-/// The reference wraps the input in a box that grows a 1px accent/70 halo
+/// The 0.1 build wraps the input in a box that grows a 1px accent/70 halo
 /// outside its border, so unlike [`outline_cue`] the cue follows the wrapper
 /// rather than the text control inside it.
 pub fn ring_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {

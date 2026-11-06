@@ -84,7 +84,7 @@ pub fn hsla([r, g, b, a]: [u8; 4]) -> Hsla {
     }
 }
 
-/// `#RRGGBB`, the form both the picker field and the reference palette use.
+/// `#RRGGBB`, the form both the picker field and the 0.1 palette use.
 pub fn to_hex([r, g, b, _]: [u8; 4]) -> String {
     format!("#{r:02X}{g:02X}{b:02X}")
 }

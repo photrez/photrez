@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(unit_to_mm(42.0, "unknown"), 42.0);
     }
 
-    /// The reference print-geometry expectations, reproduced as an independent
+    /// The 0.1 print-geometry expectations, reproduced as an independent
     /// comparison table: exact conversion anchors, zero/negative identity, and the
     /// large-value case.
     #[test]
