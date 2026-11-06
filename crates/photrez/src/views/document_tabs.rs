@@ -200,8 +200,8 @@ pub fn render(
         // here, whose advances differ and would move the measured 89.86px tab
         // width.
         .font_family(ui::FONT_UI)
-        // The tab strip is the flexible one (it scrolls sideways in the
-        // source); the two controls at the far end are fixed and must never be
+        // The tab strip is the flexible one (the recorded strip scrolls
+        // sideways); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
         .child(ui::clip(tab_list(tabs, active_id, cx)))
         .child(new_tab_button(cx))
