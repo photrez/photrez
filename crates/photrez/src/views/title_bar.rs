@@ -20,7 +20,7 @@
 //! letter-spacing field: `LineLayout`/`ShapedGlyph` and `Styled` carry none.
 //!
 //! Inline triggers accumulate width deficits. The baseline origins are the
-//! `menu-*` boxes in `tests/baseline/manifest.json` (dropdown x equals trigger
+//! recorded `menu-*` boxes for this bar (dropdown x equals trigger
 //! x); the native column below is this bar's own rendered origins.
 //!
 //! ```text

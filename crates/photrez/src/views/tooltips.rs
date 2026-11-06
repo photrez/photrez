@@ -16,9 +16,9 @@
 //! ```
 //!
 //! So there is one `tooltip` function and three `(label, shortcut)` pairs,
-//! and every number below was read out of `tests/baseline/tooltip-*.png` with
+//! and every number below was read out of the recorded `tooltip-*` captures with
 //! throwaway scan passes (crops —
-//! crop 0,0 is the tooltip's own top-left corner, offset by the manifest
+//! crop 0,0 is the tooltip's own top-left corner, offset by the recorded
 //! `box`, which is fractional: `y=58.75` etc.; this view renders the rounded
 //! origins from the table above and GPUI cannot place a border on a half
 //! pixel anyway).

@@ -95,9 +95,9 @@
 //!   rasterises greyscale, so glyph edges will differ in colour though not in
 //!   position or mass.
 //! * Vertical centering: the 12px label's 14.5px line box in the 38px row
-//!   leaves a half-pixel tie (11.75) that GPUI rounds down and the previous
-//!   renderer rounds up (the project-wide known gap), so the label may sit 1px
-//!   above the baseline's cap-top row.
+//!   leaves a half-pixel tie (11.75) that GPUI rounds down (the project-wide
+//!   known gap), so the label may sit 1px above the recorded baseline's
+//!   cap-top row.
 //! * Icon tint is static (decided at tree-build time), matching the resting
 //!   state; the hover tint is left out with the rest of the hover state.
 

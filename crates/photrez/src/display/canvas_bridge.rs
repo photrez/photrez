@@ -9,9 +9,9 @@
 //! - The RGBA8 -> GPUI conversion. GPUI's `RenderImage` stores **BGRA** bytes
 //!   (both of GPUI's own producers swap before `Frame::new`:
 //!   `elements/img.rs`, `svg_renderer.rs`), so the swap happens once, here.
-//! - The page placement: the viewport fit formula, recovered from the
-//!   original renderer's placement code and
-//!   pinned against the capture `tests/baseline/shell-canvas.png` (the
+//! - The page placement: the viewport fit formula and the page size it
+//!   produced for a default document, pinned against the recorded canvas
+//!   capture (the
 //!   800x600 page draws as a 701x525.75 box at x=40, y=71.125 inside the
 //!   781x668 crop: `min((w-80)/dw, (h-80)/dh)` clamped to `[0.05, 10]`,
 //!   centered).

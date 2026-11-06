@@ -18,7 +18,7 @@
 //! ctx-brush        200x245 @  420,323   (panel; the shot itself is 1366x820)
 //! ```
 //!
-//! Every figure was read back out of `tests/baseline/ctx-*.png` with a
+//! Every figure was read back out of the recorded `ctx-*` captures with a
 //! throwaway crop-analysis script (crop-relative coordinates — the three
 //! small PNGs are element crops, so crop 0,0 is the menu's own top-left; only
 //! `ctx-brush` is a viewport shot). The row arithmetic then checks itself:
