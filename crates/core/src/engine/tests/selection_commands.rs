@@ -219,8 +219,8 @@ fn set_selection_rejects_nonfinite_or_negative_dims_with_e_invalid() {
         shape: None,
         inverted: None,
     });
-    // The arm rejects NaN angle too - it is stricter than the previous build's
-    // selection creation, which validates none of the five numeric fields.
+    // The arm rejects NaN angle too - it is stricter than 0.1.0's selection
+    // creation, which validated none of the five numeric fields.
     bad(SelectionState {
         x: 0.0,
         y: 0.0,

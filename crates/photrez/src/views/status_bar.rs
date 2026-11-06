@@ -47,7 +47,7 @@
 //!   i.e. 15.75px. Measured, each cell separator
 //!   paints exactly 15 rows (y=5..19 of the 24px bar) — a 15px box centred in
 //!   the border-box content area `y=1..24` lands on precisely those rows, with
-//!   no dependence on how either renderer snaps a fractional edge. GPUI's own
+//!   no dependence on how a text layout snaps a fractional edge. GPUI's own
 //!   default line box (phi x font-size) is neither number, so `LINE_H` pins
 //!   it to 15px. The glyph baseline does not move as a result: centring a line
 //!   box inside a centred flex item cancels the box's height out of the
@@ -89,7 +89,7 @@ const BAR_PX: f32 = 12.0;
 const TEXT_SIZE: f32 = 10.5;
 
 /// Line box height for every run in the bar; see the module docs for why it is
-/// 15 rather than the previous renderer's 15.75 or GPUI's default.
+/// 15 rather than the 15.75 that 0.1.0 measured, or GPUI's default.
 const LINE_H: f32 = 15.0;
 
 /// 0.75rem (12px) between the cells of the left group.
@@ -270,8 +270,8 @@ pub fn render(
 /// The readout cells, in order: centred on one row with 12px between them.
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
-/// Frame timing. The Frame cell keeps the previous build's gate - it shows
-/// only while frame stats report at least one frame; the dev-mode capture
+/// Frame timing. The Frame cell keeps the gate 0.1.0 had - it shows only
+/// while frame stats report at least one frame; the dev-mode capture
 /// always has frames > 0, so the cell is always present in the golden master.
 fn left_group(
     zoom_percent: Option<u32>,

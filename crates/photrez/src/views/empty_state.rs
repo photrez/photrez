@@ -34,8 +34,8 @@
 //!   border pixels         183 .. 702       x   245 .. 596
 //! ```
 //!
-//! The previous renderer snaps a border edge outward to whole device pixels,
-//! and the capture agrees: in `empty-card.png` the left border column is crop
+//! 0.1.0 snapped a border edge outward to whole device pixels, and the
+//! capture agrees: in `empty-card.png` the left border column is crop
 //! x=1 and the right is crop x=520, with crop (0,0) = viewport (182,245) - a
 //! crop origin confirmed by cross-correlating the card PNG against
 //! `empty-full.png` (mean luma delta 0.0000). The comparison crops the
@@ -44,10 +44,10 @@
 //! width; `CARD_X = 183` lines the borders up.
 //!
 //! **Why the number is stated rather than computed.** Nothing here can
-//! re-derive 183 from the layout the way the previous renderer did: this view
-//! has no 24px-padded viewport box to centre inside, only a frame. Recomputing
-//! `(781-520)/2 + 52` here would give 182.5 again and lose the snap, which is
-//! exactly the mistake the constant exists to prevent.
+//! re-derive 183 from the layout: this view has no 24px-padded viewport box
+//! to centre inside, only a frame. Recomputing `(781-520)/2 + 52` here would
+//! give 182.5 again and lose the snap, which is exactly the mistake the
+//! constant exists to prevent.
 //!
 //! # `empty-new-document` is the dialog, not the card
 //!
@@ -112,12 +112,12 @@
 //!   (a 10px tag). Its 28px icon box is centred in the inner 33, i.e.
 //!   +2.5 - and the baseline puts it at **+2** (`#1e1e1e` rows 192..219).
 //!
-//! The two are the same half-pixel and the previous renderer rounds them
-//! **differently**, so both offsets are written as literals. A line-height of
-//! 1.5 is what makes 21 / 18 / 15 integers at all; the one exception is
-//! the 11px heading's 16.5, which the previous renderer spends as **17** (the
-//! "Quick Presets" line box is crop 154..170, and 17 + 10 of heading margin puts the
-//! first tile on crop row 181 exactly).
+//! The two are the same half-pixel and 0.1.0 rounds them **differently**, so
+//! both offsets are written as literals. A line-height of 1.5 is what makes
+//! 21 / 18 / 15 integers at all; the one exception is the 11px heading's
+//! 16.5, which 0.1.0 spends as **17** (the "Quick Presets" line box is crop
+//! 154..170, and 17 + 10 of heading margin puts the first tile on crop row
+//! 181 exactly).
 //!
 //! Columns: 20px of horizontal padding either side of the 518px content box, so 478 of
 //! usable width. The actions grid has a 10px gap -> 234 + 234; the presets
@@ -151,8 +151,8 @@
 //!
 //! * **The drop shadow is close but not the same curve.**
 //!   The CSS shadow `0 12px 32px rgba(0,0,0,0.8)` is transcribed as a `BoxShadow`
-//!   with the same offset and blur radius, but the previous renderer's shadow
-//!   coverage at the box edge is about 0.4 (measured: `#090909` against a
+//!   with the same offset and blur radius, but 0.1.0's shadow coverage at
+//!   the box edge is about 0.4 (measured: `#090909` against a
 //!   `#0f0f0f` canvas, 3px out, on both sides), not the 0.8 the alpha says - a
 //!   blurred shadow whose rect is offset and finite never reaches full
 //!   coverage at its own edge. GPUI's falloff will differ again. This is
@@ -170,8 +170,8 @@
 //! * **Clipped-with-ellipsis preset labels** mean `overflow:hidden` +
 //!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
 //!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
-//! * **Text rasterisation.** ClearType subpixel fringes and the previous
-//!   renderer's font-smoothing hint are the rasteriser's, not the markup's; every
+//! * **Text rasterisation.** ClearType subpixel fringes and 0.1.0's
+//!   font-smoothing hint are the rasteriser's, not the markup's; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.

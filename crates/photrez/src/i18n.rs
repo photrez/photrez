@@ -17,8 +17,8 @@ use std::sync::OnceLock;
 
 use crate::services::settings::SettingsStore;
 
-/// The settings key the chosen locale persists under - the same key the
-/// previous build kept in storage.
+/// The settings key the chosen locale persists under. 0.1.0 used the same
+/// key in storage.
 pub const LOCALE_KEY: &str = "photrez.locale";
 
 /// The embedded catalogs, paired with their locale, in the order the catalog
@@ -51,7 +51,7 @@ impl Locale {
 
     /// The language part of a tag, lowercased: `"id-ID"`, `"id_ID.UTF-8"`
     /// and `"ID"` all name [`Locale::Id`]. Anything else is `En` - the
-    /// fallback the previous build used when no catalog matched.
+    /// fallback 0.1.0 used when no catalog matched.
     pub fn normalize(tag: &str) -> Self {
         let language = tag.split(['-', '_', '.']).next().unwrap_or_default();
         match language.to_ascii_lowercase().as_str() {

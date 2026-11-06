@@ -17,7 +17,7 @@ use crate::units::DimensionUnit;
 
 use super::App;
 
-/// The previous renderer reported a click count on double click; native clicks
+/// 0.1.0 reported a click count on double click; native clicks
 /// carry no reliable count, so the second press inside this window counts as
 /// one.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);

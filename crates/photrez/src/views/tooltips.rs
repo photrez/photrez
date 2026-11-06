@@ -26,8 +26,7 @@
 //! # The 26px height is *not* content-driven here
 //!
 //! The source has no height: 8px x / 4px y padding + a border + the 11px label's line
-//! box give 26.5 in the previous renderer (that is the manifest's 26.5). GPUI
-//! computes its
+//! box give 26.5 in 0.1.0, which is the manifest's 26.5. GPUI computes its
 //! own line box for Inter 11px, so leaving the height to the text would put
 //! the border row wherever DirectWrite's metrics say — one engine-derivation
 //! away from the baseline. The height is therefore pinned at 26 ([`TOOLTIP_H`])
@@ -118,9 +117,9 @@ use gpui_kit::TestSupportExt;
 const FRAME_W: f32 = 1366.0;
 const FRAME_H: f32 = 820.0;
 
-/// The rendered tooltip height. The source's is content-driven (26.5 in the
-/// previous renderer); pinned here because GPUI's Inter line box is not that
-/// renderer's — see the module docs.
+/// The rendered tooltip height. The source's is content-driven, and 0.1.0
+/// measured 26.5; pinned here because GPUI's Inter line box is not 0.1.0's.
+/// See the module docs.
 pub const TOOLTIP_H: f32 = 26.0;
 
 /// Where a rail tooltip sits, measured from the captured frames: the Move
@@ -437,8 +436,8 @@ mod tests {
         assert_eq!(unknown, none, "unknown shots fall through to default");
     }
 
-    /// The tooltip's pinned height is 26px (the source's 26.5 in the previous
-    /// renderer, rounded for GPUI's line-box handling).
+    /// The tooltip's pinned height is 26px (the source's 26.5 in 0.1.0,
+    /// rounded for GPUI's line-box handling).
     #[test]
     fn tooltip_height_is_pinned() {
         assert!((TOOLTIP_H - 26.0).abs() < 0.001, "TOOLTIP_H = {TOOLTIP_H}");

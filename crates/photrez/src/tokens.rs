@@ -587,10 +587,10 @@ mod tests {
     }
 
     /// ACCENT (`oklch(0.74 0.15 55)`) and BRAND (`oklch(0.62 0.2 36)`) carry
-    /// chroma that sits marginally outside sRGB, so the previous renderer clips
-    /// them before rendering. The tokens are the *clipped* result, not the raw
-    /// OKLCH value - so their h/s/l must reproduce the exact sRGB the previous
-    /// renderer lands on. These pins assert that holds. A recompute that skips the
+    /// chroma that sits marginally outside sRGB, so 0.1.0 clipped them before
+    /// rendering. The tokens are the *clipped* result, not the raw OKLCH value -
+    /// so their h/s/l must reproduce the exact sRGB 0.1.0 lands on. These pins
+    /// assert that holds. A recompute that skips the
     /// clip (or re-derives from OKLCH without clamping) will change the hue,
     /// saturation or lightness and break the assertion.
     #[test]

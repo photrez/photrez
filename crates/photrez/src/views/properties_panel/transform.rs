@@ -264,7 +264,7 @@ pub(super) fn section(
                 // Quick — icon-only buttons, so the labels live in `Tooltip`
                 // wrappers that a static view cannot show.
                 ui::prop_row(
-                    "Quick", // i18n-exempt: not in catalog (the previous build's `t` resolves canvasProps.quickActions = "Quick Actions", not byte-identical)
+                    "Quick", // i18n-exempt: not in catalog (0.1.0's `t` resolves canvasProps.quickActions = "Quick Actions", not byte-identical)
                     h_flex()
                         .flex_1()
                         .gap(px(4.0))

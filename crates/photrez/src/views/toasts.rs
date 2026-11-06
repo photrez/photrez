@@ -188,10 +188,9 @@
 //!   child is laid out at exactly its own max-content width, so a fractional
 //!   rounding could otherwise push it to two lines. A toast is a single line,
 //!   so the guard names the intended behaviour, not a workaround.
-//! * The 6px scrollbar gutter reserved by the previous renderer's
-//!   stylesheet does **not** apply: this host never scrolls, and
-//!   adding the reservation here would move the left edge of every toast by
-//!   6px for nothing.
+//! * The 6px scrollbar gutter reserved by 0.1.0's stylesheet does **not**
+//!   apply: this host never scrolls, and adding the reservation here would
+//!   move the left edge of every toast by 6px for nothing.
 //! * In the stacked crop the corner notches and the area left of the stack are
 //!   warm `#291E19`/`#723719` pixels — that is the right dock's own content
 //!   showing through the transparent host, verified against `shell-right-dock`.
@@ -202,8 +201,8 @@
 //!   them, so each is a non-event here rather than an approximation.
 //! * Padding is already whole (8/16), so the "padding rounds to whole px"
 //!   gap is inert. The 18.75px line box is *not* whole: GPUI snaps a half
-//!   pixel down where the previous renderer rounds up, so the glyphs may land
-//!   1px off vertically while the box (1 + 8 + 18.75 + 8 + 1) stays put. First
+//!   pixel down where 0.1.0 rounds up, so the glyphs may land 1px off
+//!   vertically while the box (1 + 8 + 18.75 + 8 + 1) stays put. First
 //!   thing to check if a capture shows the text a row high.
 
 use gpui_kit::base::v_flex;
@@ -260,10 +259,10 @@ const TEXT_SIZE: f32 = 12.5;
 
 /// Line box for the toast text: 12.5 x 1.5.
 ///
-/// The 1.5 is the line height the web baseline inherited, the same way
-/// `status_bar.rs` derives its own `LINE_H` — GPUI's default is neither that
-/// nor anything else the previous renderer would use, and the box height
-/// (36.75) hangs off this number, so it has to be exact rather than stylistic.
+/// The 1.5 is the line height the 0.1.0 capture inherited, the same way
+/// `status_bar.rs` derives its own `LINE_H`. GPUI's default is neither that
+/// number nor what 0.1.0 would produce, and the box height (36.75) hangs off this
+/// number, so it has to be exact rather than stylistic.
 const LINE_H: f32 = 18.75;
 
 // The baseline's default sans family — Inter, the same family every other

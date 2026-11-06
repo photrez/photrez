@@ -307,7 +307,7 @@ fn size_neutral_host_mutation_with_equal_halves_emits_no_size() {
 
 /// Every entry kind must still advance the shared cursor, because the host reads
 /// it through the history query (`history_query().cursor`) to decide undo
-/// enablement, and the previous build enabled the undo button unconditionally: a
+/// enablement, and 0.1.0 enabled the undo button unconditionally: a
 /// cursor that failed to advance would not surface as a dead button, it would
 /// silently undo the wrong thing.
 ///

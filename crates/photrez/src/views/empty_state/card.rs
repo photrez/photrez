@@ -496,8 +496,8 @@ fn kbd() -> Div {
 /// it. Centring is enough rather than a computed baseline offset: a glyph's
 /// baseline lands at `box_centre + (ascent - descent) / 2` whatever the
 /// line-height, because half-leading is symmetric - which is also why the
-/// button labels need no explicit height even though the previous renderer gave
-/// them a 19.5px line box inside a 36px button.
+/// button labels need no explicit height even though 0.1.0 gave them a
+/// 19.5px line box inside a 36px button.
 ///
 /// Four other modules spell this out inline at the call site
 /// (`text_size` + `font_family` + `font_weight` + `text_color` on a fixed-height
