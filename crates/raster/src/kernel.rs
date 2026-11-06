@@ -381,5 +381,8 @@ pub fn gradient_fill(
 
 mod adjustments;
 
+// The in-place form is called inside `adjustments` in production; the kernel
+// tests reach it through this re-export.
+#[cfg(test)]
 pub(crate) use adjustments::apply_basic_adjustment_impl;
 pub use adjustments::{apply_basic_adjustment, brush_stamp, composite_mask, trim_bbox};

@@ -15,9 +15,6 @@ The raster primitives Photrez edits pixels with. The package is workspace-intern
   against, plus its tile-shaped output.
 - `brush`: the stroke spacing state machine and the brush tip bitmap its dabs are
   stamped with.
-- `engine`: an in-place compute buffer type that no caller in this workspace uses.
-  Its own tests are the only construction sites, so it waits on an owner decision
-  rather than serving as the package's compute entry point.
 - `reference`: an independent copy of the pixel reads, used only to check the packed
   canon against something that does not share its code.
 

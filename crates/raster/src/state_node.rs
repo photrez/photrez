@@ -29,7 +29,8 @@ use std::sync::{Arc, Weak};
 #[cfg(test)]
 use crate::reference::{assert_byte_eq, PackedView, PixelReader};
 
-/// Canonical tile edge in pixels. Must match the engine value (256).
+/// Canonical tile edge in pixels. The tile-grid sites in this package and in
+/// `photrez-core` repeat this value, so a change must update them all.
 pub const TILE: u32 = 256;
 
 pub type StateNodeId = u64;

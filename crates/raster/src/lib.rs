@@ -11,7 +11,6 @@
 //! package: `scripts/check-package-boundaries.sh` keeps `photrez` on `photrez-core`.
 
 pub mod brush;
-pub mod engine;
 pub mod kernel;
 pub mod layer;
 pub mod paint;
