@@ -190,12 +190,12 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
     }
 }
 
-/// The `Keep proportions` pill paints the 0.1 build's two colour states:
+/// The `Keep proportions` pill paints two colour states:
 /// locked is the global border grey over an accent/10 fill with full accent
 /// text, unlocked is the same grey over no fill with the dim text.
 ///
 /// The edge is grey in both states, not accent, because one app-wide border
-/// colour outranks every per-element border colour the 0.1 build asks for; the
+/// colour outranks every per-element border colour a component asks for; the
 /// capture of the locked dialog measures rgb(51,51,51) on the pill's border
 /// row, which is exactly [`color::BORDER`]. Fills are not affected by that
 /// rule, so the accent/10 fill does paint. The 1px border is present in both
@@ -227,7 +227,7 @@ fn resize_pill_colours_are_the_pinned_tiers() {
 }
 
 /// The About dialog's version pill: the same ruling as the resize pill, on a
-/// different surface. The 0.1 build asks an accent/40 edge over an accent/10
+/// different surface. The component asks an accent/40 edge over an accent/10
 /// fill; the edge that paints is the global border grey and the fill is
 /// accent/10. The measured About capture shows rgb(51,51,51) on the pill's
 /// border rows over an accent wash, which is what separates a measured edge

@@ -13,7 +13,7 @@ use super::{
     ACTIONS_H, BAR_PX, BODY_PX, BODY_PY, BRAND, BTN_H, BTN_MIN_W, BTN_R, BTN_TEXT, CLOSE_BOX,
     CLOSE_ICON, FOOTER_FILL, GAP_2, SHELL_R, TITLEBAR_H, TITLE_TEXT,
 };
-/// `DesktopDialog`'s shell: a rounded 1px-edged PANEL box with a 36px TOPBAR
+/// The dialog shell: a rounded 1px-edged PANEL box with a 36px TOPBAR
 /// titlebar, a body, and a translucent TOPBAR footer.
 ///
 /// Height is fixed rather than derived from the body so that a stubbed body
@@ -161,8 +161,8 @@ fn close_box() -> Stateful<Div> {
         )
 }
 
-/// The titlebar close for a live dialog: the source calls the dialog's
-/// `onDismiss` from here, which is the same path Escape and the backdrop take.
+/// The titlebar close for a live dialog: it runs the dialog's
+/// dismissal callback, which is the same path Escape and the backdrop take.
 pub(super) fn dialog_close_button(
     listener: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
 ) -> impl IntoElement {
@@ -188,7 +188,7 @@ fn actions(buttons: Vec<gpui_kit::AnyElement>) -> Div {
         .children(buttons)
 }
 
-/// The source's dialog button: 28px tall, 64px min-width, 6px radius,
+/// A dialog footer button: 28px tall, 64px min-width, 6px radius,
 /// 1px border, 12px side inset, 11px medium text.
 ///
 /// `primary` is an accent border and fill with black text at 90%; the

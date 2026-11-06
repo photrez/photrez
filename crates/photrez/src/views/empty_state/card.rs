@@ -53,7 +53,7 @@ fn card_shell(actions: impl IntoElement, presets: impl IntoElement) -> Div {
 
 /// The CSS shadow `0 12px 32px rgba(0,0,0,0.8)`.
 ///
-/// The parameters are exact; the *curve* is not. The 0.1 capture's
+/// The parameters are exact; the *curve* is not. The capture's
 /// coverage at the card's own edge reads about 0.4 (`#090909` over a `#0f0f0f`
 /// canvas, 3px out, symmetric on both sides), because a finite blurred rect
 /// offset 12px down never reaches full coverage at its edge - and GPUI

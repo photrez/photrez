@@ -1,6 +1,6 @@
 use super::*;
 
-/// The overflow button (`MoreDropdown`) — 24px square, 3px corner radius.
+/// The overflow button: a 24px square with a 3px corner radius.
 pub(super) fn more_dropdown_button() -> impl IntoElement {
     div()
         .id("opt-more")
@@ -13,7 +13,7 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         .border_1()
         .border_color(color::BORDER)
         .bg(color::FIELD)
-        // The 0.1 build's only hover change here is the glyph brightening to white; its border
+        // The only hover change here is the glyph brightening to white. The border
         // stays grey for the same reason as the fields above.
         .hover(|s| s.text_color(color::WHITE))
         .text_color(ZINC)
@@ -25,9 +25,8 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         )
 }
 
-/// The field background at 30% opacity: the tint of the 0.1 build's
-/// overflow group rows (`bg-editor-field/30`); it composites to the census
-/// pixel over [`color::BAR_POPOVER`].
+/// The field background at 30% opacity: the tint of the overflow group
+/// rows; it composites to the census pixel over [`color::BAR_POPOVER`].
 const FIELD_30: Hsla = Hsla {
     h: color::FIELD.h,
     s: color::FIELD.s,
@@ -35,7 +34,7 @@ const FIELD_30: Hsla = Hsla {
     a: 0.30,
 };
 
-/// The shared `MoreDropdown`: a trigger that toggles the bar-wide overflow
+/// The shared overflow dropdown: a trigger that toggles the bar-wide overflow
 /// state and, while open, the panel painted under it.
 ///
 /// The panel goes through `gpui_kit::deferred` + [`SelectPanelSurface`], the
@@ -100,8 +99,8 @@ pub(super) fn overflow_caption(label: &str) -> Div {
         .child(label.to_uppercase())
 }
 
-/// One overflow group row: the 0.1 build's `bg-editor-field/30` container
-/// with a field border around the icon buttons.
+/// One overflow group row: a 30% field container with a field border
+/// around the icon buttons.
 pub(super) fn overflow_group_row() -> Div {
     h_flex()
         .items_center()
@@ -114,8 +113,8 @@ pub(super) fn overflow_group_row() -> Div {
 }
 
 /// A borderless icon button inside an overflow group row (16px icon, 3px
-/// radius, 2px padding, the 0.1 build's `p-0.5` treatment). Disabled rows
-/// keep the 0.1 build's `pointer-events-none`: no cursor, no click.
+/// radius, 2px padding). Disabled rows ignore pointer events: no cursor,
+/// no click.
 pub(super) fn overflow_icon_button(
     id: &'static str,
     icon: &'static [u8],
@@ -150,7 +149,7 @@ pub(super) fn overflow_icon_button(
 }
 
 /// A labelled action button inside the overflow panel (24px tall, 3px
-/// radius, field border and fill). `enabled` is the 0.1 gate: a
+/// radius, field border and fill). `enabled` is the gate: a
 /// missing selection or a locked layer leaves the row inert and dimmed.
 pub(super) fn overflow_action_button(
     id: &'static str,
@@ -200,7 +199,7 @@ pub(super) fn overflow_action_button(
     button.child(div().child(label))
 }
 
-/// The overflow panel's 1px section divider (`h-px bg-editor-divider my-1`).
+/// The overflow panel's 1px section divider, in the divider colour.
 pub(super) fn overflow_divider() -> Div {
     div().w_full().h(px(1.0)).my(px(4.0)).bg(color::DIVIDER)
 }

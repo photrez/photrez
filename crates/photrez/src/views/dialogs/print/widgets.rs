@@ -178,17 +178,17 @@ where
         .text_color(if on { color::BG } else { color::TEXT })
         .cursor_pointer()
         .on_click(cx.listener(handler));
-    // The page shape leads the label, as it does in the 0.1 build's markup.
+    // The page shape leads the label.
     match glyph {
         Some(glyph) => box_.child(glyph).child(text.to_string()),
         None => box_.child(text.to_string()),
     }
 }
 
-/// The page shape the 0.1 build draws inside each orientation button: a bordered
+/// The page shape inside each orientation button: a bordered
 /// rectangle in the page's own aspect, with two text lines across it.
-/// `icons.rs` has no page outline that matches, so this composes the shape from
-/// divs the way the 0.1 build composes it from an SVG `rect` and two `line`s.
+/// `icons.rs` has no page outline that matches, so this composes the shape
+/// from divs.
 /// The strokes follow the button's own text colour, so an active button keeps
 /// its inverted look.
 pub(super) fn page_glyph(id: &'static str, landscape: bool, on: bool) -> AnyElement {
@@ -305,8 +305,7 @@ where
 
 /// Driver names such as `A4 (210 x 297 mm)` already carry their own dimensions,
 /// so they show verbatim. A bare name gets the millimetre pair appended. This
-/// is the 0.1 build's `formatPaperSizeLabel` rule, kept as a plain substring
-/// test rather than the regular expression it uses.
+/// is a plain substring test rather than a regular expression.
 pub(super) fn paper_name_label(name: &str, width_mm: f64, height_mm: f64) -> String {
     let lower = name.to_ascii_lowercase();
     let shows_dims = lower.chars().any(|c| c.is_ascii_digit())

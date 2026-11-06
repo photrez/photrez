@@ -381,7 +381,7 @@ fn status_hint(message: &str) -> Div {
 /// and 16px chevron. Closed sections omit descriptions and use
 /// `chevron-right` rather than the expanded `chevron-up`.
 /// A not-yet-built adjustment group. Collapsed it is the 42px header row;
-/// expanded it adds the 0.1 build's dashed In Development card, which is the
+/// expanded it adds the dashed In Development card, which is the
 /// only place the panel says these tools are unfinished.
 pub(super) fn coming_soon_section(
     id: &'static str,
@@ -455,9 +455,9 @@ pub(super) fn coming_soon_section(
         .when(open, |section| section.child(in_development_card(id)))
 }
 
-/// The card the 0.1 build expands under every unfinished adjustment group: a
+/// The card that expands under every unfinished adjustment group: a
 /// dashed well holding the In Development eyebrow and one description line.
-/// `bg-white/[0.015]` is the well's fill; the runtime expresses no
+/// White at 1.5% is the well's fill; GPUI expresses no
 /// letter-spacing, so the uppercase eyebrow runs untracked.
 fn in_development_card(id: &'static str) -> impl IntoElement {
     const CARD_FILL: Hsla = Hsla {

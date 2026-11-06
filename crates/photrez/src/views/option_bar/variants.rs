@@ -157,8 +157,8 @@ fn move_items(
     })
 }
 
-/// The Move bar's `MoreDropdown` body: the Align and Flip groups and
-/// Reset Transform, the controls the 0.1 build folds below 880 px. A locked
+/// The Move bar's overflow body: the Align and Flip groups and
+/// Reset Transform, the controls this bar folds below 880 px. A locked
 /// selection keeps the design's inert look: dimmed sections, clickable nothing.
 fn move_more_dropdown(
     state: &gpui_kit::Entity<AppState>,
@@ -249,7 +249,7 @@ fn move_more_dropdown(
     more_dropdown_overflow(open, state, cx, body)
 }
 
-/// One labelled overflow group: the 0.1 build's caption-plus-row section,
+/// One labelled overflow group: a caption above a row,
 /// dimmed as a whole while the selection is locked.
 fn overflow_section(caption: Div, body: impl IntoElement, locked: bool) -> Div {
     let section = gpui_kit::base::v_flex()
@@ -265,7 +265,7 @@ fn overflow_section(caption: Div, body: impl IntoElement, locked: bool) -> Div {
 
 // ── Selection ────────────────────────────────────────────────────────────────
 
-/// `EditableNumField`'s `Math.round(val * 100) / 100` display: two decimals
+/// The rounded display for a selection numeric field: two decimals
 /// at most, trailing zeros trimmed.
 pub(super) fn selection_field_value(value: f64) -> String {
     let rounded = format!("{value:.2}");
@@ -424,12 +424,11 @@ fn selection_items(
     })
 }
 
-/// The Selection bar's `MoreDropdown`: the clipboard grid the 0.1 build folds
-/// at narrow widths. Without a committed
-/// selection every row keeps the inert state that build set with
-/// `pointer-events-none`. Its first row, the Transform toggle, is absent here: the
-/// native edit mode is only reachable through `ToggleSelectionEditModeAction`,
-/// whose type stays inside the private `app::selection` module, so a bar click
+/// The Selection bar's overflow body: the clipboard grid, folded away at
+/// narrow widths. Without a committed selection every row ignores pointer
+/// events. Its first row, the Transform toggle, is absent here: the native
+/// edit mode is only reachable through `ToggleSelectionEditModeAction`, whose
+/// type stays inside the private `app::selection` module, so a bar click
 /// has no entry point yet.
 fn selection_more_dropdown(
     state: &gpui_kit::Entity<AppState>,

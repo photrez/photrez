@@ -15,8 +15,8 @@ pub(super) fn stroke_dot() -> Div {
 }
 
 /// The shape bar's stroke pill; clicking toggles the stroke popover, not the
-/// outline (stroke popover open state). The 0.1 build styles the pill identically open and closed, so
-/// the edge does not track `open`.
+/// outline (stroke popover open state). The pill styles the same open
+/// and closed, so the edge does not track `open`.
 pub(super) fn shape_stroke_pill(
     enabled: bool,
     width: f64,

@@ -157,12 +157,11 @@ pub(in super::super) fn text_icon_action(
         )
 }
 
-/// The text bar's box-mode control: the trigger plus the 0.1 build's
-/// two-item list. Opening routes through the bar's
-/// single-open select slot, so Escape and an outside click dismiss it like
-/// the other dropdowns. The current mode is read from the live text-edit
-/// session; with no session the resting point mode is shown, matching the
-/// 0.1 build's fallback.
+/// The text bar's box-mode control: the trigger plus a two-item list.
+/// Opening routes through the bar's single-open select slot, so Escape and
+/// an outside click dismiss it like the other dropdowns. The current mode is
+/// read from the live text-edit session; with no session the resting point
+/// mode is shown.
 pub(in super::super) fn box_mode_control(
     state: &gpui_kit::Entity<AppState>,
     cx: &gpui_kit::Context<crate::app::App>,
@@ -212,7 +211,7 @@ pub(in super::super) fn box_mode_control(
     wrapper
 }
 
-/// The list itself: the 0.1 build's `#1D2026` popover with Auto Width and
+/// The list itself: a popover on the `#1D2026` panel fill, with Auto Width and
 /// Fixed Box; the current mode carries the accent tint and check.
 fn box_mode_list(
     area_active: bool,
@@ -253,9 +252,9 @@ fn box_mode_list(
         ))
 }
 
-/// One box-mode row. The click mirrors `setBoxMode`: the selected text
+/// One box-mode row. On click the selected text
 /// layer and the live edit session both take the mode, then the list closes.
-/// With neither present the 0.1 build writes nothing, and neither does this.
+/// With neither present this writes nothing.
 fn box_mode_row(
     id: &'static str,
     label: &'static str,
@@ -286,11 +285,9 @@ fn box_mode_row(
         .hover(|s| s.bg(color::WHITE_10))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                // Mirror `applyEdit({ boxMode, ... })`: a selected text layer
-                // rewrites through core history.
+                // A selected text layer rewrites through core history.
                 let _ = app.edit_selected_text(cx, |data| apply_box_mode(data, area));
-                // Mirror `setTextEditSession`: the live editor takes the same
-                // patch while a text edit is open.
+                // The live editor takes the same patch while an edit is open.
                 state.update(cx, |state, _| {
                     if let Some(session) = state.text_edit.as_mut() {
                         apply_box_mode(&mut session.data, area);
@@ -310,9 +307,9 @@ fn box_mode_row(
         })
 }
 
-/// The 0.1 build's `setBoxMode` value patch: point mode clears the box
-/// dimensions; area mode keeps a positive width and seeds the 200 px the
-/// 0.1 build uses for a layer that never had one.
+/// The box-mode value patch: point mode clears the box
+/// dimensions; area mode keeps a positive width and seeds the 200 px this
+/// build uses for a layer that never had one.
 fn apply_box_mode(data: &mut photrez_core::document::layer_params::TextData, area: bool) {
     use photrez_core::document::layer_params::TextBoxMode;
     if area {

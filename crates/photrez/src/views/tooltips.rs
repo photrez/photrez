@@ -123,7 +123,7 @@ const FRAME_H: f32 = 820.0;
 /// renderer's — see the module docs.
 pub const TOOLTIP_H: f32 = 26.0;
 
-/// Where the 0.1 build puts a rail tooltip, measured from its frames: the Move
+/// Where a rail tooltip sits, measured from the captured frames: the Move
 /// button is at (8,54) 36x36 and its tooltip at (50,59).
 const RAIL_TIP_X: f32 = 50.0;
 const RAIL_TIP_Y: f32 = 59.0;

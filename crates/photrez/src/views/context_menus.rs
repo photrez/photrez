@@ -347,9 +347,9 @@ fn export_menu() -> Div {
 /// fresh background-only layer). That 10-row list does not square against
 /// the `ctx-layer` manifest box height of 345 (which requires 11 rows +
 /// 3 separators), so this view restores the full 14-entry list at the
-/// 11-row / 3-separator layout, matching the 0.1 markup's order and
-/// state. The focus-background trace and the two top-group row orders follow
-/// that markup.
+/// 11-row / 3-separator layout, the order and state the layer menu produces.
+/// The focus-background tint and the two top-group row orders follow that
+/// same list.
 fn layer_menu() -> Div {
     menu_shell(vec![
         ui::menu_row(

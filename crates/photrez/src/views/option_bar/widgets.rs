@@ -14,8 +14,8 @@ pub(super) use text_stroke::*;
 
 /// One Move-bar transform cell. With a live layer it shows the layer's own
 /// number: editable for X/Y/R, read-only for the size pair. A locked layer
-/// keeps the 0.1 build's disabled look, and no layer at all falls back to the
-/// inert placeholder.
+/// keeps the disabled look, and no layer at all falls back to the inert
+/// placeholder.
 #[allow(clippy::too_many_arguments)] // one cell: its box, value and edit session stay positional
 pub(super) fn transform_cell(
     id: &'static str,
@@ -90,8 +90,8 @@ pub(super) fn position_group(
 }
 
 /// A non-shrinking, centred row (the shared inner gap) around the W and H
-/// fields. The 0.1 build types a size here only during a transform session, so
-/// a typed size belongs to the Properties rows.
+/// fields. This cell takes no typed size, so a typed size belongs to the
+/// Properties rows.
 pub(super) fn size_group(readout: Option<crate::state::LayerTransformReadout>) -> impl IntoElement {
     let size = |value: Option<f64>| {
         value.map_or_else(|| "0".to_string(), |value| format!("{}", value.round()))
@@ -738,9 +738,8 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
 ///
 /// The fill: the resting `option-crop` baseline blends the button interior to
 /// `#3a2b20` (58, 43, 32) over the `#1b1b1b` bar - [`color::ACCENT_15`], not
-/// the solid accent fill that the transform variant's own markup spells
-/// out. No baseline captures the transform bar's Apply, so the measured crop
-/// value is what paints here.
+/// the solid accent fill. No baseline captures the transform bar's Apply, so
+/// the measured crop value is what paints here.
 pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("opt-apply")
@@ -772,10 +771,9 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
 }
 
 /// `t("common.cancel", "Cancel")` — secondary
-/// action. The markup asks for a field background and a `#A1A1AA` label, but the
-/// resting `option-crop` baseline paints the border-only ghost: the interior
-/// stays the bar's `#1b1b1b` (27) where the field background would read 37. The
-/// border and the label paint; the fill does not.
+/// action. The resting `option-crop` baseline paints the border-only ghost:
+/// the interior stays the bar's `#1b1b1b` (27) where the field background
+/// would read 37. The border and the `#A1A1AA` label paint; the fill does not.
 pub(super) fn cancel_button(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("opt-cancel")

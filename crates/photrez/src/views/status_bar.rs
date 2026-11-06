@@ -475,7 +475,7 @@ fn labeled(label: &str, value: &str) -> StyledText {
 
 /// The save cell: the design pairs every autosave state with an 8px dot in that
 /// state's own tier, so the status reads at a glance and not only through the
-/// label. The busy dot's `animate-pulse` is the 0.1 build's only motion here and
+/// label. The busy dot's pulse is the only motion specced here and
 /// stays a static fill.
 fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::AnyElement> {
     use crate::state::AutosaveStatus;
@@ -541,7 +541,7 @@ fn right_group(
 /// master shows dim. Clicking shows the History panel and opens the dock.
 ///
 /// The `data-status-history-trigger` hook and `aria-pressed` have no GPUI
-/// surface, so they stay with the 0.1 build; the wiring is real.
+/// surface, so they are not mounted here; the wiring is real.
 ///
 /// [`HIT_PY`] pads the button's 15px content box out to the 24px minimum
 /// target size; symmetric, so the icon and label do not move.

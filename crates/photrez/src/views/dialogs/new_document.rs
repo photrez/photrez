@@ -47,7 +47,7 @@ fn new_doc_label(key: &str) -> Div {
         .child(t(key).to_string())
 }
 
-/// `getOrientationBadge`: L/P/SQ, the card's only icon-sized mark.
+/// The orientation badge: L/P/SQ, the card's only icon-sized mark.
 fn new_doc_orientation(width: u32, height: u32) -> &'static str {
     match width.cmp(&height) {
         std::cmp::Ordering::Greater => "L",
@@ -56,8 +56,8 @@ fn new_doc_orientation(width: u32, height: u32) -> &'static str {
     }
 }
 
-/// `getCanvasStyle`: the preview keeps the preset's aspect ratio inside an
-/// 80 px box with a 20 px floor.
+/// The canvas preview size: the preview keeps the preset's aspect ratio
+/// inside an 80 px box with a 20 px floor.
 fn new_doc_preview_size(width: u32, height: u32) -> (f32, f32) {
     let max_dim = 80.0;
     let scale = max_dim / width.max(height) as f32;
@@ -613,7 +613,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         .child(footer)
 }
 
-/// The source's dialog button, 96x32: 6 px radius, 11 px medium.
+/// A new-document footer button, 96x32: 6 px radius, 11 px medium.
 fn new_doc_button(label: &str, primary: bool) -> Div {
     div()
         .w(px(96.0))

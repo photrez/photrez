@@ -15,20 +15,20 @@
 //! underline #F28E42 across y=81..82, export button 725..816).
 //!
 //! A static screenshot cannot show behaviour, so what stays out of this module
-//! is the 0.1 build's drag-to-reorder with drop
-//! indicators, cross-document drag dimming, the hover-to-switch timer, the
-//! toasts, the export menu, and the wheel/keyboard
-//! navigation. Clicks that have a native command are wired: a tab activates,
+//! is drag-to-reorder with drop indicators, cross-document drag dimming,
+//! the hover-to-switch timer, the toasts, the export menu, and the
+//! wheel/keyboard navigation. Clicks that have a native command are wired:
+//! a tab activates,
 //! its close button closes the document, `+` opens the New Document dialog and
 //! Export opens the Export dialog. Hover *styling* is reproduced where it is a plain
 //! colour change, as in
 //! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
 //!
-//! With **zero** documents the 0.1 build still paints this strip — the tab list
-//! simply renders no tab, so the flexible list comes up empty while the `+`
-//! and the utility cluster stay where they are. That state is *not*
-//! implemented here; this module renders the captured one-document state,
-//! because that is what the baseline measured.
+//! With **zero** documents this strip can still paint: the tab list renders no
+//! tab, so the flexible list comes up empty while the `+` and the utility
+//! cluster stay where they are. That state is *not* implemented here; this
+//! module renders the captured one-document state, because that is what the
+//! baseline measured.
 //!
 //! # Transcription notes
 //!
@@ -42,7 +42,7 @@
 //!   this component — there is no divider fill on it either.
 //! * **Two hover names refer to colours that do not exist.** No shipped
 //!   token declares a topbar-hover or app-hover value, so those
-//!   hovers paint nothing: both hovers are no-ops in the 0.1 build and are
+//!   hovers paint nothing: both are no-ops here and are
 //!   recorded as such below rather than invented.
 //! * **`Export…` is the resolved translation**, not the `"Export"` fallback
 //!   in the catalogue key: `assets/i18n/en.json:51` is `"Export…"` (one
@@ -55,9 +55,9 @@
 //! * **The layout toggle was captured, and is removed.** The baseline paints
 //!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
 //!   8 gap + 92 export + 16 right padding), which put its left border at
-//!   exactly x=680, where `shell-full-page.png` has #333333. The 0.1 build
-//!   switches the right dock between side-by-side and stacked there, and tints
-//!   the glyph with the accent only in the stacked layout. This app ships one
+//!   exactly x=680, where `shell-full-page.png` has #333333. That control
+//!   switched the right dock between side-by-side and stacked, and tinted the
+//!   glyph with the accent only in the stacked layout. This app ships one
 //!   dock layout, so the control had no handler: a painted control that answers
 //!   no click is removed rather than kept, the same ruling that took the crop
 //!   bar's dead control out. Export keeps its measured x=725..816 place; the
@@ -82,11 +82,11 @@
 //! * The transition timings, the text-selection lock, the
 //!   ARIA roles and tab order have no pixel consequence and are dropped. The
 //!   pointer cursor is applied to the controls that work, and the icon-only `+`
-//!   carries the accessible name the 0.1 build gives it.
+//!   carries an accessible name.
 
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
-// centred single row the 0.1 markup expresses.
+// centred single row used here.
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
@@ -100,8 +100,9 @@ use crate::tokens::color;
 use gpui_kit::Div;
 
 // ---------------------------------------------------------------------------
-// Dimensions. The 0.1 build's rem scale has a 16px root: every value below is
-// already resolved to pixels, and each const names the part it measures.
+// Dimensions. The captured layout sizes in rem on a 16px root, so every value
+// below is already resolved to pixels, and each const names the part it
+// measures.
 // ---------------------------------------------------------------------------
 
 /// 38px — strip height. `manifest.json`
@@ -211,10 +212,10 @@ pub fn render(
 /// stretches each tab to that height, may shrink below its content, and scrolls
 /// sideways; its accessibility role is `tablist`.
 ///
-/// The 0.1 build's scrollbar styling only styles a scrollbar
+/// The captured styling styled only a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
-/// reserve or overlay a scrollbar the 0.1 capture does not show here.
+/// reserve or overlay a scrollbar the baseline capture does not show here.
 fn tab_list(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
@@ -347,8 +348,8 @@ fn tab_label(name: &str, dirty: bool) -> impl IntoElement {
 /// holding the `x` glyph at 14px with a 1.75 stroke.
 ///
 /// The close button's hover fill is omitted deliberately: no app-hover token
-/// exists anywhere in the app, so nothing backs it and the 0.1 build's hover
-/// background is transparent too.
+/// exists anywhere in the app, so nothing backs it: the hover above only
+/// changes the glyph colour, never the fill.
 fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         // The id is what makes the button hit-testable, and therefore what
@@ -402,9 +403,9 @@ fn active_underline() -> impl IntoElement {
 /// the plain text colour on hover; it holds the `plus` glyph at 18px with a
 /// 1.75 stroke.
 ///
-/// Clicking opens the New Document dialog, the same command as File > New. The
-/// 0.1 build also cancels an active transform session and refuses when the
-/// workspace is full; neither has a native counterpart yet.
+/// Clicking opens the New Document dialog, the same command as File > New.
+/// Cancelling an active transform session, and refusing a new document when
+/// the workspace is full, have no native counterpart yet.
 fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .id("new-document")
@@ -445,7 +446,7 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 /// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
 /// absent rather than omitted.
 /// See the module docs for the 117px arithmetic that confirms it, and for why
-/// the 0.1 build's layout toggle is not mounted here.
+/// the layout toggle is not mounted here.
 fn cluster(cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.
@@ -468,17 +469,17 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
 ///
 /// The export button's border paints #333333 like every other border, and
 /// its hover text colour is a no-op (the label is already
-/// full-brightness text), so only the background changes on hover — and the
-/// chevron keeps the dim colour in the 0.1 build too, because it has
+/// full-brightness text), so only the background changes on hover. The
+/// chevron keeps the dim colour here too, because it sets
 /// its own colour rather than inheriting one.
 ///
 /// Its width is content-driven: 2*12 padding + 2 border + 8 gap + 14 icon +
 /// a ~44px advance for "Export…" = 92px, i.e. x=725..816 where
 /// `shell-full-page.png` has its two border columns.
 ///
-/// Clicking opens the Export dialog, the same command as File > Export. The
-/// 0.1 build first opens a quick-export menu whose three formats have no native
-/// command yet, so the strip goes to the dialog.
+/// Clicking opens the Export dialog, the same command as File > Export. A
+/// quick-export menu would need three format commands that have no native
+/// counterpart yet, so the strip goes to the dialog.
 fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .id("export-button")

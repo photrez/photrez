@@ -34,7 +34,7 @@ use crate::icons;
 use crate::state::{AppState, SelectionShape, ToolId};
 use crate::tokens::{color, dim};
 
-/// One rail entry, shaped like the 0.1 tool list's item. `has_variants`
+/// One rail entry: a button plus its optional variant indicator. `has_variants`
 /// drives the bottom-right micro-indicator; only `selection` has variants.
 struct Tool {
     /// `ToolId` - the typed tool the button represents. Compared against
@@ -65,7 +65,7 @@ pub(crate) fn tool_tooltip(id: &str) -> Option<(&'static str, &'static str)> {
         .map(|tool| (tool.label_key, tool.shortcut))
 }
 
-/// The tool list, in rail order - the same order the 0.1 tool list uses.
+/// The tool list, in the order the rail paints it, top to bottom.
 const TOOLS: &[Tool] = &[
     Tool {
         tool_id: ToolId::Move,
@@ -149,11 +149,11 @@ const TOOLS: &[Tool] = &[
     },
 ];
 
-// The 0.1 tool defaults (`#E15A17` foreground, `#FFFFFF`
+// The starting defaults (`#E15A17` foreground, `#FFFFFF`
 // background). `AppState::default` carries the same pair and is the live
 // source the swatches paint from, so no constant is needed here.
 
-/// The sub-variant triangle, from the inline `<svg>` the 0.1 build used -
+/// The sub-variant triangle, drawn as inline `<svg>` -
 /// trace-exempt: that markup is the asset itself, copied verbatim into the const
 /// below. It is not a lucide icon but a raw `<polygon points="6,6 0,6 6,0">` on
 /// a 6x6 viewBox. `currentColor` becomes `#ffffff` - GPUI tints by alpha, see
@@ -212,8 +212,8 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
 /// The rail button's icon tint for its two visual states.
 ///
 /// The active tool and a hovered inactive tool both use [`color::TEXT`], the
-/// colour the 0.1 build's `currentColor` glyph lifts to on hover. An inactive
-/// resting button keeps [`color::ICON`].
+/// colour an icon takes on hover. An inactive resting button keeps
+/// [`color::ICON`].
 fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
     if active || hovered {
         color::TEXT
@@ -225,9 +225,9 @@ fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
 /// A tool row: a 36px rounded square centring an 18px icon, plus the optional
 /// sub-variant triangle.
 ///
-/// The 0.1 build wraps the button in its own positioned div purely to anchor
-/// the fly-out popover, which this build omits - so that positioning moves onto
-/// the button itself, where it is needed for the absolute triangle.
+/// No fly-out popover is mounted here, so the positioning that a wrapper div
+/// would have carried moves onto the button itself, where it is needed for the
+/// absolute triangle.
 ///
 /// The click handler writes this button's `ToolId` back into the live
 /// `AppState` and notifies the root so the shell repaints with the new tool.
@@ -455,12 +455,10 @@ fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoE
 }
 
 /// The background swatch: a 28px circle flush to the box's bottom-right, stacked
-/// below the foreground one, with a 1px border (white at 20% in the 0.1 build),
-/// a
-/// medium shadow, and 5% larger on hover.
+/// below the foreground one, with a 1px border (white at 20% intended), a medium
+/// shadow, and 5% larger on hover.
 ///
-/// Rendered first so the foreground swatch overlaps it - which is what the
-/// original achieves by stacking the foreground swatch higher.
+/// Rendered first so the foreground swatch overlaps it, by paint order.
 fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("bg-swatch")
@@ -500,7 +498,7 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// as the medium shadow layers rather than using the `.shadow_md()` shorthand.
 fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut shadows = vec![
-        // The 1px black-at-40% outer ring the 0.1 build draws with an outline
+        // The 1px black-at-40% outer ring, the outline substitute
         BoxShadow::new(px(0.), px(0.), color::BLACK_40).spread_radius(px(1.)),
     ];
     shadows.extend(shadow_md_layers());
@@ -537,8 +535,7 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// indistinguishable - invisible at rest, fully visible on hover. The missing
 /// piece is only the 150ms scale-*animation*.
 ///
-/// Note this icon keeps `stroke-width` 2: the 0.1 markup passes no
-/// `strokeWidth`, unlike the tool buttons.
+/// Note this icon keeps `stroke-width` 2, unlike the tool button glyphs.
 fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("swap-colors")

@@ -21,7 +21,7 @@ const ABOUT_TILE_RADIUS: f32 = 8.0;
 const ABOUT_TILE_PAD: f32 = 8.0;
 
 /// The body column's rhythm between hero, spec panel and link row, plus the
-/// source's 4px vertical padding.
+/// 4px vertical body padding.
 const ABOUT_GAP: f32 = 16.0;
 const ABOUT_BODY_PY: f32 = 4.0;
 
@@ -63,12 +63,12 @@ const ABOUT_PILL_FILL: Hsla = Hsla {
 /// The version pill's painted edge, fill and text, kept out of the view
 /// builder so the tiers can be asserted without a window.
 ///
-/// The 0.1 build asks this pill for a 40%-alpha accent edge over a 10%-alpha
-/// accent fill. Only the fill ever arrives: one app-wide rule outranks the
+/// This pill asks for a 40%-alpha accent edge over a 10%-alpha accent fill.
+/// Only the fill ever arrives: one app-wide rule outranks the
 /// border colour a component asks for (see [`color::BORDER`]), so the edge that
 /// paints is the global border grey. Measured in the about-dialog capture -
-/// the 0.1 build's pill rows read rgb(51,51,51) above and below an accent/10
-/// wash, where an accent edge would read rgb(112,73,44).
+/// the pill rows read rgb(51,51,51) above and below an accent/10 wash, where
+/// an accent edge would read rgb(112,73,44).
 pub(super) fn about_pill_colours() -> (Hsla, Hsla, Hsla) {
     (color::BORDER, ABOUT_PILL_FILL, color::ACCENT)
 }
@@ -84,7 +84,7 @@ pub(super) const ABOUT_SPEC_LABELS: [&str; 4] = [
 /// The spec values stay literals: the embedded catalogues are byte-locked to
 /// the shipped translations (see the i18n module), so a native-only string
 /// cannot join them. The rasterizer and shell rows name what actually runs
-/// here, not what an earlier shell reported.
+/// here.
 pub(super) const ABOUT_SPEC_VALUES: [&str; 4] = [
     "Rust (photrez-core)", // i18n-exempt: tech value, not in catalog
     "CPU tile renderer",   // i18n-exempt: tech value, not in catalog
@@ -112,14 +112,15 @@ pub(super) fn about_version() -> String {
     format!("v{}", env!("CARGO_PKG_VERSION"))
 }
 
-/// The About dialog, built for the native shell rather than transcribed from
-/// `dialog-about.png`: the hero, spec grid and link row survive
-/// as the structure and geometry, and three things change with the shell. The
-/// mark is the real brand raster rather than a placeholder tile; the
-/// version comes from `CARGO_PKG_VERSION` instead of a runtime round-trip;
-/// and the locale line plus two stack rows state what ships here rather than
-/// what the replaced shell ran. The chrome above and below is shared and
-/// untouched, and the capture difference is a recorded decision, not drift.
+/// The About dialog, built for the native shell from the `dialog-about.png`
+/// reference: the hero, spec grid and link row give
+/// its structure and geometry. Three parts are local to this build: the
+/// mark is the real brand raster, not a placeholder tile; the
+/// version comes from `CARGO_PKG_VERSION`, not a runtime round-trip;
+/// and the locale line plus two stack rows state what ships here.
+/// The chrome above and below is shared and
+/// untouched, and the difference from the reference capture is a recorded
+/// decision, not drift.
 pub(super) fn about_body() -> Div {
     v_flex()
         .w_full()
@@ -306,8 +307,8 @@ fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Sta
         .cursor_pointer()
         // No token holds 8% white (the scale carries 5 and 10); inline like the
         // dock tab's 2%. The alpha blends over FIELD exactly as the CSS does.
-        // The hover brightens the fill only: the 0.1 build's asked
-        // hover-accent edge never paints, so its edge is the same on hover.
+        // The hover brightens the fill only, because the global border rule
+        // outranks an accent hover edge; the edge is the same on hover.
         .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .on_click(move |_, _, cx| cx.open_url(url))
         .child(

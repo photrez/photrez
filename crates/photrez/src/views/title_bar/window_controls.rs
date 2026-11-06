@@ -14,9 +14,8 @@ use crate::tokens::{color, title};
 /// Each 46px button overhangs the 45px content box by 0.5px; the bar clips it.
 /// `manifest.json`: Minimize at `y = -0.5`, height 46.
 ///
-/// The 0.1 build paints the same buttons everywhere because its shell set
-/// `decorations: false`, removing window chrome; native toolkits own controls
-/// differently, so this follows each platform's convention:
+/// One uniform button set cannot serve every platform: native toolkits own
+/// window controls differently, so this follows each platform's convention:
 ///
 /// | platform | what owns the controls |
 /// |---|---|

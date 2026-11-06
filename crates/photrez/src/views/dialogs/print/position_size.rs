@@ -485,7 +485,7 @@ pub(super) fn position_size(
                 .text_size(px(11.0))
                 .text_color(badge_tint)
                 .child(t("dialogs.print.printResolution").to_string())
-                // i18n-exempt: the 0.1 build kept this copy out of its catalog
+                // i18n-exempt: the badge copy is a literal, not a catalog key
                 .child(format!("{print_ppi} PPI \u{2014} {badge_text}")),
         );
     }

@@ -20,8 +20,8 @@ const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
-/// 24px tall, 8px side inset, 4px icon gap, 12px glyph, 11px label — the
-/// locked-row badge the 0.1 build's `Locked` pill asks for.
+/// The locked-row badge: 24px tall, 8px side inset, 4px icon gap, 12px glyph,
+/// 11px label.
 const BADGE_H: f32 = 24.0;
 const BADGE_PX: f32 = 8.0;
 const BADGE_GAP: f32 = 4.0;
@@ -35,24 +35,22 @@ const GHOST_TILE_ICON: f32 = 12.0;
 
 /// The colour of the 1px rule closing every layer row.
 ///
-/// The 0.1 build asks `border-b border-editor-divider/10` for it, which names
-/// DIVIDER at 10% over the row - a 2/255 step a capture would never notice. The
-/// rule that actually reaches the screen is the app-wide border override
+/// DIVIDER at 10% over the row would name a 2/255 step a capture would never
+/// notice. The rule that reaches the screen is the app-wide border override
 /// ([`color::BORDER`]), so this is rgb(51,51,51): a 21/255 step over the
-/// rgb(30,30,30) panel, in a row the 0.1 build draws and the native did not.
-/// Kept as a function so the tier is assertable without a window; the width is
-/// the fixed 1px the 0.1 build's `border-b` gives it.
+/// rgb(30,30,30) panel, on the row's bottom edge. Kept as a function so the
+/// tier is assertable without a window; the width is a fixed 1px.
 pub(super) fn row_hairline_colour() -> Hsla {
     color::BORDER
 }
 
-/// The row's own fill, in the 0.1 build's three branches: full `ROW_ACTIVE` on
+/// The row's own fill, in three branches: full `ROW_ACTIVE` on
 /// the active row, the same colour at 70% on a row selected without being
 /// active, and nothing on the rest.
 ///
 /// The middle tier is a 5/255 step over the panel - the ratified pixel gate
 /// cannot see it, which is why this build does not paint it. It is still the
-/// state the 0.1 build paints, and a multi-selection reads as one bright row
+/// state 0.1.0 paints, and a multi-selection reads as one bright row
 /// plus a column of dimmed ones rather than a block of identical ones.
 pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
     if active {
@@ -72,7 +70,7 @@ pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
 
 /// White at 3%, the fill an unselected row takes while the pointer is on it.
 ///
-/// The 0.1 build only asks for it in its third branch, so a selected row keeps
+/// Only the third branch asks for it, so a selected row keeps
 /// its own fill tier and never takes this one; the step it makes over the panel
 /// is 7/255.
 pub(super) fn row_hover_fill() -> Hsla {
@@ -86,12 +84,11 @@ pub(super) fn row_hover_fill() -> Hsla {
 
 /// The locked badge's three tiers: fill, edge, label.
 ///
-/// The 0.1 pill is `bg-editor-accent/5` with a `border-editor-accent/20`
-/// edge. Its label asks `text-editor-accent/70`, which measures 3.33:1 on that
-/// fill over the active row's `ROW_ACTIVE`, under the 4.5:1 floor for 11px
-/// text, so the native label keeps full `color::ACCENT` (5.18:1 there, 6.38:1
-/// over the plain panel). A function, so the tiers are assertable without a
-/// window.
+/// The tiers are accent at 5% for the fill and at 20% for the edge. A label at
+/// 70% accent measures 3.33:1 on that fill over the active row's `ROW_ACTIVE`,
+/// under the 4.5:1 floor for 11px text, so the label keeps full
+/// `color::ACCENT`: 5.18:1 there, 6.38:1 over the plain panel. A function, so
+/// the tiers are assertable without a window.
 pub(super) fn locked_badge_colours() -> (Hsla, Hsla, Hsla) {
     (
         color::ACCENT.opacity(0.05),
@@ -150,8 +147,8 @@ fn ghost_tile() -> impl IntoElement {
         .rounded(px(GHOST_TILE_RADIUS))
         .border_1()
         .border_color(color::WHITE_10)
-        // The 0.1 build asks `bg-black/50`; no token sits on that alpha
-        // (`BLACK_40` and `BLACK_55` flank it), so the tile names it here.
+        // Black at 50% has no token here (`BLACK_40` and `BLACK_55` flank it),
+        // so the tile names the alpha.
         .bg(Hsla {
             h: 0.0,
             s: 0.0,
@@ -255,23 +252,21 @@ struct RowView<'a> {
 }
 
 /// A 50px row with a 10px child gap and 14px side inset. Its fill and its inner
-/// edge follow the 0.1 build's three branches - see [`row_fill`], which is full
+/// edge follow three branches - see [`row_fill`], which is full
 /// `ROW_ACTIVE` and a 1px inset `ACCENT` ring at 40% alpha on the active row,
 /// the same fill at 70% and a 20% ring on a row selected without being active,
 /// and no fill plus white/3% on hover for the rest.
 ///
-/// The ring is an inset shadow rather than a border because that is how the
-/// 0.1 build draws it (`ring-1 ring-inset`) and the two are not
+/// The ring is an inset shadow rather than a border, and the two are not
 /// interchangeable here: a border takes its pixel out of the content box, so a
-/// bordered row paints its thumbnail and name 1px further in than that build's
-/// row does. The row's bottom rule is a real border, because that is what the
-/// 0.1 build draws there (`border-b`) and a bottom-only border leaves the
-/// content 49px of 50 - the same box its own layout works in.
+/// bordered row would paint its thumbnail and name 1px further in.
+/// The row's bottom rule is a real border, because a bottom-only border leaves
+/// the content 49px of 50 - the same box the row's own layout works in.
 ///
 /// On a ringed row the rule and the ring want the same last pixel and the rule
-/// wins, so the ring reads as open at the bottom where the 0.1 build closes it
+/// wins, so the ring reads as open at the bottom where the baseline closes it
 /// one row higher. Measured in the layers capture, and still the closer of the
-/// two arrangements: that build's own bottom pixel is rgb(67,57,49), a grey
+/// two arrangements: the baseline's own bottom pixel is rgb(67,57,49), a grey
 /// rule with accent bleeding through it, where the bare ring would leave
 /// rgb(124,84,54).
 ///
@@ -643,7 +638,7 @@ fn move_button(
 
 /// The chip GPUI paints under the pointer while a row is dragged.
 ///
-/// `dragGhost` in the 0.1 build is the row itself floating above the list;
+/// The ghost is the row itself floating above the list;
 /// this is the same 50px row minus the layer bitmap, drawn only mid-drag so the
 /// resting tree stays identical to the baseline. [`ghost_tile`] stands in for
 /// the thumbnail so the chip still names a layer.
@@ -660,9 +655,9 @@ impl Render for LayerDragGhost {
             .gap(px(ROW_GAP))
             .px(px(PAD_X))
             .bg(color::ROW_ACTIVE)
-            // The 0.1 build's dragged row asks a dashed accent border and an inset
-            // accent ring; the border colour is overridden to grey by the global rule,
-            // so only the ring carries the accent here.
+            // A dragged row asks a dashed accent border and an inset accent
+            // ring. The global border override paints that border grey, so only
+            // the ring carries the accent here.
             .border_b_1()
             .border_color(row_hairline_colour())
             .shadow(vec![ui::inset_ring(color::ACCENT.opacity(0.6))])

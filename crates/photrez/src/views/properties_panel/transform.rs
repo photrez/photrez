@@ -16,7 +16,7 @@ pub(super) const REST_H: &str = "600";
 pub(super) const REST_R: &str = "0";
 pub(super) const REST_SCALE: &str = "100";
 
-/// The opacity readout: whole percent, as the 0.1 build prints it.
+/// The opacity readout: whole percent, printed with a space before the `%`.
 pub(super) fn opacity_text(opacity: f64) -> String {
     format!("{} %", (opacity * 100.).round())
 }
@@ -297,7 +297,7 @@ fn constrain_toggle(on: bool, cx: &Context<crate::app::App>) -> impl IntoElement
         .justify_center()
         .flex_shrink_0()
         .cursor_pointer()
-        .aria_label("Constrain proportions") // i18n-exempt: the 0.1 build hardcodes this accessible name
+        .aria_label("Constrain proportions") // i18n-exempt: hardcoded accessible name
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_constrain_ratio(cx);
         }))

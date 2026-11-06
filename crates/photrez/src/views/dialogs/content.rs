@@ -17,8 +17,8 @@ use super::{
 };
 /// The body of whichever dialog was asked for.
 ///
-/// `dialog-settings` is transcribed in full and `dialog-about` is rebuilt for
-/// the native shell; the rest are the right size with their controls stubbed.
+/// The `dialog-settings` and `dialog-about` bodies are complete;
+/// the rest are the right size with their controls stubbed.
 /// See the module docs on why the chrome is real for all seven but the bodies
 /// are not.
 pub(super) fn dialog_body(id: &str, _w: f32, _h: f32) -> Div {
@@ -85,8 +85,8 @@ fn resize_body() -> Div {
                         .shadow(vec![ui::accent_well()])
                         .child(
                             Icon::default()
-                                // icons::LINK, the source's Link icon --
-                                // dialogs.rs had no chain glyph of its own.
+                                // The chain glyph: dialogs.rs has no
+                                // chain glyph of its own.
                                 .data(icons::LINK)
                                 .size(px(14.0))
                                 .text_color(color::ACCENT),
@@ -188,14 +188,13 @@ fn unit_picker(unit: &str) -> Div {
 /// Measured, not assumed: the two PNGs differ in 21 501 pixels, of which
 /// 20 949 sit inside a single 154x144 block at crop x 190..343, y 102..244,
 /// and only 19 pixels in the whole image exceed delta 60. The block is
-/// `#191919` when the dialog opened with a document (`needsDoc: true`) and
+/// `#191919` when the dialog opened with a document and
 /// `#272727` when it did not - the empty state previews the *page*, the dialog
 /// previews the *canvas*.
 ///
 /// Drawn at the crop coordinates relative to the dialog's own top-left, which
-/// puts it 66px below the titlebar: the body's 16px vertical padding plus the
-/// source's own
-/// header row. Both fills are written as `Hsla` rather than borrowed from a
+/// puts it 66px below the titlebar: the body's 16px vertical padding plus
+/// its header row. Both fills are written as `Hsla` rather than borrowed from a
 /// token because neither is PANEL, which is the whole point of measuring them.
 fn new_document_swatch(id: &str) -> Div {
     let fill = if id == "empty-new-document" {
@@ -212,7 +211,7 @@ fn new_document_swatch(id: &str) -> Div {
         .bg(fill)
 }
 
-/// `SettingsDialog` is the shortest dialog (420x171), and its body is a single
+/// The settings dialog is the shortest (420x171), and its body is a single
 /// labelled row plus the footer's buttons, so the body is one row rather than a
 /// stack.
 fn settings_body() -> Div {

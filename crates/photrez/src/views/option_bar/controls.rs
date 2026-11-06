@@ -35,7 +35,7 @@ pub(super) fn divider() -> impl IntoElement {
         .bg(DIVIDER_LINE)
 }
 
-/// `OptionCheckbox` in the checked state — the Move bar's three are all checked.
+/// Option checkbox row: the Move bar's three are all checked.
 /// A checkbox drawn from an explicit `checked` flag.
 pub(super) fn option_checkbox_action(
     id: &'static str,
@@ -104,7 +104,7 @@ pub(super) fn checked_box() -> Div {
 }
 
 /// The unchecked square: field fill, recessed by the same inset well the
-/// 0.1 build gives it, no tick.
+/// other fields use, no tick.
 pub(super) fn unchecked_box() -> Div {
     div()
         .h_flex()
@@ -151,8 +151,8 @@ pub(super) fn editable_field_text(
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        // No hover edge: the 0.1 build's unlayered `* { border-color }` rule beats its own
-        // `hover:border-*` utility, so these fields keep their rest border under the pointer.
+        // No hover edge: under the pointer these fields keep the
+        // border colour they had at rest.
         .when(show_field_labels(), |el| el.child(dim_span(label)))
         .child(div().flex_1().min_w(px(0.)).child(value_text(value)))
         .child(suffix_span(suffix))
@@ -473,8 +473,8 @@ pub(super) fn ring_white_20() -> BoxShadow {
 /// A brush-bar numeric field. Clicking starts an inline edit; valid keystrokes
 /// commit live, Enter ends, Escape restores the value.
 ///
-/// The 0.1 build's stylesheet asks for an accent focus outline, but its
-/// compiled cascade and pointer-focus behaviour are not verified here.
+/// An accent focus outline is the target here, but its
+/// compiled result and pointer-focus behaviour are not verified.
 #[allow(clippy::too_many_arguments)] // flat args mirror the paint field's many props
 pub(super) fn brush_field(
     id: &'static str,

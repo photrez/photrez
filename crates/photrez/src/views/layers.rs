@@ -148,10 +148,10 @@ const THUMB: f32 = 34.0;
 
 /// The mean of `LayerThumb`'s two checkerboard tones, as one flat colour.
 ///
-/// The 0.1 build alternates `rgba(255,255,255,0.05)` and `rgba(255,255,255,0.1)`
-/// in 6px cells; GPUI's `checkerboard()` is not a `Styled` method,
-/// and would take one colour anyway. See `properties_panel.rs` for the full
-/// derivation of this value.
+/// The checkerboard alternates `rgba(255,255,255,0.05)` and
+/// `rgba(255,255,255,0.1)` in 6px cells; GPUI's `checkerboard()` is not a
+/// `Styled` method, and would take one colour anyway. See
+/// `properties_panel.rs` for the full derivation of this value.
 const CHECKER_MEAN: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
@@ -698,9 +698,9 @@ mod tests {
     }
 
     /// Each row closes with a 1px rule, and the rule is the colour that
-    /// actually paints rather than the 0.1 build's
-    /// `border-editor-divider/10` class name: the app-wide border override wins, so this is
-    /// rgb(51,51,51) over the rgb(30,30,30) panel, not DIVIDER at 10%.
+    /// actually paints rather than a nominal divider: the app-wide border
+    /// override wins, so this is rgb(51,51,51) over the rgb(30,30,30) panel,
+    /// not DIVIDER at 10%.
     /// RED proof by mutation: point [`rows::row_hairline_colour`] at
     /// `color::DIVIDER` and this fails by name; the surface capture is what
     /// shows the row closing without any rule at all.
@@ -744,7 +744,7 @@ mod tests {
     }
 
     /// The hover tier is white at 3%, and it is colourless - a hue would show
-    /// through on the panel and the 0.1 build asks plain white.
+    /// through on the panel, so the fill names plain white.
     /// RED proof by mutation: raise the alpha or give it a saturation and this
     /// fails at the named assertion.
     #[test]

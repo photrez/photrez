@@ -6,7 +6,7 @@
 //! Static captures omit:
 //! * menu popups (their stacking order of 100, keyboard navigation)
 //! * the system menu on Alt+Space
-//! * the 0.1 shell's drag-region attribute and double-click-to-maximize
+//! * the drag-region attribute and double-click-to-maximize
 //! * window state (a maximized window swaps the maximize icon)
 //!
 //! Hover states are included as part of the component contract.
@@ -19,7 +19,7 @@
 //! letter-spacing = 0.3px after every glyph, including the last. GPUI has no
 //! letter-spacing field: `LineLayout`/`ShapedGlyph` and `Styled` carry none.
 //!
-//! Inline triggers accumulate width deficits. The 0.1 origins are the
+//! Inline triggers accumulate width deficits. The baseline origins are the
 //! `menu-*` boxes in `tests/baseline/manifest.json` (dropdown x equals trigger
 //! x); the native column below is this bar's own rendered origins.
 //!
@@ -95,7 +95,7 @@ use crate::icons;
 use crate::state::{AppState, MenuId};
 use crate::tokens::{color, title};
 
-/// The eight top-level menus, in the order the 0.1 menu bar lists them,
+/// The eight top-level menus, in left-to-right trigger order,
 /// as catalog keys resolved with [`t`] at the trigger.
 const MENUS: &[&str] = &[
     "menus.file",
@@ -221,8 +221,8 @@ pub(crate) fn logo(size: f32) -> impl IntoElement {
 
 /// The menu bar: one full-height row, centred, 2px between triggers.
 ///
-/// The 0.1 build hides this bar below its medium breakpoint and shows it as a
-/// row from there up: the baseline is 1366px wide, past the 768px breakpoint.
+/// This bar always renders as the row: no narrow-window variant is mounted
+/// here. The 1366px baseline captures it at full width.
 fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .self_stretch()
@@ -308,8 +308,8 @@ fn pad_x(_label: &str) -> f32 {
 
 /// The centre cell: a full-height centred row that takes the spare width above a 16px floor.
 ///
-/// The 0.1 shell's drag-region attribute and its double-click handler have no
-/// native equivalent here; the cell is still a plain centred child.
+/// A drag region and a double-click handler have no native equivalent here;
+/// the cell is a plain centred child.
 fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     let document_name = state.read(cx).document_name.clone();
     h_flex()

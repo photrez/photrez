@@ -470,7 +470,7 @@ fn text_editor_overlay(
         .flex_col()
         .items_start()
         .child(
-            // The edit box's double ring, from the 0.1 build's two box-shadows.
+            // The edit box's double ring: 2px blue outside 1px black.
             // A GPUI drop shadow fills its rect instead of cutting a ring, and
             // this box has no fill to hide that, so the bands are borders on two
             // wrappers around the box. They add RING on every side, so the

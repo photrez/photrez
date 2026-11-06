@@ -24,19 +24,18 @@ pub fn crop_params() -> CropParams {
 
 /// The `Crop` variant — the resting 781px capture.
 ///
-/// `cropMode` rests on `"free"`, the ratio dropdown is closed, `fill_enabled`
-/// is true, and the `@min-[880px]` inline advanced group (straighten / rotate /
-/// guide / classic toggle) is hidden — so none of those paint. Element order
-/// follows the 0.1 markup fragment line-for-line:
+/// The ratio mode rests on `"free"`, the ratio dropdown is closed, and
+/// `fill_enabled` is true. The advanced group (straighten / rotate / guide /
+/// classic toggle), which needs 880 px, stays hidden, so none of those paint.
+/// Element order reads, line-for-line:
 ///
 /// `pill` ⟵ `Divider` ⟵ `Aspect Ratio: Free` ⟵ `Divider` ⟵ `Delete` ⟵
 /// `Fill BG` ⟵ `white swatch + Use BG` ⟵ `Divider` ⟵ `Cancel` ⟵ `Apply`.
 ///
-/// The 0.1 build places a `MoreDropdown` between two dividers. This build
-/// omits that trigger: the crop bar contributes no overflow group, and the
-/// guide and classic-mode selectors it would open are not implemented, so a
-/// painted trigger would open nothing. One divider still separates the swatch
-/// group from `Cancel`, as the 0.1 build draws it.
+/// No overflow trigger is painted between dividers: the crop bar
+/// contributes no overflow group, and the guide and classic-mode selectors it
+/// would open are not implemented, so a painted trigger would open nothing.
+/// One divider still separates the swatch group from `Cancel`.
 pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
@@ -398,7 +397,7 @@ pub(super) fn crop_ratio_preset_row(
         .child(label.to_string())
 }
 
-/// `CropCustomInputs`: two integer W/H fields (the custom ratio pair).
+/// The crop bar's custom ratio fields: two integer W/H fields.
 pub(super) fn crop_custom_fields(
     aspect: Option<(u32, u32)>,
     edit: Option<&str>,
