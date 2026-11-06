@@ -774,9 +774,8 @@ impl App {
     }
 
     /// Escape on a dialog that has no field-specific key handler. The dialog
-    /// chrome routes Escape to its dismiss action for every managed-focus
-    /// dialog. The alert prompts (dirty close) keep their explicit decision
-    /// buttons.
+    /// chrome routes Escape to this dismiss action. The alert prompts
+    /// (dirty close) keep their explicit decision buttons.
     pub(crate) fn dismiss_chrome_dialog(&mut self, cx: &mut Context<Self>) {
         match self.state.read(cx).active_dialog {
             Some(DialogId::Settings) => self.close_settings(cx),
