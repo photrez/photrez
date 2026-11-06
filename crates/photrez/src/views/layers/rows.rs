@@ -168,9 +168,8 @@ fn ghost_tile() -> impl IntoElement {
 ///
 /// The right padding is the scrollbar gutter; see the module docs on why 254
 /// and 260 are both correct answers here. `border_y` is [`color::BORDER`] and
-/// not [`color::DIVIDER`]: the baseline reads `#333333` on both edges (y=164
-/// and y=572), the `* { border-color }` rule being what reaches the screen for
-/// any `border-*` utility.
+/// not [`color::DIVIDER`]: the recorded frame reads `#333333` on both edges
+/// (y=164 and y=572).
 pub(super) fn layer_list(
     layers: &[LayerRow],
     flags: &[crate::state::LayerFlags],

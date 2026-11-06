@@ -539,8 +539,8 @@ fn right_group(
 /// otherwise; the resting captures have the Layers panel open, so the golden
 /// master shows dim. Clicking shows the History panel and opens the dock.
 ///
-/// The `data-status-history-trigger` hook and `aria-pressed` have no GPUI
-/// surface, so they are not mounted here; the wiring is real.
+/// This control carries no pressed-state attribute: GPUI has no surface for one,
+/// so the open state is shown by colour alone. The click wiring is real.
 ///
 /// [`HIT_PY`] pads the button's 15px content box out to the 24px minimum
 /// target size; symmetric, so the icon and label do not move.

@@ -85,7 +85,7 @@
 
 ### Input / Select Fields
 
-- Height: `26px` (`h-[26px]`)
+- Height: `26px`
 - Style: recessed box (`color::FIELD` background, `1px border` using `color::FIELD_BORDER`)
 - Focus: border → `color::ACCENT`
 - **FORBIDDEN: a monospace face or a bold weight in numeric inputs.** Tabular nums handles alignment.
@@ -114,8 +114,8 @@
 ### Layer List Items
 
 - Height: `50px`, active: `color::ROW_ACTIVE` (`oklch(0.3 0 0)`), hover: white at 3% alpha
-- Thumbnail: `34x34px`, `rounded-[3px]`
-- Visibility: eye/sun icon `size-4`
+- Thumbnail: `34x34px`, corner radius `3px` (`R3`, defined per view module)
+- Visibility: eye/sun icon `14px` inside an `18px` box
 
 ### Interaction States (ALL interactive components)
 
