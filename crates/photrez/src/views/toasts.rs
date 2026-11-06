@@ -187,9 +187,8 @@
 //!   child is laid out at exactly its own max-content width, so a fractional
 //!   rounding could otherwise push it to two lines. A toast is a single line,
 //!   so the guard names the intended behaviour, not a workaround.
-//! * The 6px scrollbar gutter reserved by 0.1.0's stylesheet does **not**
-//!   apply: this host never scrolls, and adding the reservation here would
-//!   move the left edge of every toast by 6px for nothing.
+//! * No 6px scrollbar gutter is reserved: this host never scrolls, and adding
+//!   one would move the left edge of every toast by 6px for nothing.
 //! * In the stacked crop the corner notches and the area left of the stack are
 //!   warm `#291E19`/`#723719` pixels — that is the right dock's own content
 //!   showing through the transparent host, verified against `shell-right-dock`.

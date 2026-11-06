@@ -97,9 +97,8 @@ pub mod color {
 
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     ///
-    /// 0.1.0 named this value for its divider. See [`BORDER`] before using it
-    /// as one: it is only what reaches the screen
-    /// when the thing carrying it is a **background**.
+    /// This is what reaches the screen when the thing carrying it is a
+    /// **background**. See [`BORDER`] before using it as a divider.
     pub const DIVIDER: Hsla = Hsla {
         h: 0.0,
         s: 0.0,
@@ -587,9 +586,10 @@ mod tests {
     }
 
     /// ACCENT (`oklch(0.74 0.15 55)`) and BRAND (`oklch(0.62 0.2 36)`) carry
-    /// chroma that sits marginally outside sRGB, so 0.1.0 clipped them before
-    /// rendering. The tokens are the *clipped* result, not the raw OKLCH value -
-    /// so their h/s/l must reproduce the exact sRGB 0.1.0 lands on. These pins
+    /// chroma that sits marginally outside sRGB, so the 0.1.0 release clipped
+    /// them before rendering. The tokens are the *clipped* result, not the raw
+    /// OKLCH value, so their h/s/l must reproduce the sRGB that release landed
+    /// on. These pins
     /// assert that holds. A recompute that skips the
     /// clip (or re-derives from OKLCH without clamping) will change the hue,
     /// saturation or lightness and break the assertion.

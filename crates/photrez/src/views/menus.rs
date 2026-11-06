@@ -89,9 +89,9 @@
 //!   menus ask for the divider value, which does resolve,
 //!   so `color::DIVIDER` is correct here rather than a fallback.
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce (it tints an
-//!   alpha mask), and 0.1.0's font-smoothing hint covers type only, not SVG.
-//!   Position will be right, colour will differ.
-//! * No letter-spacing: GPUI's shaper runs +/-0.2px per glyph off 0.1.0, as
+//!   alpha mask and smooths type, not SVG), so position will be right and
+//!   colour will differ.
+//! * No letter-spacing: GPUI's shaper runs +/-0.2px per glyph off the recorded run, as
 //!   two. Shortcuts are right-aligned, which hides this at the label end.
 
 use gpui_kit::base::{h_flex, v_flex};

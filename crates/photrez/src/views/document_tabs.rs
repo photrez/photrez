@@ -176,8 +176,8 @@ const EXPORT_LABEL_KEY: &str = "menus.items.export";
 /// Text selection has no GPUI equivalent and nothing here is selectable; the
 /// `data-tab-bar-empty` marker and the drop handlers are behaviour, not
 /// pixels. Width is not set: `main.rs` puts this in a
-/// `v_flex().items_stretch()`, so it spans the editor column (781px) exactly
-/// as the block-level div did in 0.1.0.
+/// `v_flex().items_stretch()`, so it spans the editor column (781px) with no
+/// width of its own.
 pub fn render(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,

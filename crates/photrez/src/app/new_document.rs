@@ -17,9 +17,8 @@ use crate::units::DimensionUnit;
 
 use super::App;
 
-/// 0.1.0 reported a click count on double click; native clicks
-/// carry no reliable count, so the second press inside this window counts as
-/// one.
+/// Native clicks carry no reliable click count, so a second press landing inside
+/// this window counts as one double click.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// The form's text fields in tab order. `AppState::new_document_field_index`

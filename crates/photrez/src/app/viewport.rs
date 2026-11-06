@@ -61,8 +61,8 @@ impl App {
     ///
     /// A `--shot` launch has no document session, so the display live-fits and
     /// the page scale changes with whatever chrome is hidden: 87 % with the
-    /// dock open, 98 % with it closed. Recorded captures carry the zoom
-    /// 0.1.0 was showing, so a named zoom has to survive the layout.
+    /// dock open, 98 % with it closed. Recorded captures carry a zoom of their
+    /// own, so a named zoom has to survive the layout.
     ///
     /// `--pan` places the page's top-left in element-local pixels instead of
     /// centring it. A recorded frame whose camera was placed while the dock was

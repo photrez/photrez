@@ -270,7 +270,7 @@ pub fn render(
 /// The readout cells, in order: centred on one row with 12px between them.
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
-/// Frame timing. The Frame cell keeps the gate 0.1.0 had - it shows only
+/// Frame timing. The Frame cell keeps a gate - it shows only
 /// while frame stats report at least one frame; the dev-mode capture
 /// always has frames > 0, so the cell is always present in the golden master.
 fn left_group(

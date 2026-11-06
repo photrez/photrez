@@ -39,7 +39,7 @@
 //! at x=58 with delta 0 rules out an earlier offset.
 //!
 //! Before Settings, 32 glyphs show 0.194px/glyph drift. Wide tracking adds
-//! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph vs 0.1.0,
+//! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph against the recorded run,
 //! character-dependent (Window/Help level; Image/Layer differ). Net drift is
 //! −0.19px, not −0.3px; restoring tracking overshoots by roughly +3px.
 //!

@@ -34,8 +34,7 @@
 //!   border pixels         183 .. 702       x   245 .. 596
 //! ```
 //!
-//! 0.1.0 snapped a border edge outward to whole device pixels, and the
-//! capture agrees: in `empty-card.png` the left border column is crop
+//! The recorded capture snaps a border edge outward to whole device pixels: in `empty-card.png` the left border column is crop
 //! x=1 and the right is crop x=520, with crop (0,0) = viewport (182,245) - a
 //! crop origin confirmed by cross-correlating the card PNG against
 //! `empty-full.png` (mean luma delta 0.0000). The comparison crops the
@@ -151,7 +150,7 @@
 //!
 //! * **The drop shadow is close but not the same curve.**
 //!   The CSS shadow `0 12px 32px rgba(0,0,0,0.8)` is transcribed as a `BoxShadow`
-//!   with the same offset and blur radius, but 0.1.0's shadow coverage at
+//!   with the same offset and blur radius, but the recorded shadow coverage at
 //!   the box edge is about 0.4 (measured: `#090909` against a
 //!   `#0f0f0f` canvas, 3px out, on both sides), not the 0.8 the alpha says - a
 //!   blurred shadow whose rect is offset and finite never reaches full
@@ -170,7 +169,7 @@
 //! * **Clipped-with-ellipsis preset labels** mean `overflow:hidden` +
 //!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
 //!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
-//! * **Text rasterisation.** ClearType subpixel fringes and 0.1.0's
+//! * **Text rasterisation.** ClearType subpixel fringes and the recorded
 //!   font-smoothing hint are the rasteriser's, not the markup's; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot

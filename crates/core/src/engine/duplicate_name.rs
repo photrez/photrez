@@ -6,9 +6,9 @@
 /// -> "Background", and a pure number "123" -> "". Feeds next_duplicate_name.
 pub(crate) fn base_name(name: &str) -> String {
     let t = name.trim_end();
-    // 0.1.0 treated NBSP (U+00A0) as whitespace when it trimmed. This widens
-    // the trailing strip to ASCII whitespace + NBSP; exotic Unicode spaces
-    // beyond NBSP are a deliberate ceiling (full JS \s set not matched).
+    // The trailing strip covers ASCII whitespace plus NBSP, the pair the 0.1.0
+    // release trimmed with, so a stored name splits the same way here. Exotic
+    // Unicode spaces beyond NBSP are a deliberate ceiling.
     let is_ws = |c: char| c.is_ascii_whitespace() || c == '\u{00A0}';
     let chars: Vec<char> = t.chars().collect();
     let mut i = chars.len();

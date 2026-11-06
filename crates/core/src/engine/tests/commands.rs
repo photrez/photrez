@@ -550,7 +550,8 @@ fn add_layer_typed_shape_projects_type_and_params() {
     let l = find(&e, "S");
     assert_eq!(l.layer_type, Some(LayerType::Shape));
     assert_eq!(l.shape_params, Some(shape_params()));
-    // 0.1.0 kept blend mode Normal, visible true, opacity 1.0 on create.
+    // A created shape layer takes the defaults this app stores: blend Normal,
+    // visible, opacity 1.0.
     assert_eq!(l.blend_mode, Some(BlendMode::Normal));
     assert!(l.visible);
     assert_eq!(l.opacity, 1.0);

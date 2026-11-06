@@ -49,9 +49,9 @@ pub(super) fn row_hairline_colour() -> Hsla {
 /// active, and nothing on the rest.
 ///
 /// The middle tier is a 5/255 step over the panel - the ratified pixel gate
-/// cannot see it, which is why this build does not paint it. It is still the
-/// state 0.1.0 paints, and a multi-selection reads as one bright row
-/// plus a column of dimmed ones rather than a block of identical ones.
+/// cannot see it, which is why this build does not paint it. A multi-selection
+/// therefore reads as one bright row plus a column of dimmed ones rather than
+/// a block of identical ones.
 pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
     if active {
         color::ROW_ACTIVE

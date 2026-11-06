@@ -598,17 +598,17 @@ fn partial_shape_params_and_adjustments_still_save() {
     );
 }
 
-/// KNOWN, TESTED on-disk differences between this writer and 0.1.0 files.
-/// Not a hazard: `PtzDocument::from_json` ignores unknown keys and reads `null`
-/// as an absent optional. Recorded so a future reader is not surprised.
+/// The on-disk differences this writer carries against the 0.1.0 release's files,
+/// known and tested. Not a hazard: `PtzDocument::from_json` ignores unknown keys and
+/// reads `null` as an absent optional. Recorded so a future reader is not surprised.
 #[test]
-fn the_on_disk_delta_from_the_previous_writer_is_as_documented() {
+fn the_on_disk_delta_this_writer_carries_is_as_documented() {
     let written = parse_fixture().to_json().expect("serialize");
     let v: serde_json::Value = serde_json::from_str(&written).unwrap();
     let layer = &v["layers"][0];
 
     // DELTA 1: `resourceId` is now emitted as an explicit null on every
-    // layer. The previous writer had no such key. Unknown keys are ignored
+    // layer. The 0.1.0 release's files carry no such key. Unknown keys are ignored
     // by the loader, so this is inert.
     assert_eq!(layer["resourceId"], serde_json::Value::Null);
     assert!(
@@ -643,7 +643,7 @@ fn the_on_disk_delta_from_the_previous_writer_is_as_documented() {
     // `63.59999593098957` (0x404fccccaaaaaaa9).
     //
     // This means every float in every `.ptz` this build writes can differ
-    // from what 0.1.0 wrote, by at most 1 ULP
+    // from the 0.1.0 release's bytes, by at most 1 ULP
     // on the literals where the approximate path was inexact, and not at
     // all elsewhere. Recorded here because it is a real on-disk change, not
     // an internal detail.
