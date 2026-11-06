@@ -178,7 +178,7 @@ pub fn probe_document_size() -> (f64, f64) {
 /// Registers Inter with GPUI's text system and reports whether it landed.
 ///
 /// This is load-bearing rather than cosmetic: every measurement in the
-/// reference captures was taken from a window rendering Inter. If this
+/// 0.1 captures was taken from a window rendering Inter. If this
 /// silently falls back to a system font, glyph advances differ and diffs fail
 /// for reasons that have nothing to do with the layout being measured.
 pub fn load_fonts(cx: &gpui_kit::App) {

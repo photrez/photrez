@@ -6,7 +6,7 @@
 //!      control is constructed.
 //!   2. Settle the startup locale: stored preference, then the OS locale,
 //!      then `en` (`i18n::initial_locale`).
-//!   3. Register Inter, the font the reference captures were shaped with.
+//!   3. Register Inter, the font the 0.1 captures were shaped with.
 //!   4. Open the main window on [`app::App`].
 //!
 //! [`run`] is the single startup path. `src/main.rs` is a thin binary over it;

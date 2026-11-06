@@ -1,6 +1,6 @@
 use super::*;
 
-/// The reference capture, measured: the 781x668 canvas-container crop
+/// The 0.1 capture, measured: the 781x668 canvas-container crop
 /// draws the 800x600 page as a 701x525.75 box at (40, 71.125) - exactly
 /// the fit formula's prediction.
 #[test]

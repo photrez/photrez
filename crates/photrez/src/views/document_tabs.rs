@@ -214,7 +214,7 @@ pub fn render(
 /// The reference's scrollbar styling only styles a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
-/// reserve or overlay a scrollbar the reference capture does not show here.
+/// reserve or overlay a scrollbar the 0.1 capture does not show here.
 fn tab_list(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,

@@ -28,13 +28,13 @@ pub use loader::{load_document_candidate, LoadedDocument};
 #[cfg(test)]
 mod tests;
 
-/// The document size the reference captures were taken at: the New Document
+/// The document size the 0.1 captures were taken at: the New Document
 /// dialog's defaults, which is what the capture tooling opened.
 pub const DEFAULT_DOC_WIDTH: u32 = 800;
 /// Height of that same document.
 pub const DEFAULT_DOC_HEIGHT: u32 = 600;
 
-/// The blank white document the reference captures were taken with: one opaque
+/// The blank white document the 0.1 captures were taken with: one opaque
 /// white layer at 800x600, the dialog's defaults.
 ///
 /// Returns `(width, height, rgba)` with `rgba.len() == width * height * 4`,

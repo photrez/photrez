@@ -187,7 +187,7 @@
 //! * `whitespace_nowrap()` guards the one wrap hazard: in the stack the widest
 //!   child is laid out at exactly its own max-content width, so a fractional
 //!   rounding could otherwise push it to two lines. The source never wraps
-//!   (a toast is a single line), so this is the reference behaviour, not a workaround.
+//!   (a toast is a single line), so this is the 0.1 behaviour, not a workaround.
 //! * The 6px scrollbar gutter reserved by the previous renderer's
 //!   stylesheet does **not** apply: this host never scrolls, and
 //!   adding the reservation here would move the left edge of every toast by

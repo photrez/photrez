@@ -95,7 +95,7 @@ use crate::icons;
 use crate::state::{AppState, MenuId};
 use crate::tokens::{color, title};
 
-/// The eight top-level menus, in the order the reference bar lists them,
+/// The eight top-level menus, in the order the 0.1 menu bar lists them,
 /// as catalog keys resolved with [`t`] at the trigger.
 const MENUS: &[&str] = &[
     "menus.file",
