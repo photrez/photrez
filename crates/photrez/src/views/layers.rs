@@ -106,7 +106,7 @@ use gpui_kit::{
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.
 /// The drag ghost keeps the pre-fill width; the panel itself fills its dock
-/// column (298 px at 2xl) instead of pinning this value.
+/// column (298 px at the wide breakpoint) instead of pinning this value.
 const PANEL_W: f32 = 260.0;
 
 /// Height above the Navigator at the baseline window: 611 - 84.

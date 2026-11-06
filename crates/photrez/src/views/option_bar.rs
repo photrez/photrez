@@ -333,27 +333,27 @@ fn bar_content_width() -> f32 {
     (bar_width() - 2.0 * BAR_PAD_X).max(0.0)
 }
 
-/// `hidden @min-[880px]:flex` — the align/flip/reset group.
+/// Shown at 880px of bar content or wider: the align/flip/reset group.
 pub(super) fn show_main_controls() -> bool {
     bar_content_width() >= 880.0
 }
 
-/// `hidden @max-[880px]:flex` — the overflow button.
+/// Shown only below 880px of bar content: the overflow button.
 pub(super) fn show_more_dropdown() -> bool {
     bar_content_width() <= 880.0
 }
 
-/// `@max-[900px]:hidden` — field captions and the Align/Flip captions.
+/// Hidden below 900px of bar content: the field captions and the Align/Flip captions.
 pub(super) fn show_field_labels() -> bool {
     bar_content_width() > 900.0
 }
 
-/// `hidden @min-[960px]:inline-block` — the selection/group captions.
+/// Shown only at 960px of bar content or wider: the selection and group captions.
 pub(super) fn show_group_labels_960() -> bool {
     bar_content_width() >= 960.0
 }
 
-/// `@max-[900px]:hidden` — the brush size slider.
+/// Hidden below 900px of bar content: the brush size slider.
 pub(super) fn show_paint_size_slider() -> bool {
     bar_content_width() >= 900.0
 }

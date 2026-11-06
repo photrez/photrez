@@ -163,8 +163,8 @@ fn tab_button(
     if active {
         btn = btn.child(div().w_full().h(px(UNDERLINE_H)).bg(color::ACCENT));
     } else {
-        // The 2%-white hover fill and the plain-text hover colour both do have
-        // CSS effect upstream. No token for 2% white; use hsla inline.
+        // The 2%-white hover fill and the plain-text hover colour are both
+        // painted effects, not tokens. No token holds 2% white; use hsla inline.
         btn = btn.hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.02)).text_color(color::TEXT));
     }
     btn

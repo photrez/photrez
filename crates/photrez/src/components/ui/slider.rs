@@ -239,11 +239,12 @@ pub fn centre_fill(raw: f32) -> (f32, f32) {
 /// stops.
 ///
 /// GPUI's `linear_gradient` takes exactly **two** stops
-/// (`gpui::linear_gradient(angle, from, to)`), where CSS's takes a list. The
+/// (`gpui::linear_gradient(angle, from, to)`), so one element cannot carry a
+/// list. The
 /// straightforward fix is one element per segment rather than a cleverer
 /// encoding: a segment spanning `p0..p1` is an absolutely positioned box at
 /// `p0`% from the left, `(p1 - p0)`% wide, carrying its own two-stop gradient
-/// across its own box — the same interpolation CSS would have performed.
+/// across its own box, the same interpolation one multi-stop ramp would give.
 ///
 /// Splitting also sidesteps whether a two-stop gradient clamps outside its
 /// stops — each segment's stops sit at its own 0 and 1, so there is nothing

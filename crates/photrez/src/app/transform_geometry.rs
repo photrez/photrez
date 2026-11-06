@@ -556,8 +556,8 @@ pub(crate) fn angle_about(center: Point, point: Point) -> f64 {
 
 /// The rotate-cursor sprite: the 32-unit SVG path
 /// (`M 1 7 L 10 1 L 10 5 A 16 16 ... Z`) flattened to a polygon and rotated
-/// by `angle_deg` about the sprite centre, with the pointer angle offset the
-/// source applies (`+45` because the base glyph tilts 45 degrees). Arcs are
+/// by `angle_deg` about the sprite centre, with the pointer angle offset baked
+/// into the glyph (`+45` because the base sprite tilts 45 degrees). Arcs are
 /// sampled finely enough that a 24 px sprite shows no faceting.
 pub(crate) fn rotate_cursor_polygon(angle_deg: f64) -> Vec<(f32, f32)> {
     fn arc_points(

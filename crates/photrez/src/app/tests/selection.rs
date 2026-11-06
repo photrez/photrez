@@ -458,7 +458,7 @@ fn selection_bar_fields_read_and_rewrite_the_committed_selection(
 ) {
     let directory = TestDirectory::new();
     // The bar needs the full comparison width: at a 1536 px layout width the
-    // 2xl dock (598 px) leaves 886 px and clips the R field the 1920 capture
+    // The wide dock (598 px) leaves 886 px and clips the R field the 1920 capture
     // shows.
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1920.0);
     cx.update_window(window.into(), |_, window, cx| {

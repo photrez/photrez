@@ -53,8 +53,8 @@
 //!   box inside a centred flex item cancels the box's height out of the
 //!   baseline calculation, so 15 and 15.75 put every glyph in the same place.
 //! * **Mixed weight on one line.** `Canvas: ` (dim, 400) and `800 x 600 px`
-//!   (text, 700 — the source's emphasis run, which renders bolder) are inline
-//!   siblings in the markup. GPUI stacks plain text children, so each cell is one
+//!   (text, 700, the emphasised run, which renders bolder) are inline
+//!   siblings. GPUI stacks plain text children, so each cell is one
 //!   [`StyledText`] carrying two [`TextRun`]s: one shaped line, one line box,
 //!   and no invented inter-word gap. Runs spell out `Inter` themselves because
 //!   an ambient `.font_family` reaches the element, not the run.
@@ -375,8 +375,8 @@ fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> 
             bold: true,
         },
         FrameRun {
-            // One run, not two: the markup wraps ` max {max}ms` in a single
-            // plain-text-at-40% span, and the golden master measures one
+            // One run, not two: ` max {max}ms` is one
+            // plain-text-at-40% run, and the golden master measures one
             // flat ~94 level across the whole tail - `max 1.9ms` is NOT bold.
             text: format!(" max {max}ms"),
             color: FRAME_TAIL_COLOR,
@@ -439,8 +439,7 @@ fn tip_key(tool: crate::state::ToolId) -> &'static str {
 }
 
 /// The left-rule wrapper, applied to every cell
-/// after the first. 1px rule + 12px padding, exactly as CSS adds them to a
-/// bordered flex item.
+/// after the first. 1px rule + 12px padding, the recorded cell geometry.
 fn ruled(content: impl IntoElement) -> impl IntoElement {
     div()
         .border_l_1()

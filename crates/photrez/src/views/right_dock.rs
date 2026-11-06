@@ -85,9 +85,9 @@ use std::rc::Rc;
 /// The dock's measured width: 533px.
 const DOCK_W: f32 = 533.0;
 
-/// The dock at the `2xl` breakpoint (viewport >= 1536 px): the layout
+/// The dock at the wide breakpoint (viewport 1536 px or wider): the layout
 /// widens both columns to 300px and 298px.
-const DOCK_W_2XL: f32 = 598.0;
+const DOCK_W_WIDE: f32 = 598.0;
 
 /// The whole `<main>` row: 820 - 46 - 24.
 ///
@@ -100,14 +100,14 @@ const DOCK_H: f32 = 750.0;
 /// InspectorDock's width: 272px.
 const INSPECTOR_W: f32 = 272.0;
 
-/// InspectorDock at `2xl`: 300px.
-const INSPECTOR_W_2XL: f32 = 300.0;
+/// InspectorDock at the wide breakpoint: 300px.
+const INSPECTOR_W_WIDE: f32 = 300.0;
 
 /// LayerDock's width: 260px.
 const LAYER_W: f32 = 260.0;
 
-/// LayerDock at `2xl`: 298px.
-const LAYER_W_2XL: f32 = 298.0;
+/// LayerDock at the wide breakpoint: 298px.
+const LAYER_W_WIDE: f32 = 298.0;
 
 /// Both tab bars: 38px.
 const TAB_BAR_H: f32 = 38.0;
@@ -137,7 +137,7 @@ pub fn render(
     canvas: Option<&CanvasImage>,
     camera: Option<Camera>,
     zoom_percent: Option<u32>,
-    two_xl: bool,
+    wide_layout: bool,
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
@@ -148,8 +148,8 @@ pub fn render(
         let s = state.read(cx);
         (s.inspector_tab, s.layer_tab)
     };
-    let (dock_w, inspector_w, layer_w) = if two_xl {
-        (DOCK_W_2XL, INSPECTOR_W_2XL, LAYER_W_2XL)
+    let (dock_w, inspector_w, layer_w) = if wide_layout {
+        (DOCK_W_WIDE, INSPECTOR_W_WIDE, LAYER_W_WIDE)
     } else {
         (DOCK_W, INSPECTOR_W, LAYER_W)
     };

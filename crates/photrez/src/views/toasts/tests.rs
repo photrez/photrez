@@ -1,7 +1,7 @@
 use super::*;
 
-/// All three severities map to `color::BORDER` — the unlayered
-/// `* { border-color }` rule overrides every `border-*` utility.
+/// All three severities map to `color::BORDER`: the global border colour
+/// overrides every per-severity border.
 ///
 /// RED proof: change any arm of `Severity::border()` to return a different
 /// colour and this fails. GREEN: all arms return `BORDER`.

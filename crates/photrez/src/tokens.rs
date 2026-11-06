@@ -18,10 +18,11 @@
 //! `oklch(0.6 0 0)` -> 128, `oklch(1 0 0)` -> 255.
 //!
 //! Clamping matters only for the two chromatic tokens (ACCENT, BRAND): OKLCH
-//! chroma 0.15/0.20 at those hues sits marginally outside sRGB, so the previous
-//! renderer clips them too. We clip identically, so the rendered colour matches.
+//! chroma 0.15/0.20 at those hues sits marginally outside sRGB, so the shipped
+//! release clips them too. This build clips identically, so the rendered colour
+//! matches.
 //!
-//! # Known fidelity gaps vs. the retired web stylesheet
+//! # Known fidelity limits
 //!
 //! * OKLCH is not representable, so the ramp is only as smooth as sRGB allows.
 //!   For this palette chroma is 0 for every neutral, so the gap is zero.
@@ -262,7 +263,7 @@ pub mod color {
 
     /// `#E15A17` = rgb(225, 90, 23): the tool mark, a darker orange than
     /// `ACCENT` (`#F28E42`). It only appears where the layout draws through an
-    /// SVG stroke attribute or a cursor asset, which no CSS rule can override,
+    /// SVG stroke attribute or a cursor asset, which no token change reaches,
     /// so the two must not be merged.
     pub const TOOL_MARK: Hsla = Hsla {
         h: 0.05528,

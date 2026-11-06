@@ -193,7 +193,7 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
     };
     // Transparent full-viewport frame, itself absolute so it disturbs no
     // layout when appended. The caller appends late; late paints on top - the
-    // only stacking control GPUI offers, where CSS would use z-index.
+    // only stacking control GPUI offers, where an index would otherwise decide it.
     div()
         .absolute()
         .top(px(0.0))
@@ -470,7 +470,7 @@ fn command_row_enabled(
         .into_any_element()
     } else {
         // A disabled row is inert but still part of the menu: the press must not
-        // bubble to the overlay's click-away, as CSS pointer-events-none did.
+        // bubble to the overlay's click-away, as an input-transparent row would.
         row.on_click(cx.listener(
             |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
                 cx.stop_propagation();

@@ -839,7 +839,7 @@ fn crop_ratio_open_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// A saved crop-bar capture at 1536 CSS width paints two narrow field-filled boxes
+/// A saved crop-bar capture at 1536 layout px paints two narrow field-filled boxes
 /// near the left that this build's resting capture does not show, which could mean a
 /// control was lost at that width. Enumerate the bar's controls at that width
 /// instead of reading the answer back off pixels.

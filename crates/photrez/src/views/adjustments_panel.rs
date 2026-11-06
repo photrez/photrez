@@ -58,7 +58,7 @@
 //!   icons scaling to 110% on hover, and colour transitions.
 //! * GPUI lacks tabular figures; Inter's default proportions replace the
 //!   fixed-width digits. Static views cannot reproduce icon `Tooltip` wrappers.
-//! * Standard gaps: no letter-spacing, clip-path, translate/z-index/scale;
+//! * Standard gaps: no letter-spacing, clipping path, transform or stacking index;
 //!   two-stop gradients only (five-stop saturation uses
 //!   `ui::gradient_segments`); padding rounds to whole px; odd-height
 //!   centring can differ by ±1px (22px value boxes in 28px rows).

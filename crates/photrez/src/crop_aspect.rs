@@ -62,12 +62,12 @@ impl CropSizeUnit {
         }
     }
 
-    /// `toUnit` — rounds to two decimals, like the source's `+(...).toFixed(2)`.
+    /// Pixels to the unit, rounded to two decimals.
     pub(crate) fn to_unit(self, px: f64) -> f64 {
         round2(px / self.factor())
     }
 
-    /// `fromUnit` — rounds to two decimals, like the source's `+(...).toFixed(2)`.
+    /// The unit value back to pixels, rounded to two decimals.
     pub(crate) fn to_pixels(self, value: f64) -> f64 {
         round2(value * self.factor())
     }

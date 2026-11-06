@@ -3,12 +3,12 @@
 //!
 //! # Geometry: the anchor is the bottom-right corner, not the left edge
 //!
-//! The source's host sits out of the flow, pinned to the window with *both*
-//! right and bottom at 1.5rem = 24px, its toasts stacked in a column with 8px
-//! between them, painted above the shell and letting the mouse pass through to
-//! whatever is underneath. Every number below was read back out of
+//! The recorded toast host sits out of the flow, pinned to the window with
+//! *both* right and bottom at 1.5rem = 24px, its toasts stacked in a column with
+//! 8px between them, painted above the shell and letting the mouse pass through
+//! to whatever is underneath. Every number below was read back out of
 //! `manifest.json` and then out of the PNGs rather than derived from the
-//! stylesheet:
+//! layout code:
 //!
 //! ```text
 //! toast-info     109.609x36.75  @ 1232.390,759.25
@@ -106,11 +106,10 @@
 //! | warn  | the yellow ramp's 500 step     | yellow  | #333333 |
 //! | error | the editor accent  | #F28E42 | #333333 |
 //!
-//! All three lose to the stylesheet's unscoped rule that paints every border
-//! with the default border colour, which [`color::BORDER`] documents at length
-//! — and the PNGs agree
+//! All three lose to the global border colour that every bordered surface
+//! resolves to, which [`color::BORDER`] documents at length. The captures agree
 //! rather than merely being predicted: every edge pixel of all four toast
-//! shots reads `#333333` — the scan covered `edges: top/bottom/left/right`.
+//! shots reads `#333333`; the scan covered `edges: top/bottom/left/right`.
 //! Severity is therefore **invisible in the chrome** in this build: fill,
 //! border, radius and text colour are identical across the three, and the
 //! label is the only difference. `Severity::border` still spells out the
@@ -174,7 +173,7 @@
 //!
 //! * **No stacking order.** The host paints above the shell (its layer was
 //!   numbered 50); GPUI has
-//!   no z-index, only tree order. This file therefore cannot place itself —
+//!   no stacking index, only tree order. This file therefore cannot place itself —
 //!   its caller must append [`render`]'s result **late** in the tree (after
 //!   `status_bar::render()`, as the last child of the window-sized root), and
 //!   [`render`] helps by returning an `absolute().inset(0.)` layer rather than
@@ -268,8 +267,8 @@ const LINE_H: f32 = 18.75;
 
 /// Black at 10% — the alpha both large-shadow layers are painted at.
 ///
-/// **Local, marked for consolidation**: this is a stylesheet default rather
-/// than an editor token, so `tokens::color` has no name for it yet and it is
+/// **Local, marked for consolidation**: this alpha comes from the recorded
+/// pixels rather than an editor token, so `tokens::color` has no name for it yet and it is
 /// used by exactly one component so far. If a second one asks for a shadow,
 /// this belongs next to `BLACK_40`.
 const SHADOW_10: Hsla = Hsla {
@@ -313,11 +312,11 @@ impl Severity {
     /// The border colour this severity asks for, and the one it gets.
     ///
     /// All three arms return [`color::BORDER`] because all three *measured*
-    /// #333333: the stylesheet's unscoped border-colour rule outranks every
-    /// per-severity border (see `tokens::BORDER` for the cascade argument and
+    /// #333333: the global border colour outranks every per-severity border
+    /// (see `tokens::BORDER` for that argument and
     /// the four-shot verification). The arms are kept separate rather than
-    /// collapsed to one expression so that the colour each severity names — and
-    /// therefore the colour to restore if that rule is ever scoped — survives
+    /// collapsed to one expression so that the colour each severity names, and
+    /// therefore the colour to restore if that global is ever scoped, survives
     /// in the code instead of only in this comment.
     fn border(self) -> Hsla {
         match self {
@@ -465,8 +464,8 @@ fn render_toast(severity: Severity, message: &str) -> Div {
 /// 0 10px 15px -3px rgb(0 0 0 / 0.1),  0 4px 6px -4px rgb(0 0 0 / 0.1)
 /// ```
 ///
-/// Same approach as `tool_rail::shadow_md_layers` for the medium shadow: CSS blur
-/// radii passed through unchanged, so the two spellings cannot drift from the
+/// Same approach as `tool_rail::shadow_md_layers` for the medium shadow: the
+/// recorded blur radii passed through unchanged, so the two spellings cannot drift from the
 /// theme or from each other. Measured against the baseline at gap 2, where a
 /// `#333333` rule of the dock under a toast reads `#2E2E2E` = exactly 10%
 /// black over it.

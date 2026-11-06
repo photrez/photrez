@@ -51,7 +51,7 @@ fn card_shell(actions: impl IntoElement, presets: impl IntoElement) -> Div {
         .child(footer())
 }
 
-/// The CSS shadow `0 12px 32px rgba(0,0,0,0.8)`.
+/// The recorded shadow spec `0 12px 32px rgba(0,0,0,0.8)`.
 ///
 /// The parameters are exact; the *curve* is not. The capture's
 /// coverage at the card's own edge reads about 0.4 (`#090909` over a `#0f0f0f`

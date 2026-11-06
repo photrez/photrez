@@ -70,7 +70,8 @@ pub struct ShadowMeta {
     pub prep_us: u128,
     pub raster_us: u128,
     pub patchgen_us: u128,
-    /// Sorted-by-key "(key:hash)" pairs — lets JS diff WITHOUT shipping bytes.
+    /// Sorted-by-key "(key:hash)" pairs, so a caller can diff tile changes
+    /// without shipping bytes.
     pub tile_hashes: Vec<(String, String)>,
 }
 

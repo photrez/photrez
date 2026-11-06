@@ -32,11 +32,11 @@ pub(crate) fn base_name(name: &str) -> String {
     t.to_string()
 }
 
-/// Parse leading decimal digits like JS `parseInt(x, 10)`: skip leading ASCII
-/// whitespace, optional sign, consume leading ASCII digits, ignore the rest.
-/// Returns None when there are no leading digits (JS returns NaN). Uses i128 so
-/// huge inputs do not silently fail the way Rust `i64::parse` would on overflow.
-fn js_parse_int(s: &str) -> Option<i128> {
+/// Parse a leading decimal integer: skip ASCII whitespace, take an optional
+/// sign, consume the ASCII digits and ignore the rest. Returns None when there
+/// are no leading digits. Uses i128 so a huge input does not fail the way
+/// `i64::parse` would on overflow.
+fn parse_leading_int(s: &str) -> Option<i128> {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() && bytes[i].is_ascii_whitespace() {
@@ -77,7 +77,7 @@ pub(crate) fn next_duplicate_name(layers: &[&str], layer_name: &str) -> String {
     let mut max_num: i128 = 1;
     for name in layers {
         if let Some(rest) = name.strip_prefix(&prefix) {
-            if let Some(num) = js_parse_int(rest) {
+            if let Some(num) = parse_leading_int(rest) {
                 if num > max_num {
                     max_num = num;
                 }

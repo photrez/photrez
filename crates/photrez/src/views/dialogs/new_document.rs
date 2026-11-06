@@ -4,7 +4,7 @@
 
 use super::*;
 
-/// The New Document dialog's measured box: 780 CSS wide and 36 (titlebar) +
+/// The New Document dialog's measured box: 780 layout px wide and 36 (titlebar) +
 /// 460 (body incl. footer) tall, matching 780px / 460px.
 const NEW_DOC_W: f32 = 780.0;
 const NEW_DOC_H: f32 = 496.0;

@@ -280,7 +280,7 @@ fn tool_button(
             }
         });
         // The tooltip itself is painted by the shell's overlay, because GPUI
-        // has no z-index and a panel inside the rail is covered by the canvas
+        // paints in tree order and a panel inside the rail is covered by the canvas
         // it overlaps.
         app.set_tooltip(hovered.then(|| tooltip_id.clone()), cx);
         if changed {
@@ -320,7 +320,7 @@ fn tool_button(
 
 /// The selection tool's right-click sub-variant popover.
 ///
-/// It is an overlay appended after the shell (GPUI has no z-index): the
+/// It is an overlay appended after the shell (GPUI has no stacking index): the
 /// measured origin is the selection row's right edge, 50px from the rail's
 /// left, 92px below the window top (46 title + 8 rail inset + one 36px row +
 /// 2 gap). Its measured layout is a 140px minimum width, 12px horizontal and
@@ -469,9 +469,9 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         .size(px(dim::SWATCH))
         .rounded_full()
         .border_1()
-        // The intended white-at-20% border does not survive: an unlayered
-        // universal border-colour rule covers every element, so this paints
-        // #333333 like every other rule. See `color::BORDER` - and note this is
+        // The intended white-at-20% border does not survive: the global
+        // border colour covers every element, so this paints
+        // #333333 like every other border. See `color::BORDER` - and note this is
         // why the rail's raw diff is 2.377% while its hard count is near zero:
         // `classify()` buckets #333333 and #484848 as the same `active` class.
         .border_color(color::BORDER)

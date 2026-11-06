@@ -83,7 +83,7 @@ pub struct PtzDocument {
     #[serde(default)]
     pub viewport: ViewportState,
     /// Save-state flag. The loader clears it after restore, so it is written
-    /// for fidelity with the previous writer rather than load-bearing.
+    /// for fidelity with the shipped release's files rather than load-bearing.
     #[serde(default)]
     pub dirty: bool,
 }

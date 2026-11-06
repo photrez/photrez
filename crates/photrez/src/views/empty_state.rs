@@ -25,7 +25,7 @@
 //! Vertically it is the same story against the main row's 750 (46..796): 24px padding
 //! leaves 702 at y=70, and `70 + (702-351.5)/2 = 245.25`.
 //!
-//! So the CSS box really is `182.5, 245.25, 520 x 351.5`, and the manifest
+//! So the recorded box really is `182.5, 245.25, 520 x 351.5`, and the manifest
 //! records exactly that. What this file uses is **where the border lands**,
 //! which is one pixel further right and none further down:
 //!
@@ -149,7 +149,7 @@
 //! # Not expressible here
 //!
 //! * **The drop shadow is close but not the same curve.**
-//!   The CSS shadow `0 12px 32px rgba(0,0,0,0.8)` is transcribed as a `BoxShadow`
+//!   The recorded shadow spec `0 12px 32px rgba(0,0,0,0.8)` is transcribed as a `BoxShadow`
 //!   with the same offset and blur radius, but the recorded shadow coverage at
 //!   the box edge is about 0.4 (measured: `#090909` against a
 //!   `#0f0f0f` canvas, 3px out, on both sides), not the 0.8 the alpha says - a
@@ -166,11 +166,11 @@
 //!   Note this cuts the other way too: the tiles' 50%-accent hover border and
 //!   accent hover label colour are *not* painted, rather
 //!   than being fixed into the resting image.
-//! * **Clipped-with-ellipsis preset labels** mean `overflow:hidden` +
-//!   `text-overflow:ellipsis` + `white-space:nowrap`. Nothing clips at these
+//! * **Clipped-with-ellipsis preset labels** need clipping, an ellipsis and no
+//!   wrapping at once. Nothing clips at these
 //!   widths, so this view uses `whitespace_nowrap()` and lets GPUI size the run.
 //! * **Text rasterisation.** ClearType subpixel fringes and the recorded
-//!   font-smoothing hint are the rasteriser's, not the markup's; every
+//!   font-smoothing hint are the rasteriser's own output; every
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.
@@ -214,7 +214,7 @@ const CARD_W: f32 = 520.0;
 /// four blocks below add up to, and the bordered box that is painted is 352.
 const CARD_H: f32 = 352.0;
 
-/// **Painted** top edge. The CSS box is at `245.25`; snapping rounds down here,
+/// **Painted** top edge. The recorded box is at `245.25`; snapping rounds down here,
 /// so this one is the number the manifest already quotes.
 const CARD_Y: f32 = 245.0;
 
@@ -419,8 +419,8 @@ fn select(shot: Option<&str>) -> EmptyVariant {
 ///   once; drawing a second copy here would guarantee the two drift.
 ///
 /// The frame is absolute so it disturbs nothing wherever appended, and the
-/// caller must add it late: GPUI has no `z-index` - trace-exempt: CSS stacking,
-/// not a stylesheet class - so paint order is the only stacking control. The
+/// caller must add it late: GPUI has no stacking index, so paint order is the
+/// only stacking control. The
 /// live `canvas_col_w` is the canvas column width: the source centres the card inside it, so the painted
 /// left edge moves with the viewport and the wide-viewport dock widths (the
 /// captured `CARD_X = 183`: the formula at the 1366x820 baseline).

@@ -274,7 +274,7 @@ fn mount_fixture_app(
     mount_fixture_app_sized(cx, directory, 1366.0)
 }
 
-/// Mount the bounded fixture at the target viewport width (1536 CSS px, the
+/// Mount the bounded fixture at the target viewport width (1536 layout px, the
 /// 1920x1080 client area at 125% scaling).
 fn mount_fixture_app_sized(
     cx: &mut gpui_kit::TestAppContext,

@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn card_x_formula_reproduces_the_1366_pin() {
     // The live formula is centre-in-canvas-column. At the 1366x820 baseline
-    // the canvas column is 1366 - 52 (rail) - 533 (dock) = 781, so the CSS box
+    // the canvas column is 1366 - 52 (rail) - 533 (dock) = 781, so the box
     // sits at 52 + (781-520)/2 = 182.5 and the snapped painted edge is 183 -
     // exactly the recorded baseline pin.
     const CARD_X_AT_1366: f32 = 183.0;
@@ -13,7 +13,7 @@ fn card_x_formula_reproduces_the_1366_pin() {
     assert_eq!((canvas_col_w - CARD_W) / 2.0, 130.5);
     assert_eq!(52.0 + (canvas_col_w - CARD_W) / 2.0, 182.5);
     assert_eq!(CARD_X_AT_1366, 183.0);
-    // At the comparison viewport (1536 CSS, 2xl dock 598) the same formula
+    // At the wide viewport (1536 layout px, dock 598) the same formula
     // gives the measured centred position: 52 + (886-520)/2 = 235.
     let comparison_col = 1536.0 - 52.0 - 598.0;
     assert_eq!(52.0 + (comparison_col - CARD_W) / 2.0, 235.0);

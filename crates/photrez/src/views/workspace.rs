@@ -27,8 +27,8 @@ const STATUSBAR_H: f32 = 24.0;
 const RAIL_W: f32 = 52.0;
 /// Right dock width: 533px.
 const DOCK_W: f32 = 533.0;
-/// Right dock width at the `2xl` breakpoint: 272+1+260 widens to 300+298.
-const DOCK_W_2XL: f32 = 598.0;
+/// Right dock width at the wide breakpoint: 272+1+260 widens to 300+298.
+const DOCK_W_WIDE: f32 = 598.0;
 /// Document tabs height: 38px.
 const TABBAR_H: f32 = 38.0;
 /// Option bar height: 44px.
@@ -131,9 +131,9 @@ pub(crate) fn render(
         )
     };
     // The shell is responsive at the same breakpoints as the captured layout:
-    // `2xl` (viewport >= 1536 CSS px) widens both dock columns.
-    let two_xl = window.viewport_size().width >= px(1536.0);
-    let dock_w = if two_xl { DOCK_W_2XL } else { DOCK_W };
+    // a viewport 1536 layout px or wider widens both dock columns.
+    let wide_layout = window.viewport_size().width >= px(1536.0);
+    let dock_w = if wide_layout { DOCK_W_WIDE } else { DOCK_W };
     let (active_tool, selected_layer_name) = {
         let s = state.read(cx);
         (
@@ -318,7 +318,7 @@ pub(crate) fn render(
                                         canvas,
                                         camera,
                                         zoom_percent,
-                                        two_xl,
+                                        wide_layout,
                                         Rc::clone(&canvas_bounds),
                                         Rc::clone(&navigator_bounds),
                                         layer_thumbs,
@@ -393,7 +393,7 @@ pub(crate) fn render(
         })
         .when(shot::starts_with("empty-"), |el| {
             // The empty card is centred in the canvas column, which
-            // moves with the viewport (and with the `2xl` dock widths). The
+            // moves with the viewport (and with the wide dock widths). The
             // card is positioned in window coordinates, so the column's left
             // edge (the rail width) is part of the answer.
             let col_left = RAIL_W;
@@ -413,7 +413,7 @@ pub(crate) fn render(
             el.child(loading::render())
         })
         // A hovered rail button's own tooltip, painted here because the panel
-        // overlaps the canvas and GPUI has no z-index. The `tooltip-*` fixture
+        // overlaps the canvas and GPUI paints in tree order. The `tooltip-*` fixture
         // above is the captured equivalent.
         .child(tooltips::render_live(state, cx))
         // Last child in the window-sized root: the host stacks at level 50

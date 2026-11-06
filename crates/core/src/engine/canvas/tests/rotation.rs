@@ -5,7 +5,7 @@ use super::super::normalize_rotation;
 
 #[test]
 fn normalize_rotation_wraps_negative_dividend() {
-    // -270 % 360 in JS/f64 == -270, then < -180 -> +360 == 90.
+    // -270 % 360 in f64 is -270, then < -180 -> +360 == 90.
     assert_eq!(normalize_rotation(-270.0), 90.0);
 }
 #[test]
