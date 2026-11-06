@@ -1,8 +1,8 @@
 //! Single-source the application version in `crates/photrez/Cargo.toml`.
 //!
-//! `set-version <semver>` validates the semver shape (the rule the retired
-//! `scripts/bump-version.ts` enforced), rewrites the canonical manifest, and
-//! reads the value back through `cargo metadata` — the manifest string it
+//! `set-version <semver>` validates the semver shape before writing anything,
+//! rewrites the canonical manifest, and reads the value back through
+//! `cargo metadata` — the manifest string it
 //! just wrote is never trusted on its own. A read-back that disagrees restores
 //! the manifest bytes it replaced, so a failed run leaves no half-applied
 //! version behind.

@@ -6,7 +6,6 @@
 # them at all.
 crates/format/tests/fixtures/*.json text eol=lf
 crates/photrez/tests/fixtures/*.json text eol=lf
-crates/photrez/tests/baseline/manifest.json text eol=lf
 crates/photrez/assets/i18n/*.json text eol=lf
 
 *.png binary
