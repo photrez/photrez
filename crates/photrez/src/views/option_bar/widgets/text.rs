@@ -157,7 +157,7 @@ pub(in super::super) fn text_icon_action(
         )
 }
 
-/// The text bar's box-mode control: the trigger plus the reference's
+/// The text bar's box-mode control: the trigger plus the 0.1 build's
 /// two-item list. Opening routes through the bar's
 /// single-open select slot, so Escape and an outside click dismiss it like
 /// the other dropdowns. The current mode is read from the live text-edit
@@ -212,7 +212,7 @@ pub(in super::super) fn box_mode_control(
     wrapper
 }
 
-/// The list itself: the reference's `#1D2026` popover with Auto Width and
+/// The list itself: the 0.1 build's `#1D2026` popover with Auto Width and
 /// Fixed Box; the current mode carries the accent tint and check.
 fn box_mode_list(
     area_active: bool,
@@ -310,7 +310,7 @@ fn box_mode_row(
         })
 }
 
-/// The reference's `setBoxMode` value patch: point mode clears the box
+/// The 0.1 build's `setBoxMode` value patch: point mode clears the box
 /// dimensions; area mode keeps a positive width and seeds the 200 px the
 /// reference uses for a layer that never had one.
 fn apply_box_mode(data: &mut photrez_core::document::layer_params::TextData, area: bool) {

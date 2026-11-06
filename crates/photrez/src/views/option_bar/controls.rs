@@ -151,7 +151,7 @@ pub(super) fn editable_field_text(
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        // No hover edge: the reference's unlayered `* { border-color }` rule beats its own
+        // No hover edge: the 0.1 build's unlayered `* { border-color }` rule beats its own
         // `hover:border-*` utility, so these fields keep their rest border under the pointer.
         .when(show_field_labels(), |el| el.child(dim_span(label)))
         .child(div().flex_1().min_w(px(0.)).child(value_text(value)))

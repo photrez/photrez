@@ -189,7 +189,7 @@ pub(crate) fn navigator_element(
     )
     .w_full()
     .h(px(NAV_H - NAV_HEADER_H - 1.0))
-    // The reference's navigator body is the panel tone (30,30,30 in
+    // The 0.1 build's navigator body is the panel tone (30,30,30 in
     // `shell-navigator.png`), not the canvas tone; the dock shows no canvas
     // surface here.
     .bg(color::PANEL)

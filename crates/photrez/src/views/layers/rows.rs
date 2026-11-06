@@ -21,7 +21,7 @@ const ADJUST_GAP: f32 = 4.0;
 const ADJUST_STROKE: f32 = 1.75;
 
 /// 24px tall, 8px side inset, 4px icon gap, 12px glyph, 11px label — the
-/// locked-row badge the reference's `Locked` pill asks for.
+/// locked-row badge the 0.1 build's `Locked` pill asks for.
 const BADGE_H: f32 = 24.0;
 const BADGE_PX: f32 = 8.0;
 const BADGE_GAP: f32 = 4.0;
@@ -41,12 +41,12 @@ const GHOST_TILE_ICON: f32 = 12.0;
 /// ([`color::BORDER`]), so this is rgb(51,51,51): a 21/255 step over the
 /// rgb(30,30,30) panel, in a row the reference draws and the native did not.
 /// Kept as a function so the tier is assertable without a window; the width is
-/// the fixed 1px the reference's `border-b` gives it.
+/// the fixed 1px the 0.1 build's `border-b` gives it.
 pub(super) fn row_hairline_colour() -> Hsla {
     color::BORDER
 }
 
-/// The row's own fill, in the reference's three branches: full `ROW_ACTIVE` on
+/// The row's own fill, in the 0.1 build's three branches: full `ROW_ACTIVE` on
 /// the active row, the same colour at 70% on a row selected without being
 /// active, and nothing on the rest.
 ///
@@ -660,7 +660,7 @@ impl Render for LayerDragGhost {
             .gap(px(ROW_GAP))
             .px(px(PAD_X))
             .bg(color::ROW_ACTIVE)
-            // The reference's dragged row asks a dashed accent border and an inset
+            // The 0.1 build's dragged row asks a dashed accent border and an inset
             // accent ring; the border colour is overridden to grey by the global rule,
             // so only the ring carries the accent here.
             .border_b_1()

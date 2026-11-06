@@ -381,7 +381,7 @@ fn status_hint(message: &str) -> Div {
 /// and 16px chevron. Closed sections omit descriptions and use
 /// `chevron-right` rather than the expanded `chevron-up`.
 /// A not-yet-built adjustment group. Collapsed it is the 42px header row;
-/// expanded it adds the reference's dashed In Development card, which is the
+/// expanded it adds the 0.1 build's dashed In Development card, which is the
 /// only place the panel says these tools are unfinished.
 pub(super) fn coming_soon_section(
     id: &'static str,

@@ -1,7 +1,7 @@
 use super::*;
 
 /// The group shown at >=880 px: divider, align, divider, flip, divider, reset.
-/// A locked selection takes the reference's inert treatment: the groups dim
+/// A locked selection takes the 0.1 build's inert treatment: the groups dim
 /// and the handlers refuse the edit.
 pub(super) fn main_controls(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
@@ -126,7 +126,7 @@ pub(super) fn group_label(text: &str) -> Div {
     div().mr(px(MR_LABEL)).child(dim_span(text))
 }
 
-/// The inline Reset button: locked layers keep the reference's disabled look
+/// The inline Reset button: locked layers keep the 0.1 build's disabled look
 /// (no border tint, no pointer affordance).
 pub(super) fn reset_button(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut button = div()
@@ -158,7 +158,7 @@ pub(super) fn reset_button(locked: bool, cx: &Context<crate::app::App>) -> impl 
     button
 }
 
-/// The `handleAlign` click body: a locked layer is inert (the reference's
+/// The `handleAlign` click body: a locked layer is inert (the 0.1 build's
 /// `isLocked()` guard), the command writes nothing else, and a failed edit
 /// surfaces as a status error instead of a silent no-op.
 pub(super) fn align_clicked(
@@ -202,7 +202,7 @@ pub(super) fn reset_transform_clicked(
     }
 }
 
-/// The selected layer's core lock flag, read the same way the reference's
+/// The selected layer's core lock flag, read the same way the 0.1 build's
 /// `isLocked()` reads it from the engine before any transform click.
 fn selected_core_layer_is_locked(app: &crate::app::App, cx: &Context<crate::app::App>) -> bool {
     app.selected_layer_for_cursor(cx)

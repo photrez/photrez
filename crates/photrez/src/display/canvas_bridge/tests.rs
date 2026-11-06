@@ -666,7 +666,7 @@ fn navigator_viewport_frame_is_not_clamped_to_the_page() {
 }
 
 /// The preview cuts the indicator, and a cut edge disappears rather than being
-/// redrawn along the clip line. This is the reference's own resting geometry:
+/// redrawn along the clip line. This is the 0.1 build's own resting geometry:
 /// two vertical rules spanning the box, no horizontal ones.
 #[test]
 fn navigator_indicator_drops_the_edges_the_box_cuts() {

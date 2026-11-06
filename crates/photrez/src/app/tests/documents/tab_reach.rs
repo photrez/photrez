@@ -142,7 +142,7 @@ fn tab_stays_inside_the_open_dialog_and_wraps(cx: &mut gpui_kit::TestAppContext)
 }
 
 /// Closing returns focus to whatever held it before the dialog opened, which is
-/// what the reference's `restoreFocusTo` does.
+/// what the 0.1 build's `restoreFocusTo` does.
 #[gpui_kit::test]
 fn closing_a_dialog_returns_focus_to_what_had_it(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

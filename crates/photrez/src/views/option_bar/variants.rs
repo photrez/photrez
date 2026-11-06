@@ -249,7 +249,7 @@ fn move_more_dropdown(
     more_dropdown_overflow(open, state, cx, body)
 }
 
-/// One labelled overflow group: the reference's caption-plus-row section,
+/// One labelled overflow group: the 0.1 build's caption-plus-row section,
 /// dimmed as a whole while the selection is locked.
 fn overflow_section(caption: Div, body: impl IntoElement, locked: bool) -> Div {
     let section = gpui_kit::base::v_flex()

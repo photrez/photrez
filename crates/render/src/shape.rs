@@ -142,7 +142,7 @@ pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, S
         paint.force_hq_pipeline = true;
         // The 0.1 compositor leaves the outer 90-degree corners of a plain rect
         // uncovered; bevel is the closest tiny-skia join. Curved and other
-        // shapes keep the reference's round join.
+        // shapes keep the 0.1 build's round join.
         let line_join = if params.kind == ShapeKind::Rect && params.radius <= 0.0 {
             LineJoin::Bevel
         } else {

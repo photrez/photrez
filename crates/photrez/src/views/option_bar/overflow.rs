@@ -13,7 +13,7 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         .border_1()
         .border_color(color::BORDER)
         .bg(color::FIELD)
-        // The reference's only hover change here is the glyph brightening to white; its border
+        // The 0.1 build's only hover change here is the glyph brightening to white; its border
         // stays grey for the same reason as the fields above.
         .hover(|s| s.text_color(color::WHITE))
         .text_color(ZINC)
@@ -25,7 +25,7 @@ pub(super) fn more_dropdown_button() -> impl IntoElement {
         )
 }
 
-/// The field background at 30% opacity — the tint of the reference's
+/// The field background at 30% opacity: the tint of the 0.1 build's
 /// overflow group rows (`bg-editor-field/30`); it composites to the census
 /// pixel over [`color::BAR_POPOVER`].
 const FIELD_30: Hsla = Hsla {
@@ -100,7 +100,7 @@ pub(super) fn overflow_caption(label: &str) -> Div {
         .child(label.to_uppercase())
 }
 
-/// One overflow group row: the reference's `bg-editor-field/30` container
+/// One overflow group row: the 0.1 build's `bg-editor-field/30` container
 /// with a field border around the icon buttons.
 pub(super) fn overflow_group_row() -> Div {
     h_flex()
@@ -114,8 +114,8 @@ pub(super) fn overflow_group_row() -> Div {
 }
 
 /// A borderless icon button inside an overflow group row (16px icon, 3px
-/// radius, 2px padding — the reference's `p-0.5` treatment). Disabled rows
-/// keep the reference's `pointer-events-none`: no cursor, no click.
+/// radius, 2px padding, the 0.1 build's `p-0.5` treatment). Disabled rows
+/// keep the 0.1 build's `pointer-events-none`: no cursor, no click.
 pub(super) fn overflow_icon_button(
     id: &'static str,
     icon: &'static [u8],

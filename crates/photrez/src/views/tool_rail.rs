@@ -212,7 +212,7 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
 /// The rail button's icon tint for its two visual states.
 ///
 /// The active tool and a hovered inactive tool both use [`color::TEXT`], the
-/// colour the reference's `currentColor` glyph lifts to on hover. An inactive
+/// colour the 0.1 build's `currentColor` glyph lifts to on hover. An inactive
 /// resting button keeps [`color::ICON`].
 fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
     if active || hovered {

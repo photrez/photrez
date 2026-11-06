@@ -190,7 +190,7 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
     }
 }
 
-/// The `Keep proportions` pill paints the reference's two colour states:
+/// The `Keep proportions` pill paints the 0.1 build's two colour states:
 /// locked is the global border grey over an accent/10 fill with full accent
 /// text, unlocked is the same grey over no fill with the dim text.
 ///

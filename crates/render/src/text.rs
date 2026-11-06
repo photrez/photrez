@@ -214,7 +214,7 @@ pub(crate) fn rasterize_text(
         .ceil()
         .max(1.0) as u32;
     let mut pixels = vec![0u8; width as usize * height as usize * 4];
-    // The reference's top-baseline mode places the ink top at the padding.
+    // The 0.1 build's top-baseline mode places the ink top at the padding.
     // cosmic-text's line box has a different top offset; align the measured ink
     // top to the same padding so the bitmap origin matches the reference.
     let draw_x = PADDING + stroke_pad;

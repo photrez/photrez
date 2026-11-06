@@ -67,7 +67,7 @@ const ABOUT_PILL_FILL: Hsla = Hsla {
 /// accent fill. Only the fill ever arrives: one app-wide rule outranks the
 /// border colour a component asks for (see [`color::BORDER`]), so the edge that
 /// paints is the global border grey. Measured in the about-dialog capture -
-/// the reference's pill rows read rgb(51,51,51) above and below an accent/10
+/// the 0.1 build's pill rows read rgb(51,51,51) above and below an accent/10
 /// wash, where an accent edge would read rgb(112,73,44).
 pub(super) fn about_pill_colours() -> (Hsla, Hsla, Hsla) {
     (color::BORDER, ABOUT_PILL_FILL, color::ACCENT)
@@ -306,7 +306,7 @@ fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Sta
         .cursor_pointer()
         // No token holds 8% white (the scale carries 5 and 10); inline like the
         // dock tab's 2%. The alpha blends over FIELD exactly as the CSS does.
-        // The hover brightens the fill only: the reference's asked
+        // The hover brightens the fill only: the 0.1 build's asked
         // hover-accent edge never paints, so its edge is the same on hover.
         .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .on_click(move |_, _, cx| cx.open_url(url))

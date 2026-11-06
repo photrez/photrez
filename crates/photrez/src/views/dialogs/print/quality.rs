@@ -34,7 +34,7 @@ pub(in crate::views::dialogs) fn effective_ppi(doc_px: (f64, f64), print_mm: (f6
 }
 
 /// The badge tier for an effective resolution, cut where the design cuts it.
-/// The copy is the reference's own literal, which it never runs through the
+/// The copy is the 0.1 build's own literal, which it never runs through the
 /// catalog.
 pub(in crate::views::dialogs) fn ppi_quality(ppi: u32) -> (&'static str, Hsla, Hsla) {
     if ppi >= 300 {

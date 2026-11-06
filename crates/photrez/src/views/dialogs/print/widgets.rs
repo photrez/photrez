@@ -178,7 +178,7 @@ where
         .text_color(if on { color::BG } else { color::TEXT })
         .cursor_pointer()
         .on_click(cx.listener(handler));
-    // The page shape leads the label, as it does in the reference's markup.
+    // The page shape leads the label, as it does in the 0.1 build's markup.
     match glyph {
         Some(glyph) => box_.child(glyph).child(text.to_string()),
         None => box_.child(text.to_string()),
@@ -305,7 +305,7 @@ where
 
 /// Driver names such as `A4 (210 x 297 mm)` already carry their own dimensions,
 /// so they show verbatim. A bare name gets the millimetre pair appended. This
-/// is the reference's `formatPaperSizeLabel` rule, kept as a plain substring
+/// is the 0.1 build's `formatPaperSizeLabel` rule, kept as a plain substring
 /// test rather than the regular expression it uses.
 pub(super) fn paper_name_label(name: &str, width_mm: f64, height_mm: f64) -> String {
     let lower = name.to_ascii_lowercase();

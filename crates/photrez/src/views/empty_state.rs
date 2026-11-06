@@ -401,7 +401,7 @@ enum EmptyVariant {
 }
 
 /// `shot::active()` -> arm. `empty-new-document` hands off to the dialog;
-/// every other id, including `None`, draws the card. Mirrors the reference's
+/// every other id, including `None`, draws the card. Mirrors the 0.1 build's
 /// `match shot::active() { "empty-new-document" => ..., _ => ... }` exactly.
 fn select(shot: Option<&str>) -> EmptyVariant {
     match shot {

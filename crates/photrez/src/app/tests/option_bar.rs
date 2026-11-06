@@ -538,7 +538,7 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// The Text bar's box-mode control is the reference's two-item list, not a
+/// The Text bar's box-mode control is the 0.1 build's two-item list, not a
 /// closed trigger: choosing Fixed Box rewrites the selected text layer's
 /// `box_mode` to Area through core history (with a box width, as the
 /// reference seeds), choosing Auto Width returns it to Point with the box
@@ -628,10 +628,10 @@ fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAp
 
 /// The Selection bar's overflow trigger hosts the clipboard grid the reference
 /// folds at narrow widths. With no
-/// committed selection the rows stay inert (the reference's
+/// committed selection the rows stay inert (the 0.1 build's
 /// `pointer-events-none`); once one exists, Invert rewrites it, Delete clears
 /// the selected pixels through core history and Deselect drops it. Escape and
-/// an outside click dismiss the panel. The reference's Transform toggle in
+/// an outside click dismiss the panel. The 0.1 build's Transform toggle in
 /// this panel is not covered: the native edit mode has no bar-click entry
 /// point yet.
 #[gpui_kit::test]
@@ -760,7 +760,7 @@ fn move_bar_readout(
 
 /// The Move bar's transform cells read and edit the layer the canvas is
 /// holding: X and R submit, and Escape puts back the value the edit started
-/// from, exactly as the reference's fields do.
+/// from, exactly as the 0.1 build's fields do.
 #[gpui_kit::test]
 fn the_move_bar_transform_fields_describe_and_edit_the_layer(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -817,7 +817,7 @@ fn the_move_bar_transform_fields_describe_and_edit_the_layer(cx: &mut gpui_kit::
     .expect("test window remains open");
 }
 
-/// A locked layer keeps the reference's disabled fields: the click opens no
+/// A locked layer keeps the 0.1 build's disabled fields: the click opens no
 /// edit and the value cannot move.
 #[gpui_kit::test]
 fn a_locked_layer_keeps_the_move_bar_transform_fields_inert(cx: &mut gpui_kit::TestAppContext) {

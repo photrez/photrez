@@ -475,7 +475,7 @@ fn labeled(label: &str, value: &str) -> StyledText {
 
 /// The save cell: the design pairs every autosave state with an 8px dot in that
 /// state's own tier, so the status reads at a glance and not only through the
-/// label. The busy dot's `animate-pulse` is the reference's only motion here and
+/// label. The busy dot's `animate-pulse` is the 0.1 build's only motion here and
 /// stays a static fill.
 fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::AnyElement> {
     use crate::state::AutosaveStatus;

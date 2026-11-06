@@ -15,7 +15,7 @@
 //! underline #F28E42 across y=81..82, export button 725..816).
 //!
 //! A static screenshot cannot show behaviour, so what stays out of this module
-//! is the reference's drag-to-reorder with drop
+//! is the 0.1 build's drag-to-reorder with drop
 //! indicators, cross-document drag dimming, the hover-to-switch timer, the
 //! toasts, the export menu, and the wheel/keyboard
 //! navigation. Clicks that have a native command are wired: a tab activates,
@@ -211,7 +211,7 @@ pub fn render(
 /// stretches each tab to that height, may shrink below its content, and scrolls
 /// sideways; its accessibility role is `tablist`.
 ///
-/// The reference's scrollbar styling only styles a scrollbar
+/// The 0.1 build's scrollbar styling only styles a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar the 0.1 capture does not show here.
@@ -445,7 +445,7 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 /// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
 /// absent rather than omitted.
 /// See the module docs for the 117px arithmetic that confirms it, and for why
-/// the reference's layout toggle is not mounted here.
+/// the 0.1 build's layout toggle is not mounted here.
 fn cluster(cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.

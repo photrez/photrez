@@ -14,7 +14,7 @@ pub(super) use text_stroke::*;
 
 /// One Move-bar transform cell. With a live layer it shows the layer's own
 /// number: editable for X/Y/R, read-only for the size pair. A locked layer
-/// keeps the reference's disabled look, and no layer at all falls back to the
+/// keeps the 0.1 build's disabled look, and no layer at all falls back to the
 /// inert placeholder.
 #[allow(clippy::too_many_arguments)] // one cell: its box, value and edit session stay positional
 pub(super) fn transform_cell(

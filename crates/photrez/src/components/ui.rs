@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(super::FIELD_H, 24.0);
     }
 
-    /// The three inset wells are the reference's shadow layers: inset, at the
+    /// The three inset wells are the 0.1 build's shadow layers: inset, at the
     /// reference offset, blur and alpha, with no spread.
     ///
     /// The harness cannot read a painted shadow (gpui-kit's `TestWindowExt`
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(ring.spread_radius, px(1.));
     }
 
-    /// The focus band keeps the reference's 1.5px width and its inset side.
+    /// The focus band keeps the 0.1 build's 1.5px width and its inset side.
     /// RED proof: round the spread to 1px or drop `.inset()` and it fails.
     #[test]
     fn focus_band_is_a_one_and_a_half_pixel_inset_band() {

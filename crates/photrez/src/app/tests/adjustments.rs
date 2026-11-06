@@ -170,7 +170,7 @@ fn adjustment_slider_latency(cx: &mut gpui_kit::TestAppContext) {
 }
 
 /// The five not-yet-built adjustment groups are headers that open. Each one
-/// reveals the reference's In Development card, and opening a group is
+/// reveals the 0.1 build's In Development card, and opening a group is
 /// independent of the others.
 #[gpui_kit::test]
 fn undeveloped_adjustment_groups_open_their_in_development_card(cx: &mut gpui_kit::TestAppContext) {

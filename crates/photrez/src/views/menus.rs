@@ -443,7 +443,7 @@ fn command_row(
     command_row_enabled(state, label, shortcut, id, true, cx, run)
 }
 
-/// [`command_row`] with the reference's disabled state: dimmed to 35%
+/// [`command_row`] with the 0.1 build's disabled state: dimmed to 35%
 /// and inert, but still painted with its id.
 fn command_row_enabled(
     state: &Entity<AppState>,
