@@ -11,7 +11,7 @@
 
 1. **Familiarity & Muscle Memory**: Standard industry layout (Toolbar top, Inspector right, Tool rail left). Users must know how to use the app instantly.
 2. **Invisible UI (Zero-Tint Neutrality)**: True neutral gray surfaces (OKLCH, no blue/yellow tint). UI must not distort color perception during image editing.
-3. **Soft & Snappy Aesthetic**: Avoid "Mechanical Rigidity" (2px sharp) and "AI Slop" (wide blurs). Modular radius base `6px` (`--radius`). Modern and friendly, but dense for professional efficiency.
+3. **Soft & Snappy Aesthetic**: Avoid "Mechanical Rigidity" (2px sharp) and generic template styling (wide blurs). Modular radius base `6px` (the code's `dim::RADIUS` is 4px; the two are not reconciled). Modern and friendly, but dense for professional efficiency.
 4. **Docked Precision**: Panels dock to window edges. Inner corners rounded (facing canvas), outer corners sharp (touching window). No external margins.
 5. **Distinct Identity**: Single accent color **Photon Amber** (`oklch(0.74 0.15 55)`), warm, high contrast on neutral UI.
 
@@ -26,8 +26,8 @@
 | **AppTitleBar** | H: `46px` | Desktop titlebar style. Menu left, title center, window controls right. Logo "pz" 30px |
 | **DocumentTabsBar** | H: `44px` | Active tab: 2px Photon Amber indicator below. Text: `12px font-medium` |
 | **OptionBar** | H: `44px` | Tool-specific parameters (brush size, opacity, blend mode) |
-| **LeftToolRail** | W: `52px` | 6 MVP tools: Move, Rect Select, Crop, Eyedropper, Brush, Eraser. Icon `18px`, button `36px`. Color swatches at bottom via `mt-auto` |
-| **RightDock** | W: `560px` (2XL: `634px`) | Side-by-side: Properties `300px`/`336px` + Layers `260px`/`298px` |
+| **LeftToolRail** | W: `52px` | 6 MVP tools: Move, Rect Select, Crop, Eyedropper, Brush, Eraser. Icon `18px`, button `36px`. Color swatches pinned to the bottom of the rail |
+| **RightDock** | W: `560px` (`634px` at the wide breakpoint) | Side-by-side: Properties `300px`/`336px` + Layers `260px`/`298px` |
 | **Canvas Viewport** | Flex fill | Background: `oklch(0.17 0 0)` (darkest) |
 | **StatusBar** | H: `30px` | Zoom, dimensions, status hint, connection status |
 
@@ -52,14 +52,14 @@
 
 ### Spacing
 
-- Base unit: `4px` (`gap-1` = 4px, `gap-2` = 8px)
-- Panel padding: `12-14px` (`px-3.5 py-3.5`)
+- Base unit: `4px` (small gap `4px`, standard gap `8px`)
+- Panel padding: `12-14px`, applied on both axes
 - Compact control height: `26px` (inputs, selects, actions)
 
 ### Typography
 
 - Font: `ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-- **Tabular nums**: MANDATORY global `font-variant-numeric: tabular-nums`. Prevents shifting in transform coordinates and percentages
+- **Tabular nums**: MANDATORY for all numeric text: fixed-width digits. Prevents shifting in transform coordinates and percentages
 - Base: `13px` (native desktop standard)
 - Panel headers: `14px font-semibold`
 - Tabs (all): `12px font-medium`. Prevents optical illusion where interactive buttons appear larger than static text
@@ -80,19 +80,19 @@
 
 - Height: `26px` (panel), `28px` (primary action like Export)
 - Padding: `12px` standard, `8px` dense
-- Radius: `--radius-md` (4px). **FORBIDDEN: `rounded-full` pill shape.**
-- Primary state: accent `--editor-accent`
+- Radius: `dim::RADIUS` (4px). **FORBIDDEN: a fully rounded, pill-shaped corner radius.**
+- Primary state: accent `color::ACCENT`
 
 ### Input / Select Fields
 
 - Height: `26px` (`h-[26px]`)
-- Style: recessed box (`bg: --editor-field`, `1px border` using `--editor-field-border`)
-- Focus: border → `--editor-accent`
-- **FORBIDDEN: `font-mono` or `font-bold` in numeric inputs.** Tabular nums handles alignment.
+- Style: recessed box (`color::FIELD` background, `1px border` using `color::FIELD_BORDER`)
+- Focus: border → `color::ACCENT`
+- **FORBIDDEN: a monospace face or a bold weight in numeric inputs.** Tabular nums handles alignment.
 
 ### Sliders (Biphasic & Monophasic)
 
-- Track: `3px` height, `rounded-full`
+- Track: `3px` height, fully rounded ends
 - Handle: `10px` circle, `border border-black/40 bg-[#d4d4d4] shadow-[0_1px_2px_rgba(0,0,0,0.5)]`
 - Center tick: `3px` circle for biphasic (Temp/Tint)
 - Row layout: label `58px` + slider flex + value `28-44px` right-aligned
@@ -100,29 +100,29 @@
 ### Panels (Docked Precision)
 
 - Panels anchor to window edges (no outer margin)
-- Separation: `1px divider` using `--editor-divider` (not margin)
-- Rounding: inner corners → `--radius-lg/md`, outer corners → `0px`
+- Separation: `1px divider` using `color::DIVIDER` (not margin)
+- Rounding: inner corners take the panel's small radius, outer corners → `0px`
 - Header: panel bg, `46px` height, `14px font-semibold`
 
 ### LeftToolRail Color Swatches
 
 - Container: `36px` (flush compact style)
-- Two overlapping `35px` circles with diagonal clip-path
-- Foreground: `polygon(0 0, 100% 0, 0 100%)`, Background: `polygon(100% 100%, 100% 0, 0 100%)`
+- Two overlapping `35px` circles split by a diagonal
+- Foreground: the top-left triangle, Background: the bottom-right triangle
 - Gap: `1.4px` diagonal via position offset
 
 ### Layer List Items
 
-- Height: `50px`, active: `--editor-row-active` (`oklch(0.3 0 0)`), hover: `bg-white/[0.03]`
+- Height: `50px`, active: `color::ROW_ACTIVE` (`oklch(0.3 0 0)`), hover: white at 3% alpha
 - Thumbnail: `34x34px`, `rounded-[3px]`
 - Visibility: eye/sun icon `size-4`
 
 ### Interaction States (ALL interactive components)
 
 1. `default`: flat with subtle borders
-2. `hover`: `bg-white/[0.045]` or `bg-white/5`
+2. `hover`: white at 4.5% alpha, or white at 5% alpha
 3. `active`: accent background or indicator
-4. `focus-visible`: border → `--editor-accent`
+4. `focused`: border → `color::ACCENT`
 5. `disabled`: dimmed opacity, default cursor
 
 ---
