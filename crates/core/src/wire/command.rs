@@ -323,7 +323,8 @@ pub enum Command {
     // the host op, which falls back to select-all (full canvas from seeded canonical
     // dims; canonical absent rejects with E_INVALID like SelectAll). No history entry.
     InvertSelection,
-    // Records a host-side legacy transition into the authoritative history stream.
+    // Records a transition the host performed outside the engine into the
+    // authoritative history stream.
     // Advances DocumentVersion by exactly 1; payload stays behind the EXTERNAL
     // PayloadAdapter (token only) — never re-owned by Rust.
     //
