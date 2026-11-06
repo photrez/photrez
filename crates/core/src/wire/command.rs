@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Command wire types (ADR 0008 C1: version-stable envelope). These cross the
-// host/engine boundary and must not change their serialized shape.
+// Command wire types. These cross the host/engine boundary, so their
+// serialized shape is version-stable and must not change.
 
 use crate::document::content::{
     BasicAdjustment, BlendMode, LayerType, SelectionState, ShapeParams, TextData, Transform2D,

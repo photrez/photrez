@@ -271,11 +271,11 @@ fn mixed_pixel_then_snapshot_undo_redo_steps_unified_cursor() {
     assert_eq!(r.get_history_version("docA"), Some(6));
 }
 
-// C1: `undo_snapshot` on a PIXEL tip -> None + cursor unchanged (the
-// `_ => None` no-move branch — the dispatch contract foundation: a caller
-// must route by `tip_payload_kind()` before driving `undo_snapshot`).
+// Undo at a pixel tip: `undo_snapshot` returns None and the cursor does not
+// move. That `_ => None` branch is the dispatch contract: a caller must route
+// by `tip_payload_kind()` before driving `undo_snapshot`.
 #[test]
-fn c1_undo_snapshot_on_pixel_tip_is_none_and_cursor_unchanged() {
+fn undo_snapshot_on_pixel_tip_is_none_and_cursor_unchanged() {
     let mut r = PixelStoreRegistry::new();
     let n = 8u32;
     open_doc_with_layer(&mut r, "docA", "L", n, n);
@@ -308,10 +308,10 @@ fn c1_undo_snapshot_on_pixel_tip_is_none_and_cursor_unchanged() {
     );
 }
 
-// C2: undo (snapshot) then record a NEW snapshot -> truncates the redo
-// branch (redo stack gone / redo returns None).
+// Recording after an undo truncates the redo branch: the redo stack is gone
+// and a redo returns None.
 #[test]
-fn c2_undo_then_record_snapshot_truncates_redo_branch() {
+fn undo_then_record_snapshot_truncates_redo_branch() {
     let mut r = PixelStoreRegistry::new();
     let n = 8u32;
     open_doc_with_layer(&mut r, "docA", "L", n, n);

@@ -9,7 +9,7 @@ use crate::brush::tip::{
 };
 
 #[test]
-fn c1_known_diameter_256_08_is_274() {
+fn known_diameter_256_08_is_274() {
     let spec = TipSpec::new(256.0, 0.8, [225, 90, 23]);
     let tip = build_brush_tip(&spec);
     assert_eq!(tip.diameter, 274);
@@ -19,7 +19,7 @@ fn c1_known_diameter_256_08_is_274() {
 }
 
 #[test]
-fn c1_mask_center_opaque_and_corner_transparent() {
+fn mask_center_opaque_and_corner_transparent() {
     let spec = TipSpec::new(256.0, 0.8, [225, 90, 23]);
     let tip = build_brush_tip(&spec);
     let ds = tip.width as usize;
@@ -30,7 +30,7 @@ fn c1_mask_center_opaque_and_corner_transparent() {
 }
 
 #[test]
-fn c1_identity_resize_is_copy() {
+fn identity_resize_is_copy() {
     let src_straight = vec![10u8, 20, 30, 255, 40, 50, 60, 128];
     // contract: callers feed PREMULTIPLIED bytes
     let mut pm = src_straight.clone();
@@ -46,13 +46,13 @@ fn c1_identity_resize_is_copy() {
 }
 
 #[test]
-fn c1_support_norm_08_value() {
+fn support_norm_08_value() {
     let n = get_brush_profile_support_norm(0.8);
     assert!((n - 1.0615857181654722).abs() < 1e-12, "norm={n}");
 }
 
 #[test]
-fn c1_cursor_radius_scale_matches_the_20pct_contour() {
+fn cursor_radius_scale_matches_the_20pct_contour() {
     let contour = -BRUSH_CURSOR_ALPHA_CONTOUR.ln();
     assert_eq!(BRUSH_CURSOR_ALPHA_CONTOUR, 0.2);
     let zero = get_brush_cursor_radius_scale(0.0);
@@ -70,7 +70,7 @@ fn c1_cursor_radius_scale_matches_the_20pct_contour() {
 }
 
 #[test]
-fn c1_cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
+fn cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
     assert_eq!(
         get_brush_cursor_radius_scale(-1.0),
         get_brush_cursor_radius_scale(0.0)
@@ -89,11 +89,11 @@ fn c1_cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
 }
 
 /// Offline golden validation vs a tip raster captured from the 0.1 build.
-/// Run: PHOTREZ_TIP_GOLDEN=<bin path> cargo test -p photrez-raster brush::tests::tip::c1_golden -- --ignored --nocapture
+/// Run: PHOTREZ_TIP_GOLDEN=<bin path> cargo test -p photrez-raster brush::tests::tip::golden -- --ignored --nocapture
 /// Bin format: u32LE tipW | u32LE tipH | RGBA bytes (274*274*4).
 #[test]
 #[ignore]
-fn c1_golden_interior_and_rim_tolerance() {
+fn golden_interior_and_rim_tolerance() {
     let path = match std::env::var("PHOTREZ_TIP_GOLDEN") {
         Ok(p) => p,
         Err(_) => return, // silently skip when not provided (default CI)

@@ -547,7 +547,7 @@ fn commit_pixels_doc_namespace_independent() {
 // -- Fill write_region --
 
 #[test]
-fn c5_4_write_region_writes_canonical_and_advances_history_once() {
+fn write_region_writes_canonical_and_advances_history_once() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
@@ -571,7 +571,7 @@ fn c5_4_write_region_writes_canonical_and_advances_history_once() {
 }
 
 #[test]
-fn c5_4_write_region_tiles_localized_and_full() {
+fn write_region_tiles_localized_and_full() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 300, 300, vec![0u8; 300 * 300 * 4])
@@ -593,7 +593,7 @@ fn c5_4_write_region_tiles_localized_and_full() {
 }
 
 #[test]
-fn c5_4_write_region_undo_redo_roundtrip() {
+fn write_region_undo_redo_roundtrip() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
@@ -616,7 +616,7 @@ fn c5_4_write_region_undo_redo_roundtrip() {
 }
 
 #[test]
-fn c5_4_write_region_new_write_truncates_redo() {
+fn write_region_new_write_truncates_redo() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
@@ -637,7 +637,7 @@ fn c5_4_write_region_new_write_truncates_redo() {
 }
 
 #[test]
-fn c5_4_write_region_out_of_bounds_rejected_no_cursor() {
+fn write_region_out_of_bounds_rejected_no_cursor() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 8, 8, vec![0u8; 8 * 8 * 4]).unwrap();
@@ -658,7 +658,7 @@ fn c5_4_write_region_out_of_bounds_rejected_no_cursor() {
 }
 
 #[test]
-fn c5_4_write_region_history_bounded_to_50() {
+fn write_region_history_bounded_to_50() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 64, 64, vec![0u8; 64 * 64 * 4])
@@ -687,7 +687,7 @@ fn c5_4_write_region_history_bounded_to_50() {
 //  unit test `pixel_undo_redo_rejected_while_external_pending` in protocol.rs.)
 
 #[test]
-fn c4_dirty_region_brush_contract() {
+fn dirty_region_brush_contract() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     r.add_layer("d", "L", 256, 256, vec![0u8; 256 * 256 * 4])

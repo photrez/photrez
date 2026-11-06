@@ -304,8 +304,8 @@ impl DocumentCore {
 
     /// Host confirms an EXTERNAL step it executed via its adapter.
     /// Validates `(seq, direction)` against the pending-external barrier set by
-    /// the walker handoff. ADR 0008 C1 forbids conflating HistorySeq (a monotonic
-    /// entry id) with HistoryCursor (a position), so this uses NO index arithmetic:
+    /// the walker handoff. HistorySeq (a monotonic entry id) is not HistoryCursor
+    /// (a position), so this uses NO index arithmetic:
     /// on any redo-truncated (non-dense) stream `entries[i].seq != i+1`, so
     /// `cursor == seq` is wrong. The cursor provably cannot have moved since the
     /// walker set the barrier - every cursor-moving path

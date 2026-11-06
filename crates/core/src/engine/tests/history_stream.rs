@@ -224,7 +224,7 @@ fn external_handoff_status_then_cursor_commit_bumps_dv_once() {
 
 #[test]
 fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
-    // ADR 0008 C1: HistorySeq (monotonic entry id) != HistoryCursor (position).
+    // HistorySeq (monotonic entry id) is not HistoryCursor (position).
     // After a redo-truncation the stream is non-dense (entries[i].seq != i+1).
     // The old index arithmetic `cursor == seq` evaluated FALSE on such a stream
     // and retained the pending barrier forever (sticky degraded-history state). The fix
@@ -531,9 +531,9 @@ fn pixel_undo_redo_rejected_while_external_pending() {
     assert_eq!(r.unwrap_err().code, "E_EXTERNAL_PENDING");
 }
 
-// C3: `undo_snapshot`/`redo_snapshot` under a pending_external barrier are
-// REJECTED with E_EXTERNAL_PENDING (no cursor move) — consistent with the
-// pixel path, so a snapshot entry cannot be consumed mid-host-handoff.
+// Snapshot undo and redo under a pending_external barrier are rejected with
+// E_EXTERNAL_PENDING and no cursor move, consistent with the pixel path, so a
+// snapshot entry cannot be consumed mid-host-handoff.
 #[test]
 fn snapshot_undo_redo_rejected_while_external_pending() {
     let mut eng = DocumentCore::new();

@@ -775,8 +775,8 @@ fn canonical_doc_with_a() -> PtzDocumentContent {
     }
 }
 
-// M2: duplicate-reconciliation. The original survives; the engine-minted
-// duplicate id is absent and flags the shadow incomplete.
+// Duplicate reconciliation: the original layer survives, the engine-minted
+// duplicate id is absent, and the shadow is flagged incomplete.
 #[test]
 fn duplicate_mints_engine_layer_reconciles_into_shadow() {
     let mut e = DocumentCore::new();
