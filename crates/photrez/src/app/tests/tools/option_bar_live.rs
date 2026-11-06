@@ -437,7 +437,7 @@ fn gradient_bar_selects_and_reverse_are_live(cx: &mut gpui_kit::TestAppContext) 
         window.render_frame(cx);
         assert!(
             window.try_find("option-live-gradient-radial").is_none(),
-            "the Gradient live strip is retired"
+            "the Gradient option bar offers no live strip"
         );
 
         window.click("opt-gradient-type", cx);
@@ -530,7 +530,7 @@ fn paint_bucket_bar_presets_field_and_contiguous_are_live(cx: &mut gpui_kit::Tes
         window.render_frame(cx);
         assert!(
             window.try_find("option-live-fill-tolerance").is_none(),
-            "the Paint Bucket live strip is retired"
+            "the Paint Bucket option bar offers no live strip"
         );
         assert_eq!(
             content.read(cx).state_for_test().read(cx).fill_tolerance,
