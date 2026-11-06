@@ -236,7 +236,7 @@ fn all_blend_modes_match_reference_goldens_within_rounding() {
             .max()
             .unwrap_or(0);
         // 17 of the 24 goldens are byte-exact. Seven differ by one channel
-        // unit because the reference compositor blends in premultiplied 8-bit. Never widen
+        // unit because the 0.1 compositor blends in premultiplied 8-bit. Never widen
         // this bound: a larger delta is a formula bug, not rounding.
         assert!(
             delta <= 1,

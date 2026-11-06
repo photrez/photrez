@@ -110,7 +110,7 @@ pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, S
 
     let path = build_path(params, params.width, params.height, stroke_width)
         .ok_or(ShapeError::EmptyPath)?;
-    // The reference compositor uses analytic coverage AA. tiny-skia's direct AA differs by up
+    // The 0.1 compositor uses analytic coverage AA. tiny-skia's direct AA differs by up
     // to ~100 alpha units on 1px strokes; a small 4x box supersample brings the
     // coverage closer without changing the geometry. Large shapes skip it.
     let supersample: u32 = if (width as u64) * (height as u64) <= 65_536 {
@@ -140,7 +140,7 @@ pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, S
             stroke_color[3],
         );
         paint.force_hq_pipeline = true;
-        // The reference compositor leaves the outer 90-degree corners of a plain rect
+        // The 0.1 compositor leaves the outer 90-degree corners of a plain rect
         // uncovered; bevel is the closest tiny-skia join. Curved and other
         // shapes keep the reference's round join.
         let line_join = if params.kind == ShapeKind::Rect && params.radius <= 0.0 {
@@ -601,7 +601,7 @@ mod tests {
         };
         let stroked = rasterize_shape(&rect).expect("stroked rect rasterizes");
         assert_eq!((stroked.width, stroked.height), (6, 6));
-        // The reference compositor leaves the four outer bevel corners uncovered, while
+        // The 0.1 compositor leaves the four outer bevel corners uncovered, while
         // tiny-skia paints part of them. The measured bound is 36; every other
         // channel is within one unit.
         for (index, (actual, expected)) in stroked
@@ -627,7 +627,7 @@ mod tests {
             rasterize_shape(&params(ShapeKind::Ellipse, 4.0, 4.0)).expect("ellipse rasterizes");
         assert_eq!((ellipse.width, ellipse.height), (4, 4));
         // The 2x2 centre is exact; the anti-aliased rim differs by up to 13
-        // alpha units between the reference compositor's ellipse path and tiny-skia.
+        // alpha units between the 0.1 compositor's ellipse path and tiny-skia.
         for (index, (actual, expected)) in ellipse
             .pixels
             .chunks_exact(4)

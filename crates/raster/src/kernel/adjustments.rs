@@ -244,7 +244,7 @@ fn stamp_into(
             let idx = row_idx + x as usize;
             let cur = mask[idx];
             if cur != 255 {
-                // Exact reference behaviour: round the DELTA, then add (not add-then-round).
+                // Exact 0.1 behaviour: round the DELTA, then add (not add-then-round).
                 let delta = ((255.0 - cur as f32) * scaled).round() as u32;
                 mask[idx] = (cur as u32 + delta).min(255) as u8;
             }
