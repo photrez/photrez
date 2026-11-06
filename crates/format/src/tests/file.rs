@@ -786,3 +786,30 @@ fn to_canonical_drops_session_fields() {
     assert!(v.get("dirty").is_none());
     assert_eq!(v["layers"].as_array().map(|l| l.len()), Some(2));
 }
+
+/// Characterisation, added 2026-11-06 after a public claim said the opposite. A layer whose `type` is
+/// `raster` but which carries `textData` and `shapeParams` keeps both: `PtzLayer` declares the fields for
+/// every layer kind, `from_json` is a plain serde read, and the engine replica stores the content it is
+/// given. Nothing in the save path filters metadata by layer type. The only place that drops them is the
+/// explicit rasterize command, which has its own tests.
+#[test]
+fn raster_layer_carrying_text_and_shape_metadata_keeps_both_on_save() {
+    let json = r#"{"id":"d","name":"n","width":8,"height":8,"activeLayerId":null,
+        "layers":[{"id":"l","name":"L","type":"raster","visible":true,"opacity":1,"locked":false,
+        "blendMode":"normal","transform":{"x":0,"y":0,"scaleX":1,"scaleY":1,"rotation":0,
+        "flipH":false,"flipV":false},"width":8,"height":8,
+        "textData":{"content":"carried","fontFamily":"Arial","fontSize":12},
+        "shapeParams":{"kind":"star","width":8,"height":8}}],
+        "format":"photrez-ptz","version":2}"#;
+    let doc = PtzDocument::from_json(json).expect("a version 2 file must parse");
+    let out = doc.to_json().expect("must serialize");
+    assert!(out.contains("\"carried\""), "textData was dropped: {out}");
+    assert!(
+        out.contains("\"shapeParams\""),
+        "shapeParams was dropped: {out}"
+    );
+    assert!(
+        out.contains("\"version\":3"),
+        "the save must rewrite the version: {out}"
+    );
+}
