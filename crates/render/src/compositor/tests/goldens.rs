@@ -52,7 +52,7 @@ fn two_layer_order_opacity_and_visibility_match_the_source_over_golden() {
     assert_eq!((result.width, result.height), (GOLDEN_WIDTH, GOLDEN_HEIGHT));
     assert_eq!(
         result.pixels, SOURCE_OVER_GOLDEN,
-        "CPU composite must match the 0.1 source-over capture"
+        "CPU composite must match the 0.1.0 source-over capture"
     );
 }
 

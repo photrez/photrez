@@ -505,7 +505,7 @@ fn the_printed_size_fields_edit_the_scale(cx: &mut gpui_kit::TestAppContext) {
         );
         assert!(
             !state.read(cx).print_scale_to_fit,
-            "an edited size leaves Scale to Fit, as the 0.1 build does"
+            "an edited size leaves Scale to Fit"
         );
     })
     .expect("test window remains open");

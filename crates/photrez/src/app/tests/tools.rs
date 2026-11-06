@@ -932,7 +932,7 @@ fn move_with_one_selected_layer_paints_no_rest_transform_frame(cx: &mut gpui_kit
             content
                 .update(cx, |app, cx| app.transform_frame_for_test(cx))
                 .is_none(),
-            "Move at rest must not draw the frame the 0.1 build reserves for a group"
+            "Move at rest must not draw the frame a group selection draws"
         );
     })
     .expect("test window remains open");

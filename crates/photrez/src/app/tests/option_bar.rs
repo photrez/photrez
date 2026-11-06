@@ -532,7 +532,7 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
         window.render_frame(cx);
         assert!(
             window.try_find("opt-more-panel").is_none(),
-            "a click outside the panel (the 0.1 backdrop) closes it"
+            "a click outside the panel closes it"
         );
     })
     .expect("test window remains open");
@@ -711,7 +711,7 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
         );
         assert!(
             window.try_find("opt-more-panel").is_some(),
-            "the panel stays open after acting, as the 0.1 build leaves it"
+            "the panel stays open after acting"
         );
 
         content.update(cx, |app, cx| {
