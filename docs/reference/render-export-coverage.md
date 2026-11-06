@@ -1,8 +1,14 @@
 # Render and export coverage
 
-Renderer and export behaviour is pinned by fixtures and tests: the golden
-comparisons under `crates/core/src/render/` for composited output, and the
-export and format tests under `crates/core/src/pixel/` for encoded bytes.
+Composited output is pinned by the golden comparisons in `crates/render/src/compositor/tests/goldens.rs`.
+Encoded bytes are pinned by the writer comparisons in `crates/format/src/tests/writer_golden.rs` and the
+export behaviour tests in `crates/format/src/export/tests.rs`.
 
-The comparison matrix this file pointed to was a working document of the native
-rewrite. It is not a current feature gate and is not part of this repository.
+```
+cargo test -p photrez-render --lib compositor::tests::goldens
+cargo test -p photrez-format --lib tests::writer_golden
+cargo test -p photrez-format --lib export::tests
+```
+
+Each command selects one module, so the result is small enough to read. The first selects 4 tests, the second
+selects 1 test and 1 ignored, the third selects 14. Run them from the workspace root.
