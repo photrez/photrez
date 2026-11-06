@@ -617,7 +617,7 @@ impl App {
     }
 
     /// Whether the app-local selection clipboard holds an image, the state
-    /// the reference build's clipboard check exposed.
+    /// the 0.1 build's clipboard check exposed.
     pub(crate) fn selection_clipboard_present(&self) -> bool {
         self.clipboard.is_some()
     }

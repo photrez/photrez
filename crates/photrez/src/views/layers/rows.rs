@@ -255,23 +255,23 @@ struct RowView<'a> {
 }
 
 /// A 50px row with a 10px child gap and 14px side inset. Its fill and its inner
-/// edge follow the reference's three branches - see [`row_fill`], which is full
+/// edge follow the 0.1 build's three branches - see [`row_fill`], which is full
 /// `ROW_ACTIVE` and a 1px inset `ACCENT` ring at 40% alpha on the active row,
 /// the same fill at 70% and a 20% ring on a row selected without being active,
 /// and no fill plus white/3% on hover for the rest.
 ///
 /// The ring is an inset shadow rather than a border because that is how the
-/// reference builds it (`ring-1 ring-inset`) and the two are not
+/// 0.1 build draws it (`ring-1 ring-inset`) and the two are not
 /// interchangeable here: a border takes its pixel out of the content box, so a
-/// bordered row paints its thumbnail and name 1px further in than the reference
+/// bordered row paints its thumbnail and name 1px further in than that build's
 /// row does. The row's bottom rule is a real border, because that is what the
-/// reference draws there (`border-b`) and a bottom-only border leaves the
-/// content 49px of 50 - the same box the reference's own layout works in.
+/// 0.1 build draws there (`border-b`) and a bottom-only border leaves the
+/// content 49px of 50 - the same box its own layout works in.
 ///
 /// On a ringed row the rule and the ring want the same last pixel and the rule
-/// wins, so the ring reads as open at the bottom where the reference closes it
+/// wins, so the ring reads as open at the bottom where the 0.1 build closes it
 /// one row higher. Measured in the layers capture, and still the closer of the
-/// two arrangements: the reference's own bottom pixel is rgb(67,57,49), a grey
+/// two arrangements: that build's own bottom pixel is rgb(67,57,49), a grey
 /// rule with accent bleeding through it, where the bare ring would leave
 /// rgb(124,84,54).
 ///

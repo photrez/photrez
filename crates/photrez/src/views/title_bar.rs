@@ -6,7 +6,7 @@
 //! Static captures omit:
 //! * menu popups (their stacking order of 100, keyboard navigation)
 //! * the system menu on Alt+Space
-//! * the reference shell's drag-region attribute and double-click-to-maximize
+//! * the 0.1 shell's drag-region attribute and double-click-to-maximize
 //! * window state (a maximized window swaps the maximize icon)
 //!
 //! Hover states are included as part of the component contract.
@@ -308,7 +308,7 @@ fn pad_x(_label: &str) -> f32 {
 
 /// The centre cell: a full-height centred row that takes the spare width above a 16px floor.
 ///
-/// The reference shell's drag-region attribute and its double-click handler have no
+/// The 0.1 shell's drag-region attribute and its double-click handler have no
 /// native equivalent here; the cell is still a plain centred child.
 fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     let document_name = state.read(cx).document_name.clone();

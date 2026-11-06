@@ -12,7 +12,7 @@
 //! Explicit gaps: interactive document tabs, the tool-variant fly-out,
 //! interactive top-level menus, a title-bar dock toggle, and command-bus
 //! dialog entry points. A delete-layer confirmation has no test because the
-//! reference build offers none. The document-tab strip and the top-level
+//! 0.1 build offers none. The document-tab strip and the top-level
 //! menu triggers are also absent from the test access tree because their views
 //! do not call `.test_support()`; asserting them would require a production
 //! edit outside this lane. The native views remain visual-only or shot-gated,
