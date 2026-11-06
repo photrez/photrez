@@ -16,7 +16,7 @@ because it has not been built yet.
 | Status | Capability |
 | --- | --- |
 | Shipped | The native window renders the document composited by `photrez-core` through one display pass, with the transparent checkerboard behind the page. |
-| Shipped | Open and save layered `.ptz` projects carrying raster, shape and text layers; the current format version is v3 and v1/v2 files still load. A raster layer carries no text or shape metadata in the saved project, so a project written by an earlier release that stored either on a raster layer drops that metadata at the next save. |
+| Shipped | Open and save layered `.ptz` projects carrying raster, shape and text layers. The writer emits `version: 3`. The loader does not read the version field, so a project that carries an older number, or none at all, opens on the same path and is written back at the current version. |
 | Shipped | Import PNG, JPEG, WebP and BMP images, with dimensions and memory checked against the 16384 px / 1 GiB product bounds before decoding. |
 | Shipped | Pan and zoom the camera: wheel zoom anchored at the pointer, Space and middle-drag pan, Fit to Screen (`Ctrl+0`), Actual Size (`Ctrl+1`), `Ctrl+=`/`Ctrl+-`. |
 | Shipped | Multiple documents in a tab strip; each tab keeps its own camera; closing the last document shows the welcome card with quick presets. |
