@@ -61,13 +61,12 @@ impl App {
     ///
     /// A `--shot` launch has no document session, so the display live-fits and
     /// the page scale changes with whatever chrome is hidden: 87 % with the
-    /// dock open, 98 % with it closed. Recorded captures carry a zoom of their
-    /// own, so a named zoom has to survive the layout.
+    /// dock open, 98 % with it closed. `--zoom` pins the scale instead, so one
+    /// shot reads the same size under either layout.
     ///
     /// `--pan` places the page's top-left in element-local pixels instead of
-    /// centring it. A recorded frame whose camera was placed while the dock was
-    /// open keeps that page off-centre after the dock closes, and only the
-    /// origin reproduces it.
+    /// centring it, which is the only way to ask for a page position that is
+    /// not the centred default.
     pub(crate) fn capture_camera(&self) -> Option<Camera> {
         let zoom = crate::shot::zoom()?;
         let (doc_w, doc_h) = self
