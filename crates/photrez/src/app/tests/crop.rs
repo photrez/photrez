@@ -287,7 +287,7 @@ fn crop_bar_apply_and_cancel_are_wired(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert!(
             window.try_find("option-live-crop-apply").is_none(),
-            "the Crop live strip is retired"
+            "the Crop option bar offers no live strip"
         );
         let (w, h, _) = pixels(&content, cx);
 

@@ -572,7 +572,7 @@ fn eyedropper_bar_checkbox_toggles_auto_copy(cx: &mut gpui_kit::TestAppContext) 
             window
                 .try_find("option-live-eyedropper-auto-copy")
                 .is_none(),
-            "the Eyedropper live strip is retired"
+            "the Eyedropper option bar offers no live strip"
         );
         assert!(!content.read(cx).state_for_test().read(cx).auto_copy_hex);
         window.click("opt-auto-copy", cx);
