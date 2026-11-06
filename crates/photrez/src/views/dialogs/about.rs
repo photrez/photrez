@@ -112,14 +112,14 @@ pub(super) fn about_version() -> String {
     format!("v{}", env!("CARGO_PKG_VERSION"))
 }
 
-/// The About dialog, built for the native shell from the `dialog-about.png`
-/// reference: the hero, spec grid and link row give
+/// The About dialog is built for the native shell, not transcribed from
+/// `dialog-about.png`: the hero, spec grid and link row give
 /// its structure and geometry. Three parts are local to this build: the
 /// mark is the real brand raster, not a placeholder tile; the
 /// version comes from `CARGO_PKG_VERSION`, not a runtime round-trip;
 /// and the locale line plus two stack rows state what ships here.
 /// The chrome above and below is shared and
-/// untouched, and the difference from the reference capture is a recorded
+/// untouched, and the capture difference is a recorded
 /// decision, not drift.
 pub(super) fn about_body() -> Div {
     v_flex()
