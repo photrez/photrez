@@ -52,12 +52,11 @@ pub struct DocumentCore {
     // reconciled onto the canonical shadow when one is seeded.
     pub(crate) selection: Option<SelectionState>,
     // Engine document size (canvas width/height). The native DocumentCore keeps
-    // its own document dims (the 0.1 engine read the document's own
-    // width/height directly; the
-    // structural arms instead read the seeded canonical shadow). `None` until a
-    // canvas-size command (Crop Canvas / Apply Crop / Resize Canvas) sets it or a
-    // canonical shadow is seeded. Unlike the LayerSet, this is undoable state for
-    // the canvas arms, so each such entry snapshots it (see history.rs).
+    // its own document dims, while the structural arms read the seeded canonical
+    // shadow instead. `None` until a canvas-size command (Crop Canvas / Apply
+    // Crop / Resize Canvas) sets it or a canonical shadow is seeded. Unlike the
+    // LayerSet, this is undoable state for the canvas arms, so each such entry
+    // snapshots it (see history.rs).
     pub(crate) doc_size: Option<(f64, f64)>,
     // Per-document replica of the persisted content, kept in sync with layer
     // edits via reconciliation (see `PtzReplica`). `None` until seeded; unseeded engines

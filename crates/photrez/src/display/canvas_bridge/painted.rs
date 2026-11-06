@@ -65,7 +65,7 @@ pub(super) fn painted_rotate_cursor(
 /// The artboard edge around the page: a 1px white-at-10% border on the page
 /// rect and a 1px black-at-60% ring one pixel outside it.
 ///
-/// The 0.1 build's third layer, an 8px offset with a 32px blur, is not painted:
+/// A third chrome layer, an 8px offset with a 32px blur, is not painted:
 /// this path has no blur primitive, so the deviation ships with the capture.
 pub(super) fn painted_artboard_chrome(window: &mut gpui_kit::Window, page: Bounds<Pixels>) {
     window.paint_quad(outline(
@@ -99,7 +99,7 @@ pub(super) fn painted_dashed_line(
 }
 
 /// `painted_dashed_line` with the pattern shifted by `offset` px along the
-/// line, so a second stroke can interleave with the first (`stroke-dashoffset`).
+/// line, so a second stroke can interleave with the first.
 #[allow(clippy::too_many_arguments)] // Coordinate-heavy rendering keeps endpoints and dash parameters explicit.
 fn painted_dashed_line_offset(
     window: &mut gpui_kit::Window,

@@ -206,7 +206,7 @@ fn rotate_cursor_sprite_follows_the_pointer(cx: &mut gpui_kit::TestAppContext) {
             "the sprite anchors at the pointer"
         );
         // The pin sits straight above the selection centre: the pointer angle
-        // is -90 degrees, plus the source's 45-degree base tilt.
+        // is -90 degrees, plus the sprite's 45-degree base tilt.
         assert!(
             (f64::from(sprite.angle) + 45.0).abs() < 1.0,
             "the sprite angle follows the pointer about the centre, got {}",

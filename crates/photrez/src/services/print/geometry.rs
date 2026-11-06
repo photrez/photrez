@@ -132,8 +132,8 @@ mod tests {
         assert_eq!(unit_to_mm(42.0, "unknown"), 42.0);
     }
 
-    /// The 0.1 print-geometry expectations, reproduced as an independent
-    /// comparison table: exact conversion anchors, zero/negative identity, and the
+    /// The print-geometry expectations, kept as an independent comparison
+    /// table: exact conversion anchors, zero/negative identity, and the
     /// large-value case.
     #[test]
     fn legacy_unit_conversion_cases_match() {

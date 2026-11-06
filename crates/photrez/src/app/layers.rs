@@ -75,7 +75,7 @@ impl App {
     }
 
     /// Composite every visible layer into a new raster layer at the top while
-    /// keeping the sources (`handleStampVisible`).
+    /// keeping the sources.
     pub(crate) fn stamp_visible(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let (doc_id, content) = {
             let doc_id = self.active_doc_id()?;
@@ -625,7 +625,7 @@ impl App {
     }
 
     /// Set the selected layer's opacity outright. The Properties panel's track
-    /// drags to this; a locked layer answers nothing, as the 0.1 build does.
+    /// drags to this; a locked layer answers nothing.
     pub(crate) fn set_selected_layer_opacity(
         &mut self,
         opacity: f64,

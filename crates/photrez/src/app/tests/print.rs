@@ -406,8 +406,8 @@ fn the_copies_row_is_a_typed_field_not_a_stepper(cx: &mut gpui_kit::TestAppConte
     .expect("test window remains open");
 }
 
-/// Each orientation button draws the page shape the 0.1 build puts inside it,
-/// in that button's own aspect, and clicking it still drives the orientation.
+/// Each orientation button draws a page shape inside it, in that button's
+/// own aspect, and clicking it still drives the orientation.
 #[gpui_kit::test]
 fn the_orientation_buttons_draw_a_page_shape(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

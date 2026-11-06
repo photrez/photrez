@@ -8,9 +8,9 @@ use photrez_core::raster::paint::raster::RasterDab;
 
 use super::{BrushStroke, BrushTarget};
 
-/// Build the same data-resolution tip the 0.1 brush chain builds for one
-/// stroke. The diameter-space diagnostic buffers are not produced: the native
-/// rasterizer reads only the data-resolution mask.
+/// Build the data-resolution tip for one stroke. The diameter-space
+/// diagnostic buffers are not produced: the native rasterizer reads only
+/// the data-resolution mask.
 pub fn build_tip(size: f64, hardness: f64, color: [u8; 4]) -> BrushTip {
     build_brush_tip_data(&TipSpec::new(
         size,

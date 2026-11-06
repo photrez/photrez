@@ -22,7 +22,7 @@ pub(crate) enum CursorPolicy {
     Crosshair,
     Text,
     Grabbing,
-    /// The clone affordance: the 0.1 build switches to `cursor: copy` while the
+    /// The clone affordance: the cursor switches to copy while the
     /// pointer holds Alt during a Move drag.
     Cloning,
     OpenHand,
@@ -50,7 +50,7 @@ pub(crate) struct CursorContext {
 
 pub(crate) fn cursor_policy_for_tool(tool: ToolId) -> CursorPolicy {
     match tool {
-        // The 0.1 build's Move cursor varies by handle; this hitbox has no
+        // Move can vary its cursor by handle; this hitbox has no
         // handle-specific regions.
         ToolId::Move | ToolId::Brush | ToolId::Eraser => CursorPolicy::SystemDefault,
         ToolId::Selection

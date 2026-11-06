@@ -13,7 +13,7 @@ impl App {
     /// Align the selected layers to the canvas (Properties multi-selection).
     /// `mode`: 0 left, 1 centre horizontally, 2 right, 3 top, 4 centre
     /// vertically, 5 bottom. Locked / position-locked / background members
-    /// never move, mirroring `alignTransformEdits`.
+    /// never move.
     pub(crate) fn align_selected_layers(
         &mut self,
         mode: u8,

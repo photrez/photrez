@@ -91,7 +91,7 @@ impl App {
         cx.notify();
     }
 
-    /// `applyPreset`: writes all five values, records the preset id and closes
+    /// Applying a preset writes all five values, records its id and closes
     /// the panel.
     pub(crate) fn brush_menu_apply_preset(&mut self, index: usize, cx: &mut Context<Self>) {
         let eraser = self.state.read(cx).active_tool == ToolId::Eraser;

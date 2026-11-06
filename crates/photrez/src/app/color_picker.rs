@@ -212,7 +212,7 @@ impl App {
             return;
         }
         if target == ColorTarget::ShapeFill {
-            // `setFillColor` always follows the paint foreground; edit mode
+            // The shape fill always follows the paint foreground; edit mode
             // also writes the selected shape through core history, with the
             // same no-op guard as the stroke/text targets.
             let selected_fill = self

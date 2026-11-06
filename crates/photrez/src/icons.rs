@@ -6,8 +6,8 @@
 //! # Deviations from the raw lucide source
 //!
 //!   1. `stroke-width` is a property of the *call site*, not of the icon.
-//!      The 0.1 icon component took the width from its own `strokeWidth`
-//!      prop and fell back to `2`: the tool
+//!      Fallback is lucide's own `2`, and each call site chooses its own
+//!      width: the tool
 //!      rail passes `1.6`, the option bars `1.75` or `1.5`, an unqualified
 //!      icon gets lucide's `2`. Each constant below carries the width
 //!      its **primary** consumer uses - the rail's tool set first, because

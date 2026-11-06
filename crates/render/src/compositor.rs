@@ -5,9 +5,9 @@
 //! visibility, opacity, all twelve blend modes, and the existing transforms.
 //! A visible unsupported layer is rejected rather than silently skipped.
 //!
-//! The goldens in the tests were captured from the 0.1 compositor, source-over
-//! compositing with the layer array drawn from last to first, before this code
-//! existed, so they are independent of this implementation.
+//! Each test golden is a 0.1.0 capture: source-over compositing with the layer
+//! array drawn from last to first, recorded before this code existed, so the
+//! goldens are independent of this implementation.
 
 use super::{shape, text};
 use crate::input::RenderInput;
@@ -646,8 +646,8 @@ fn coverage(
     sx: f64,
     sy: f64,
 ) -> f64 {
-    // The 0.1 compositor's edge alpha follows the smaller of the two per-axis local
-    // coverages, not the 2D overlap area. A destination pixel becomes a rotated
+    // Edge alpha follows the smaller of the two per-axis local coverages, not
+    // the 2D overlap area. A destination pixel becomes a rotated
     // parallelogram in layer space; its local extents give the two ratios.
     let mut min_u = f64::INFINITY;
     let mut max_u = f64::NEG_INFINITY;
@@ -676,9 +676,9 @@ fn opacity_alpha(opacity: f64) -> u32 {
     ((opacity.clamp(0.0, 1.0) * 255.0).round() as u32).min(255)
 }
 
-/// Straight-alpha source-over with the 0.1 compositor's premultiplied 8-bit rounding.
+/// Straight-alpha source-over with a premultiplied 8-bit rounding at each step.
 ///
-/// The 0.1 capture returns 127/128 for 50% blue over opaque red; keeping the
+/// The 0.1.0 capture returns 127/128 for 50% blue over opaque red; keeping the
 /// premultiplied intermediate and rounding at each step reproduces that split.
 fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) {
     let sa = div255(src[3] as u32 * opacity);
@@ -726,8 +726,8 @@ fn source_over(dst: &mut [u8; 4], src: [u8; 4], opacity: u32, mode: &BlendMode) 
 
 /// W3C compositing blend functions over non-premultiplied channels.
 ///
-/// The 0.1 compositor performs these in a premultiplied 8-bit pipeline, so a blend case
-/// that lands on a rounding boundary can differ by one channel unit.
+/// The captured pipeline blends in premultiplied 8-bit, so a blend case that
+/// lands on a rounding boundary can differ by one channel unit.
 fn blend_channel(mode: &BlendMode, cb: f64, cs: f64) -> f64 {
     match mode {
         BlendMode::Normal => cs,

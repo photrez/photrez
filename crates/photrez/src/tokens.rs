@@ -97,8 +97,8 @@ pub mod color {
 
     /// `oklch(0.3 0 0)` = `#2E2E2E` = rgb(46, 46, 46)
     ///
-    /// This is the divider value the 0.1 theme names - but see
-    /// [`BORDER`] before using it as one: it is only what reaches the screen
+    /// 0.1.0 named this value for its divider. See [`BORDER`] before using it
+    /// as one: it is only what reaches the screen
     /// when the thing carrying it is a **background**.
     pub const DIVIDER: Hsla = Hsla {
         h: 0.0,

@@ -122,7 +122,7 @@ fn cursor_branch_table_covers_reachable_states() {
         (drag(ToolId::Selection, true), Crosshair),
         (context(ToolId::Move, Idle, false, true), SystemDefault),
         (context(ToolId::Move, Action, false, true), Grabbing),
-        // The 0.1 build keeps move-on-locked on the system default, not the block cursor.
+        // Moving a locked layer keeps the system default, not the block cursor.
         (context(ToolId::Move, Idle, true, true), SystemDefault),
         (context(ToolId::Selection, Idle, false, true), Crosshair),
         (context(ToolId::Crop, Idle, false, true), Crosshair),

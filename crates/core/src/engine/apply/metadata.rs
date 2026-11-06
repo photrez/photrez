@@ -12,9 +12,7 @@ impl DocumentCore {
     ) -> Result<Vec<LayerChange>, ProtocolError> {
         match command {
             // ── Metadata arms ──
-            // Unknown id is a no-op, the same way the 0.1 engine's apply ops
-            // are guarded, so the native-authority path stays bug-compatible
-            // with that engine's observable behaviour.
+            // Unknown id is ignored: no error, no history entry.
             Command::SetVisible { id, visible } => {
                 if let Some(pos) = self.layers.position_by_id(&id) {
                     let _e = self.begin_forward("Set Visible", std::slice::from_ref(&id));

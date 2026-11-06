@@ -169,11 +169,11 @@ impl App {
                     overlay.transform = Some(frame);
                 }
             } else if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                // The 0.1 build gates its rest frame on a multi-layer
-                // selection: with one layer selected and Move active its
-                // canvas area holds 0 accent pixels, where this build held
-                // 2,653. A single layer gets handles only while a transform
-                // is actually being dragged.
+                // A rest frame draws only for a multi-layer selection. With
+                // one layer selected and Move active, this build drew 2,653
+                // accent pixels where the geometry draws none. A single layer
+                // gets handles only while a transform is actually being
+                // dragged.
                 let dragging = self
                     .transform_drag
                     .as_ref()

@@ -2,8 +2,7 @@
 //!
 //! The drag preview is UI state; the crop itself is the core `ApplyCrop`
 //! command (non-destructive: layers are recentered and the document resizes in
-//! one history entry). Apply then refits the viewport and returns to Move,
-//! matching `applyCropPreview`.
+//! one history entry). Apply then refits the viewport and returns to Move.
 
 use gpui_kit::Context;
 use photrez_core::protocol::Command;
@@ -328,7 +327,7 @@ impl App {
         cx.notify();
     }
 
-    /// `handleFreeClick`: the frame stops following a ratio; its rect stays.
+    /// Free mode: the frame stops following a ratio; its rect stays.
     pub(crate) fn crop_choose_free(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.crop_mode = crate::crop_aspect::CropMode::Free;
@@ -362,7 +361,7 @@ impl App {
         cx.notify();
     }
 
-    /// `handleSizeModeClick`: the Size fields drive a pixel target.
+    /// Size mode: the Size fields drive a pixel target.
     pub(crate) fn crop_choose_size(&mut self, cx: &mut Context<Self>) {
         let (target, unit) = {
             let state = self.state.read(cx);
@@ -390,7 +389,7 @@ impl App {
         cx.notify();
     }
 
-    /// `onLockShape`: keep the pending frame's own proportions as a custom ratio.
+    /// Lock Shape: keep the pending frame's own proportions as a custom ratio.
     pub(crate) fn crop_lock_shape(&mut self, cx: &mut Context<Self>) {
         let (rect, mode) = {
             let state = self.state.read(cx);
@@ -425,7 +424,8 @@ impl App {
         cx.notify();
     }
 
-    /// Commit one Size field: `fromUnit` at 300 PPI, then refit the frame.
+    /// Commit one Size field: convert from its unit at 300 PPI, then refit
+    /// the frame.
     pub(crate) fn crop_set_size_value(&mut self, field: usize, text: &str, cx: &mut Context<Self>) {
         let parsed: f64 = match text.trim().parse() {
             Ok(value) => value,
@@ -468,7 +468,7 @@ impl App {
         cx.notify();
     }
 
-    /// `handleSwap` in Size mode: exchange the two target dimensions.
+    /// Swap in Size mode: exchange the two target dimensions.
     pub(crate) fn crop_swap_size(&mut self, cx: &mut Context<Self>) {
         let (mut target, w_text, h_text) = {
             let state = self.state.read(cx);
@@ -627,7 +627,7 @@ impl App {
     }
 }
 
-/// `pushRecentRatio`: newest first, de-duplicated, at most three.
+/// The recent-ratio list: newest first, de-duplicated, at most three.
 fn push_recent(recents: &mut Vec<(u32, u32)>, aspect: (u32, u32)) {
     recents.retain(|existing| *existing != aspect);
     recents.insert(0, aspect);

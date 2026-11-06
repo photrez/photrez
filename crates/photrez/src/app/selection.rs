@@ -616,13 +616,12 @@ impl App {
             .is_some_and(|content| content.selection.is_some())
     }
 
-    /// Whether the app-local selection clipboard holds an image, the state
-    /// the 0.1 build's clipboard check exposed.
+    /// Whether the app-local selection clipboard holds an image.
     pub(crate) fn selection_clipboard_present(&self) -> bool {
         self.clipboard.is_some()
     }
 
-    /// Whether the active layer owns a pixel store (`edit.cut`/`edit.copy`
+    /// Whether the active layer owns a pixel store (cut and copy
     /// also need the layer's own bitmap).
     pub(crate) fn active_layer_has_bitmap(&self, cx: &Context<Self>) -> bool {
         let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) else {

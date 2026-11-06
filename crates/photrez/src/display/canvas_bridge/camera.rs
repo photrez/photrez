@@ -72,7 +72,7 @@ impl Camera {
 
     /// A stated zoom, centered on both axes.
     ///
-    /// Recorded captures carry the zoom the 0.1 build was showing, which is
+    /// Recorded captures carry the zoom 0.1.0 was showing, which is
     /// not the live fit: hiding the dock grows the canvas and a fit recomputes
     /// the scale. This is the seam that lets a fixture be drawn at the
     /// recorded scale instead.
@@ -123,8 +123,7 @@ impl Camera {
         }
     }
 
-    /// Zoom around a screen anchor: the document point under it stays fixed
-    /// (`ViewportCamera.zoomToPoint`).
+    /// Zoom around a screen anchor: the document point under it stays fixed.
     pub fn zoom_to_point(&mut self, factor: f32, anchor_x: f32, anchor_y: f32) {
         if !factor.is_finite() || factor <= 0. || !anchor_x.is_finite() || !anchor_y.is_finite() {
             return;

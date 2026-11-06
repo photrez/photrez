@@ -413,7 +413,7 @@ impl App {
     }
 
     /// Hold the two size axes at one ratio. The Move bar's ratio button and the
-    /// Properties panel's link share this state, as they do in the 0.1 build.
+    /// Properties panel's link share this state.
     pub(crate) fn toggle_constrain_ratio(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.constrain_ratio = !state.constrain_ratio
@@ -491,7 +491,7 @@ impl App {
         mutate(&mut data);
         self.sync_text_defaults(&data, cx);
         // Repeating an edit at its current value is a no-op so pointer ticks
-        // never stack history entries (`applyEdit`'s shallow guard).
+        // never stack history entries.
         if data == before {
             return Ok(());
         }

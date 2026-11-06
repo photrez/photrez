@@ -46,8 +46,8 @@ fn png() -> Vec<u8> {
     encode_image(1, 1, &[255, 0, 0, 255], "png", 100).expect("1x1 PNG encodes")
 }
 
-// Captured from the previous renderer: a 1x1 bitmap drawn through its own
-// canvas and encoded as an "image/png" blob.
+// Captured from an external canvas renderer: a 1x1 bitmap drawn through its
+// own canvas and encoded as an "image/png" blob.
 const REFERENCE_CANVAS_PNG: [u8; 88] = [
     137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
     0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 1, 98, 58, 81, 161, 241, 31, 0, 0, 0,

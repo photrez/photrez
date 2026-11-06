@@ -171,8 +171,8 @@ pub struct LayerFlags {
 /// the scaled frame, so a layer at half scale reads half its source width.
 ///
 /// The three lock flags decide which rows answer an edit: `locked` stops all of
-/// them, `lock_position` stops X and Y, `lock_rotation` stops R. The 0.1 build
-/// product guards the same three ways, per row rather than for the panel.
+/// them, `lock_position` stops X and Y, `lock_rotation` stops R. The guard is
+/// per row, not per panel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerTransformReadout {
     pub x: f64,
@@ -397,7 +397,7 @@ pub struct AppState {
     pub eraser_opacity: f64,
     pub eraser_flow: f64,
     pub eraser_smoothing: f64,
-    /// Paint bucket options (`fillTolerance` default 32, contiguous on).
+    /// Paint bucket options: tolerance defaults to 32, contiguous on.
     pub fill_tolerance: u32,
     pub fill_contiguous: bool,
     /// Gradient type and direction.
@@ -483,10 +483,10 @@ pub struct AppState {
     pub show_transform_controls: bool,
     /// Keep the two size axes at one ratio. Shared by the Move bar's ratio
     /// toggle and the Properties panel's link button, which drive the same
-    /// state in the 0.1 build; it starts on.
+    /// state. It starts on.
     pub constrain_ratio: bool,
-    /// Which not-yet-built adjustment groups are expanded, by section id. The
-    /// 0.1 build opens each one independently and shows its In Development card.
+    /// Which not-yet-built adjustment groups are expanded, by section id. Each
+    /// group opens independently and shows its In Development card.
     pub open_adjustment_sections: Vec<String>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
@@ -498,13 +498,13 @@ pub struct AppState {
     pub crop_mode: crate::crop_aspect::CropMode,
     /// The active ratio when `crop_mode` is `Ratio`.
     pub crop_aspect: Option<(u32, u32)>,
-    /// The three most recent ratios (`recentRatios`), newest first.
+    /// The three most recent crop ratios, newest first.
     pub recent_crop_ratios: Vec<(u32, u32)>,
-    /// The pixel target the Size mode writes (`cropSizeTarget`).
+    /// The pixel target the Size mode writes.
     pub crop_size_target: Option<(u32, u32)>,
     pub crop_size_unit: crate::crop_aspect::CropSizeUnit,
     /// The display buffers for the Size fields, kept in the chosen unit so a
-    /// round-trip does not drift (the source keeps `sizeWVal`/`sizeHVal`).
+    /// round-trip does not drift.
     pub crop_size_w: String,
     pub crop_size_h: String,
     pub crop_size_field: usize,

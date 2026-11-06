@@ -106,7 +106,7 @@ fn tab_reaches_the_resize_fields_and_types_into_the_focused_one(cx: &mut gpui_ki
 /// is up. Each is a real tab stop in the shell, so an escaping Tab lands on one.
 const SHELL_STOPS: [&str; 4] = ["canvas-hitbox", "num-x", "prop-x", "menus.file"];
 
-/// The 0.1 build wraps Tab at the dialog's last control and Shift+Tab at its
+/// Tab wraps at the dialog's last control and Shift+Tab at its
 /// first, so focus never leaves the open dialog.
 #[gpui_kit::test]
 fn tab_stays_inside_the_open_dialog_and_wraps(cx: &mut gpui_kit::TestAppContext) {
@@ -141,8 +141,7 @@ fn tab_stays_inside_the_open_dialog_and_wraps(cx: &mut gpui_kit::TestAppContext)
     .expect("test window remains open");
 }
 
-/// Closing returns focus to whatever held it before the dialog opened, which is
-/// what the 0.1 build's `restoreFocusTo` does.
+/// Closing returns focus to whatever held it before the dialog opened.
 #[gpui_kit::test]
 fn closing_a_dialog_returns_focus_to_what_had_it(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

@@ -1,6 +1,6 @@
 use super::*;
 
-/// The 0.1 capture, measured: the 781x668 canvas-container crop
+/// The recorded 0.1.0 capture, measured: the 781x668 canvas-container crop
 /// draws the 800x600 page as a 701x525.75 box at (40, 71.125) - exactly
 /// the fit formula's prediction.
 #[test]
@@ -666,8 +666,8 @@ fn navigator_viewport_frame_is_not_clamped_to_the_page() {
 }
 
 /// The preview cuts the indicator, and a cut edge disappears rather than being
-/// redrawn along the clip line. This is the 0.1 build's own resting geometry:
-/// two vertical rules spanning the box, no horizontal ones.
+/// redrawn along the clip line. The resting geometry here is two vertical
+/// rules spanning the box, with no horizontal ones.
 #[test]
 fn navigator_indicator_drops_the_edges_the_box_cuts() {
     let frame = (2.3, -11., 130.2, 111.4);

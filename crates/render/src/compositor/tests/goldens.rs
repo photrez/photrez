@@ -236,7 +236,7 @@ fn all_blend_modes_match_their_pinned_goldens_within_rounding() {
             .max()
             .unwrap_or(0);
         // 17 of the 24 goldens are byte-exact. Seven differ by one channel
-        // unit because the 0.1 compositor blends in premultiplied 8-bit. Never widen
+        // unit because the capture blended in premultiplied 8-bit. Never widen
         // this bound: a larger delta is a formula bug, not rounding.
         assert!(
             delta <= 1,
@@ -289,7 +289,7 @@ fn transformed_layers_match_their_pinned_goldens_within_one_unit() {
     let pattern: [u8; 16] = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
     ];
-    // The four axis-aligned cases are byte-exact. At 45 degrees the 0.1 build
+    // The four axis-aligned cases are byte-exact. At 45 degrees the captured
     // color sample rounds 127.5 down once; no case may exceed one unit.
     let cases = [
         ("scale2", 1.0, 1.0, 2.0, 2.0, 0.0, SCALE2_GOLDEN, 0u8),

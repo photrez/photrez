@@ -60,9 +60,9 @@ pub(crate) fn navigator_viewport_frame(
 /// What the indicator actually paints inside a preview box: the soft fill over
 /// the part that survives the cut, then each edge only where it was not cut.
 ///
-/// The 0.1 build clips with `overflow: hidden`, so an edge that falls outside
+/// The preview box clips its content, so an edge that falls outside
 /// the preview disappears. Redrawing it along the clip line would put two
-/// horizontal rules across the thumbnail that the 0.1 build does not have.
+/// horizontal rules across the thumbnail that do not belong there.
 /// Rectangles are `(x, y, width, height)`; edges come back 1 px thick.
 pub(crate) fn navigator_indicator_paint(
     frame: NavRect,
@@ -126,10 +126,10 @@ pub(crate) fn navigator_element(
             let Some(layout) = navigator_layout(doc_w, doc_h) else {
                 return;
             };
-            // The 0.1 build centres its 208px canvas with `px-4` plus a flex
-            // row, and 16 + (w - 32 - 208)/2 is the same place as (w - 208)/2,
-            // so the box is centred horizontally. Vertically it only pads the
-            // top, so the 16px stays there.
+            // A 208px canvas centred in a box with 16px side padding puts its
+            // origin at 16 + (w - 32 - 208)/2, which is the same place as
+            // (w - 208)/2, so the box is centred horizontally. Vertically only
+            // the top pads, so the 16px stays there.
             let origin_x =
                 f32::from(bounds.origin.x) + (f32::from(bounds.size.width) - NAV_BOX_W) / 2.;
             let origin_y = f32::from(bounds.origin.y) + NAV_PAD;
@@ -189,7 +189,7 @@ pub(crate) fn navigator_element(
     )
     .w_full()
     .h(px(NAV_H - NAV_HEADER_H - 1.0))
-    // The 0.1 build's navigator body is the panel tone (30,30,30 in
+    // The navigator body is the panel tone (30,30,30 in
     // `shell-navigator.png`), not the canvas tone; the dock shows no canvas
     // surface here.
     .bg(color::PANEL)
@@ -197,9 +197,8 @@ pub(crate) fn navigator_element(
 
 /// 16px padding around the Navigator canvas.
 pub(crate) const NAV_PAD: f32 = 16.;
-/// The thumbnail box inside that padding. The 0.1 build clips its navigator
-/// canvas to this rect, and the viewport indicator is cut by it rather than by
-/// the document.
+/// The thumbnail box inside that padding. The navigator canvas clips to this
+/// rect, and the viewport indicator is cut by it rather than by the document.
 pub(crate) const NAV_BOX_W: f32 = 208.;
 pub(crate) const NAV_BOX_H: f32 = 88.;
 const NAV_H: f32 = 185.;
@@ -289,6 +288,6 @@ pub(crate) struct RotateCursorOverlay {
     /// Window-space pointer position.
     pub position: [f32; 2],
     /// Sprite angle in degrees (pointer angle about the rotation centre
-    /// plus the source's 45-degree base tilt).
+    /// plus this sprite's 45-degree base tilt).
     pub angle: f32,
 }

@@ -312,8 +312,7 @@ fn transform_layer_flip_projects_onto_render_layer() {
 
 #[test]
 fn unknown_id_is_noop_for_metadata_arms() {
-    // Mirrors DeleteLayer: a missing id is a silent no-op (no error). The
-    // 0.1 build guarded the same apply arm the same way, and that behaviour is kept.
+    // Mirrors DeleteLayer: a missing id is a silent no-op (no error).
     let mut e = engine();
     let before = e.snapshot().layers.len();
     for cmd in [
@@ -583,7 +582,7 @@ fn add_layer_typed_text_projects_type_and_text_data() {
 #[test]
 fn add_layer_without_type_stays_raster_backward_compatible() {
     // A v2 envelope missing the optional typed fields must still produce a raster
-    // layer (the previous behavior) so existing envelopes keep working.
+    // layer so existing envelopes keep working.
     let mut e = DocumentCore::new();
     e.apply(env(Command::AddLayer {
         id: "R".into(),

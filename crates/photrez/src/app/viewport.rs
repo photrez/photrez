@@ -61,8 +61,8 @@ impl App {
     ///
     /// A `--shot` launch has no document session, so the display live-fits and
     /// the page scale changes with whatever chrome is hidden: 87 % with the
-    /// dock open, 98 % with it closed. Recorded captures carry the zoom the
-    /// 0.1 build was showing, so a named zoom has to survive the layout.
+    /// dock open, 98 % with it closed. Recorded captures carry the zoom
+    /// 0.1.0 was showing, so a named zoom has to survive the layout.
     ///
     /// `--pan` places the page's top-left in element-local pixels instead of
     /// centring it. A recorded frame whose camera was placed while the dock was
@@ -129,8 +129,8 @@ impl App {
         }
     }
 
-    /// Fire a zoom action around the viewport centre, like the 0.1
-    /// command path's animated zoom to the viewport midpoint.
+    /// Fire a zoom action around the viewport centre, the anchor for
+    /// zoom in and out.
     fn zoom_around_centre(&mut self, factor: f32, cx: &mut Context<Self>) {
         let Some((viewport_w, viewport_h)) = self.viewport_size() else {
             return;
@@ -282,7 +282,7 @@ impl App {
     }
 
     /// Wheel over the canvas: Ctrl/Alt zooms at the cursor, plain wheel pans
-    /// and Shift pans horizontally (`usePanNavigation.handleWheel`).
+    /// and Shift pans horizontally.
     pub(crate) fn canvas_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
         let Some(bounds) = self.canvas_bounds.get() else {
             return;

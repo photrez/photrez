@@ -37,8 +37,8 @@
 //!
 //! ## What deliberately is not here yet
 //!
-//! - Pan, zoom and the animated fit: `ImageViewer` is absent from the gpui-kit
-//!   build, so the viewport is ours; this landing implements only the default
+//! - Pan, zoom and the animated fit: gpui-kit ships no image viewer,
+//!   so the viewport is ours; this landing implements only the default
 //!   fit placement.
 //! - The 32px blurred shadow under the page: this paint path has no blur
 //!   primitive, so the artboard ships with its 1px border and 1px ring only.

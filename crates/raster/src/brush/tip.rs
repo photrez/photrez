@@ -1,13 +1,13 @@
 //! Authoritative brush-tip construction + defined resampler.
 //!
-//! Implements the 0.1 tip-mask and hardness-profile semantics verbatim as
-//! explicit Rust contract code, then defines the previously scale-operation-owned
-//! upscale step as a deterministic bilinear-premultiplied half-pixel resampler.
+//! Defines the tip-mask and hardness-profile semantics as explicit Rust
+//! contract code, then defines the upscale step as a deterministic
+//! bilinear-premultiplied half-pixel resampler.
 //! No production wiring yet: validated offline against captured golden
 //! tip rasters via the env-gated test in `brush/tests/tip.rs`.
 
 pub const BRUSH_HARD_EDGE_THRESHOLD: f64 = 0.97;
-/// Alpha contour the paint cursor ring marks (the 0.1 build's hardness profile).
+/// Alpha contour the paint cursor ring marks; it follows the hardness profile.
 pub const BRUSH_CURSOR_ALPHA_CONTOUR: f64 = 0.2;
 pub const MIN_RELIABLE_BRUSH_DIAMETER_PX: f64 = 22.0;
 pub const MIN_VISIBLE_ALPHA_8BIT: f64 = 0.5 / 255.0;
@@ -21,8 +21,7 @@ pub struct ProfileParams {
     pub n: f64,
 }
 
-/// Fritsch-Carlson monotone cubic — reproduces the 0.1 interpolator's
-/// operations one-for-one.
+/// Fritsch-Carlson monotone cubic interpolation.
 struct MonotoneCubic {
     xs: Vec<f64>,
     ys: Vec<f64>,
@@ -114,7 +113,7 @@ pub fn get_brush_profile_parameters(hardness: f64) -> ProfileParams {
     }
 }
 
-/// Super-gaussian soft profile — the 0.1 brush-alpha curve.
+/// Super-gaussian soft profile: `exp(-x^n)` with `x = r_norm / sigma`.
 pub fn brush_alpha(r_norm: f64, hardness: f64) -> f64 {
     let h = clamp_hardness(hardness);
     if h >= BRUSH_HARD_EDGE_THRESHOLD {
@@ -206,7 +205,7 @@ fn outer_radius(radius: f64, hardness: f64, curve: Curve) -> f64 {
     }
 }
 
-/// Rasterizes the tip mask to match the 0.1 curve: f32 mask storage,
+/// Rasterizes the tip mask: f32 mask storage,
 /// half-pixel offsets, scale=diameter/data_size, distance=sqrt, soft ⇒
 /// `brush_alpha(dist/R_nominal,h)`, small/hard branches preserved.
 fn rasterize_mask(
@@ -267,8 +266,6 @@ fn rasterize_mask(
 
 /// Bilinear resampler operating on PREMULTIPLIED pixels with
 /// half-pixel centers, then emitted back to straight-RGBA (round-half unpremul).
-/// This is the explicitly specified replacement for the 0.1 build's
-/// filtered image upscale.
 pub fn bilinear_resize_premul(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
     let mut out = vec![0u8; (dw * dh) as usize * 4];
     for dy in 0..dh {
@@ -318,15 +315,14 @@ pub(crate) fn premul_to_straight_in_place(buf: &mut [u8]) {
     }
 }
 
-/// Entry point: build the diameter-space tip with the same result the
-/// 0.1 brush commit produced, but with every formerly external
-/// scaling step replaced by the documented deterministic operations above.
+/// Entry point: build the diameter-space tip, resampled by the deterministic
+/// operations defined above.
 pub fn build_brush_tip(spec: &TipSpec) -> BrushTip {
     let (diameter, data_size, mask) =
         rasterize_mask(spec.size, spec.hardness, spec.curve, spec.data_cap);
     let rgba_data_size = colorize_mask(&mask, data_size, spec.color);
-    // Chrome blends/stores PREMULTIPLIED: convert straight->pm before resampling,
-    // resample pm bilinearly, then emit straight (round-half unpremul).
+    // Resampling runs in PREMULTIPLIED space: convert straight->pm before
+    // resampling, resample pm bilinearly, then emit straight (round-half unpremul).
     let mut pm_src = rgba_data_size.clone();
     for px in pm_src.chunks_exact_mut(4) {
         let a = px[3] as u32;

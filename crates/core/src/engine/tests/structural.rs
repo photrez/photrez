@@ -191,8 +191,8 @@ fn duplicate_layer_rejects_present_new_id_e_invalid() {
 
 #[test]
 fn duplicate_layer_unknown_source_is_noop() {
-    // Divergence: the 0.1 engine threw on an unknown source id; the native arm
-    // no-ops (the host owns identity checks). Recorded, not asserted equal.
+    // Divergence from 0.1.0: the native arm no-ops on an unknown source id,
+    // because the host owns identity checks. Recorded, not asserted equal.
     let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", "Layer 1", 10)], 0);
     let result = e

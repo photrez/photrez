@@ -28,13 +28,13 @@ pub use loader::{load_document_candidate, LoadedDocument};
 #[cfg(test)]
 mod tests;
 
-/// The document size the 0.1 captures were taken at: the New Document
+/// The document size the recorded captures were taken at: the New Document
 /// dialog's defaults, which is what the capture tooling opened.
 pub const DEFAULT_DOC_WIDTH: u32 = 800;
 /// Height of that same document.
 pub const DEFAULT_DOC_HEIGHT: u32 = 600;
 
-/// The blank white document the 0.1 captures were taken with: one opaque
+/// The blank white document the recorded captures were taken with: one opaque
 /// white layer at 800x600, the dialog's defaults.
 ///
 /// Returns `(width, height, rgba)` with `rgba.len() == width * height * 4`,
@@ -108,7 +108,7 @@ impl LoadedDocument {
         }
         let original = self.document_snapshot();
         let mut layers = content.layers.clone();
-        // `resourceId` is a live store token, not file metadata: the 0.1 build
+        // `resourceId` is a live store token, not file metadata: the file
         // envelope has no such field, and writing it would change every
         // unmodified round-trip.
         for layer in &mut layers {

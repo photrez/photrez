@@ -88,7 +88,7 @@ fn cursor_radius_scale_clamps_and_restores_nominal_at_hard_edge() {
     }
 }
 
-/// Offline golden validation vs a tip raster captured from the 0.1 build.
+/// Offline golden validation vs a tip raster captured from the 0.1.0 release.
 /// Run: PHOTREZ_TIP_GOLDEN=<bin path> cargo test -p photrez-raster brush::tests::tip::golden -- --ignored --nocapture
 /// Bin format: u32LE tipW | u32LE tipH | RGBA bytes (274*274*4).
 #[test]
@@ -163,10 +163,10 @@ fn golden_interior_and_rim_tolerance() {
             }
         }
     }
-    // Decision: the 0.1 build's resampling is NOT canonical, so rim
-    // divergence against the captured golden is a DOCUMENTED COMPATIBILITY
-    // DELTA and is REPORT-ONLY. Canonical correctness = interior + alpha bounds
-    // below.
+    // Decision: this crate's resampler defines canonical correctness
+    // (interior + alpha bounds below), not the captured raster's resampling.
+    // Rim divergence against the golden is therefore a DOCUMENTED
+    // COMPATIBILITY DELTA and is REPORT-ONLY.
     //
     // Documented rim delta baseline vs the captured golden (probe 256/0.8 -> 274):
     //   premultiplied rimMax = 65 LSB | straight rimMax = 32 LSB (unpremul-amplified view).
@@ -178,7 +178,7 @@ fn golden_interior_and_rim_tolerance() {
         pm_interior_max <= 1,
         "canonical gate: premul interior beyond storage noise: {pm_interior_max}"
     );
-    // rim metrics intentionally REPORT-ONLY (documented 0.1 capture compatibility delta)
+    // rim metrics intentionally REPORT-ONLY (0.1.0 capture compatibility delta)
     assert!(
         alpha_max <= 1,
         "canonical gate: alpha beyond the 0.1 build-capture roundtrip bound: {alpha_max}"

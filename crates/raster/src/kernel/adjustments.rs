@@ -128,9 +128,9 @@ pub fn trim_bbox(pixels: &[u8], width: u32, height: u32) -> Vec<u32> {
     }
 }
 
-/// Brush dab stamp — bilinear resample of the precomputed tip into the
-/// mask with saturating accumulation `cur + (255-cur)*a`. Reproduces the
-/// 0.1 build's rasteriser stamp exactly (same bounds/clamp semantics).
+/// Brush dab stamp: bilinear resample of the precomputed tip into the
+/// mask with saturating accumulation `cur + (255-cur)*a`. A dab past the mask
+/// edge is clipped, and a tip sample past the tip data reads as zero.
 #[allow(clippy::too_many_arguments)] // Flat args kept for the host call site
 pub fn brush_stamp(
     mask: &mut [u8],
@@ -244,7 +244,7 @@ fn stamp_into(
             let idx = row_idx + x as usize;
             let cur = mask[idx];
             if cur != 255 {
-                // Exact 0.1 behaviour: round the DELTA, then add (not add-then-round).
+                // Round the DELTA, then add (not add-then-round).
                 let delta = ((255.0 - cur as f32) * scaled).round() as u32;
                 mask[idx] = (cur as u32 + delta).min(255) as u8;
             }
@@ -255,7 +255,7 @@ fn stamp_into(
 }
 
 /// Straight-alpha-over composite of a paint mask into an RGBA buffer,
-/// restricted to a dirty rect. Blend order matches the 0.1 rasteriser.
+/// restricted to a dirty rect.
 #[allow(clippy::too_many_arguments)]
 pub fn composite_mask(
     dst: &mut [u8],

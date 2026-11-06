@@ -23,8 +23,8 @@ fn e_invalid(msg: &str) -> ProtocolError {
 }
 
 /// Normalize a rotation angle in degrees to the canonical (-180, 180] range:
-/// `angle % 360`, then `> 180 -> -360`, then `< -180 -> +360`. Verified against
-/// the 0.1 build's viewport geometry (e.g. -270 -> 90, 360 -> 0, 181 -> -179).
+/// `angle % 360`, then `> 180 -> -360`, then `< -180 -> +360`. Checked against
+/// the worked examples -270 -> 90, 360 -> 0, 181 -> -179.
 fn normalize_rotation(angle_deg: f64) -> f64 {
     let mut a = angle_deg % 360.0;
     if a > 180.0 {
@@ -38,18 +38,16 @@ fn normalize_rotation(angle_deg: f64) -> f64 {
 
 impl DocumentCore {
     /// Crop the canvas: shift every unlocked layer's position by (-x, -y) and set
-    /// the document size to (width, height). Follows the 0.1 build's non-destructive
-    /// crop-canvas math, which offsets unlocked layers and
-    /// resizes the document. Locked layers are untouched (the guard is `!layer.locked`);
-    /// `LayerMeta.locked` is `Option<bool>`, so `Some(true)` is locked and
-    /// `None`/`false` is not.
+    /// the document size to (width, height). The crop is non-destructive: layer
+    /// positions move, layer pixels do not. Locked layers are untouched (the
+    /// guard is `!layer.locked`); `LayerMeta.locked` is `Option<bool>`, so
+    /// `Some(true)` is locked and `None`/`false` is not.
     ///
-    /// Trust boundary: reject non-finite inputs with E_INVALID before any mutation
-    /// (the 0.1 engine lets NaN/Inf silently slip through its `<= 0` comparisons and
-    /// would proceed (a divergence that is stricter than the 0.1 engine). Non-positive width/height
-    /// is a SILENT no-op (no history entry; the apply() tail still bumps DV),
-    /// mirroring the 0.1 build's guard `if (width <= 0 || height <= 0) return;`. x/y may be
-    /// any sign (negative offsets are legal).
+    /// Trust boundary: reject non-finite inputs with E_INVALID before any
+    /// mutation. NaN and Inf pass `<= 0` comparisons, so only this check rejects
+    /// them. The `width <= 0 || height <= 0` guard makes a non-positive size a
+    /// SILENT no-op (no history entry; the apply() tail still bumps DV). x/y
+    /// may be any sign (negative offsets are legal).
     pub(crate) fn apply_crop_canvas(
         &mut self,
         x: f64,
@@ -115,7 +113,7 @@ impl DocumentCore {
     /// `flips` are preserved unchanged.
     ///
     /// Trust boundary: reject non-finite x/y/width/height/rotation with E_INVALID
-    /// before any mutation (the 0.1 engine would proceed with NaN). A target size
+    /// before any mutation, so no NaN reaches the layer transforms. A target size
     /// given as a half-pair (one of targetWidth/targetHeight without the other) is
     /// invalid (the target size is taken as a complete {w,h} pair). Non-positive
     /// width/height is a SILENT no-op (the first guard, checked before reading the
@@ -315,11 +313,11 @@ impl DocumentCore {
             .collect())
     }
 
-    /// Resize the canvas to (width, height). The non-layer effect of the 0.1 build's
-    /// resize: only the document size changes, no layer is touched.
+    /// Resize the canvas to (width, height). The effect is non-layer: only the
+    /// document size changes, no layer is touched.
     ///
-    /// Trust boundary: reject non-finite dims with E_INVALID before mutation (the
-    /// 0.1 engine would proceed with NaN). Non-positive dims are a SILENT no-op (no
+    /// Trust boundary: reject non-finite dims with E_INVALID before mutation,
+    /// since NaN passes a `<= 0` test. Non-positive dims are a SILENT no-op (no
     /// entry; DV still bumps at the tail). The arm emits an EMPTY layer delta; its
     /// real effect (the document size) is not expressible as a layer delta, so
     /// consumers must re-read the snapshot (which now carries the dims). The entry

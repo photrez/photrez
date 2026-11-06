@@ -387,7 +387,7 @@ fn inline_full_strength_helper_sets_the_eraser_to_full(cx: &mut gpui_kit::TestAp
 /// Flip group, and Reset Transform; Align Left rewrites the selected layer's
 /// x to 0 through core history, Flip Horizontal toggles the layer's flip and
 /// Reset clears the offsets. Escape and a click anywhere outside the panel
-/// (the 0.1 backdrop) dismiss it.
+/// dismiss it.
 #[gpui_kit::test]
 fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -538,10 +538,10 @@ fn move_overflow_panel_aligns_and_resets_the_layer(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// The Text bar's box-mode control is the 0.1 build's two-item list, not a
-/// closed trigger: choosing Fixed Box rewrites the selected text layer's
-/// `box_mode` to Area through core history (with a box width, as the
-/// 0.1 build seeds it), choosing Auto Width returns it to Point with the box
+/// The Text bar's box-mode control is a two-item list, not a closed
+/// trigger: choosing Fixed Box rewrites the selected text layer's
+/// `box_mode` to Area through core history (with a box width already
+/// seeded), choosing Auto Width returns it to Point with the box
 /// dimensions cleared; Escape and an outside click dismiss the list.
 #[gpui_kit::test]
 fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAppContext) {
@@ -626,14 +626,12 @@ fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAp
     .expect("test window remains open");
 }
 
-/// The Selection bar's overflow trigger hosts the clipboard grid the 0.1 build
-/// folds at narrow widths. With no
-/// committed selection the rows stay inert (the 0.1 build's
-/// `pointer-events-none`); once one exists, Invert rewrites it, Delete clears
-/// the selected pixels through core history and Deselect drops it. Escape and
-/// an outside click dismiss the panel. The 0.1 build's Transform toggle in
-/// this panel is not covered: the native edit mode has no bar-click entry
-/// point yet.
+/// The Selection bar's overflow trigger hosts the clipboard grid that folds
+/// at narrow widths. With no committed selection the rows ignore pointer
+/// input; once one exists, Invert rewrites it, Delete clears the selected
+/// pixels through core history and Deselect drops it. Escape and
+/// an outside click dismiss the panel. The Transform toggle in this panel is
+/// not covered: the native edit mode has no bar-click entry point yet.
 #[gpui_kit::test]
 fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -668,7 +666,7 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
             );
         }
 
-        // No committed selection yet: the 0.1 build keeps the rows inert.
+        // No committed selection yet: the rows stay inert.
         window.click("opt-sel-copy", cx);
         window.render_frame(cx);
         assert!(
@@ -760,7 +758,7 @@ fn move_bar_readout(
 
 /// The Move bar's transform cells read and edit the layer the canvas is
 /// holding: X and R submit, and Escape puts back the value the edit started
-/// from, exactly as the 0.1 build's fields do.
+/// from.
 #[gpui_kit::test]
 fn the_move_bar_transform_fields_describe_and_edit_the_layer(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -817,7 +815,7 @@ fn the_move_bar_transform_fields_describe_and_edit_the_layer(cx: &mut gpui_kit::
     .expect("test window remains open");
 }
 
-/// A locked layer keeps the 0.1 build's disabled fields: the click opens no
+/// A locked layer keeps its fields disabled: the click opens no
 /// edit and the value cannot move.
 #[gpui_kit::test]
 fn a_locked_layer_keeps_the_move_bar_transform_fields_inert(cx: &mut gpui_kit::TestAppContext) {

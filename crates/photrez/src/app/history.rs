@@ -59,7 +59,7 @@ impl App {
         self.history_cursor().is_some_and(|(cursor, _)| cursor > 0)
     }
 
-    /// `edit.redo` enablement, mirroring [`Self::can_undo_document`].
+    /// Redo enablement, mirroring [`Self::can_undo_document`].
     pub(crate) fn can_redo_document(&self, cx: &Context<Self>) -> bool {
         let state = self.state.read(cx);
         if self.transform_drag.is_some() || self.group_transform_drag.is_some() {

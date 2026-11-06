@@ -99,8 +99,8 @@ impl App {
     }
 
     /// The status bar's History trigger: show the dock's History panel.
-    /// The 0.1 build opens the dock as well, since a closed dock would show
-    /// a panel the user cannot see.
+    /// This opens the dock as well, since a closed dock would show a panel
+    /// the user cannot see.
     pub(crate) fn show_history_panel(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.layer_tab = crate::state::LayerTab::History;
@@ -773,9 +773,10 @@ impl App {
         cx.notify();
     }
 
-    /// Escape on a dialog that has no field-specific key handler. `DesktopDialog`
-    /// routes Escape to `onDismiss` for every managed-focus dialog; the alert
-    /// prompts (dirty close) keep their explicit decision buttons.
+    /// Escape on a dialog that has no field-specific key handler. The dialog
+    /// chrome routes Escape to its dismiss action for every managed-focus
+    /// dialog. The alert prompts (dirty close) keep their explicit decision
+    /// buttons.
     pub(crate) fn dismiss_chrome_dialog(&mut self, cx: &mut Context<Self>) {
         match self.state.read(cx).active_dialog {
             Some(DialogId::Settings) => self.close_settings(cx),

@@ -607,8 +607,8 @@ fn edit_menu_open_frame_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// The Move bar's numeric fields keep the 0.1 build's widths - 62 px
-/// for X/Y and 58 px for rotation - rather than being squeezed by the
+/// The Move bar's numeric fields keep pinned widths: 62 px
+/// for X/Y and 58 px for rotation, rather than being squeezed by the
 /// flex row.
 #[gpui_kit::test]
 fn move_field_widths_match_the_pinned_px(cx: &mut gpui_kit::TestAppContext) {

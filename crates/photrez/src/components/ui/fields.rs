@@ -97,7 +97,7 @@ pub fn num_field(
 /// takes the keyboard focus so typing and Enter commit through the app.
 ///
 /// `editing` is the open session's buffer, matched to this row by the caller. A
-/// locked row still comes through here: the 0.1 build's disabled field paints
+/// locked row still comes through here: a disabled field paints
 /// the resting pixels of an enabled one, and the opener is what declines.
 #[allow(clippy::too_many_arguments)] // geometry, value, session and opener of one box
 pub fn live_num_field(

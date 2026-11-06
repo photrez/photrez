@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Brush dab producer: the stroke spacing/carry state machine behind the brush
-// tip mask. It implements the 0.1 dab-interpolation and spacing rules
-// (`BrushStrokeEngine::update` + `brush_dab_spacing`): f64 internals match that
-// arithmetic, so both emit identical dab sequences.
+// tip mask. It defines the dab-interpolation and spacing rules
+// (`BrushStrokeEngine::update` + `brush_dab_spacing`) in f64 throughout, so a
+// given input emits the same dab sequence on every run.
 // Dabs are accumulated into an internal Vec<f64> (x0,y0,x1,y1,...) and cleared
 // on each update() call. update()/update_batch() return the count of x,y
 // pairs produced; the raw buffer is readable in-crate via `dab_slice`.
 
-/// spacing = max(1, round(size * 0.10)) - the 0.1 dab-spacing rule.
+/// spacing = max(1, round(size * 0.10)): 10% of the brush size, at least 1.
 pub fn brush_dab_spacing(size: f64) -> f64 {
     (size * 0.10).round().max(1.0)
 }
@@ -33,14 +33,14 @@ impl BrushStrokeEngine {
         }
     }
 
-    /// Update spacing when brush size changes mid-stroke (carry persists,
-    /// matching the 0.1 paint-session behavior).
+    /// Update spacing when brush size changes mid-stroke. The carry persists,
+    /// so the stroke keeps its position in the spacing sequence.
     pub fn set_size(&mut self, size: f64) {
         self.spacing = brush_dab_spacing(size);
     }
 
-    /// Begin/reposition the stroke anchor. Emits no dab (the first stamp is
-    /// emitted by the caller, matching the 0.1 paint session).
+    /// Begin/reposition the stroke anchor. Emits no dab: the caller emits the
+    /// first stamp.
     pub fn begin(&mut self, x: f64, y: f64) {
         self.last_x = x;
         self.last_y = y;
@@ -107,7 +107,7 @@ impl BrushStrokeEngine {
     /// Dabs produced by the last `update`/`update_batch`, as flat x,y pairs.
     ///
     /// The native input chain feeds these to `PixelStore::commit_pixels`; the
-    /// buffer is cleared on the next update, matching the 0.1 producer.
+    /// buffer is cleared on the next update.
     pub fn dabs(&self) -> &[f64] {
         &self.dabs
     }

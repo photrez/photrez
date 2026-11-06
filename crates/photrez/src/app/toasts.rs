@@ -1,6 +1,6 @@
 //! The live toast queue: a module-level queue the views read at render time.
 //!
-//! `showToast` appends `{ id, message, severity }`, evicts the oldest entry
+//! `show_toast` appends `{ id, message, severity }`, evicts the oldest entry
 //! once the stack exceeds three, and arms a timer that dismisses that exact
 //! id. The queue is projected into `AppState` so the renderer stays a pure
 //! function of state; this module owns only the queue arithmetic and the
@@ -17,10 +17,10 @@ use crate::state::{Toast, ToastSeverity};
 
 use super::App;
 
-/// `DURATIONS.info` / `DURATIONS.warn`.
+/// The dismissal delay for the info and warn levels.
 const SHORT_DISMISS: Duration = Duration::from_millis(3_500);
 
-/// `DURATIONS.error`.
+/// The dismissal delay for the error level.
 const ERROR_DISMISS: Duration = Duration::from_millis(5_000);
 
 /// Three rows is the visible cap, so a fourth push drops the oldest.

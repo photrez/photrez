@@ -90,8 +90,8 @@ impl App {
     /// because `TransformLayer` is absolute; the two flip flags stay `None` so
     /// the layer's mirrored state survives the edit.
     ///
-    /// W and H are size in document pixels, so they commit as a scale: the
-    /// 0.1 build divides by the layer's source size. With the ratio held, the
+    /// W and H are size in document pixels, so they commit as a scale: this
+    /// build divides by the layer's source size. With the ratio held, the
     /// other axis follows at the same magnitude.
     pub(crate) fn set_transform_field(
         &mut self,

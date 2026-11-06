@@ -136,7 +136,7 @@ impl DocumentCore {
             // that performs the full begin_forward -> mutate -> finish_forward
             // sequence and returns the delta. The helpers reject E_INVALID before
             // mutation and treat unknown / not-mergeable ids as silent no-ops
-            // (empty delta), the same contract as the 0.1 engine's apply ops.
+            // (empty delta).
             Command::DuplicateLayer { id, new_id } => self.apply_duplicate(&id, &new_id)?,
             Command::MergeDown { id, merged_id } => self.apply_merge_down(&id, &merged_id)?,
             Command::MergeSelected { ids, merged_id } => {
@@ -150,7 +150,7 @@ impl DocumentCore {
             // finish_forward and returns the delta (ordered all-layer Upserts for
             // the crop arms; an empty delta for resize, whose only effect is the
             // document size). Helpers reject E_INVALID before mutation and treat
-            // non-positive dims as a silent no-op (matching the 0.1 engine).
+            // non-positive dims as a silent no-op.
             Command::CropCanvas {
                 x,
                 y,

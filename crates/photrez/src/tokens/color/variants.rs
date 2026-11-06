@@ -102,7 +102,7 @@ pub const WHITE_80: Hsla = Hsla {
 
 /// Red at 85% on hover - the close-window button.
 ///
-/// The 0.1 build's red stop is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
+/// The red stop is `oklch(63.7% 0.237 25.331)` = `#FB2C36` =
 /// rgb(251, 44, 54). Converted to HSL: max 251, min 44, delta 207,
 /// hue 60 * ((44 - 54) / 207) = -2.90deg = 357.10deg, l = 147.5 / 255,
 /// s = delta / (2 - max - min) = 0.8118 / 0.8431.
@@ -128,10 +128,10 @@ pub const ACCENT_15: Hsla = Hsla {
     a: 0.15,
 };
 
-/// Tool mark at 8% - the navigator's viewport tint. The 0.1 build composites
-/// `color-mix(in srgb, #E15A17 8%, transparent)` over the thumbnail, which
-/// turns its white page (253, 242, 237) in shell-navigator.png, measured;
-/// the same blend over (255,255,255) at 8% is what that triple is.
+/// Tool mark at 8% - the navigator's viewport tint. Blending `#E15A17` at 8%
+/// over the thumbnail turns its white page to (253, 242, 237) in
+/// shell-navigator.png, measured; the same blend over (255,255,255) at 8% is
+/// what that triple is.
 pub const TOOL_MARK_08: Hsla = Hsla {
     h: 0.05528,
     s: 0.81452,
@@ -311,10 +311,9 @@ pub const TEXT_55: Hsla = Hsla {
 /// **Not** [`WHITE_45`], despite the identical-looking name. That one is
 /// the fractional form, white at 4.5%, whose value and this
 /// one's both read as "45" - so `WHITE_45` is four and a half
-/// percent and this is forty-five. The suffix tracks the source's
-/// spelling rather than a unit, which is what makes the collision
-/// possible; the `_PCT` is here so the next reader does not assume the
-/// two are the same number written twice.
+/// percent and this is forty-five. The suffix is a name, not a unit, which
+/// is what makes the collision possible; the `_PCT` is here so the next
+/// reader does not assume the two are the same number written twice.
 pub const WHITE_45_PCT: Hsla = Hsla {
     h: 0.0,
     s: 0.0,
