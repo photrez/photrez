@@ -1,0 +1,3 @@
+# The root .gitignore ignores *.png globally; these PNGs are compiled into the
+# render tests by include_bytes!, so a clone without them cannot build the test suite.
+!*.png
