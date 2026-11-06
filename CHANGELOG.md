@@ -188,7 +188,7 @@ breaking changes, and incomplete features. Not recommended for production use.
 - Save/load project format (`.ptz` - zip archive with document.json + layer PNGs).
 - Window state persistence across launches.
 - WebGL2 renderer with context-loss recovery.
-- Rust `photrez-core` domain crate (reference implementation).
+- Rust `photrez-core` domain crate.
 - Automated frontend tests (2499 cases), Rust tests (113: 84 core + 29 desktop), Playwright E2E specs.
 - Public documentation: architecture, features, PRD, TRD, design system, contributing, security, governance.
 - Help ▸ About dialog shows the current version dynamically (read from `tauri.conf.json` via Tauri `getVersion()`).
