@@ -225,7 +225,7 @@ fn tab_list(
         // Full height on a centred row: stretch instead of hug, so the list is
         // the strip's full 37px content height.
         .self_stretch()
-        // Stretching the children is explicit in the source and is what gives
+        // Stretching the children is what gives
         // each tab that same height — `h_flex()` would otherwise centre them.
         .items_stretch()
         .flex_1()

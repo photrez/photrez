@@ -14,7 +14,7 @@
 //!
 //! # Transcription notes
 //!
-//! * The source's stack levels 10 and 20 need no equivalent: GPUI paints
+//! * The recorded stack levels 10 and 20 need no equivalent: GPUI paints
 //!   siblings in tree order, and the element order already lists bg-swatch ->
 //!   fg-swatch -> swap button, so the stacking comes out identical.
 //! * The divider's auto top margin pins the swatch stack to the bottom.

@@ -475,7 +475,7 @@ fn preset_button(name: &str) -> Div {
         )
 }
 
-/// Same chrome full-width, centred label — the source button has no
+/// Same chrome full-width, centred label — a button with no
 /// left-alignment rule, so it centres.
 fn reset_button() -> Div {
     h_flex()

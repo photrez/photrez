@@ -107,7 +107,7 @@ fn ctrl_w_clean_document_closes_immediately(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// Save on the prompt writes the source and then closes the document.
+/// Save on the prompt writes the source document and then closes the document.
 #[gpui_kit::test]
 fn ctrl_w_save_writes_then_closes(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::test::TestWindowExt as _;

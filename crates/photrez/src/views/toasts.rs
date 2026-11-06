@@ -98,7 +98,7 @@
 //!
 //! # Severity: three border colours, one pixel
 //!
-//! The source picks a border per severity:
+//! Each severity asks for its own border:
 //!
 //! | severity | border it asks for | named colour | **measured** |
 //! |---|---|---|---|
@@ -298,7 +298,7 @@ const MSG_STACK_INFO: &str = "Opened"; // i18n-exempt: not in catalog
 const MSG_STACK_WARN: &str = "Copied"; // i18n-exempt: not in catalog
 const MSG_STACK_ERROR: &str = "Disk full"; // i18n-exempt: not in catalog
 
-/// The three values of `ToastSeverity`, which the source uses to pick a border
+/// The three values of `ToastSeverity`, which decides the border
 /// and an accessibility role. Only the border reaches pixels — see the module
 /// docs.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -366,7 +366,7 @@ fn messages_for(id: Option<&str>) -> Vec<(Severity, &'static str)> {
 ///
 /// Returned as a transparent `absolute` layer covering the window with the
 /// stack in its bottom-right corner (padding = the 24px right and bottom
-/// insets), because the source took the stack out of the flow and pinned it to
+/// insets), because the recorded host sat out of the flow and pinned itself to
 /// the window and GPUI has no equivalent of that. Two
 /// consequences the caller should know, both in the module docs: the layer
 /// only lands on the window's edges if its containing block is the
@@ -384,7 +384,7 @@ pub fn render() -> Div {
 /// the same bottom-right stack as the shot above.
 ///
 /// Rows carry their queue id as the element id (and `test_support`) so mounted
-/// tests can address one toast; the source's status/alert roles have no
+/// tests can address one toast; the recorded status/alert roles have no
 /// GPUI surface yet and are not faked.
 pub fn render_live(state: &gpui_kit::Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let toasts = state.read(cx).toasts.clone();
@@ -433,10 +433,10 @@ fn host(stack: Vec<AnyElement>) -> Div {
 /// content functions of the label: 109.609/160.766/103.062 wide for the three
 /// singles, and the stack's own width is its widest child's. The bottom-right
 /// position comes from the parent, so a width that lands a fraction off moves
-/// the *left* border only, which is the same trade the source makes.
+/// the *left* border only.
 fn render_toast(severity: Severity, message: &str) -> Div {
     div()
-        // A toast is a single line in the source and in all four baselines;
+        // A toast is a single line in all four baselines;
         // in the stack the widest child is laid out at exactly its own
         // max-content width, where a fractional rounding could tip it into a
         // second line. See the module docs.

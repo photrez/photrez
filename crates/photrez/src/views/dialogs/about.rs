@@ -306,8 +306,8 @@ fn about_link_button(icon: &'static [u8], label: &str, url: &'static str) -> Sta
         .bg(color::FIELD)
         .cursor_pointer()
         // No token holds 8% white (the scale carries 5 and 10); inline like the
-        // dock tab's 2%. The alpha blends over FIELD exactly as the CSS does.
-        // The hover brightens the fill only, because the global border rule
+        // dock tab's 2%. The alpha blends over FIELD.
+        // The hover brightens the fill only, because the global border colour
         // outranks an accent hover edge; the edge is the same on hover.
         .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .on_click(move |_, _, cx| cx.open_url(url))

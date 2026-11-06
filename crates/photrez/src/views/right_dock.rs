@@ -354,7 +354,7 @@ fn layer_body(
 /// The Presets tab's placeholder, transcribed from the capture.
 ///
 /// The only one of the three inspector bodies with no separate component: a
-/// centred icon and two lines, and the source itself says "Coming soon".
+/// centred icon and two lines, and its body is the "Coming soon" stub.
 fn presets_stub() -> Div {
     v_flex()
         .w_full()

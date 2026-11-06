@@ -211,7 +211,7 @@ impl FrameMetrics {
 /// row with children pushed to both ends; 1px top border, panel fill, 12px
 /// side padding, 10.5px dim text, nothing selectable.
 ///
-/// Being positioned only exists in the source to anchor the tiling-progress
+/// Being positioned only exists in the recorded layout to anchor the tiling-progress
 /// hairline (omitted above); it is kept so the tree mirrors the layout.
 ///
 /// `status_error` is production state, not a baseline value: the resting captures
@@ -453,7 +453,7 @@ fn ruled(content: impl IntoElement) -> impl IntoElement {
 ///
 /// Two runs rather than two sibling elements because GPUI stacks text children
 /// instead of flowing them, and because the space between `:` and the value
-/// belongs to the label run in the source, where it is
+/// belongs to the label run, where it is
 /// shaped as part of the same line.
 fn labeled(label: &str, value: &str) -> StyledText {
     StyledText::new(format!("{label}{value}")).with_runs(vec![
@@ -505,7 +505,7 @@ fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::Any
 
 /// The right-hand cells: centred on one row, never squeezed, 20px between them.
 ///
-/// The source also dims the group to 50% and ignores input when no document
+/// The recorded panel also dims the group to 50% and ignores input when no document
 /// is open; the baseline has one, so that branch never renders here.
 fn right_group(
     status_error: Option<&str>,
@@ -612,7 +612,7 @@ mod tests {
         assert_eq!(runs[2].color.a, FRAME_TAIL_COLOR.a);
     }
 
-    /// The source values `FrameMetrics` formats must match the golden master:
+    /// The recorded values `FrameMetrics` formats must match the golden master:
     /// `avg_ms = 1.1`, `max_ms = 1.9`.
     #[test]
     fn frame_metrics_source_values() {

@@ -500,8 +500,8 @@ impl App {
 impl App {
     /// Start editing one of the Size or Custom fields (click on the field).
     pub(crate) fn crop_begin_edit(&mut self, field: usize, custom: bool, cx: &mut Context<Self>) {
-        // The source's EditableNumField selects its text on focus, so the first
-        // digit replaces the shown value; the buffer therefore starts empty.
+        // The edit buffer starts empty, so the first typed digit replaces the
+        // shown value rather than appending to it.
         let _ = (field, custom);
         self.state.update(cx, |state, _| {
             state.crop_edit = Some(String::new());

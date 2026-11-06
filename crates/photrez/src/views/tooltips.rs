@@ -25,7 +25,7 @@
 //!
 //! # The 26px height is *not* content-driven here
 //!
-//! The source has no height: 8px x / 4px y padding + a border + the 11px label's line
+//! No height was recorded: 8px x / 4px y padding + a border + the 11px label's line
 //! box give the recorded 26.5. GPUI computes its
 //! own line box for Inter 11px, so leaving the height to the text would put
 //! the border row wherever DirectWrite's metrics say — one engine-derivation
@@ -40,8 +40,8 @@
 //! # Colours, all measured
 //!
 //! * border, authored as white at 10% → probes read **#333333** on all four
-//!   sides, the unlayered universal border-colour override every bordered
-//!   element loses to ([`color::BORDER`]; `tokens.rs` has the cascade at length).
+//!   sides, the universal border colour every bordered
+//!   element loses to ([`color::BORDER`]; `tokens.rs` documents it at length).
 //! * panel fill → #1e1e1e interior, [`color::PANEL`].
 //! * label, in the plain text colour → peak ink #cacaca, [`color::TEXT`].
 //! * kbd fill, white at 10% → #353535 flat fill, which is [`color::WHITE_10`]
@@ -62,7 +62,7 @@
 //!
 //! # Positioning: `fixed` + portal has no GPUI mapping
 //!
-//! The source computes viewport coordinates on hover and portals the node to
+//! The recorded behaviour computed viewport coordinates on hover and moved the node to
 //! `document.body` with `position: fixed`. Neither concept exists in a GPUI
 //! child element, so — following the convention `context_menus.rs` set for
 //! the same problem — [`render`] returns a transparent full-client-area
@@ -148,7 +148,7 @@ const RADIUS: f32 = 4.0;
 /// source's own composition.
 const GAP: f32 = 6.0;
 
-/// 11px — the label; the source gives it no weight setting, i.e.
+/// 11px — the label; no weight was recorded for it, i.e.
 /// regular 400, which is also GPUI's default (set explicitly below anyway so
 /// the run is self-documenting).
 const LABEL_TEXT: f32 = 11.0;
@@ -260,12 +260,12 @@ pub fn render() -> impl IntoElement {
 }
 
 /// The tooltip box: fixed height, label-driven width (no `w()` anywhere —
-/// GPUI hugs the content row, exactly as the source's auto-width div does),
+/// GPUI hugs the content row, which is the recorded auto-width behaviour),
 /// 4px corners, the #333333 edge every Photrez border actually paints, panel
 /// fill, and the drop shadow.
 ///
 /// A label that stays on one line needs no equivalent: without a width
-/// constraint GPUI does not wrap, which is the same reason the source needs its
+/// constraint GPUI does not wrap, which is the same reason the recorded rule needs its
 /// no-wrap rule in the first place.
 pub(crate) fn tooltip(label: &str, shortcut: Option<&str>) -> Div {
     let mut row = h_flex().items_center().gap(px(GAP)).child(label_run(label));
@@ -359,11 +359,11 @@ fn label_run(text: &str) -> Div {
         .child(text.to_string())
 }
 
-/// The chip as the source composes it: a 4px left margin, horizontal padding,
+/// The chip as recorded: a 4px left margin, horizontal padding,
 /// 2px above and below, 4px corners, white at 10% on the panel, white at 50%
 /// text, 9px semibold sans, a 1px light border, uppercased, no line leading.
 ///
-/// Height is pinned to the measured 15px rather than left to the source's
+/// Height is pinned to the measured 15px rather than left to the recorded
 /// zero-leading line box: GPUI has no line-height control, so the 9px line box
 /// is whatever DirectWrite says, and pinning keeps the chip's border rows on
 /// crop 7/21 where the probe put them. Uppercasing is a no-op: see module docs.
@@ -450,7 +450,7 @@ mod tests {
         assert!((KBD_H - 15.0).abs() < 0.001, "KBD_H = {KBD_H}");
     }
 
-    /// The kbd text weight is semibold (600), as the source sets it.
+    /// The kbd text weight is semibold (600), as recorded.
     #[test]
     fn kbd_weight_is_semibold() {
         assert!(
@@ -459,7 +459,7 @@ mod tests {
         );
     }
 
-    /// The label font size is 11px, the size the source gives the label.
+    /// The label font size is 11px, the recorded size.
     #[test]
     fn label_size_is_eleven() {
         assert!(

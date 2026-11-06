@@ -296,7 +296,7 @@ pub mod color {
         a: 1.0,
     };
 
-    /// `oklch(0.58 0 0)` = `#7A7A7A` in the source palette; raised to `#8C8C8C`
+    /// `oklch(0.58 0 0)` = `#7A7A7A` in the recorded palette; raised to `#8C8C8C`
     /// = rgb(140, 140, 140) for legibility.
     ///
     /// At 122 the dim text measured 3.66:1 to 4.18:1 against the shell's dark
@@ -617,7 +617,7 @@ mod tests {
         assert_eq!(color::PANEL.l, 0.1176);
         assert_eq!(color::CANVAS.l, 0.0588);
         assert_eq!(color::TEXT.l, 0.7922);
-        // Raised from the source's 0.4784 (#7A7A7A) for AA contrast.
+        // Raised from the recorded 0.4784 (#7A7A7A) for AA contrast.
         assert_eq!(color::TEXT_DIM.l, 0.5490);
         assert_eq!(color::ICON.l, 0.5255);
         assert_eq!(color::DIVIDER.l, 0.1804);
@@ -640,7 +640,7 @@ mod tests {
     }
 
     /// Dim text must clear WCAG AA (4.5:1) on every dark surface it lands on.
-    /// Reverting the lightness toward the source's 0.4784 must redden this.
+    /// Reverting the lightness toward the recorded 0.4784 must redden this.
     #[test]
     fn text_dim_meets_aa_on_dark_surfaces() {
         // HSL greys only: h and s are 0, so the single channel is the RGB

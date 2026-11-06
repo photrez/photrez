@@ -14,7 +14,7 @@
 //!   menu-help      224x38  @ 372,36      menu-settings 224x38 @ 421,36
 //! ```
 //!
-//! Those heights are measured, not computed from the source's entry list, and
+//! Those heights are measured, not computed from the recorded entry list, and
 //! they do not all agree with it — see "What the measurements added" below.
 //!
 //! The popups are drawn inside a **transparent absolute 1366x820 frame** with
@@ -272,7 +272,7 @@ pub fn render_open(
 }
 
 /// One entry of `MENU_DEFINITIONS`. `shortcut` is the right-aligned key hint
-/// and `disabled` is whole-row 35% opacity in the source — no captured menu
+/// and `disabled` is whole-row 35% opacity as recorded — no captured menu
 /// has a disabled row, so the arm is here for completeness rather than because
 /// a baseline shows it.
 /// 4px vertical margins and a 1px top border in the divider colour, full-bleed
@@ -284,8 +284,8 @@ pub fn render_open(
 /// the 28px the entry list does not account for: it sits below the
 /// fourth separator, closing the popup at 242px.
 ///
-/// Unlike the source, the label paints full-strength [`color::TEXT_DIM`]:
-/// the source's `/60` composites to ~2.2:1 over the panel, too faint for the
+/// The label paints full-strength [`color::TEXT_DIM`]:
+/// the recorded `/60` variant composites to ~2.2:1 over the panel, too faint for the
 /// 11px placeholder that carries this row's whole message.
 fn recent_files_row(
     state: &Entity<AppState>,

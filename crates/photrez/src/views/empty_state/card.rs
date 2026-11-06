@@ -21,7 +21,7 @@ use super::{
 /// The `<section>` itself: 520x352, 6px corners, a 1px [`color::BORDER`] edge
 /// and a [`color::PANEL`] fill, over `0 12px 32px rgba(0,0,0,0.8)`.
 ///
-/// `overflow_hidden` stands in for nothing the source has - the card's content
+/// `overflow_hidden` stands in for nothing in the recorded layout - the card's content
 /// is exactly 350 tall - but it keeps a stray flex rounding step from painting
 /// past the 6px corners.
 pub(super) fn card() -> Div {

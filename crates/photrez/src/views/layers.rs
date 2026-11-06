@@ -655,7 +655,7 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
         }))
 }
 
-/// One footer glyph: the source `<button>` has no size (trace-exempt: that
+/// One footer glyph: the recorded footer button had no size attribute (trace-exempt: that
 /// shape is why), it is exactly the 17px of the icon inside it.
 ///
 /// A 1.75 stroke width is explicit on all five,

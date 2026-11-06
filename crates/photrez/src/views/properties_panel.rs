@@ -9,7 +9,7 @@
 //! x 0..271, crop y 38..749.
 //!
 //! Every number below was read back out of that PNG rather than derived from
-//! the source's class names, because the two disagree in places:
+//! the styling that produced it, because the two disagree in places:
 //!
 //! ```text
 //! tab bar bottom border  crop y=37   (viewport y=83)     #333333 full width
@@ -28,12 +28,12 @@
 //! ```
 //!
 //! Two things in that list are worth stating again, because both contradict the
-//! obvious reading of the source:
+//! obvious reading of the recorded frame:
 //!
 //! * **The section 1 header text and the section 2 header text are both at crop
 //!   y=151..163.** That is not a copy-paste error — it is what the scan found,
 //!   and it is the first clue that this capture is *not* the
-//!   "single layer selected" branch the source's default implies. See
+//!   "single layer selected" branch the recorded default implies. See
 //!   "What state the baseline caught" below.
 //! * **The panel's content stops at crop y=470 of a 712px column.** This view
 //!   therefore does not need to fill the height, and a stretch-to-fill scroll
@@ -47,7 +47,7 @@
 //! "Selected Layer" + "Transform" — the single-selected-layer branch — and
 //! that the two headers happen to land 13px apart in *viewport* terms because
 //! section 1 is 99px tall and puts its own header first. The literal values
-//! (name, type, transform numbers) are the ones the source would render for
+//! (name, type, transform numbers) are the ones the recorded capture shows for
 //! whatever layer the capture had selected; they are reproduced here as
 //! constants and are the first thing to correct if a capture disagrees.
 //!

@@ -282,7 +282,7 @@ fn slider_row(
                 .flex_1()
                 .items_center()
                 .gap(px(ROW_GAP))
-                // The source's invisible range input needs this wrapper;
+                // A hidden range input is what the recorded layout used;
                 // it centers the 4px slider in 18px.
                 .child(track)
                 .child(value_box(&format_display_value(value))),

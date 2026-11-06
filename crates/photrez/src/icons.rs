@@ -18,7 +18,7 @@
 //!      alpha channel and tints it with the element's `text_color`, so the
 //!      stroke value is discarded - a literal colour avoids relying on
 //!      `currentColor` reaching the SVG parser.
-//!   3. The icon class names on the source markup, and the licence comment,
+//!   3. The icon class names on the upstream SVG, and the licence comment,
 //!      are stripped; neither renders. So is the preview's inline style,
 //!      `style="background-color: #fff; ..."` - trace-exempt: the quoted
 //!      attribute is the third-party SVG's own and is what gets dropped

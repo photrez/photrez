@@ -174,7 +174,7 @@
 //!   measured ink profile here carries the same LCD colour splits (`7a7a7a`
 //!   reads as `627a7a` / `6f5232` on adjacent channels) that GPUI cannot
 //!   produce.
-//! * **No 24px-padding wrapper.** The source's outer `div` is the drop target and
+//! * **No 24px-padding wrapper.** The recorded outer element was the drop target and
 //!   supplies the centring; this view pins the card instead, because the frame
 //!   it would centre inside is the window rather than `<main>`'s content cell.
 //!
@@ -210,7 +210,7 @@ const FRAME_H: f32 = 820.0;
 /// the max width binds long before the column does.
 const CARD_W: f32 = 520.0;
 
-/// The section's own height. The source sets no height; 351.5 is what the
+/// The section's own height. No height was recorded; 351.5 is what the
 /// four blocks below add up to, and the bordered box that is painted is 352.
 const CARD_H: f32 = 352.0;
 
@@ -342,7 +342,7 @@ const PROMPT_TEXT: f32 = 11.0;
 
 /// `strokeWidth` on every icon in the card.
 ///
-/// The source passes 1.5 to the header's `image-plus` and 1.75 to all four
+/// The recorded stroke widths are 1.5 for the header's `image-plus` and 1.75 to all four
 /// others. [`icons::with_stroke`] re-strokes a baked constant on demand, so
 /// the two 1.5 call sites use [`icons::IMAGE_PLUS`] directly and the four
 /// 1.75 ones go through [`preset_icon`] / the baked `1.75` constants.
@@ -421,7 +421,7 @@ fn select(shot: Option<&str>) -> EmptyVariant {
 /// The frame is absolute so it disturbs nothing wherever appended, and the
 /// caller must add it late: GPUI has no stacking index, so paint order is the
 /// only stacking control. The
-/// live `canvas_col_w` is the canvas column width: the source centres the card inside it, so the painted
+/// live `canvas_col_w` is the canvas column width: the recorded layout centres the card inside it, so the painted
 /// left edge moves with the viewport and the wide-viewport dock widths (the
 /// captured `CARD_X = 183`: the formula at the 1366x820 baseline).
 /// `col_left` is the canvas column's left edge in window coordinates (the
