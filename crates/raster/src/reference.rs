@@ -6,8 +6,8 @@
 //! byte-match it exactly. NEVER use the new tile-major store as its own
 //! reference. Compiled ONLY under `#[cfg(test)]`; zero production dependency.
 
-/// Canonical tile edge in pixels. The tile-grid sites in this package and in
-/// `photrez-core` repeat this value, so a change must update them all.
+/// Canonical tile edge in pixels. Tile-grid sites in this package, in core and
+/// in the app repeat this value, so a change must update them all.
 pub const TILE: u32 = 256;
 
 /// Transient tile-major materialization. Never the persistent authority.
