@@ -178,7 +178,7 @@ fn golden_interior_and_rim_tolerance() {
         pm_interior_max <= 1,
         "canonical gate: premul interior beyond storage noise: {pm_interior_max}"
     );
-    // rim metrics intentionally REPORT-ONLY (documented legacy compatibility delta)
+    // rim metrics intentionally REPORT-ONLY (documented 0.1 capture compatibility delta)
     assert!(
         alpha_max <= 1,
         "canonical gate: alpha beyond the 0.1 build-capture roundtrip bound: {alpha_max}"

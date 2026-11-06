@@ -151,7 +151,7 @@ pub(super) fn run() {
 }
 
 /// Build the fixture document through `photrez-core`: the real demo document
-/// with `--demo`, one plain core layer for the legacy `--size` recipe, otherwise
+/// with `--demo`, one plain core layer when `--size` is given, otherwise
 /// the requested stack of patterned raster layers composited by core.
 fn build_base(cfg: &Config) -> Result<(u32, u32, Vec<u8>), String> {
     if cfg.demo {
