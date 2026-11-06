@@ -120,7 +120,7 @@
 //!
 //! # Known gaps, specific to this file
 //!
-//! * The brush size slider's wedge (`clip-path: polygon(...)` over the track)
+//! * The brush size slider's wedge (a diagonal notch drawn over the track)
 //!   renders as the rectangle `ui::slider` already draws — that gap is owned
 //!   by `ui.rs` (documented on `SliderKind::BrushSize`) and inherited here,
 //!   not re-explained.

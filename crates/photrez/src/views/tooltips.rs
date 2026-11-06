@@ -53,7 +53,7 @@
 //!
 //! # No arrow — checked, not assumed
 //!
-//! Tooltip components often carry a `clip-path` notch pointing at the
+//! Tooltip components often carry a notch pointing at the
 //! trigger; the project-wide gap list calls that out as inexpressible in
 //! GPUI. This one does not need it: the probe's corner ramp is a plain 4px
 //! circular arc on all four corners of all three crops, with no

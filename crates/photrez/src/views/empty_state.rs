@@ -162,7 +162,7 @@
 //!   header icon's fill to the accent; the ring and the shift are gaps, and
 //!   no baseline catches a drag. The resting branch is what is drawn.
 //! * **Motion and interaction states** (transform/box-shadow/colour
-//!   transitions, hover and focus-visible variants) - per the project-wide list.
+//!   transitions, hover and focused variants) - per the project-wide list.
 //!   Note this cuts the other way too: the tiles' 50%-accent hover border and
 //!   accent hover label colour are *not* painted, rather
 //!   than being fixed into the resting image.
