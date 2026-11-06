@@ -1,46 +1,5 @@
 use super::*;
 
-/// All 74 manifest ids must seed deterministically.
-///
-/// RED proof: remove `AppState::seeded` entirely and this test fails at
-/// compile time. GREEN: every id produces a well-formed `AppState`.
-#[test]
-fn all_74_manifest_ids_seed_deterministically() {
-    const MANIFEST: &str = include_str!("../../tests/baseline/manifest.json");
-
-    // Manual JSON "id" scan (no serde_json dependency).
-    // Scans for `"id":` then reads the quoted value that follows.
-    let ids: Vec<String> = MANIFEST
-        .split("\"id\":")
-        .skip(1)
-        .filter_map(|s| {
-            let rest = s.strip_prefix(|c: char| c.is_whitespace())?;
-            let rest = rest.strip_prefix('"')?;
-            let end = rest.find('"')?;
-            Some(rest[..end].to_string())
-        })
-        .collect();
-
-    assert_eq!(
-        ids.len(),
-        74,
-        "expected 74 manifest ids, found {}. manifest.json changed, update this test",
-        ids.len()
-    );
-
-    for id in &ids {
-        let state = AppState::seeded(Some(id));
-        // Every field must be a valid, readable value.
-        let _ = state.active_tool;
-        let _ = state.inspector_tab;
-        let _ = state.layer_tab;
-        // Prove the booleans are reachable.
-        let _ = state.dock_open;
-        let _ = state.has_document;
-        let _ = state.chrome_visible;
-    }
-}
-
 /// `AppState::default()` has `dock_open`, `has_document` and
 /// `chrome_visible` all `true` — the fields a derived `Default` would set
 /// to `false`.
@@ -88,6 +47,26 @@ fn option_tool_seeds_are_pinned() {
         AppState::seeded(Some("option-eyedropper")).active_tool,
         ToolId::Eyedropper
     );
+    assert_eq!(
+        AppState::seeded(Some("option-selection")).active_tool,
+        ToolId::Selection
+    );
+    assert_eq!(
+        AppState::seeded(Some("option-crop")).active_tool,
+        ToolId::Crop
+    );
+    assert_eq!(
+        AppState::seeded(Some("option-eraser")).active_tool,
+        ToolId::Eraser
+    );
+    assert_eq!(
+        AppState::seeded(Some("option-gradient")).active_tool,
+        ToolId::Gradient
+    );
+    assert_eq!(
+        AppState::seeded(Some("option-shape")).active_tool,
+        ToolId::Shape
+    );
 }
 
 /// Brush defaults: 20 px, 80 % hard, full strength.
@@ -104,6 +83,10 @@ fn brush_defaults_match_the_pinned_values() {
 #[test]
 fn dock_tab_seeds_are_pinned() {
     assert_eq!(
+        AppState::seeded(Some("dock-properties")).inspector_tab,
+        InspectorTab::Properties
+    );
+    assert_eq!(
         AppState::seeded(Some("dock-adjustments")).inspector_tab,
         InspectorTab::Adjustments
     );
@@ -116,7 +99,13 @@ fn dock_tab_seeds_are_pinned() {
         LayerTab::History
     );
     assert!(!AppState::seeded(Some("dock-closed")).dock_open);
-    assert!(!AppState::seeded(Some("empty-full")).has_document);
+    // The empty branch is a prefix test, so every empty-* id clears the
+    // document and the demo layers with it.
+    for id in ["empty-card", "empty-full", "empty-new-document"] {
+        let state = AppState::seeded(Some(id));
+        assert!(!state.has_document, "{id} must seed with no document");
+        assert!(state.layers.is_empty(), "{id} must drop the demo layers");
+    }
 
     // A shot launch seeds a display-only tab for the demo document; an
     // empty shot seeds none.

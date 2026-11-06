@@ -15,8 +15,8 @@ pub use sessions::*;
 
 // ── enums ─────────────────────────────────────────────────────────────────────
 
-/// The ten tools the tool rail exposes (matches `option-*` suffixes in the
-/// baseline manifest).
+/// The ten tools the tool rail exposes. Each one has an `option-*` seed id in
+/// `AppState::seeded`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolId {
     Move,
