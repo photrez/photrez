@@ -148,8 +148,9 @@ impl App {
     }
 
     /// Reorder one projected layer row through the core history, so the move
-    /// survives reprojection and undo. Unprojected demo rows (no core id) keep
-    /// the legacy UI-state fallback used by the shell snapshots.
+    /// survives reprojection and undo. A row with no core id, which the demo
+    /// fixture can leave behind, reorders through the app's own UI state
+    /// instead, and that path records no history entry.
     pub(crate) fn reorder_layer_rows(
         &mut self,
         from_row: u64,
