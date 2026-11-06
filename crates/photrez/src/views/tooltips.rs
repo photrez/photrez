@@ -145,7 +145,7 @@ const RADIUS: f32 = 4.0;
 /// 6px between the label span and the kbd. The kbd *also* carries
 /// its own 4px left margin, so the two together are 10px of floor — transcribed as
 /// [`KBD_ML`] on the chip rather than folded into the gap, matching the
-/// source's own composition.
+/// recorded composition.
 const GAP: f32 = 6.0;
 
 /// 11px — the label; no weight was recorded for it, i.e.
