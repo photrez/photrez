@@ -4,6 +4,10 @@
 [build]
 target-dir = "target"
 
+# Shared-dependency reuse is enabled. Build intermediates live under
+# `~/.cargo/targets/`; on this machine that path is a junction to a folder on
+# the project drive, so C: does not grow while sharing stays on.
+
 # GNU ld is the documented default linker for x86_64-pc-windows-gnu; rust-lld
 # ships with the toolchain and links this workspace. `-Clinker-features=+lld`
 # is still unstable, so name the bundled linker directly instead.

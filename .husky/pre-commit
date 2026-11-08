@@ -10,13 +10,11 @@ if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|sh)$'
   exit 1
 fi
 
-# 0c. Block internal references from local blocklist (gitignored, internal only)
-if [ -f ".husky/internal-blocklist" ]; then
-  if git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|sh)$' | xargs grep -nFf .husky/internal-blocklist 2>/dev/null | grep -q .; then
-    echo ""
-    echo "ERROR: Internal reference pattern detected in staged source files."
-    exit 1
-  fi
+# 0c. Optional local checks, when the developer provides them. These files are
+# not part of the public tree; CI runs the public guard only.
+LOCAL_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|rs|md|sh|txt)$' | tr '\n' ' ' || true)
+if [ -n "$LOCAL_FILES" ] && [ -f ".husky/check-local-vocabulary.sh" ]; then
+  sh .husky/check-local-vocabulary.sh --files "$LOCAL_FILES" || exit 1
 fi
 
 # 0e. Public-artifact terminology guard: staged source + public markdown

@@ -26,19 +26,13 @@ unwrap_used = "allow"
 expect_used = "allow"
 panic = "allow"
 
-# Native release profile. No package-scoped release overrides remain: every
-# crate uses Cargo's default `release` tuning (opt-level = 3, LTO off). The
-# size-targeted `opt-level = "s"` override that used to sit here applied only to
-# the removed browser build, and keeping it would have silently slowed the
-# native binary.
+# Native release profile. No package-scoped release overrides: every crate uses
+# Cargo's default `release` tuning (opt-level = 3, LTO off).
 #
 # The measurement command runs the debug profile. Keep GPUI's paint/upload path
-# optimised (the four package overrides the earlier standalone measurement pins)
-# and optimise this crate too: the seam's full-buffer RGBA->BGRA loop is
-# production code, and at rustc's default debug codegen it dominates the
-# measurement (the earlier measurement could leave its own crate unoptimised
-# because its per-frame work was a 64x64 overlay). This is a profile override,
-# not a behaviour change.
+# optimised, and optimise the app crate too: the seam's full-buffer RGBA->BGRA
+# loop is production code, and at rustc's default debug codegen it dominates the
+# measurement. This is a profile override, not a behaviour change.
 [profile.dev.package]
 gpui-base = { opt-level = 2 }
 gpui-component = { opt-level = 2 }

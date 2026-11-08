@@ -28,11 +28,11 @@ expect_used = "deny"
 panic = "deny"
 
 [dependencies]
-# Exact pin (`=0.7.3`): which GPUI API this builds against must be
+# Exact pin (`=0.9.0`): which GPUI API this builds against must be
 # readable from the manifest alone. `profiler` enables the platform present
 # trace used only by the `measure-frames` binary; it is a Tier C decision the
 # user approved 2026-10-19 and pulls `hdrhistogram`, not a gpui backend.
-gpui-kit = { version = "=0.7.3", features = ["profiler"] }
+gpui-kit = { version = "=0.9.0", features = ["profiler", "gpui-fast"] }
 photrez-core = { path = "../core" }
 fontdb = "0.20"
 # Parses the embedded message catalogs (`assets/i18n/*.json`, baked in with
@@ -73,7 +73,7 @@ ttf-parser = "0.25"
 # exact-pins two transitive versions (cocoa 0.26.0, unicode-properties
 # 0.1.3); Cargo.lock holds those pins. Re-run the test build after any
 # dependency update that moves them.
-gpui-kit = { version = "=0.7.3", features = ["test-support"] }
+gpui-kit = { version = "=0.9.0", features = ["test-support"] }
 
 [[bin]]
 name = "measure-frames"

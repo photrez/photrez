@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   # ─── RUST: one workspace, three OSes, the full crate set ───
-  # After the workspace consolidation the root workspace owns every crate:
+  # The root workspace owns every crate:
   # `cargo test --workspace` is the whole Rust suite. gpui builds on all three
   # runners; Linux needs the X11/wayland/fontconfig/Vulkan stack named below.
   rust:

@@ -36,8 +36,6 @@ test-results/
 !crates/photrez/assets/icons/*.png
 !crates/photrez/assets/icons/*.ico
 !media/*.png
-!crates/photrez/tests/baseline/**/*.png
-!crates/xtask/tests/fixtures/*.png
 !crates/photrez/tests/fixtures/*.png
 # Core golden fixtures: compiled into tests via include_bytes!
 !crates/core/src/render/goldens/*.png
@@ -52,27 +50,6 @@ test-results/
 
 # Editor backups
 *.bak
-
-# Local blocklist for pre-commit hook (brand references, internal only)
-.husky/internal-blocklist
-.husky/internal-authors-blocklist
-
-# Internal docs (not for distribution)
-docs/archive/
-docs/decisions/
-docs/icon-history/
-docs/plans/
-docs/research/
-docs/risk-registers/
-docs/spec/
-docs/performance/
-docs/*AUDIT_REPORT.md
-docs/DEEP_PROJECT_REVIEW.md
-docs/photrez-brush-*.md
-
-# Internal work evidence (not for distribution)
-.slim/
-docs/test-disposition.csv
 
 # Git worktrees
 worktrees/

@@ -1,73 +1,40 @@
 # Public stack-surface token list for scripts/check-public-terminology.sh --staleness.
-# Single source of truth: referenced by path from .husky/pre-commit and the
-# "contributions" CI job. If a workflow disagrees with this file, this file wins.
+# Historical files are allowlisted below. They are not current product claims.
 #
-# Format (TAB-separated records; '#' lines are comments):
-#   !present <stack> <command>   exit 0 => the stack is still in the tree
-#   <token> <globs> <mode>       globs = space-separated git pathspecs
-# mode:
-#   forbidden-when-absent:<stack>  a hit reds once <stack> has left the tree
-#   allowlist                      dated/historical file; exempt + reason above it
-#   url-only                       allowed inside a URL (a citation needs its
-#                                  address); red in prose or in a link label
+# Format: TAB-separated records; '#' starts a comment.
+#   <token> <globs> <mode>       globs are git pathspecs
+#                                mode is allowlist, url-only, or
+#                                forbidden-when-absent:<stack>
+#   url-only                     allowed inside a URL, red in prose
 #
-# Tokens are grep -E patterns, matched case-insensitively, word-start anchored.
-# Public stack claims are forbidden once their corresponding runtime is absent.
-# Historical exceptions use narrow allowlist paths with a reason immediately above.
-# Brand tokens (product names of other editors) deliberately do NOT live here:
-# that list is untracked (.husky/internal-blocklist), so a public file cannot be
-# scanned for it. A tracked file that ever needs to cite a brand may use the
-# url-only mode declared above - citations need their addresses.
-
-!present	tauri	git grep -q -F 'tauri' -- apps/desktop/src-tauri/Cargo.toml
-!present	solid	git grep -q -F 'solid-js' -- apps/desktop/package.json
-!present	vite	git grep -q -E '\bvite\b' -- apps/desktop/package.json
-!present	wasm	git grep -q -F 'wasm' -- apps/desktop/package.json
-!present	webgl	git grep -q -F 'WebGL2' -- apps/desktop/src/renderer/
+# The retired stacks are permanently absent from this repository, so the list
+# carries no presence probe: every forbidden-when-absent record is live.
 
 # --- Tokens for the retired Tauri-era runtime surface -------------------------
 
 # allowlist: dated project history is retained verbatim.
 tauri	CHANGELOG.md	allowlist
-# allowlist: dated performance measurement record (append-only).
-tauri	docs/frame-pacing-baseline.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-tauri	docs/archive/	allowlist
 tauri	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:tauri
 
 # allowlist: dated project history is retained verbatim.
 solid	CHANGELOG.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-solid	docs/archive/	allowlist
 solid	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:solid
 
 # allowlist: dated project history is retained verbatim.
 vite	CHANGELOG.md	allowlist
-# allowlist: dated performance measurement record (append-only).
-vite	docs/frame-pacing-baseline.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-vite	docs/archive/	allowlist
 vite	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:vite
 
 # allowlist: dated project history is retained verbatim.
 wasm	CHANGELOG.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-wasm	docs/archive/	allowlist
 wasm	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:wasm
 
 # allowlist: dated project history is retained verbatim.
 webview	CHANGELOG.md	allowlist
-# allowlist: dated performance measurement record (append-only).
-webview	docs/frame-pacing-baseline.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-webview	docs/archive/	allowlist
 # WebView2 is the Tauri shell's runtime: the surface claim outlives tauri only by mistake.
 webview	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:tauri
 
 # allowlist: dated project history is retained verbatim.
 webgl	CHANGELOG.md	allowlist
-# allowlist: retired history lives in docs/archive/ per AGENTS.md; not a current product claim.
-webgl	docs/archive/	allowlist
 webgl	README.md CONTRIBUTING.md SECURITY.md NOTICE .github/ docs/ scripts/	forbidden-when-absent:webgl
 
 # Allowlist (2026-11-04): the guard's pattern list and this token file name the
