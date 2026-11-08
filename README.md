@@ -1,199 +1,233 @@
 <p align="center">
-  <img src="./logo.svg" width="100" height="100" alt="Photrez Logo" />
+  <img src="./logo.svg" width="96" height="96" alt="Photrez" />
 </p>
 
-<h1 align="center">
-  <strong>Photrez</strong>
-</h1>
+<h1 align="center">Photrez</h1>
 
 <p align="center">
-  <strong>A fast, lightweight native desktop image editor for daily graphic work.</strong><br>
-  Layer management, transforms, precision selection, brush tools, and print export, built for creators who want clean, dependable editing without the bloat.
+  <b>A native image editor for layered work.</b><br>
+  Raster layers, selections, transforms, text, shapes, print and export in one Rust application.<br>
+  No embedded browser, no account, no telemetry.
 </p>
 
 <p align="center">
-  <a href="https://github.com/photrez/photrez/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/photrez/photrez/ci.yml?branch=main&label=ci&style=flat-square"></a>
-  <a href="https://github.com/photrez/photrez/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/photrez/photrez?style=flat-square"></a>
-  <a href="https://github.com/photrez/photrez/blob/main/LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-E15A17?style=flat-square"></a>
-  <a href="https://github.com/photrez/photrez/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/photrez/photrez?style=flat-square"></a>
-  <a href="https://github.com/photrez/photrez/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/photrez/photrez?style=flat-square"></a>
-  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-12%2B-000000?style=flat-square">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-X11%2FWayland-FCC624?style=flat-square">
+  <a href="https://github.com/photrez/photrez/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/photrez/photrez/ci.yml?branch=main&label=ci&style=flat-square&labelColor=1f1f23"></a>
+  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-E15A17?style=flat-square&labelColor=1f1f23">
+  <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-b7410e?style=flat-square&labelColor=1f1f23">
+  <img alt="UI: GPUI" src="https://img.shields.io/badge/ui-GPUI-6b7280?style=flat-square&labelColor=1f1f23">
+  <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-6b7280?style=flat-square&labelColor=1f1f23">
+  <a href="LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-6b7280?style=flat-square&labelColor=1f1f23"></a>
 </p>
 
----
+<p align="center">
+  <a href="#install">Install</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#screenshots">Screenshots</a> &middot;
+  <a href="#supported-formats">Formats</a> &middot;
+  <a href="#build-from-source">Build</a> &middot;
+  <a href="#documentation">Docs</a> &middot;
+  <a href="#license">License</a>
+</p>
 
-![Photrez Editor Preview](media/layers.png)
+<p align="center">
+  <img src="media/native-start.png" alt="The native Photrez window at startup: the Open Image and New Document actions, four quick presets, Properties, Layers and History panels, and the Navigator" width="100%">
+  <br>
+  <sub>The native GPUI application at startup. Quick presets, panel dock, layer list and Navigator.</sub>
+</p>
 
-<div align="center">
+## What this is
 
-### 📦 Download Photrez
+Photrez is a local-first image editor written in Rust. GPUI draws the window, menus, canvas and panels. The `photrez-core` engine owns the document, pixels and history. The two parts share one process, so the UI projects core state and never becomes a second document authority.
 
-Portable archives per platform: extract and run, no installer. The native application is published as
-`Photrez-v<version>-windows-x64.zip`, `Photrez-v<version>-macos-arm64.tar.gz` and
-`Photrez-v<version>-linux-x64.tar.gz` from the
-[releases page](https://github.com/photrez/photrez/releases).
+It opens layered `.ptz` projects and common raster images, then exports flat PNG, JPEG or WebP files. The current native app is in alpha. The release page still lists the archived predecessor, so read the install note before you download.
 
-Read the release list before you download. As of 2026-11-04 the native archive format is produced by the
-release workflow but has only been published as draft releases, and the release marked **Latest** on that
-page is `v0.1.0`, which ships the archived predecessor's installers (`.exe` setup, `.dmg`, `.deb`, `.rpm`,
-`.AppImage`). Those are not this application. If you see a setup program or an AppImage, you are looking at
-the previous implementation.
-
-- **Windows 10/11 (64-bit):** `Photrez-v<version>-windows-x64.zip` → run `photrez.exe`
-- **macOS (Apple silicon):** `Photrez-v<version>-macos-arm64.tar.gz` → run `photrez`
-- **Linux (X11/Wayland, x64):** `Photrez-v<version>-linux-x64.tar.gz` → run `photrez`
-
-On Windows, extract the archive anywhere and run `photrez.exe`. There is no installer, Start Menu entry, or file-association registration.
-
-Photrez keeps settings in `%APPDATA%\photrez`, and its cache and autosave archives in
-`%LOCALAPPDATA%\photrez`. The archived predecessor installed into that same `%LOCALAPPDATA%\photrez`
-folder, so it may still hold the executable, the loader DLL and the uninstaller it left behind.
-Uninstall the predecessor first, and extract this archive to a folder of your own instead.
-
-Each archive contains the executable, `LICENSE`, `NOTICE`, and `THIRD_PARTY.md`. The release also carries a `SHA256SUMS` file; verify the archive with `sha256sum -c SHA256SUMS`. These portable archives are unsigned. Windows SmartScreen may warn when launching `photrez.exe`; verify the archive checksum before running it.
-
-</div>
-
-> The previous implementation and its history are archived at [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy). The current codebase is the native Rust/GPUI application.
-
----
-
-## ✨ Key Features
+## Features
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h3>⚡ Native & Fast</h3>
-      <p>A native Rust interface (GPUI) over the Rust <code>photrez-core</code> document engine: one process, no embedded browser, no telemetry, no forced cloud accounts.</p>
+      <h3>One native process</h3>
+      <p>GPUI draws the window and the Rust core owns the document. There is no embedded browser, no JavaScript runtime and no IPC bridge in the product path.</p>
+      <p>Document tabs keep their own camera. Pan, zoom, fit and actual size use the same camera model across tabs.</p>
     </td>
     <td width="50%" valign="top">
-      <h3>🎨 Layer & Selection Workflow</h3>
-      <p>Full multi-layer management (opacity, blend, visibility, lock, duplicate, merge), marquee selection tools (rectangle & ellipse), and object transforms with snapping.</p>
+      <h3>Layers and history</h3>
+      <p>Add, delete, rename, duplicate, merge, flatten, stamp and reorder layers. Set opacity, visibility, locks and one of twelve blend modes. The Layers row carries a live thumbnail.</p>
+      <p>Undo and redo run through the core history. The History panel lists labelled steps and jumps to any one of them.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <h3>🖌️ Calibrated Paint & Vector</h3>
-      <p>Smooth round-tip brush and eraser with hardness, flow, and smoothing controls, alongside parametric text and shape layers.</p>
+      <h3>Selections and transforms</h3>
+      <p>Rectangle and ellipse marquees, Select All, Deselect, Invert, cut, copy, paste and delete pixels. Paste creates a layer, and a copied selection can move to another document.</p>
+      <p>The Move tool drags, scales and rotates layers, snaps to canvas and layer edges, and shows guides during the drag.</p>
     </td>
     <td width="50%" valign="top">
-      <h3>🖨️ Print & High-DPI Export</h3>
-      <p>Built-in print dialog and inspector with paper presets and DPI/PPI scale calculations (Windows), and clean exports to PNG, JPEG, and WebP on every platform.</p>
+      <h3>Paint, text and shapes</h3>
+      <p>Brush and eraser with size, hardness, strength, flow and smoothing. Paint Bucket with tolerance and contiguous fill. Linear and radial gradients. Eyedropper with an optional auto-copy preference.</p>
+      <p>Text layers stay re-editable in `.ptz`. Ten parametric shape kinds keep fill and stroke controls after drawing.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Print and export</h3>
+      <p>The print dialog and inspector carry paper preview, scale, orientation and copies. On Windows the composite goes through the platform print service.</p>
+      <p>Export writes the composite as PNG, JPEG or WebP. WebP export uses the lossless path, so the quality slider does not change it.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Local by default</h3>
+      <p>Settings stay in the user profile. Autosave writes to the local cache once per minute and offers recovery after an abnormal exit. No cloud account, no telemetry, no subscription.</p>
+      <p>Portable archives contain the executable and the licence and notice files. There is no installer and no Start Menu entry.</p>
     </td>
   </tr>
 </table>
 
----
+## Screenshots
 
-## 📁 Supported Formats
+<p align="center">
+  <img src="media/native-document.png" alt="A blank 800 by 600 document in the native app, with the Move tool, Auto-Select, Snap and Transform controls in the option bar, and the Properties, Layers and Navigator panels" width="100%">
+  <br>
+  <sub>An 800 x 600 document. The option bar, Properties transform rows, Layers list and Navigator all read the live core state.</sub>
+</p>
+
+The screenshots come from the native GPUI build, not from the archived predecessor.
+
+## Install
+
+Portable archives are published from the [releases page](https://github.com/photrez/photrez/releases):
+
+- **Windows 10/11 (64-bit):** `Photrez-v<version>-windows-x64.zip`, then run `photrez.exe`.
+- **macOS 12+ (Apple silicon):** `Photrez-v<version>-macos-arm64.tar.gz`, then run `photrez`.
+- **Linux (X11 or Wayland, x64):** `Photrez-v<version>-linux-x64.tar.gz`, then run `photrez`.
+
+> [!IMPORTANT]
+> As of 2026-11-04 the native archives are produced by the release workflow but are still published as draft releases. The release marked **Latest** is `v0.1.0`, and it ships the archived predecessor's installers (`.exe` setup, `.dmg`, `.deb`, `.rpm`, `.AppImage`). Those installers are not this application. If you see a setup program or an AppImage, you are looking at the previous implementation.
+
+On Windows, extract the archive anywhere and run `photrez.exe`. There is no installer, Start Menu entry or file-association registration.
+
+Photrez keeps settings in `%APPDATA%\photrez` and its cache and autosave archives in `%LOCALAPPDATA%\photrez`. The archived predecessor used the same `%LOCALAPPDATA%\photrez` folder. Uninstall the predecessor first, then extract this archive to its own folder.
+
+Each archive contains the executable, `LICENSE`, `NOTICE` and `THIRD_PARTY.md`. The release also carries `SHA256SUMS`. Verify the archive with `sha256sum -c SHA256SUMS` before you run it. The archives are unsigned, so Windows SmartScreen can warn on launch.
+
+## Supported formats
 
 | Format | Extension | Type | Import | Export | Notes |
-| --- | --- | --- | :---: | :---: | --- |
-| **Photrez Project** | `.ptz` | Native Project | ✅ | ✅ | Backward-compatible from v0.1.0; current format v3, preserves full layer state & vector text |
-| **PNG Image** | `.png` | Raster Bitmap | ✅ | ✅ | Full RGBA alpha channel transparency support |
-| **JPEG Image** | `.jpg`, `.jpeg` | Raster Bitmap | ✅ | ✅ | Standard compressed photo format with quality controls |
-| **WebP Image** | `.webp` | Raster Bitmap | ✅ | ✅ | Export is currently the lossless path (quality is ignored) |
-| **BMP Image** | `.bmp` | Raster Bitmap | ✅ | ❌ | Import-only raster |
+| --- | --- | --- | --- | --- | --- |
+| Photrez project | `.ptz` | Native project | Yes | Yes | Format v3, backward-compatible from v0.1.0. Keeps layer state and re-editable text. |
+| PNG | `.png` | Raster | Yes | Yes | Full RGBA transparency. |
+| JPEG | `.jpg`, `.jpeg` | Raster | Yes | Yes | Export takes a quality setting. |
+| WebP | `.webp` | Raster | Yes | Yes | Export uses the lossless path. |
+| BMP | `.bmp` | Raster | Yes | No | Import only. |
 
----
+PSD import and export are not implemented.
 
-## ⌨️ Essential Keyboard Shortcuts
+## Essential shortcuts
 
-| Shortcut | Tool / Action | Description |
-| --- | --- | --- |
-| `V` | **Move & Transform** | Select, drag, scale, and rotate objects |
-| `M` / `Shift+M` | **Marquee Selection** | Toggle between Rectangular and Elliptical marquee |
-| `B` / `E` | **Brush & Eraser** | Paint strokes or erase bitmap layer pixels |
-| `T` / `U` | **Text & Shape** | Add typography layers or draw vector shapes |
-| `Ctrl + Z` / `Ctrl + Y` | **Undo / Redo** | History stack navigation |
-| `Ctrl + P` | **Print** | Open the print dialog & inspector (Windows) |
-| `Ctrl + Shift + P` | **Side Panels** | Toggle the right dock |
+| Shortcut | Action |
+| --- | --- |
+| `V` | Move and transform |
+| `M`, `Shift+M` | Rectangle or ellipse marquee |
+| `C` | Crop |
+| `I` | Eyedropper |
+| `B`, `E` | Brush or eraser |
+| `G`, `Shift+G` | Paint Bucket or Gradient |
+| `U`, `T` | Shape or Text |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y`, `Ctrl+Shift+Z` | Redo |
+| `Ctrl+A`, `Ctrl+D`, `Ctrl+Shift+I` | Select all, deselect, invert |
+| `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Delete` | Cut, copy, paste, delete selection |
+| `Ctrl+0`, `Ctrl+1` | Fit to screen, actual size |
+| `Ctrl+P` | Print, Windows |
+| `Ctrl+Shift+P` | Toggle the right dock |
+| `Ctrl+Alt+E` | Export |
 
----
+## Build from source
 
-## 🖥️ Platform Notes
-
-| Platform | Status | Print | Notes |
-| --- | --- | --- | --- |
-| Windows 10/11 (x64) | Supported | ✅ Native print dialog & inspector | Primary development platform |
-| macOS 12+ (Apple silicon) | Supported | ❌ Unsupported (typed error) | Builds and runs |
-| Linux (X11/Wayland, x64) | Supported | ❌ Unsupported (typed error) | Requires X11 or Wayland, fontconfig/FreeType, and a Vulkan or OpenGL driver |
-
----
-
-## 🛠️ Building from Source
+Use the Rust toolchain pinned by `rust-toolchain.toml`.
 
 ```bash
-# Use the Rust toolchain specified by rust-toolchain.toml
-cargo dev                          # Run the app with the dev profile (cargo run -p photrez)
-cargo xtask dev                    # Same, adding the Windows GNU linker dir to the child PATH
-cargo ui                           # UI iteration profile (app crate at opt-level 1)
+cargo dev                          # Run the app with the dev profile
+cargo xtask dev                    # Same, with the Windows GNU linker directory on PATH
+cargo ui                           # UI iteration profile, photrez at opt-level 1
 bacon                              # Save-triggered cargo check -p photrez
-cargo build --release -p photrez   # Release binary at target/release/photrez(.exe)
+cargo build --release -p photrez   # Release binary at target/release/photrez
+```
 
-# Workspace validation
+Workspace checks:
+
+```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
----
+## Platform notes
 
-## ❓ Frequently Asked Questions (FAQ)
+| Platform | Status | Print | Notes |
+| --- | --- | --- | --- |
+| Windows 10/11 (x64) | Supported | Native print dialog and inspector | Primary development platform. |
+| macOS 12+ (Apple silicon) | Supported | Typed unsupported-platform error | Builds and runs. |
+| Linux (X11 or Wayland, x64) | Supported | Typed unsupported-platform error | Needs fontconfig, FreeType and a Vulkan or OpenGL driver. |
+
+The archives are unsigned. Verify the checksum before you run them.
+
+## Under the hood
+
+| Crate | Owns |
+| --- | --- |
+| `crates/photrez` | GPUI shell, canvas display, input policy, views and platform services |
+| `crates/core` | Engine, command dispatch, history, pixel registry and facade |
+| `crates/document` | Persisted content model, layer parameters and resource ids |
+| `crates/raster` | Pixel buffers, tiles, copy-on-write state and brush geometry |
+| `crates/format` | `.ptz` envelope, reader, writer and image codecs |
+| `crates/render` | CPU compositing, shape rasterization and text rasterization |
+| `crates/xtask` | Repository tasks and version reporting |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime design. The archived predecessor lives in [photrez/photrez-legacy](https://github.com/photrez/photrez-legacy).
+
+## FAQ
 
 <details>
-<summary><b>Does Photrez require an internet connection or account?</b></summary>
-<p>No. Photrez is 100% local-first software. It runs entirely offline on your computer without cloud accounts, telemetry, or subscriptions.</p>
+<summary><b>Does Photrez need an internet connection or an account?</b></summary>
+<p>No. The editor runs offline. It uses no account, telemetry or cloud service.</p>
 </details>
 
 <details>
-<summary><b>Does Photrez support PSD files?</b></summary>
-<p>Not currently. Photrez uses its versioned <code>.ptz</code> project format for layered documents and exports to PNG, JPEG, and WebP. PSD import support is on the long-term roadmap.</p>
+<summary><b>Does Photrez open PSD files?</b></summary>
+<p>No. Layered documents use the native <code>.ptz</code> format. Raster images open as a single layer. PSD is not implemented.</p>
 </details>
 
 <details>
-<summary><b>What do Save, Save As, and Export do?</b></summary>
-<p><b>Save</b> (<code>Ctrl+S</code>) overwrites your <code>.ptz</code> project. Text, shape and pixel layers each stay editable after a save, except a layer you have rasterized: it keeps its pixels and no longer carries the text or shape parameters that made them. For a new or unsaved document Save opens Save As, which defaults to <code>.ptz</code>. A flat single-layer source (JPG/PNG/WebP) is overwritten in place by Save. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a separate flat PNG/JPEG/WebP copy.</p>
+<summary><b>What is the difference between Save and Export?</b></summary>
+<p><b>Save</b> (<code>Ctrl+S</code>) writes the layered <code>.ptz</code> project. <b>Export</b> (<code>Ctrl+Alt+E</code>) writes a flat PNG, JPEG or WebP copy. Save on a new document opens Save As. Save on an imported flat image overwrites that image in place.</p>
 </details>
 
 <details>
-<summary><b>Is there autosave, and what happens after a crash?</b></summary>
-<p>Yes. While you edit, Photrez writes a hidden autosave (document metadata plus pixels) at most once per minute to a local temp directory, and checks for it on the next launch. It is local-only, no cloud backup.</p>
+<summary><b>Is there autosave after a crash?</b></summary>
+<p>Yes. While a document is dirty, Photrez writes an autosave archive to the local cache at most once per minute. The next launch offers it for recovery. The archive stays local.</p>
+</details>
+
+<details>
+<summary><b>Why does the canvas look pixelated at high zoom?</b></summary>
+<p>The preview buffer is clamped to keep GPU work bounded. Past that zoom level the preview pixelates. Pan to inspect another region, or use a lower zoom.</p>
 </details>
 
 <details>
 <summary><b>What happens when I close a document with unsaved changes?</b></summary>
-<p>Photrez asks <b>Discard changes?</b> Choose <b>Discard</b> to close without saving, or <b>Cancel</b> to go back. With nothing unsaved, the document closes immediately and the nearest remaining tab activates.</p>
+<p>Photrez asks for a decision: Save, Discard or Cancel. Cancel keeps the document open and dirty. With no unsaved change, the tab closes immediately and the nearest tab becomes active.</p>
 </details>
 
-<details>
-<summary><b>What are the New Document defaults?</b></summary>
-<p>The New Document dialog opens at 1080×1080 pixels on a white background, with category tabs (Paper, Social Media, Web & Video, Photography), a preset grid that includes HD (1920×1080) and A4 (2480×3508), or a custom Name/Width/Height/Unit/Background form.</p>
-</details>
+## Documentation
 
-<details>
-<summary><b>Why does the canvas look pixelated at very high zoom?</b></summary>
-<p>The preview buffer is clamped to keep the GPU workload bounded, so beyond that zoom level the preview pixelates. Pan to inspect other regions instead of zooming further.</p>
-</details>
+- [Documentation index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Feature matrix](docs/FEATURES.md)
+- [UI guide](docs/UI_GUIDE.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Third-party notices](THIRD_PARTY.md)
 
-<details>
-<summary><b>Any other known limitations?</b></summary>
-<p>Printing is Windows-only in this release (see the platform notes above). The artifacts are not code-signed. Verify the SHA256 checksums. For anything else, GitHub Issues is the live channel for bugs.</p>
-</details>
+## License
 
----
-
-## 📚 Documentation
-
-- 🏗️ **[Architecture](docs/ARCHITECTURE.md)**: runtime architecture
-- 📋 **[Feature Matrix](docs/FEATURES.md)**: What the current native app does, by product area
-- 🤝 **[Contributing](CONTRIBUTING.md)**: PR & code guidelines
-- 🔒 **[Security Policy](SECURITY.md)**: Vulnerability reporting
-
----
-
-## 📄 License
-
-Photrez is open-source software licensed under **AGPL-3.0-or-later**. See the [LICENSE](LICENSE) file for details.
+Photrez is open-source software under the **AGPL-3.0-or-later** licence. See [LICENSE](LICENSE).
