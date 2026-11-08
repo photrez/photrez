@@ -29,7 +29,7 @@ because it has not been built yet.
 | Status | Capability |
 | --- | --- |
 | Shipped | Ten-tool rail: Move (`V`), Selection (`M`), Crop (`C`), Eyedropper (`I`), Brush (`B`), Eraser (`E`), Paint Bucket (`G`), Gradient (`Shift+G`), Shape (`U`), Text (`T`), with an option bar for the active tool. |
-| Shipped | Brush and eraser with separate size/hardness/strength plus flow and smoothing, six presets, a calibrated soft-edge profile, `[`/`]` size steps, Shift+`[`/`]` hardness steps, Shift-click straight lines, Shift-drag axis lock, Alt-hold colour sampling, and a right-click brush menu over the canvas. |
+| Shipped | Brush and eraser with separate size/hardness/strength plus flow and smoothing, six presets, a calibrated soft-edge profile, `[`/`]` size steps, Shift+`[`/`]` hardness steps, Shift-click straight lines, Shift-drag axis lock, Alt-hold colour sampling, and a right-click brush menu over the canvas. On the Background layer the eraser paints the background swatch instead of erasing to transparent. |
 | Shipped | Paint Bucket with tolerance, contiguous toggle and selection-aware fill; Gradient with linear/radial types, presets, reverse, and a live distance/angle overlay during the drag. |
 | Shipped | Shape tool with ten kinds (rectangle, ellipse, line, triangle, star, block arrow, heart, diamond, speech bubble, hexagon) kept parametric, with fill and stroke popovers for colour and width. |
 | Shipped | Eyedropper samples the composited canvas and shows the hex value, with an optional auto-copy preference. |
@@ -39,7 +39,7 @@ because it has not been built yet.
 
 | Status | Capability |
 | --- | --- |
-| Shipped | Layers panel: add, delete, double-click rename, duplicate, merge down, merge selected, flatten, stamp visible, reorder, visibility eye, lock toggle with a badge on the locked row, opacity, blend mode and live row thumbnails. A dragged row carries its icon tile. |
+| Shipped | Layers panel: add, delete, double-click rename, duplicate, merge down, merge selected, flatten, stamp visible, reorder, visibility eye on the row's leading edge, lock toggle, opacity, blend mode and live row thumbnails. New layers are numbered like Photoshop (`Layer 1`, `Layer 2`); duplicates use the copy suffix (`Layer 1 copy`). Merge down keeps the lower layer's name; merge selected keeps the topmost selected name. A dragged row carries its icon tile. |
 | Shipped | Twelve blend modes (normal, multiply, screen, overlay, darken, lighten, colour dodge/burn, soft/hard light, difference, exclusion) composite identically on screen, save, print and export. |
 | Shipped | Multi-layer selection by Ctrl-toggle and Shift-range in the panel or by marquee drag on empty canvas; batch delete/duplicate/merge and simultaneous canvas drag. |
 | Shipped | Background-layer rules: pinned to the bottom, position/rotation locked, delete refused, renaming converts it to a normal layer. |
@@ -55,7 +55,7 @@ because it has not been built yet.
 | Shipped | Selection option bar reads the committed selection and edits X/Y/W/H/angle through core history; a rotate pin turns the selection with Shift snapping to 15 degrees; `Ctrl+T` toggles the transform chrome. |
 | Shipped | Cut/copy/paste/delete pixels of a selection (`Ctrl+X`/`Ctrl+C`/`Ctrl+V`/`Delete`); paste creates a new layer, and a copied selection can be pasted into another document. |
 | Shipped | Move-tool layer drag with snapping to layer and canvas edges/centres plus guide lines, Alt to disable, arrow-key nudge (1 px, 10 px with Shift). |
-| Shipped | Layer transform frame with eight resize handles, rotation, flip, reset and a distance/size HUD that follows the pointer at fixed screen scale. The frame shows while a transform is being dragged and while several layers are selected together; one selected layer under the Move tool shows no frame. |
+| Shipped | Layer transform frame with eight resize handles, rotation, flip, reset and a distance/size HUD that follows the pointer at fixed screen scale. The frame shows for the selected layer under the Move tool, including at rest and while dragging, and for several layers selected together. |
 | Shipped | Opacity-aware hit testing: clicking a transparent corner falls through to the layer beneath; text and shape layers select by their box. |
 
 ## Text
@@ -105,7 +105,7 @@ because it has not been built yet.
 | --- | --- |
 | Shipped | Title bar and eight top-level menus that open at fixed origins, dismiss on outside click, and enable/disable rows from live document state; the canvas and layer context menus follow the same gates. |
 | Shipped | Right dock with Properties, Adjustments, Layers and History panels plus the Navigator, filling the window at any size. |
-| Partial | The Navigator shows the page thumbnail and the viewport frame inside it. It has no zoom row under the thumbnail: no minus and plus buttons, no track, no percent field. Zoom itself is present: the `View` menu and `Ctrl+=` / `Ctrl+-` change it, the status bar reads the percent, and the camera accepts 1 % to 10000 % (`CAMERA_MIN_ZOOM` and `CAMERA_MAX_ZOOM` in `crates/photrez/src/display/canvas_bridge/camera.rs`). Adding the row changes the dock layout, so it is not built yet. |
+| Partial | The Navigator shows the page thumbnail and the viewport frame inside it, collapses to its header, fits the view from its header button, and carries a zoom row (minus, track, plus, percent) spanning 5 % to 400 %; with no document open the preview shows a no-image state and the row answers nothing. The track has no drag-free keyboard path and the row's range is narrower than the camera's own 1 % to 10000 % (`CAMERA_MIN_ZOOM` and `CAMERA_MAX_ZOOM` in `crates/photrez/src/display/canvas_bridge/camera.rs`); the `View` menu and `Ctrl+=` / `Ctrl+-` step zoom outside it. |
 | Shipped | Status bar reads canvas size, zoom percent, active tool, hint, selected layer and frame timing, marks the autosave state with its colour dot beside the words, and opens the dock's History panel from its History trigger. |
 | Shipped | Tool option bars reflow against their real width, and the Move, Selection and Brush bars open an overflow panel holding the controls they fold away. The Move bar's transform cells read the selected layer: X, Y and rotation are editable and commit through core history, W and H show its scaled frame, and a locked layer answers no edit. |
 | Not implemented | Crop advanced group: straighten, composition guides and the classic interaction mode. Neither the modes nor the overflow group that would host them exists for the crop bar, so the bar shows no overflow trigger at all rather than one that opens nothing. |

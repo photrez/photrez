@@ -285,7 +285,7 @@ Components are compact, familiar, and complete across default, hover, focus, act
 
 ### Don't:
 
-- **Don't** use "AI Slop": generic glassmorphism, overused blurs, deep floating SaaS shadows, gradient text, or decorative glow.
+- **Don't** use generic template styling: glassmorphism, overused blurs, deep floating SaaS shadows, gradient text, or decorative glow.
 - **Don't** imitate bloated "all-in-one" design suites with stacked toolbars, redundant controls, or excessive chrome.
 - **Don't** introduce web-centric UI patterns that feel out of place in a native desktop app.
 - **Don't** use colored side-stripe borders as decoration. A one-pixel active indicator is allowed only when it directly communicates selection.

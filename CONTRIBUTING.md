@@ -21,6 +21,14 @@ cargo ui        # UI iteration profile
 bacon           # Save-triggered cargo check -p photrez
 ```
 
+Standard Cargo is the default build tool. Any Cargo build works here as long
+as the GNU linker directory can be found; the dev loop does not depend on a
+particular Cargo binary. If your machine's `PATH` lacks that directory, use
+`cargo xtask dev` instead; it prepends it to the child process only. Our
+internal machines may run a Cargo build with shared dependencies for faster
+rebuilds and disk self-cleaning; it is run as an isolated binary with
+auto-update disabled and the same PATH scaffold. Contributors do not need it.
+
 Before opening a pull request, run the workspace gates:
 
 ```bash
@@ -54,9 +62,9 @@ Examples:
 - `fix(core): guard zero-dimension print composite`
 - `docs: clarify install steps for new contributors`
 
-### Public terminology
+### Public surface
 
-Describe changes with product and technical terms rather than internal planning terminology. The public-surface staleness check is `sh scripts/check-public-terminology.sh --staleness`.
+Describe changes in product and technical terms. Public documents must not link to files outside this repository or describe a runtime the project no longer ships. The public-surface staleness check is `sh scripts/check-public-terminology.sh --staleness`.
 
 ## Code Standards
 

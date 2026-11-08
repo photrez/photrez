@@ -25,3 +25,27 @@ When adding or editing code comments, use the antislop-code skill as the detaile
 - Apply the rule to the owned scope; a wider audit needs explicit scope and its own evidence.
 
 Preserve geometry tables, reference measurements, API contracts, known gaps, and other comments whose facts are not recoverable from the code alone.
+
+## Public documentation
+
+- Public documents use the set listed in `docs/README.md`. Do not add per-crate
+  context files; use a crate README or the architecture document.
+- A crate `README.md` is optional and short: purpose, owned types, non-goals,
+  and the test command. It does not list the file tree.
+- Do not hand-maintain module maps. Use rustdoc, `cargo metadata`, or
+  `cargo tree`.
+- When a public document moves or retires, update every reference in the same
+  change.
+- Only project documentation belongs in the tracked documentation set.
+
+## File and test layout
+
+- Name files for their domain. Avoid `utils`, `helpers`, `common`, `misc`,
+  `manager`, and unqualified `engine`.
+- Keep unit tests with their owner. Put integration tests in
+  `crates/<package>/tests/` and test data under `tests/`.
+- Prefer `foo.rs` plus `foo/` over `foo/mod.rs`.
+- Do not use `#[path]` test indirection or root-level `*_tests.rs` files. Gate
+  test-only modules with `#[cfg(test)]`.
+- Existing violations are migration debt. Fix them when the file is touched or
+  in a dedicated rename; do not spread them.

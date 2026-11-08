@@ -1,6 +1,6 @@
 # Photrez Documentation Guide
 
-> Use this index to find the relevant project documentation. Load focused references rather than every file.
+> Use this index to find the document for your task.
 
 ---
 
@@ -8,13 +8,33 @@
 
 | File | Purpose |
 |---|---|
-| [`INDEX.md`](INDEX.md) | This documentation map |
+| [`README.md`](README.md) | This documentation map |
 | [`DESIGN.md`](DESIGN.md) | Product design principles |
 | [`UI_GUIDE.md`](UI_GUIDE.md) | Current UI interaction and visual guidance |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Native runtime architecture |
 | [`CONVENTIONS.md`](CONVENTIONS.md) | Native Rust and GPUI conventions |
 | [`FEATURES.md`](FEATURES.md) | Current feature matrix for the native app |
 | [`TRANSLATION.md`](TRANSLATION.md) | English and Indonesian catalog translation guide |
+
+## Crate references
+
+| File | Purpose |
+|---|---|
+| [`../crates/core/README.md`](../crates/core/README.md) | Core ownership, module boundaries, invariants, and test command |
+| [`../crates/document/README.md`](../crates/document/README.md) | Document model ownership, non-goals, and test command |
+| [`../crates/raster/README.md`](../crates/raster/README.md) | Pixel buffer, tile, kernel, paint, and brush ownership, non-goals, and test command |
+| [`../crates/format/README.md`](../crates/format/README.md) | `.ptz` envelope, writer, and codec ownership, non-goals, and test command |
+| [`../crates/render/README.md`](../crates/render/README.md) | Compositing and rasterizer ownership, non-goals, and test command |
+
+## Project policies
+
+| File | Purpose |
+|---|---|
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution, review, and release rules |
+| [`../SECURITY.md`](../SECURITY.md) | Vulnerability reporting |
+| [`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) | Community standards |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | Release history |
+| [`../THIRD_PARTY.md`](../THIRD_PARTY.md) | Third-party notices |
 
 ## Build reference
 
@@ -33,10 +53,6 @@
 | [`ptz-migration.md`](ptz-migration.md) | The `.ptz` format version rule and what a format change must ship |
 
 ---
-
-> Internal material (plans, decisions, specifications and research notes) is
-> intentionally **not** published here. It is gitignored by design;
-> `CONTRIBUTING.md` describes the public rules.
 
 The application that preceded this native runtime, and the dated records that
 describe it, are preserved in the separate archived repository
