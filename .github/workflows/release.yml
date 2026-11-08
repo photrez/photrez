@@ -107,7 +107,7 @@ jobs:
         run: sh scripts/check-release-archive.sh "${{ matrix.archive }}" "${{ matrix.platform }}"
 
       - name: Upload the archive to the draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           prerelease: false
