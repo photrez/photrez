@@ -6,7 +6,7 @@
 //!      control is constructed.
 //!   2. Settle the startup locale: stored preference, then the OS locale,
 //!      then `en` (`i18n::initial_locale`).
-//!   3. Register Inter, the font the 0.1 captures were shaped with.
+//!   3. Register the bundled UI and document fonts.
 //!   4. Open the main window on [`app::App`].
 //!
 //! [`run`] is the single startup path. `src/main.rs` is a thin binary over it;
@@ -37,13 +37,10 @@ use std::path::PathBuf;
 
 use services::settings::SettingsStore as _;
 
-/// Inter, the face the design's typography specifies - as TTF, because
-/// DirectWrite's
-/// `CreateInMemoryFontFileReference` rejects the woff2 container with
-/// `0x88985000`, so the bundled file is converted to TTF ahead of time.
+/// Bundled Inter face for the UI and documents. DirectWrite requires TTF.
 pub(crate) const INTER: &[u8] = include_bytes!("../assets/inter-latin.ttf");
 
-/// Client-area size to open at: the baseline viewport of the capture harness.
+/// Client-area size to open at: the default viewport.
 const CLIENT_W: f32 = 1366.;
 const CLIENT_H: f32 = 820.;
 
@@ -69,7 +66,7 @@ fn parse_pan(value: &str) -> Option<(f32, f32)> {
     }
 }
 
-/// A capture scale written as a percent (`88`, `97.5`).
+/// A `--zoom` scale written as a percent (`88`, `97.5`).
 ///
 /// Rejected unless it parses to a finite positive number, because a zoom of
 /// `0` or `NaN` would leave the page unscaled rather than telling the operator
@@ -187,10 +184,10 @@ pub fn run() {
     gpui_kit::application().run(|cx: &mut App| {
         gpui_kit::init(cx);
 
-        // A capture must never catch a dialog half-faded, and a user who told
-        // the OS they do not want animation gets a static interface. With the
-        // flag set the runtime paints each animation's settled state and
-        // schedules no animation frames at all.
+        // A `--shot` launch must never catch a dialog half-faded, and a user
+        // who told the OS they do not want animation gets a static interface.
+        // With the flag set the runtime paints each animation's settled state
+        // and schedules no animation frames at all.
         cx.set_reduce_motion(shot::active().is_some() || !system_animations_enabled());
 
         // Settle the locale before any control reads a string: the whole
@@ -204,7 +201,7 @@ pub fn run() {
 
         // Rasterise the logo once, before any window opens. `title_bar::init`
         // fills the `LOGO_IMAGE` cache that `title_bar::logo` reads per frame;
-        // the same call the appearance reference's `main.rs` makes.
+        // the same call the shipped release made in its startup path.
         views::title_bar::init(&cx.svg_renderer());
 
         app::load_fonts(cx);
@@ -253,9 +250,9 @@ pub fn run() {
             window_bounds: Some(window_bounds),
             display_id,
             is_resizable: true,
-            // The predecessor's window config declared this minimum, and
-            // `docs/UI_GUIDE.md` still states it, so the layout that assumes it
-            // is the layout people get.
+            // This is the minimum `docs/UI_GUIDE.md` states, and the layouts
+            // assume it, so 960 by 640 is the smallest arrangement a reader
+            // ever gets.
             window_min_size: Some(size(px(960.), px(640.))),
             ..Default::default()
         };
@@ -291,7 +288,7 @@ mod startup_args_tests {
         assert_eq!(parse(&["--open"]).open_path, None);
     }
 
-    /// A capture that names its scale must survive to the camera, or the
+    /// A launch that names its scale must survive to the camera, or the
     /// display live-fits and the page grows whenever chrome is hidden.
     #[test]
     fn zoom_percent_is_parsed_as_a_scale() {

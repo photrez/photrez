@@ -1,7 +1,7 @@
 use super::*;
 
-/// The pinned reference catalogs, one directory per locale.
-// Reference copies live with the test fixtures now that the retired tree is gone.
+/// The catalog copies the 0.1.0 release shipped, one directory per locale.
+// They live under tests/fixtures/i18n, beside the other test fixtures.
 fn reference_path(code: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/i18n")
@@ -43,39 +43,42 @@ fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
     out
 }
 
-/// The catalog is the reference catalog plus the deltas the reference cannot
-/// express, and nothing else. A byte copy is impossible: the reference reaches
-/// three align strings only through inline defaults, keeps the text tool's
+/// The catalog is the fixture copy plus the deltas that copy cannot express,
+/// and nothing else. A byte copy is impossible: the release reached three
+/// align strings only through inline defaults, kept the text tool's
 /// commit/newline leaves under a `tools.text` object where the native catalog
-/// needs a `tools.text` label, and the reference's own dead menu string is not
+/// needs a `tools.text` label, and one dead menu string in the fixture is not
 /// wanted here. Each of those is a named row below, so a new divergence still
 /// fails the test instead of being absorbed by a re-copy.
 #[test]
 fn catalog_matches_reference_plus_named_deltas() {
     const NATIVE_ONLY: &[&str] = &[
-        // The reference hardcodes both of these in the inspector instead of
+        // The release hardcoded both of these in the inspector instead of
         // putting them in its catalog. The native Paper Size row reads them,
         // because it answers what the driver reported rather than asserting the
         // chosen paper is missing.
         "dialogs.print.paperListUnavailable",
         "dialogs.print.printerOffers",
-        // The reference never prompts at startup for an autosave, so its catalog
-        // has no key for the prompt's open-document marker.
+        // The release shipped no startup recovery prompt, so these labels are native-only.
         "dialogs.recovery.alreadyOpen",
-        // The reference spells these three through `t(key, default)`; here they
-        // are real entries so the label resolves without a fallback.
+        "dialogs.recovery.decline",
+        "dialogs.recovery.description",
+        "dialogs.recovery.restore",
+        "dialogs.recovery.title",
+        // The release spelled these three through an inline default call; here
+        // they are real entries so the label resolves without a fallback.
         "properties.alignCenter",
         "properties.alignLeft",
         "properties.alignRight",
-        // The reference's `tools.text` is an object, so it has no leaf for the
+        // In the fixture `tools.text` is an object, so it has no leaf for the
         // tool's own name; the two action strings move to `tools.textActions`.
         "tools.text",
         "tools.textActions.commit",
         "tools.textActions.newline",
     ];
     const REFERENCE_ONLY: &[&str] = &["tools.text.commit", "tools.text.newline"];
-    // A shared key whose native text differs on purpose. The reference renders an
-    // em dash in the About tagline; this project's copy rule forbids that glyph in
+    // A shared key whose native text differs on purpose. The release rendered
+    // an em dash in the About tagline; this project's copy rule forbids that glyph in
     // user-facing text, so the tagline diverges by decision. Each row states the
     // accepted text for both locales, so the divergence is checked rather than
     // excused, and a further change to the line still fails here.
@@ -166,6 +169,7 @@ fn catalog_matches_reference_plus_named_deltas() {
 fn every_literal_lookup_resolves() {
     let en = load(Locale::En);
     let id = load(Locale::Id);
+    let bjn = load(Locale::Bjn);
     let mut unresolved = Vec::new();
     for path in source_files(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -175,7 +179,7 @@ fn every_literal_lookup_resolves() {
         let text = std::fs::read_to_string(&path).expect("a source file reads");
         let production = text.split("#[cfg(test)]").next().unwrap_or_default();
         for key in literal_lookup_keys(production) {
-            for (code, catalog) in [("en", &en), ("id", &id)] {
+            for (code, catalog) in [("en", &en), ("id", &id), ("bjn", &bjn)] {
                 if !catalog.entries.contains_key(&key) {
                     unresolved.push(format!(
                         "{}:{}: {key} missing from {code}",
@@ -263,7 +267,7 @@ fn source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
             let parent = path
                 .parent()
                 .and_then(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_owned));
-            // The fixture catalogs and the reference-copies are data, not lookups.
+            // The fixture catalogs and the release copies are data, not lookups.
             if name != "tests.rs" && parent.as_deref() != Some("tests") {
                 found.push(path);
             }
@@ -310,27 +314,30 @@ fn token_set(value: &str) -> Vec<String> {
 fn locale_key_sets_match() {
     let en = load(Locale::En);
     let id = load(Locale::Id);
-    let missing_in_id: Vec<_> = en
-        .entries
-        .keys()
-        .filter(|key| !id.entries.contains_key(*key))
-        .collect();
-    let extra_in_id: Vec<_> = id
-        .entries
-        .keys()
-        .filter(|key| !en.entries.contains_key(*key))
-        .collect();
-    assert!(
-        missing_in_id.is_empty() && extra_in_id.is_empty(),
-        "id is missing {missing_in_id:?}; id has extra {extra_in_id:?}"
-    );
+    let bjn = load(Locale::Bjn);
+    for (name, catalog) in [("id", &id), ("bjn", &bjn)] {
+        let missing_in: Vec<_> = en
+            .entries
+            .keys()
+            .filter(|key| !catalog.entries.contains_key(*key))
+            .collect();
+        let extra_in: Vec<_> = catalog
+            .entries
+            .keys()
+            .filter(|key| !en.entries.contains_key(*key))
+            .collect();
+        assert!(
+            missing_in.is_empty() && extra_in.is_empty(),
+            "{name} is missing {missing_in:?}; {name} has extra {extra_in:?}"
+        );
+    }
 }
 
 /// Loading IS the leaf check: [`flatten`] rejects empty and non-string
 /// leaves, so this passing means neither catalog has any.
 #[test]
 fn no_empty_or_nonstring_leaves() {
-    for locale in [Locale::En, Locale::Id] {
+    for locale in [Locale::En, Locale::Id, Locale::Bjn] {
         load(locale);
     }
 }
@@ -356,10 +363,10 @@ fn leaf_rejections_are_enforced() {
 /// comparison alone would still hold.
 #[test]
 fn leaf_counts_are_pinned() {
-    for locale in [Locale::En, Locale::Id] {
+    for locale in [Locale::En, Locale::Id, Locale::Bjn] {
         assert_eq!(
             load(locale).entries.len(),
-            462,
+            466,
             "{} leaf count",
             locale.code()
         );
@@ -372,7 +379,7 @@ fn leaf_counts_are_pinned() {
 #[test]
 fn placeholder_sets_match_across_locales() {
     let en = load(Locale::En);
-    let id = load(Locale::Id);
+    let others = [load(Locale::Id), load(Locale::Bjn)];
     let all: std::collections::BTreeSet<String> = en
         .entries
         .values()
@@ -386,15 +393,17 @@ fn placeholder_sets_match_across_locales() {
         all, expected,
         "the placeholder inventory changed; the renderer must learn the new token"
     );
-    for (key, en_value) in &en.entries {
-        let Some(id_value) = id.entries.get(key) else {
-            continue; // the key-set comparison owns missing keys
-        };
-        assert_eq!(
-            token_set(en_value),
-            token_set(id_value),
-            "placeholder mismatch on {key}"
-        );
+    for locale in &others {
+        for (key, en_value) in &en.entries {
+            let Some(value) = locale.entries.get(key) else {
+                continue; // the key-set comparison owns missing keys
+            };
+            assert_eq!(
+                token_set(en_value),
+                token_set(value),
+                "placeholder mismatch on {key}"
+            );
+        }
     }
 }
 
@@ -568,7 +577,7 @@ fn detection_order_is_env_then_stored_then_os_then_english() {
     );
 }
 
-/// The capture driver's pin outranks everything else: a machine with a
+/// The environment pin outranks everything else: a machine with a
 /// stored `id` preference and an `id` OS tag still resolves `en` under
 /// `PHOTREZ_LOCALE=en`; a blank value falls through untouched.
 #[test]
@@ -636,8 +645,8 @@ fn collect_catalog_chars(value: &serde_json::Value, out: &mut std::collections::
 /// carry. They render through the toolkit's per-glyph fallback stack -
 /// `gpui_pre::TextSystem` defaults to `.ZedMono, .ZedSans, Helvetica,
 /// Segoe UI, ...` and this app never overrides it; `Segoe UI` was measured
-/// to carry all five, which is also how the reference's Latin subsets
-/// resolved them in the previous renderer. Each entry is a reviewed decision:
+/// to carry all five, which is also how the shipped release resolved them
+/// through its Latin subsets. Each entry is a reviewed decision:
 /// a new code point either gains a glyph in the face or is added here with its
 /// covering fallback named.
 const FALLBACK_RENDERED: &[char] = &[

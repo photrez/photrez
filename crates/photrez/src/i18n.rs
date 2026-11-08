@@ -27,6 +27,7 @@ pub const LOCALE_KEY: &str = "photrez.locale";
 const CATALOGS: &[(Locale, &str)] = &[
     (Locale::En, include_str!("../assets/i18n/en.json")),
     (Locale::Id, include_str!("../assets/i18n/id.json")),
+    (Locale::Bjn, include_str!("../assets/i18n/bjn.json")),
 ];
 
 // ── locale ───────────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ const CATALOGS: &[(Locale, &str)] = &[
 pub enum Locale {
     En,
     Id,
+    Bjn,
 }
 
 impl Locale {
@@ -46,6 +48,7 @@ impl Locale {
         match self {
             Locale::En => "en",
             Locale::Id => "id",
+            Locale::Bjn => "bjn",
         }
     }
 
@@ -56,6 +59,7 @@ impl Locale {
         let language = tag.split(['-', '_', '.']).next().unwrap_or_default();
         match language.to_ascii_lowercase().as_str() {
             "id" => Locale::Id,
+            "bjn" => Locale::Bjn,
             _ => Locale::En,
         }
     }
@@ -253,7 +257,7 @@ pub fn t_in(locale: Locale, key: &str) -> String {
 }
 
 /// [`t`] for values that name `{{placeholders}}`. A render mismatch degrades
-/// to the key - again the loudest thing a capture can show without
+/// to the key - again the loudest thing a measurement can show without
 /// panicking.
 pub fn t_args(key: &str, args: &[(&str, &str)]) -> String {
     let Some(value) = lookup(key) else {

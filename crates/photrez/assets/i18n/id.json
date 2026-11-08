@@ -514,7 +514,11 @@
       "message": "\"{{name}}\" memiliki perubahan yang belum disimpan. Buang perubahan?"
     },
     "recovery": {
-      "alreadyOpen": "Dokumen ini sudah terbuka."
+      "alreadyOpen": "Dokumen ini sudah terbuka.",
+      "decline": "Jangan pulihkan",
+      "description": "Dokumen berikut dapat dipulihkan:",
+      "restore": "Pulihkan",
+      "title": "Pulihkan pekerjaan yang belum disimpan"
     }
   },
   "errors": {

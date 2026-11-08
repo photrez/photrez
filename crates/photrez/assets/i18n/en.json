@@ -514,7 +514,11 @@
       "message": "\"{{name}}\" has unsaved changes. Discard them?"
     },
     "recovery": {
-      "alreadyOpen": "This document is already open."
+      "alreadyOpen": "This document is already open.",
+      "decline": "Don't restore",
+      "description": "Unsaved documents found in the autosave store:",
+      "restore": "Restore",
+      "title": "Recover unsaved work"
     }
   },
   "errors": {
