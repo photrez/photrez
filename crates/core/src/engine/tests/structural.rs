@@ -69,8 +69,8 @@ fn duplicate_layer_clones_above_source_and_mints_resource() {
     let clone = layer_by(&e, "A2");
     // resource id is freshly minted from next_resource (10 -> 11 after seeding).
     assert_eq!(clone.resource_id, 11);
-    // name follows the numeric-suffix rule ("Layer 1" -> "Layer 2").
-    assert_eq!(clone.name, "Layer 2");
+    // name follows the copy-suffix rule ("Layer 1" -> "Layer 1 copy").
+    assert_eq!(clone.name, "Layer 1 copy");
     // The source keeps its original resource id.
     assert_eq!(layer_by(&e, "A").resource_id, 10);
     // No removes; every layer is upserted in final order.
@@ -81,16 +81,16 @@ fn duplicate_layer_clones_above_source_and_mints_resource() {
 }
 
 #[test]
-fn duplicate_layer_derives_sequence_across_existing_numbers() {
+fn duplicate_layer_derives_copy_sequence() {
     let mut e = DocumentCore::new();
-    e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
+    e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 1 copy", 20)], 0);
     e.apply(env(Command::DuplicateLayer {
         id: "A".into(),
         new_id: "A3".into(),
     }))
     .unwrap();
-    // With "Layer 1" and "Layer 2" present, the next duplicate is "Layer 3".
-    assert_eq!(layer_by(&e, "A3").name, "Layer 3");
+    // With "Layer 1 copy" present, the next duplicate is "Layer 1 copy 2".
+    assert_eq!(layer_by(&e, "A3").name, "Layer 1 copy 2");
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn duplicate_layer_unknown_source_is_noop() {
 // -- MergeDown -------------------------------------------------------------
 
 #[test]
-fn merge_down_combines_top_bottom_named_and_inherits_bottom_blend() {
+fn merge_down_keeps_the_bottom_name_and_inherits_bottom_blend() {
     let mut e = DocumentCore::new();
     e.seed_ptz(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
@@ -220,7 +220,7 @@ fn merge_down_combines_top_bottom_named_and_inherits_bottom_blend() {
     // Only the merged node survives.
     assert_eq!(ids_of(&e), vec!["M"]);
     let m = layer_by(&e, "M");
-    assert_eq!(m.name, "Layer 1 + Layer 2");
+    assert_eq!(m.name, "Layer 2");
     assert_eq!(m.layer_type, Some(LayerType::Raster));
     // blend mode inherits the bottom layer's (None -> Normal default).
     assert_eq!(m.blend_mode, Some(BlendMode::Normal));
@@ -316,7 +316,7 @@ fn merge_down_with_bystanders_places_merged_between_x_and_y() {
     // Final stack: X, M, Y.
     assert_eq!(ids_of(&e), vec!["X", "M", "Y"]);
     let m = layer_by(&e, "M");
-    assert_eq!(m.name, "Layer 1 + Layer 2");
+    assert_eq!(m.name, "Layer 2");
     assert_eq!(m.resource_id, 41);
     // Delta restatement order: Remove(A), Remove(B), Upsert(X), Upsert(M), Upsert(Y).
     assert!(matches!(
@@ -374,7 +374,7 @@ fn merge_down_rejects_empty_and_present_merged_id() {
 // -- MergeSelected ----------------------------------------------------------
 
 #[test]
-fn merge_selected_combines_two_named_a_plus_b() {
+fn merge_selected_keeps_the_topmost_name() {
     let mut e = DocumentCore::new();
     e.seed_ptz(canonical_dim_doc());
     e.seed_layers(vec![mk("A", "Layer 1", 10), mk("B", "Layer 2", 20)], 0);
@@ -385,7 +385,7 @@ fn merge_selected_combines_two_named_a_plus_b() {
     .unwrap();
     assert_eq!(ids_of(&e), vec!["M"]);
     let m = layer_by(&e, "M");
-    assert_eq!(m.name, "Layer 1 + Layer 2");
+    assert_eq!(m.name, "Layer 1");
     assert_eq!(m.layer_type, Some(LayerType::Raster));
     assert_eq!(m.blend_mode, Some(BlendMode::Normal));
 }
@@ -416,7 +416,7 @@ fn merge_selected_merged_node_mints_fresh_resource_id() {
 }
 
 #[test]
-fn merge_selected_three_uses_plus_n_merged_label() {
+fn merge_selected_three_keeps_the_topmost_name() {
     let mut e = DocumentCore::new();
     e.seed_ptz(canonical_dim_doc());
     e.seed_layers(
@@ -432,7 +432,7 @@ fn merge_selected_three_uses_plus_n_merged_label() {
         merged_id: "M".into(),
     }))
     .unwrap();
-    assert_eq!(layer_by(&e, "M").name, "Layer 1 (+2 merged)");
+    assert_eq!(layer_by(&e, "M").name, "Layer 1");
 }
 
 #[test]

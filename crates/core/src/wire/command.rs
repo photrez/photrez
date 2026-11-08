@@ -191,8 +191,7 @@ pub enum Command {
         new_id: String,
     },
     // Merge a layer down into the one below it. The merged node inherits the bottom
-    // layer's blend mode, is locked when either source is locked, and is named
-    // "top + bottom". Document dims come from the seeded canonical shadow (absent ->
+    // layer's blend mode and name, is locked when either source is locked. Document dims come from the seeded canonical shadow (absent ->
     // E_INVALID). Unknown id or a bottom-most layer is a silent no-op.
     MergeDown {
         id: String,

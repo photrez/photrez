@@ -59,6 +59,13 @@ impl DocumentCore {
                     let _e = self.begin_forward("Rename", std::slice::from_ref(&id));
                     let mut layer = self.layers.get(pos).expect("layer present").clone();
                     layer.name = name.clone();
+                    if layer.is_background == Some(true) {
+                        // Explicit false, not None: the replica merge treats
+                        // None as "no opinion" and would keep the old flags.
+                        layer.is_background = Some(false);
+                        layer.lock_position = Some(false);
+                        layer.lock_rotation = Some(false);
+                    }
                     layer.dirty_rect = Some(Rect {
                         x: 0,
                         y: 0,

@@ -278,6 +278,40 @@ fn set_background_flag_sets_flag_and_locks_position_rotation() {
 }
 
 #[test]
+fn rename_converts_the_background_layer_to_a_normal_layer() {
+    let mut e = engine();
+    e.apply(env(Command::SetBackgroundFlag { id: "L1".into() }))
+        .unwrap();
+    e.apply(env(Command::Rename {
+        id: "L1".into(),
+        name: "Renamed".into(),
+    }))
+    .unwrap();
+    let l = find(&e, "L1");
+    assert_eq!(l.name, "Renamed");
+    assert_eq!(l.is_background, Some(false));
+    assert_eq!(l.lock_position, Some(false));
+    assert_eq!(l.lock_rotation, Some(false));
+}
+
+#[test]
+fn metadata_history_is_bounded_by_max_entries() {
+    let mut e = engine();
+    let cap = e.max_entries;
+    for index in 0..cap + 5 {
+        e.apply(env(Command::Rename {
+            id: "L1".into(),
+            name: format!("Layer {index}"),
+        }))
+        .unwrap();
+    }
+    let query = e.history_query();
+    assert_eq!(query.entries.len(), cap);
+    assert_eq!(query.cursor as usize, cap);
+    assert!(query.entries[0].seq > 1, "the oldest entries are evicted");
+}
+
+#[test]
 fn set_blend_mode_sets_field() {
     let mut e = engine();
     e.apply(env(Command::SetBlendMode {

@@ -6,7 +6,7 @@
 //! never a wall-time budget - budgets are derived from these numbers and
 //! enforced by later tasks.
 //!
-//! Run for the recorded baseline (release profile, matches production):
+//! Run for the reference measurement (release profile, matches production):
 //!   cargo test --release -p photrez-core --test pixel_store_commit_bench -- --nocapture
 //!
 //! Excluded from the measurement: IPC transport and serde response

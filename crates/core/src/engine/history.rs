@@ -188,6 +188,7 @@ impl DocumentCore {
             },
         });
         self.cursor = self.entries.len();
+        self.trim_history();
         // An external (host-executed) op is a committed logical mutation, so the
         // DocumentVersion must advance exactly once — matching apply_pixel_patch.
         self.version += 1;
@@ -235,6 +236,7 @@ impl DocumentCore {
             payload: EntryPayload::Snapshot { before, after },
         });
         self.cursor = self.entries.len();
+        self.trim_history();
         // A recorded snapshot is a committed logical mutation, so the
         // DocumentVersion advances exactly once — matching the other entries.
         self.version += 1;

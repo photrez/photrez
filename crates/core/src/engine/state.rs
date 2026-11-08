@@ -5,6 +5,12 @@
 
 use super::*;
 
+/// Total history entries kept across metadata, pixel, snapshot, and external
+/// steps. The pixel stream keeps its tighter `max_depth` cap; this outer cap
+/// stops metadata-only commands (rename, lock, visibility) from growing the
+/// stream without a bound.
+pub(crate) const MAX_HISTORY_ENTRIES: usize = 512;
+
 // ── Engine ───────────────────────────────────────────────────────────────
 // HISTORY BOUNDARY: history/future store Vec<LayerMeta> METADATA snapshots only
 // (id/name/resource_id/transform/opacity). They do NOT store pixel buffers and must NOT be
@@ -25,6 +31,7 @@ pub struct DocumentCore {
     pub(crate) cursor: usize,
     pub(crate) next_seq: u64,
     pub(crate) max_depth: usize, // Bound the pixel-only history stream (FIFO eviction of the oldest entry).
+    pub(crate) max_entries: usize, // Bound metadata/snapshot entries so renames cannot grow the stream forever.
     pub(crate) adapters: Vec<String>, // "native" is implicit and always available
     // External-pending barrier (history-stream invariant): while Some, the host owes a
     // protocol_history_cursor_commit for (seq, direction). EVERY command
@@ -82,6 +89,7 @@ impl Default for DocumentCore {
             cursor: 0,
             next_seq: 1,
             max_depth: 50,
+            max_entries: MAX_HISTORY_ENTRIES,
             adapters: Vec::new(),
             pending_external: None,
             pending_pixels: Vec::new(),

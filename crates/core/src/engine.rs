@@ -106,6 +106,16 @@ impl DocumentCore {
             }
         }
         self.cursor = self.entries.len();
+        self.trim_history();
+    }
+
+    /// Evict the oldest entries once the total stream exceeds its cap. The
+    /// cursor tracks the retained stream, so it moves down with each removal.
+    pub(crate) fn trim_history(&mut self) {
+        while self.entries.len() > self.max_entries {
+            self.entries.remove(0);
+            self.cursor = self.cursor.saturating_sub(1);
+        }
     }
 
     // ── Native pixel history (unified cursor) ──────────────────────
@@ -154,6 +164,7 @@ impl DocumentCore {
             self.entries.remove(0);
             self.cursor = self.entries.len();
         }
+        self.trim_history();
         self.version += 1;
         self.version
     }

@@ -99,7 +99,7 @@ impl DocumentCore {
     }
 
     /// Merge a layer down into the one below it. The merged node is a raster layer
-    /// named "top + bottom", blending with the bottom layer's blend mode, locked
+    /// named after the bottom layer, blending with the bottom layer's blend mode, locked
     /// when either source is locked. Replaces the two sources at the pair's
     /// position. Unknown id or a bottom-most layer is a silent no-op.
     pub(crate) fn apply_merge_down(
@@ -127,7 +127,7 @@ impl DocumentCore {
         }
         let top = self.layers.get(pos).expect("layer present").clone();
         let bottom = self.layers.get(bottom_pos).expect("layer present").clone();
-        let name = format!("{} + {}", top.name, bottom.name);
+        let name = bottom.name.clone();
         let locked = bottom.locked == Some(true) || top.locked == Some(true);
         let blend_mode = bottom.blend_mode.clone().unwrap_or(BlendMode::Normal);
         let (w, h) = canonical_dims(self)?;
@@ -227,11 +227,7 @@ impl DocumentCore {
         if selected.len() < 2 {
             return Ok(Vec::new());
         }
-        let name = if selected.len() == 2 {
-            format!("{} + {}", selected[0].name, selected[1].name)
-        } else {
-            format!("{} (+{} merged)", selected[0].name, selected.len() - 1)
-        };
+        let name = selected[0].name.clone();
         let locked = selected.iter().any(|l| l.locked == Some(true));
         let (w, h) = canonical_dims(self)?;
         let rid = self.next_resource;

@@ -1,90 +1,39 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Duplicate-name planning for the engine's layer graph: the numeric-suffix
-// next-free-name contract used by the DuplicateLayer arm and structural clone.
+// Duplicate-name planning for the engine's layer graph: the numbered
+// copy-suffix contract used by the DuplicateLayer arm and structural clone.
 
-/// Strip a trailing numeric suffix so "Layer 1" -> "Layer", "Background 2"
-/// -> "Background", and a pure number "123" -> "". Feeds next_duplicate_name.
-pub(crate) fn base_name(name: &str) -> String {
-    let t = name.trim_end();
-    // The trailing strip covers ASCII whitespace plus NBSP, the pair the 0.1.0
-    // release trimmed with, so a stored name splits the same way here. Exotic
-    // Unicode spaces beyond NBSP are a deliberate ceiling.
-    let is_ws = |c: char| c.is_ascii_whitespace() || c == '\u{00A0}';
-    let chars: Vec<char> = t.chars().collect();
-    let mut i = chars.len();
-    while i > 0 && chars[i - 1].is_ascii_digit() {
-        i -= 1;
+/// Strip one trailing copy suffix so "Layer 1 copy" and "Layer 1 copy 2"
+/// both map back to "Layer 1". Any other name is its own stem.
+fn copy_stem(name: &str) -> &str {
+    let trimmed = name.trim_end();
+    if let Some(stripped) = trimmed.strip_suffix(" copy") {
+        return stripped;
     }
-    if i < chars.len() {
-        let mut j = i;
-        while j > 0 && is_ws(chars[j - 1]) {
-            j -= 1;
+    if let Some(pos) = trimmed.rfind(" copy ") {
+        let suffix = &trimmed[pos + " copy ".len()..];
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return &trimmed[..pos];
         }
-        if j == 0 {
-            return String::new();
-        }
-        let mut k = j;
-        while k > 0 && is_ws(chars[k - 1]) {
-            k -= 1;
-        }
-        return chars[..k].iter().collect();
     }
-    t.to_string()
+    trimmed
 }
 
-/// Parse a leading decimal integer: skip ASCII whitespace, take an optional
-/// sign, consume the ASCII digits and ignore the rest. Returns None when there
-/// are no leading digits. Uses i128 so a huge input does not fail the way
-/// `i64::parse` would on overflow.
-fn parse_leading_int(s: &str) -> Option<i128> {
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-        i += 1;
-    }
-    let mut negative = false;
-    if i < bytes.len() {
-        if bytes[i] == b'-' {
-            negative = true;
-            i += 1;
-        } else if bytes[i] == b'+' {
-            i += 1;
-        }
-    }
-    let mut value: i128 = 0;
-    let mut digits = 0;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        value = value
-            .saturating_mul(10)
-            .saturating_add((bytes[i] - b'0') as i128);
-        digits += 1;
-        i += 1;
-    }
-    if digits == 0 {
-        return None;
-    }
-    Some(if negative { -value } else { value })
-}
-
-/// Next duplicate name: increment a numeric suffix past any existing sibling.
-/// "Layer 1" -> "Layer 2" -> "Layer 3".
-// Accepts borrowed name slices so BOTH the document graph (document.rs)
-// and the engine structural arms (document/structural.rs) share one
-// algorithm - no fork of the numeric-suffix rule.
+/// Next duplicate name: "{stem} copy", then "{stem} copy 2", and so on.
+/// "Layer 1" -> "Layer 1 copy" -> "Layer 1 copy 2".
 pub(crate) fn next_duplicate_name(layers: &[&str], layer_name: &str) -> String {
-    let base = base_name(layer_name);
-    let prefix = format!("{} ", base);
-    let mut max_num: i128 = 1;
-    for name in layers {
-        if let Some(rest) = name.strip_prefix(&prefix) {
-            if let Some(num) = parse_leading_int(rest) {
-                if num > max_num {
-                    max_num = num;
-                }
-            }
-        }
+    let stem = copy_stem(layer_name);
+    let first = format!("{stem} copy");
+    if !layers.contains(&first.as_str()) {
+        return first;
     }
-    format!("{} {}", base, max_num + 1)
+    let mut number = 2;
+    loop {
+        let candidate = format!("{stem} copy {number}");
+        if !layers.contains(&candidate.as_str()) {
+            return candidate;
+        }
+        number += 1;
+    }
 }
 
 #[cfg(test)]
