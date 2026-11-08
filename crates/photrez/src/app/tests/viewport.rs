@@ -3,7 +3,7 @@ use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
     point, px, Bounds, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PlatformInput, Point, ScrollDelta, ScrollWheelEvent,
+    PlatformInput, Point, ScrollDelta, ScrollEvent, ScrollSource,
 };
 use photrez_core::document::content::{SelectionShape, SelectionState};
 
@@ -57,13 +57,14 @@ fn ctrl_wheel_zooms_around_the_cursor_and_plain_wheel_pans(cx: &mut gpui_kit::Te
 
         dispatch(
             window,
-            PlatformInput::ScrollWheel(ScrollWheelEvent {
+            PlatformInput::Scroll(ScrollEvent {
                 position: anchor,
                 delta: ScrollDelta::Pixels(point(px(0.), px(-1.))),
                 modifiers: Modifiers {
                     control: true,
                     ..Default::default()
                 },
+                source: ScrollSource::Pointer,
                 ..Default::default()
             }),
             cx,
@@ -77,9 +78,10 @@ fn ctrl_wheel_zooms_around_the_cursor_and_plain_wheel_pans(cx: &mut gpui_kit::Te
 
         dispatch(
             window,
-            PlatformInput::ScrollWheel(ScrollWheelEvent {
+            PlatformInput::Scroll(ScrollEvent {
                 position: anchor,
                 delta: ScrollDelta::Pixels(point(px(0.), px(40.))),
+                source: ScrollSource::Pointer,
                 ..Default::default()
             }),
             cx,
@@ -447,6 +449,18 @@ fn edge_proximity_pans_the_camera_during_a_paint_drag(cx: &mut gpui_kit::TestApp
             "the right edge pans the camera left: {} -> {}",
             before.x,
             after.x
+        );
+
+        // A stalled timer must not turn into a teleport when it resumes.
+        let before_huge = camera(&content, cx);
+        let moved = content.update(cx, |app, cx| app.edge_scroll_step_for_test(10.0, cx));
+        assert!(moved, "the clamped tick still scrolls");
+        let after_huge = camera(&content, cx);
+        assert!(
+            (before_huge.x - after_huge.x).abs() < 100.0,
+            "a 10 s dt is clamped to one small pan: {} -> {}",
+            before_huge.x,
+            after_huge.x
         );
         dispatch(
             window,

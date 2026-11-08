@@ -151,6 +151,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-shape-kind", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-shape-kind-tooltip").is_none(),
+            "the shape tooltip waits out the hover delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-shape-kind-tooltip").is_some(),
             "hovering the shape control shows its tooltip"
         );
@@ -166,6 +172,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         );
         window.hover("opt-fill-color", cx);
         window.render_frame(cx);
+        assert!(
+            window.try_find("opt-fill-color-tooltip").is_none(),
+            "the fill swatch's tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
         assert!(
             window.try_find("opt-fill-color-tooltip").is_some(),
             "the fill swatch carries its fill-color tooltip"
@@ -191,6 +203,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-shape-stroke", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-shape-stroke-tooltip").is_none(),
+            "the stroke tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-shape-stroke-tooltip").is_some(),
             "the stroke pill carries its stroke-options tooltip"
         );
@@ -202,6 +220,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-weight", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-weight-tooltip").is_none(),
+            "the weight tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-weight-tooltip").is_some(),
             "the weight control carries its own tooltip"
         );
@@ -210,6 +234,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-italic", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-italic-tooltip").is_none(),
+            "the italic tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-italic-tooltip").is_some(),
             "the italic button carries its tooltip"
         );
@@ -217,6 +247,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         window.hover("opt-align-left", cx);
         window.render_frame(cx);
+        assert!(
+            window.try_find("opt-align-left-tooltip").is_none(),
+            "the align-left tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
         assert!(
             window.try_find("opt-align-left-tooltip").is_some(),
             "the align-left button carries its tooltip"
@@ -230,6 +266,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         window.hover("opt-brush-preset", cx);
         window.render_frame(cx);
+        assert!(
+            window.try_find("opt-brush-preset-tooltip").is_none(),
+            "the preset tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
         assert!(
             window.try_find("opt-brush-preset-tooltip").is_some(),
             "the brush preset control carries its tooltip"
@@ -245,6 +287,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         window.hover("opt-auto-select", cx);
         window.render_frame(cx);
+        assert!(
+            window.try_find("opt-auto-select-tooltip").is_none(),
+            "the auto-select tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
         let published = {
             let s = content.read(cx).state_for_test().read(cx);
             (s.tooltip.clone(), s.more_open, s.open_select, s.active_tool)
@@ -262,6 +310,12 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-snap", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-snap-tooltip").is_none(),
+            "the snap tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-snap-tooltip").is_some(),
             "the snap toggle carries its tooltip"
         );
@@ -270,11 +324,16 @@ fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-transform", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-transform-tooltip").is_none(),
+            "the transform tooltip waits out the delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, _cx| {
+        assert!(
             window.try_find("opt-transform-tooltip").is_some(),
             "the transform toggle carries its tooltip"
         );
-    })
-    .expect("test window remains open");
+    });
 }
 /// The bar's container breakpoints are evaluated live, not just pinned: at a
 /// content box of 880 px or more the brush Flow, Smoothing and preset controls
@@ -635,7 +694,7 @@ fn text_box_mode_list_switches_the_layer_between_modes(cx: &mut gpui_kit::TestAp
 #[gpui_kit::test]
 fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
-    // The window size the captures use: the bar column is 886 px wide, so the
+    // The reference window size: the bar column is 886 px wide, so the
     // selection row folds (content box 861 px <= 880) and its overflow trigger
     // still sits inside the column clip.
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);

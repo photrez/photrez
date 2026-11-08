@@ -482,6 +482,17 @@ fn properties_panel_shows_no_image_placeholder_without_a_document(
             window.try_find("properties-no-image").is_some(),
             "the Properties panel shows the no-image placeholder"
         );
+        let viewport = window.find("inspector-body-properties").bounds();
+        let placeholder = window.find("properties-no-image").bounds();
+        assert!(viewport.size.height > gpui_kit::px(100.0));
+        assert!(
+            f32::from(placeholder.center().y - viewport.center().y).abs() <= 1.0,
+            "the no-image block must be vertically centered: {placeholder:?} inside {viewport:?}"
+        );
+        assert!(
+            f32::from(placeholder.center().x - viewport.center().x).abs() <= 1.0,
+            "the no-image block must be horizontally centered"
+        );
         assert!(
             window.try_find("prop-flip-h").is_none(),
             "no layer actions without a document"
@@ -751,7 +762,10 @@ fn select_supports_arrow_navigation_and_click_away(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
-/// The Snap toggle's tooltip (hover -> panel paint).
+/// The Snap tooltip's paint cost: the tooltip waits out the hover delay, so
+/// the measured frame is the first one that paints it, not the hover itself.
+/// The clock advances at the test-context level: the pending notify task
+/// re-enters the app and cannot run inside a window closure's borrow.
 #[gpui_kit::test]
 #[ignore = "performance measurement; run explicitly"]
 fn snap_tooltip_hover_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -759,43 +773,66 @@ fn snap_tooltip_hover_latency(cx: &mut gpui_kit::TestAppContext) {
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        // Warm once; the first hover pays the panel mount cost.
+        // Warm once; the first paint pays the panel mount cost.
         window.hover("opt-snap", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-snap-tooltip").is_none(),
+            "the tooltip waits out the hover delay"
+        );
+    })
+    .expect("test window remains open");
+    cx.background_executor
+        .advance_clock(crate::app::TOOLTIP_DELAY + std::time::Duration::from_millis(50));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(
             window.try_find("opt-snap-tooltip").is_some(),
             "the warm-up hover shows the Snap tooltip"
         );
-        window.hover("canvas-hitbox", cx);
-        window.render_frame(cx);
+    })
+    .expect("test window remains open");
 
-        let mut samples = Vec::new();
-        for sample in 0..9 {
-            let start = std::time::Instant::now();
+    let mut samples = Vec::new();
+    for sample in 0..9 {
+        cx.update_window(window.into(), |_, window, cx| {
+            window.hover("canvas-hitbox", cx);
+            window.render_frame(cx);
             window.hover("opt-snap", cx);
+            window.render_frame(cx);
+            assert!(
+                window.try_find("opt-snap-tooltip").is_none(),
+                "sample {sample} waits out the hover delay"
+            );
+        })
+        .expect("test window remains open");
+        cx.background_executor
+            .advance_clock(crate::app::TOOLTIP_DELAY + std::time::Duration::from_millis(50));
+        cx.run_until_parked();
+        cx.update_window(window.into(), |_, window, cx| {
+            let start = std::time::Instant::now();
             window.render_frame(cx);
             samples.push(start.elapsed().as_secs_f64() * 1000.0);
             assert!(
                 window.try_find("opt-snap-tooltip").is_some(),
                 "sample {sample} shows the Snap tooltip"
             );
-            window.hover("canvas-hitbox", cx);
-            window.render_frame(cx);
-        }
-        let _ = &content;
-        let mut sorted = samples.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        println!(
-            "SNAP_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
-            sorted[4], sorted[8]
-        );
-        assert!(
-            sorted[8] <= 33.3,
-            "Snap tooltip hover p95 {:.3} ms exceeds the 33.3 ms budget",
-            sorted[8]
-        );
-    })
-    .expect("test window remains open");
+        })
+        .expect("test window remains open");
+    }
+    let _ = &content;
+    let mut sorted = samples.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    println!(
+        "SNAP_TOOLTIP_MS samples={samples:?} p50={:.3} p95={:.3}",
+        sorted[4], sorted[8]
+    );
+    assert!(
+        sorted[8] <= 33.3,
+        "Snap tooltip hover p95 {:.3} ms exceeds the 33.3 ms budget",
+        sorted[8]
+    );
 }
 
 #[gpui_kit::test]
@@ -911,11 +948,11 @@ fn text_typing_preview_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// The rest transform frame needs a multi-layer selection, so one selected
-/// layer under Move paints no frame at all. Measured: this build drew 2,653
-/// accent pixels inside the canvas box before that gate landed.
+/// A single selected layer under Move keeps its bounding box at rest, like
+/// the reference editor: the frame stays visible so the layer is always
+/// grabbable, and it follows the layer while dragging.
 #[gpui_kit::test]
-fn move_with_one_selected_layer_paints_no_rest_transform_frame(cx: &mut gpui_kit::TestAppContext) {
+fn move_with_one_selected_layer_paints_the_rest_transform_frame(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -928,12 +965,11 @@ fn move_with_one_selected_layer_paints_no_rest_transform_frame(cx: &mut gpui_kit
             .selected_layers
             .len();
         assert_eq!(selected, 1, "the fixture selects exactly one layer");
-        assert!(
-            content
-                .update(cx, |app, cx| app.transform_frame_for_test(cx))
-                .is_none(),
-            "Move at rest must not draw the frame a group selection draws"
-        );
+        let frame = content
+            .update(cx, |app, cx| app.transform_frame_for_test(cx))
+            .expect("Move at rest draws the frame a group selection draws");
+        assert_eq!(frame.corners.len(), 4);
+        assert_eq!(frame.handles.len(), 8);
     })
     .expect("test window remains open");
 }

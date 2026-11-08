@@ -170,6 +170,24 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
     .expect("test window remains open");
 }
 
+/// Advance the fake clock past the tooltip delay, run the pending notify
+/// task, then run `body` in a fresh window frame.
+///
+/// The settle must happen outside an `update_window` borrow: the promotion
+/// task re-enters the app, and the harness's window closure holds the app
+/// borrow for its whole body.
+pub(super) fn settle_tooltip<R>(
+    cx: &mut gpui_kit::TestAppContext,
+    window: gpui_kit::WindowHandle<gpui_kit::base::Root>,
+    body: impl FnOnce(&mut gpui_kit::Window, &mut gpui_kit::App) -> R,
+) -> R {
+    cx.background_executor
+        .advance_clock(crate::app::TOOLTIP_DELAY + std::time::Duration::from_millis(150));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| body(window, cx))
+        .expect("test window remains open")
+}
+
 /// Mount the production root in a deterministic 1366x820 test window.
 fn mount_app(
     cx: &mut gpui_kit::TestAppContext,
@@ -376,6 +394,7 @@ mod crop;
 mod adjustments;
 
 mod empty_state;
+mod modal_input;
 
 mod brush_menu;
 

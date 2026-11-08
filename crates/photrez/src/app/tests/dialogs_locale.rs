@@ -36,7 +36,7 @@ fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         window.click("settings-language", cx);
         window.render_frame(cx);
-        window.click("settings-locale-id", cx);
+        window.click("settings-language-option-1", cx);
         window.render_frame(cx);
         assert_eq!(
             settings.read(crate::i18n::LOCALE_KEY).as_deref(),
@@ -124,7 +124,7 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
         content.update(cx, |app, cx| {
             app.state_for_test().update(cx, |state, _| {
                 state.active_dialog = Some(crate::state::DialogId::Settings);
-                state.settings_language_open = true;
+                state.open_select = Some("settings-language");
             });
         });
     };
@@ -152,8 +152,8 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
         };
         let mut samples = Vec::new();
         for i in 0..9 {
-            let target = if i % 2 == 0 { Locale::Id } else { Locale::En };
-            let id = format!("settings-locale-{}", target.code());
+            let target_index = usize::from(i % 2 == 0);
+            let id = format!("settings-language-option-{target_index}");
             open_list(&content, cx);
             window.render_frame(cx);
             let start = std::time::Instant::now();
@@ -179,9 +179,25 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
 }
 
 /// The Settings dialog opens through the Settings menu and
-/// closes with its primary OK button; the language list expands inline.
+/// closes with its primary OK button; the language dropdown floats over the
+/// dialog and choosing an option switches the locale in place.
 #[gpui_kit::test]
 fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestAppContext) {
+    use crate::i18n::{self, Locale};
+
+    struct RestoreLocale;
+    impl Drop for RestoreLocale {
+        fn drop(&mut self) {
+            i18n::set_locale(Locale::En);
+        }
+    }
+
+    let _guard = crate::i18n::TEST_LOCALE_LOCK
+        .lock()
+        .expect("locale lock is not poisoned");
+    i18n::set_locale(Locale::En);
+    let _restore = RestoreLocale;
+
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
@@ -200,18 +216,25 @@ fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestA
         window.click("settings-language", cx);
         window.render_frame(cx);
         assert!(
+            content.read(cx).state_for_test().read(cx).open_select == Some("settings-language"),
+            "the language dropdown opens"
+        );
+        window.click("settings-language-option-1", cx);
+        window.render_frame(cx);
+        assert_eq!(i18n::locale(), Locale::Id, "the floating option lands");
+        assert!(
             content
                 .read(cx)
                 .state_for_test()
                 .read(cx)
-                .settings_language_open,
-            "the language list expands"
+                .open_select
+                .is_none(),
+            "choosing closes the dropdown"
         );
         window.click("settings-ok", cx);
         window.render_frame(cx);
         let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(state.active_dialog, None, "OK closes the dialog");
-        assert!(!state.settings_language_open, "closing resets the list");
     })
     .expect("test window remains open");
 }
@@ -239,7 +262,7 @@ fn settings_titlebar_close_dismisses_the_dialog(cx: &mut gpui_kit::TestAppContex
             state.active_dialog, None,
             "the titlebar close dismisses the dialog"
         );
-        assert!(!state.settings_language_open, "closing resets the list");
+        assert!(state.open_select.is_none(), "closing resets the dropdown");
     })
     .expect("test window remains open");
 }
@@ -430,6 +453,129 @@ fn resize_titlebar_close_cancels_the_pending_session(cx: &mut gpui_kit::TestAppC
         assert!(
             state.resize_canvas.is_none(),
             "the pending resize session is dropped, not applied"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Dragging the title bar moves the dialog only while the pointer button is
+/// held. Releasing over the panel ends the drag, and a later hover move does
+/// not move it again.
+#[gpui_kit::test]
+fn dialog_drag_follows_only_while_button_is_held(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.active_dialog = Some(crate::state::DialogId::About);
+            });
+        });
+        window.render_frame(cx);
+        let handle = window.find("dialog-drag-handle").bounds().center();
+        let dialog_at =
+            |window: &mut gpui_kit::Window| window.find("dialog-surface").bounds().origin;
+        let start_dialog = dialog_at(window);
+        let end_handle =
+            gpui_kit::point(handle.x + gpui_kit::px(40.0), handle.y + gpui_kit::px(20.0));
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: handle,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: end_handle,
+                pressed_button: Some(gpui_kit::MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let moved_dialog = dialog_at(window);
+        assert!(
+            (moved_dialog.x - start_dialog.x - gpui_kit::px(40.0)).abs() < gpui_kit::px(1.0)
+                && (moved_dialog.y - start_dialog.y - gpui_kit::px(20.0)).abs() < gpui_kit::px(1.0),
+            "holding the left button moves the dialog by the pointer delta"
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: end_handle,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let stopped_dialog = dialog_at(window);
+        let hover_position = gpui_kit::point(
+            end_handle.x + gpui_kit::px(40.0),
+            end_handle.y + gpui_kit::px(40.0),
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: hover_position,
+                pressed_button: None,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            dialog_at(window),
+            stopped_dialog,
+            "releasing the button ends the drag even over the panel"
+        );
+        assert_eq!(stopped_dialog, moved_dialog);
+    })
+    .expect("test window remains open");
+}
+
+/// On a wide window the horizontal drag range follows the width, not the
+/// shorter edge, so the dialog can be pulled sideways past the old limit.
+#[gpui_kit::test]
+fn dialog_drag_uses_the_window_width_for_horizontal_room(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.active_dialog = Some(crate::state::DialogId::About);
+            });
+        });
+        window.render_frame(cx);
+        let handle = window.find("dialog-drag-handle").bounds().center();
+        let dialog_at =
+            |window: &mut gpui_kit::Window| window.find("dialog-surface").bounds().origin;
+        let start_dialog = dialog_at(window);
+        let end_handle = gpui_kit::point(
+            handle.x + gpui_kit::px(400.0),
+            handle.y + gpui_kit::px(20.0),
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: handle,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: end_handle,
+                pressed_button: Some(gpui_kit::MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let moved_dialog = dialog_at(window);
+        assert!(
+            (moved_dialog.x - start_dialog.x - gpui_kit::px(400.0)).abs() < gpui_kit::px(1.0),
+            "a 400px sideways drag moves the dialog the full 400px"
         );
     })
     .expect("test window remains open");

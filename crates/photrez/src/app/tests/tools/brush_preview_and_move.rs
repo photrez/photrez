@@ -207,6 +207,7 @@ fn transform_controls_toggle_gates_direct_manipulation(cx: &mut gpui_kit::TestAp
             app.state_for_test()
                 .update(cx, |state, _| state.active_tool = ToolId::Move);
         });
+        crate::app::tests::canvas_input::unlock_background_transform(&content, cx);
         window.render_frame(cx);
         let center = (200.0_f32, 150.0_f32);
         let moved = (center.0 + 40.0, center.1 + 30.0);

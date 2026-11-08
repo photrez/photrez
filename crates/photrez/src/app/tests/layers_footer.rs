@@ -111,11 +111,17 @@ fn footer_actions_disable_on_the_background_and_last_layer(cx: &mut gpui_kit::Te
         window.hover("layer-action-0", cx);
         window.render_frame(cx);
         assert!(
-            window.try_find("layer-action-0-tooltip").is_some(),
-            "hovering a footer action shows its tooltip"
+            window.try_find("layer-action-0-tooltip").is_none(),
+            "the footer tooltip waits out the hover delay"
         );
     })
     .expect("test window remains open");
+    settle_tooltip(cx, window, |window, _cx| {
+        assert!(
+            window.try_find("layer-action-0-tooltip").is_some(),
+            "hovering a footer action shows its tooltip"
+        );
+    });
 }
 /// The footer's duplicate icon button proves both sides of the disabled gate:
 /// with an active layer the click runs the handler and duplicates it; with no

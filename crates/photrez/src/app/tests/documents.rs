@@ -655,13 +655,18 @@ fn resize_canvas_units_convert_and_the_aspect_lock_links_the_fields(
         window.click("resize-unit", cx);
         window.render_frame(cx);
         assert!(
-            content.read(cx).state_for_test().read(cx).resize_unit_open,
+            content.read(cx).state_for_test().read(cx).open_select == Some("resize-unit"),
             "the unit list expands"
         );
-        window.click("resize-unit-cm", cx);
+        window.click("resize-unit-option-2", cx);
         window.render_frame(cx);
         assert!(
-            !content.read(cx).state_for_test().read(cx).resize_unit_open,
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .open_select
+                .is_none(),
             "choosing a unit collapses the list"
         );
         assert_eq!(
@@ -705,7 +710,8 @@ fn resize_canvas_units_offer_points_and_unlocked_fields_stay_independent(
 
         window.click("resize-unit", cx);
         window.render_frame(cx);
-        window.click("resize-unit-pt", cx);
+        // Points are the fifth entry of the unit dropdown's order.
+        window.click("resize-unit-option-4", cx);
         window.render_frame(cx);
         assert_eq!(
             content.read(cx).resize_fields_for_test(cx),

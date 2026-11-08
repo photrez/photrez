@@ -315,6 +315,7 @@ fn escape_cancels_move_transform_preview_and_preserves_selection(
             app.state_for_test()
                 .update(cx, |state, _| state.active_tool = ToolId::Move);
         });
+        unlock_background_transform(&content, cx);
         window.render_frame(cx);
         tab_to_canvas(window, cx);
         let before_pixels = pixels(&content, cx).2;
@@ -397,6 +398,7 @@ fn alt_during_a_live_move_drag_shows_the_copy_cursor(cx: &mut gpui_kit::TestAppC
             app.state_for_test()
                 .update(cx, |state, _| state.active_tool = ToolId::Move);
         });
+        unlock_background_transform(&content, cx);
         window.render_frame(cx);
         let (bounds, placement) = page(window, (200, 150));
         let start = window_point(bounds, placement, (200, 150), 60.0, 60.0);
@@ -664,6 +666,7 @@ fn canvas_context_menu_escape_does_not_cancel_underlying_move_drag(
             app.state_for_test()
                 .update(cx, |state, _| state.active_tool = ToolId::Move);
         });
+        unlock_background_transform(&content, cx);
         window.render_frame(cx);
         tab_to_canvas(window, cx);
         let before_selection = content

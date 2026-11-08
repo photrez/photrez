@@ -390,7 +390,7 @@ fn click_sv_and_check_text_layer(
     });
 }
 
-/// Without a text layer the same swatch follows the capture: it shows the
+/// Without a text layer the same swatch follows the resting layout: it shows the
 /// paint foreground, carries its tooltip, and paints that colour.
 #[gpui_kit::test]
 fn text_swatch_paints_the_foreground_in_draw_mode(cx: &mut gpui_kit::TestAppContext) {
@@ -410,9 +410,17 @@ fn text_swatch_paints_the_foreground_in_draw_mode(cx: &mut gpui_kit::TestAppCont
         window.hover("opt-text-color", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-text-color-tooltip").is_none(),
+            "the text-color tooltip waits out the hover delay"
+        );
+    });
+    settle_tooltip(cx, window, |window, _cx| {
+        assert!(
             window.try_find("opt-text-color-tooltip").is_some(),
             "the text swatch carries its text-color tooltip"
         );
+    });
+    cx.update_window(window.into(), |_, window, cx| {
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
 

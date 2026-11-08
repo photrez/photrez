@@ -1,7 +1,7 @@
 use super::canvas_input::{mount_archive_app, select_layer};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
+use gpui_kit::{px, MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
 
 pub(super) fn layers_len(content: &Entity<App>, cx: &mut gpui_kit::App) -> usize {
     content.read(cx).active_core_layer_count_for_test().unwrap()
@@ -17,6 +17,36 @@ pub(super) fn flags(
         .read(cx)
         .layer_flags
         .clone()
+}
+
+#[gpui_kit::test]
+fn new_layers_follow_photoshop_numbering(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(100, 100, cx).expect("blank document");
+            app.add_empty_layer(cx);
+        });
+        window.render_frame(cx);
+        let first = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the first new layer is selected")
+            .1
+            .name;
+        assert_eq!(first, "Layer 1");
+        content.update(cx, |app, cx| app.add_empty_layer(cx));
+        window.render_frame(cx);
+        let second = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the second new layer is selected")
+            .1
+            .name;
+        assert_eq!(second, "Layer 2");
+    })
+    .expect("test window remains open");
 }
 
 #[gpui_kit::test]
@@ -37,6 +67,13 @@ fn row_eye_toggle_hides_the_layer_and_undo_restores_it(cx: &mut gpui_kit::TestAp
         window.hover("layer-eye-0", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("layer-eye-0-tooltip").is_none(),
+            "the eye tooltip waits out the hover delay"
+        );
+    })
+    .expect("test window remains open");
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("layer-eye-0-tooltip").is_some(),
             "hovering the eye shows its tooltip"
         );
@@ -50,6 +87,33 @@ fn row_eye_toggle_hides_the_layer_and_undo_restores_it(cx: &mut gpui_kit::TestAp
             app.step_history(true, cx).expect("undo succeeds");
         });
         assert!(flags(&content, cx)[0].visible);
+    });
+}
+
+/// The row's eye leads: it sits at the row's 14px leading inset, left of the
+/// thumbnail, in a 24px button - the position the reference mounts it at -
+/// instead of hanging off the row's trailing end.
+///
+/// RED proof: against the trailing-eye row this fails on the position assert,
+/// which finds the eye half a row away.
+#[gpui_kit::test]
+fn row_eye_leads_the_row_at_the_leading_inset(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, _content, _source) = mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let row = window.find("layer-row-0").bounds();
+        let eye = window.find("layer-eye-0").bounds();
+        assert_eq!(
+            eye.origin.x,
+            row.origin.x + px(14.),
+            "the eye is the row's first child at the leading inset"
+        );
+        assert_eq!(eye.size.width, px(24.), "the eye button is 24px wide");
     })
     .expect("test window remains open");
 }
@@ -318,16 +382,23 @@ fn header_lock_toggles_drive_core_and_disable_the_partial_locks(cx: &mut gpui_ki
         window.hover("layer-lock-header-base", cx);
         window.render_frame(cx);
         assert!(
-            window.try_find("layer-lock-header-base-tooltip").is_some(),
-            "hovering the base toggle shows its tooltip"
+            window.try_find("layer-lock-header-base-tooltip").is_none(),
+            "the lock tooltip waits out the hover delay"
         );
     })
     .expect("test window remains open");
+    settle_tooltip(cx, window, |window, _cx| {
+        assert!(
+            window.try_find("layer-lock-header-base-tooltip").is_some(),
+            "hovering the base toggle shows its tooltip"
+        );
+    });
 }
 
 #[gpui_kit::test]
 fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
+    let chevron_bottom = std::cell::Cell::new(0u64);
     let (window, content, _source) = mount_archive_app(
         cx,
         &directory,
@@ -353,6 +424,7 @@ fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::Tes
         );
         let top = rows[0].id;
         let bottom = rows[1].id;
+        chevron_bottom.set(bottom);
 
         window.click(format!("layer-up-{bottom}"), cx);
         window.render_frame(cx);
@@ -392,16 +464,26 @@ fn row_chevrons_reorder_through_core_and_stop_at_the_ends(cx: &mut gpui_kit::Tes
         assert!(
             window
                 .try_find(format!("layer-up-{bottom}-tooltip"))
-                .is_some(),
-            "hovering the chevron shows the move-layer tooltip"
+                .is_none(),
+            "the chevron tooltip waits out the hover delay"
         );
     })
     .expect("test window remains open");
+    settle_tooltip(cx, window, |window, _cx| {
+        let bottom = chevron_bottom.get();
+        assert!(
+            window
+                .try_find(format!("layer-up-{bottom}-tooltip"))
+                .is_some(),
+            "hovering the chevron shows the move-layer tooltip"
+        );
+    });
 }
 
 #[gpui_kit::test]
 fn adjustments_indicator_follows_the_core_flag(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
+    let adjusted_top = std::cell::Cell::new(0u64);
     let (window, content, _source) = mount_archive_app(
         cx,
         &directory,
@@ -411,6 +493,7 @@ fn adjustments_indicator_follows_the_core_flag(cx: &mut gpui_kit::TestAppContext
         window.render_frame(cx);
         let (rows, _) = super::canvas_input::layer_rows(&content, cx);
         assert_eq!(rows.len(), 2);
+        adjusted_top.set(rows[0].id);
         assert!(
             window
                 .try_find(format!("layer-adjustments-{}", rows[0].id))
@@ -434,13 +517,24 @@ fn adjustments_indicator_follows_the_core_flag(cx: &mut gpui_kit::TestAppContext
         assert!(
             window
                 .try_find(format!("layer-adjustments-{}-tooltip", rows[0].id))
-                .is_some(),
-            "hovering the indicator explains what it marks"
+                .is_none(),
+            "the indicator tooltip waits out the hover delay"
         );
     })
     .expect("test window remains open");
+    settle_tooltip(cx, window, |window, _cx| {
+        let top = adjusted_top.get();
+        assert!(
+            window
+                .try_find(format!("layer-adjustments-{}-tooltip", top))
+                .is_some(),
+            "hovering the indicator explains what it marks"
+        );
+    });
 }
 
+/// The blend dropdown's pick writes through core history: the panel opens on
+/// the trigger, choosing Multiply applies it, and one undo returns Normal.
 #[gpui_kit::test]
 fn opacity_and_blend_controls_write_through_core(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -466,6 +560,8 @@ fn opacity_and_blend_controls_write_through_core(cx: &mut gpui_kit::TestAppConte
         );
         window.click("layer-blend-cycle", cx);
         window.render_frame(cx);
+        window.click("layer-blend-option-1", cx);
+        window.render_frame(cx);
         assert_eq!(
             content.read(cx).state_for_test().read(cx).layer_blend,
             "Multiply"
@@ -483,7 +579,7 @@ fn opacity_and_blend_controls_write_through_core(cx: &mut gpui_kit::TestAppConte
 }
 
 #[gpui_kit::test]
-fn blend_cycle_reaches_difference_and_undoes_stepwise(cx: &mut gpui_kit::TestAppContext) {
+fn blend_menu_picks_difference_and_undoes_in_one_step(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_archive_app(
         cx,
@@ -496,40 +592,54 @@ fn blend_cycle_reaches_difference_and_undoes_stepwise(cx: &mut gpui_kit::TestApp
             content.read(cx).state_for_test().read(cx).layer_blend,
             "Normal"
         );
-        let expected = [
-            "Multiply",
-            "Screen",
-            "Overlay",
-            "Darken",
-            "Lighten",
-            "Color Dodge",
-            "Color Burn",
-            "Soft Light",
-            "Hard Light",
+        window.click("layer-blend-cycle", cx);
+        window.render_frame(cx);
+        // Difference is the eleventh entry of the dropdown's order.
+        window.click("layer-blend-option-10", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).layer_blend,
             "Difference",
-        ];
-        for (step, mode) in expected.iter().enumerate() {
-            window.click("layer-blend-cycle", cx);
-            window.render_frame(cx);
-            assert_eq!(
-                content.read(cx).state_for_test().read(cx).layer_blend,
-                *mode,
-                "click {} advances the cycle",
-                step + 1
-            );
-        }
-        for _ in 0..10 {
-            content.update(cx, |app, cx| {
-                app.step_history(true, cx).expect("undo blend");
-            });
-        }
+            "the dropdown picks Difference directly"
+        );
+        content.update(cx, |app, cx| {
+            app.step_history(true, cx).expect("undo blend");
+        });
         assert_eq!(
             content.read(cx).state_for_test().read(cx).layer_blend,
             "Normal",
-            "each cycle click is its own undo step"
+            "one pick is one undo step"
         );
     })
     .expect("test window remains open");
+}
+
+/// A double click on the row's name opens a focused rename prompt and Enter
+/// commits it - the reference starts a rename from the name, so the row
+/// carries no pen button.
+fn double_click_name(window: &mut gpui_kit::Window, row: u64, cx: &mut gpui_kit::App) {
+    let at = window.find(format!("layer-name-{row}")).bounds().center();
+    for click_count in [1usize, 2] {
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at,
+                click_count,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at,
+                click_count,
+                modifiers: Default::default(),
+            }),
+            cx,
+        );
+    }
+    window.render_frame(cx);
 }
 
 #[gpui_kit::test]
@@ -538,8 +648,7 @@ fn rename_button_opens_a_focused_prompt_and_enter_commits(cx: &mut gpui_kit::Tes
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        window.click("layer-rename-0", cx);
-        window.render_frame(cx);
+        double_click_name(window, 0, cx);
         assert!(window.find("rename-value").bounds().size.width > gpui_kit::px(0.0));
         assert_eq!(
             content.read(cx).rename_content_for_test(cx).as_deref(),
@@ -562,8 +671,7 @@ fn tab_reaches_the_rename_field_and_types_into_it(cx: &mut gpui_kit::TestAppCont
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        window.click("layer-rename-0", cx);
-        window.render_frame(cx);
+        double_click_name(window, 0, cx);
 
         let mut reached = false;
         for _ in 0..40 {
@@ -823,7 +931,9 @@ fn ctrl_click_and_plain_click_manage_the_multi_selection(cx: &mut gpui_kit::Test
     .expect("test window remains open");
 }
 
-/// The locked badge follows the layer's real lock flag, not a constant.
+/// The row marks its lock through the lock glyph alone, the way the reference
+/// does: no badge element exists at any lock state, and the round trip still
+/// works with the badge's row slot gone.
 #[gpui_kit::test]
 fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -848,7 +958,7 @@ fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestA
             window
                 .try_find(format!("layer-locked-badge-{top}"))
                 .is_none(),
-            "an unlocked row shows no badge"
+            "no badge element exists in the row"
         );
 
         window.click(format!("layer-lock-{top}"), cx);
@@ -857,12 +967,11 @@ fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestA
             flags(&content, cx)[0].locked,
             "the row lock button locks the layer"
         );
-        let badge = window
-            .try_find(format!("layer-locked-badge-{top}"))
-            .expect("a locked row shows the badge");
         assert!(
-            badge.bounds().size.width > gpui_kit::px(0.0),
-            "the badge takes its own row slot"
+            window
+                .try_find(format!("layer-locked-badge-{top}"))
+                .is_none(),
+            "a locked row still shows no badge; the lock glyph marks it"
         );
 
         window.click(format!("layer-lock-{top}"), cx);
@@ -870,12 +979,6 @@ fn locked_rows_carry_the_badge_and_unlocked_rows_do_not(cx: &mut gpui_kit::TestA
         assert!(
             !flags(&content, cx)[0].locked,
             "the second click unlocks again"
-        );
-        assert!(
-            window
-                .try_find(format!("layer-locked-badge-{top}"))
-                .is_none(),
-            "unlocking takes the badge away"
         );
     })
     .expect("test window remains open");
@@ -944,6 +1047,66 @@ fn layer_drag_ghost_carries_the_icon_tile(cx: &mut gpui_kit::TestAppContext) {
             2,
             "releasing over the canvas reorders nothing"
         );
+    })
+    .expect("test window remains open");
+}
+
+/// The layers empty state's rhythm matches the presets card: the supporting
+/// line sits 4px under its title, not a full 12px step under it.
+///
+/// RED proof: against the uniform 12px-gap empty state this fails on the
+/// measured 12px gap between title and supporting line.
+#[gpui_kit::test]
+fn layers_empty_state_keeps_the_presets_rhythm(cx: &mut gpui_kit::TestAppContext) {
+    let (window, _content) = mount_app(cx, None, None);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let title = window.find("layers-empty-title").bounds();
+        let sub = window.find("layers-empty-sub").bounds();
+        let gap = sub.origin.y - (title.origin.y + title.size.height);
+        assert!(
+            (f32::from(gap) - 4.0).abs() < 0.5,
+            "the supporting line follows the title by 4px, measured {gap:?}"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The panel's controls answer nothing while no document is open: the blend
+/// select, the opacity steppers, the header lock and the footer's New Layer
+/// lose their clicks, so a stray click cannot leave a command error behind.
+///
+/// RED proof: re-attach the handlers unconditionally in `views/layers.rs` and
+/// the first click fails this on the status error it leaves behind.
+#[gpui_kit::test]
+fn panel_controls_answer_nothing_while_no_document_is_open(cx: &mut gpui_kit::TestAppContext) {
+    let (window, content) = mount_app(cx, None, None);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("layer-blend-cycle").is_some(),
+            "the panel still renders its controls over the empty state"
+        );
+        for id in [
+            "layer-blend-cycle",
+            "layer-opacity-inc",
+            "layer-opacity-dec",
+            "layer-lock-header-base",
+            "layer-action-0",
+        ] {
+            window.click(id, cx);
+            window.render_frame(cx);
+            let state = content.read(cx).state_for_test();
+            let state = state.read(cx);
+            assert!(
+                state.status_error.is_none(),
+                "{id} must be inert without a document, not a rejected command"
+            );
+            assert!(
+                state.layers.is_empty(),
+                "{id} must not project a layer without a document"
+            );
+        }
     })
     .expect("test window remains open");
 }

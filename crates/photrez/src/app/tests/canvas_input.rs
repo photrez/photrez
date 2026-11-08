@@ -35,6 +35,48 @@ pub(super) fn pixels(content: &Entity<App>, cx: &mut gpui_kit::App) -> (u32, u32
         .expect("fixture has a raster layer")
 }
 
+/// Remove the transform locks from the blank document's Background so a test
+/// can move it. The real Background carries `lock_position`, and the Move tool
+/// correctly refuses to drag it.
+pub(super) fn unlock_background_transform(content: &Entity<App>, cx: &mut gpui_kit::App) {
+    let target = {
+        let app = content.read(cx);
+        let Some(doc_id) = app.active_document.as_ref().map(|doc| doc.doc_id.clone()) else {
+            return;
+        };
+        let Some(layer) = app
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .and_then(|content| {
+                content
+                    .layers
+                    .iter()
+                    .find(|layer| layer.is_background == Some(true))
+            })
+        else {
+            return;
+        };
+        (
+            layer.id.clone(),
+            layer.lock_position.unwrap_or(false),
+            layer.lock_rotation.unwrap_or(false),
+        )
+    };
+    content.update(cx, |app, cx| {
+        if target.1 {
+            app.toggle_layer_lock(
+                target.0.clone(),
+                photrez_core::protocol::LockKind::Position,
+                cx,
+            );
+        }
+        if target.2 {
+            app.toggle_layer_lock(target.0, photrez_core::protocol::LockKind::Rotation, cx);
+        }
+    });
+}
+
 pub(super) fn page(
     window: &mut gpui_kit::Window,
     doc: (u32, u32),
@@ -307,6 +349,7 @@ fn move_drag_translates_the_core_layer(cx: &mut gpui_kit::TestAppContext) {
         content.update(cx, |app, cx| {
             app.create_document(400, 300, cx).expect("blank document");
         });
+        unlock_background_transform(&content, cx);
         set_tool(&content, cx, ToolId::Move, 1.0);
         window.render_frame(cx);
         let before = content
@@ -582,6 +625,7 @@ fn save_after_move_persists_the_live_transform(cx: &mut gpui_kit::TestAppContext
             content.update(cx, |app, cx| {
                 app.create_document(400, 300, cx).expect("blank document");
             });
+            unlock_background_transform(&content, cx);
             set_tool(&content, cx, ToolId::Move, 2.0);
             window.render_frame(cx);
             let before = content
@@ -622,4 +666,47 @@ fn save_after_move_persists_the_live_transform(cx: &mut gpui_kit::TestAppContext
         moved,
         "the saved file must carry the live transform"
     );
+}
+
+/// The Move tool clears its transform selection on an empty click, but the
+/// paint target survives. A brush stroke must still land on the last active
+/// layer.
+#[gpui_kit::test]
+fn paint_still_targets_the_last_layer_after_a_move_deselect(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("blank document");
+        });
+        set_tool(&content, cx, ToolId::Move, 2.0);
+        window.render_frame(cx);
+        let before = pixels(&content, cx).2;
+        click_doc(window, (400, 300), (200.0, 150.0), cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .selected_layers
+                .is_empty(),
+            "the empty click clears the transform selection"
+        );
+
+        set_tool(&content, cx, ToolId::Brush, 8.0);
+        window.render_frame(cx);
+        let cursor_before = history_cursor(&content, cx);
+        drag_doc(window, (400, 300), (200.0, 150.0), (240.0, 180.0), cx);
+        assert_ne!(
+            pixels(&content, cx).2,
+            before,
+            "the brush still paints on the last active layer"
+        );
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before + 1,
+            "the stroke commits one history entry"
+        );
+    })
+    .expect("test window remains open");
 }

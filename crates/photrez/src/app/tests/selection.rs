@@ -457,9 +457,8 @@ fn selection_bar_fields_read_and_rewrite_the_committed_selection(
     cx: &mut gpui_kit::TestAppContext,
 ) {
     let directory = TestDirectory::new();
-    // The bar needs the full comparison width: at a 1536 px layout width the
-    // The wide dock (598 px) leaves 886 px and clips the R field the 1920 capture
-    // shows.
+    // The bar needs the full layout width: the wide dock (598 px) leaves 886 px
+    // and clips the R field at 1536 px.
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1920.0);
     cx.update_window(window.into(), |_, window, cx| {
         content.update(cx, |app, cx| {

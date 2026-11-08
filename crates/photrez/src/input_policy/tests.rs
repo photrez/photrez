@@ -8,6 +8,7 @@ fn target() -> BrushTarget {
         width: 1,
         height: 1,
         display_scale: 1.0,
+        is_background: false,
     }
 }
 
@@ -162,6 +163,7 @@ fn scaled_preview_renders_the_scaled_tip_not_its_corner() {
             width: 1024,
             height: 1024,
             display_scale: 0.1,
+            is_background: false,
         },
         512.0,
         512.0,
@@ -242,6 +244,7 @@ fn scaled_preview_respects_cap_and_document_bounds() {
             width: 8,
             height: 8,
             display_scale: 0.5,
+            is_background: false,
         },
         2.0,
         2.0,
@@ -292,6 +295,7 @@ fn region_preview_matches_the_document_preview_for_the_same_crop() {
             width: 64,
             height: 64,
             display_scale: 0.5,
+            is_background: false,
         },
         30.0,
         30.0,
@@ -373,6 +377,7 @@ fn region_preview_rejects_a_base_that_does_not_cover_the_crop() {
             width: 64,
             height: 64,
             display_scale: 1.0,
+            is_background: false,
         },
         32.0,
         32.0,

@@ -1,4 +1,6 @@
-use super::canvas_input::{drag_doc, page};
+use super::canvas_input::{
+    drag_doc, history_cursor, page, tab_to_canvas, unlock_background_transform,
+};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -10,6 +12,9 @@ fn new_doc(content: &Entity<App>, cx: &mut gpui_kit::App, width: u32, height: u3
         app.state_for_test()
             .update(cx, |state, _| state.active_tool = ToolId::Move);
     });
+    // A blank document starts on the pinned Background; transform tests need
+    // a movable, document-sized layer.
+    unlock_background_transform(content, cx);
 }
 
 fn transform(content: &Entity<App>, cx: &mut gpui_kit::App) -> (f64, f64, f64, f64, f64) {
@@ -42,6 +47,177 @@ fn dragging_the_se_corner_scales_the_layer_proportionally(cx: &mut gpui_kit::Tes
     .expect("test window remains open");
 }
 
+/// A corner drag paints, in the same render, a preview that covers the frame
+/// the user sees, and never changes the canvas size. A queued or stale
+/// preview would show the layer at another size for a frame, which reads as
+/// the layer jumping bigger and smaller while the pointer moves.
+#[gpui_kit::test]
+fn corner_drag_preview_matches_the_frame_it_is_drawn_with(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        // Wider than the viewport, so the preview runs at display scale.
+        new_doc(&content, cx, 1600, 1200);
+        window.render_frame(cx);
+        let (bounds, placement) = page(window, (1600, 1200));
+        let corner = (1600.0, 1200.0);
+        let start =
+            super::canvas_input::window_point(bounds, placement, (1600, 1200), corner.0, corner.1);
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        // The reported gesture: a straight NE/SW run through the SE corner.
+        let mut last = start;
+        for step in 0..5 {
+            let d = match step {
+                0 => 0.0,
+                1 => 30.0,
+                2 => 60.0,
+                3 => 30.0,
+                _ => 0.0,
+            };
+            let position = super::canvas_input::window_point(
+                bounds,
+                placement,
+                (1600, 1200),
+                corner.0 + d * 0.5,
+                corner.1 - d * 0.5,
+            );
+            last = position;
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                    position,
+                    ..Default::default()
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            let app = content.read(cx);
+            let active = app.active_document.as_ref().expect("active document");
+            assert_eq!(
+                active.canvas.dimensions(),
+                (1600, 1200),
+                "a live preview must never resize the canvas"
+            );
+            let patch = active
+                .canvas
+                .preview_patch_rects()
+                .into_iter()
+                .next()
+                .expect("the rendered frame carries the preview pixels");
+            let drag = app.transform_drag_for_test().expect("live drag");
+            let (fx, fy, fw, fh) =
+                super::transform_geometry::layer_aabb(&drag.preview, drag.width, drag.height);
+            // The patch covers the frame, clipped to the document.
+            let left = (fx.floor() - 1.0).max(0.0);
+            let top = (fy.floor() - 1.0).max(0.0);
+            let right = (fx + fw).ceil().min(1600.0);
+            let bottom = (fy + fh).ceil().min(1200.0);
+            assert!(
+                f64::from(patch.0) <= left
+                    && f64::from(patch.1) <= top
+                    && f64::from(patch.0 + patch.2) >= right - 1.0
+                    && f64::from(patch.1 + patch.3) >= bottom - 1.0,
+                "step {step}: preview {patch:?} must cover the frame ({fx}, {fy}, {fw}, {fh})"
+            );
+        }
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: last,
+                ..Default::default()
+            }),
+            cx,
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The Move rotate hover paints the dynamic rotate sprite at the pointer,
+/// and Space wins over every handle cursor with the grab cursor.
+#[gpui_kit::test]
+fn move_rotate_hover_paints_the_sprite_and_space_wins(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        new_doc(&content, cx, 400, 300);
+        content.update(cx, |app, cx| {
+            // Half-size layer so the rotate zone sits inside the page.
+            app.set_transform_field("num-w", 200.0, cx)
+                .expect("width edit applies");
+            app.set_transform_field("num-h", 150.0, cx)
+                .expect("height edit applies");
+        });
+        window.render_frame(cx);
+        let (bounds, placement) = page(window, (400, 300));
+        let outside = super::canvas_input::window_point(bounds, placement, (400, 300), 300.0, 75.0);
+        let corner = super::canvas_input::window_point(bounds, placement, (400, 300), 200.0, 150.0);
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: outside,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let sprite = content
+            .update(cx, |app, cx| app.rotate_cursor_for_test(cx))
+            .expect("the rotate hover paints the sprite");
+        assert_eq!(
+            (sprite.position[0], sprite.position[1]),
+            (f32::from(outside.x), f32::from(outside.y)),
+            "the sprite anchors at the pointer"
+        );
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_cursor_policy(cx)),
+            crate::input_policy::CursorPolicy::Crosshair,
+            "the rotate hover keeps the crosshair under the sprite"
+        );
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: corner,
+                ..Default::default()
+            }),
+            cx,
+        );
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_cursor_policy(cx)),
+            crate::input_policy::CursorPolicy::ResizeNwse,
+            "the SE corner hovers as a resize cursor before Space"
+        );
+        super::canvas_input::tab_to_canvas(window, cx);
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::KeyDown(gpui_kit::KeyDownEvent {
+                keystroke: gpui_kit::Keystroke {
+                    modifiers: gpui_kit::Modifiers::default(),
+                    key: "space".to_string(),
+                    key_char: None,
+                },
+                is_held: false,
+                prefer_character_input: false,
+            }),
+            cx,
+        );
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_cursor_policy(cx)),
+            crate::input_policy::CursorPolicy::OpenHand,
+            "Space wins over the handle cursor with the grab cursor"
+        );
+        assert!(
+            content
+                .update(cx, |app, cx| app.rotate_cursor_for_test(cx))
+                .is_none(),
+            "Space paints no rotate sprite"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn dragging_outside_a_corner_rotates_the_layer(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -67,13 +243,24 @@ fn dragging_outside_a_corner_rotates_the_layer(cx: &mut gpui_kit::TestAppContext
 fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
+    let mut before = (0.0, 0.0, 0.0, 0.0, 0.0);
+    let mut preview = photrez_core::document::content::Transform2D {
+        x: 0.0,
+        y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        rotation: 0.0,
+        flip_h: false,
+        flip_v: false,
+    };
+    let mut moved = gpui_kit::Point::default();
     cx.update_window(window.into(), |_, window, cx| {
         new_doc(&content, cx, 200, 150);
         window.render_frame(cx);
-        let before = transform(&content, cx);
+        before = transform(&content, cx);
         let (bounds, placement) = page(window, (200, 150));
         let start = super::canvas_input::window_point(bounds, placement, (200, 150), 60.0, 60.0);
-        let moved = super::canvas_input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
+        moved = super::canvas_input::window_point(bounds, placement, (200, 150), 100.0, 90.0);
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
                 button: gpui_kit::MouseButton::Left,
@@ -89,7 +276,7 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
             }),
             cx,
         );
-        let preview = content
+        preview = content
             .read(cx)
             .transform_drag_for_test()
             .expect("drag is live")
@@ -100,6 +287,11 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
                 && (preview.y - (before.1 + 30.0)).abs() < 1e-3,
             "preview follows the pointer: {preview:?}"
         );
+    })
+    .expect("test window remains open");
+    // The pixel composite runs in the background; park until it installs.
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
         let (has_live_preview, expected) = {
             let app = content.read(cx);
             let active = app.active_document.as_ref().expect("active document");
@@ -126,7 +318,7 @@ fn transform_drag_previews_before_commit_and_undo_restores(cx: &mut gpui_kit::Te
                 &layer.layer_type,
                 photrez_core::document::content::LayerType::Raster
             ));
-            layer.transform = drag.preview.clone();
+            layer.transform = preview.clone();
             let expected = photrez_core::render::compositor::composite_layers_with_font_data(
                 &expected_content,
                 &loaded.registry,
@@ -835,6 +1027,202 @@ fn transform_commit_latency(cx: &mut gpui_kit::TestAppContext) {
         assert!(
             p95 <= 33.3,
             "transform commit p95 {p95:.3} ms over the 33.3 ms budget"
+        );
+    })
+    .expect("test window remains open");
+}
+
+fn selected_core_id(content: &Entity<App>, cx: &gpui_kit::App) -> String {
+    content
+        .read(cx)
+        .selected_layer_for_cursor(cx)
+        .expect("the fixture selects a layer")
+        .1
+        .id
+}
+
+/// Repeating a transform field at the value it already holds must not add a
+/// history row.
+#[gpui_kit::test]
+fn an_unchanged_transform_field_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, _window, cx| {
+        new_doc(&content, cx, 400, 300);
+        // The new document starts on a position-locked Background, which
+        // refuses a position edit before the ghost path is reached.
+        content.update(cx, |app, cx| app.add_empty_layer(cx));
+        let cursor_before = history_cursor(&content, cx);
+        let x = transform(&content, cx).0;
+        content.update(cx, |app, cx| {
+            app.set_transform_field("num-x", x, cx)
+                .expect("the field commits");
+        });
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a field at its current value must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Reset on an identity transform changes nothing, so it must not add a
+/// history row.
+#[gpui_kit::test]
+fn resetting_an_identity_transform_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, _window, cx| {
+        new_doc(&content, cx, 400, 300);
+        let cursor_before = history_cursor(&content, cx);
+        content.update(cx, |app, cx| {
+            app.reset_selected_transform(cx).expect("reset commits");
+        });
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a reset with nothing to reset must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// A locked layer must not move from a canvas drag, including the background
+/// position lock. The Move bar fields already refuse a locked layer.
+#[gpui_kit::test]
+fn a_locked_layer_cannot_be_moved_from_the_canvas(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        new_doc(&content, cx, 400, 300);
+        let core_id = selected_core_id(&content, cx);
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+        window.render_frame(cx);
+        let before = transform(&content, cx);
+        let cursor_before = history_cursor(&content, cx);
+        drag_doc(window, (400, 300), (200.0, 150.0), (240.0, 180.0), cx);
+        assert_eq!(
+            transform(&content, cx),
+            before,
+            "a locked layer must not move from a canvas drag"
+        );
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a refused drag must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The background layer carries a position lock. A canvas drag must not move
+/// it, or the Background invariant that the stacking order relies on breaks.
+#[gpui_kit::test]
+fn a_position_locked_layer_cannot_be_moved_from_the_canvas(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("blank document");
+            app.state_for_test()
+                .update(cx, |state, _| state.active_tool = ToolId::Move);
+        });
+        assert!(
+            content
+                .read(cx)
+                .selected_layer_for_cursor(cx)
+                .expect("the blank document selects its Background")
+                .1
+                .lock_position
+                .unwrap_or(false),
+            "the blank document's Background carries the position lock"
+        );
+        window.render_frame(cx);
+        let before = transform(&content, cx);
+        let cursor_before = history_cursor(&content, cx);
+        drag_doc(window, (400, 300), (200.0, 150.0), (240.0, 180.0), cx);
+        assert_eq!(
+            transform(&content, cx),
+            before,
+            "a position-locked layer must not move from a canvas drag"
+        );
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a refused drag must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The arrow-key nudge reads the same transform as the Move bar, so a locked
+/// layer must ignore it too.
+#[gpui_kit::test]
+fn arrow_keys_do_not_move_a_locked_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        new_doc(&content, cx, 400, 300);
+        let core_id = selected_core_id(&content, cx);
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+        let before = transform(&content, cx);
+        let cursor_before = history_cursor(&content, cx);
+        window.press("right", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            transform(&content, cx),
+            before,
+            "arrow keys must not move a locked layer"
+        );
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a refused nudge must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// During a resize drag the cursor must keep describing the handle even after
+/// the pointer leaves the canvas. The reference showed resize/rotate cursors
+/// outside the viewport while the drag was live.
+#[gpui_kit::test]
+fn a_resize_drag_keeps_its_cursor_outside_the_canvas(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        new_doc(&content, cx, 400, 300);
+        window.render_frame(cx);
+        let (bounds, placement) = page(window, (400, 300));
+        let start = super::canvas_input::window_point(bounds, placement, (400, 300), 400.0, 300.0);
+        let outside = bounds.origin
+            + gpui_kit::point(
+                gpui_kit::px(f32::from(bounds.size.width) + 200.0),
+                gpui_kit::px(f32::from(bounds.size.height) + 200.0),
+            );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: outside,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_cursor_policy(cx)),
+            crate::input_policy::CursorPolicy::ResizeNwse,
+            "the resize cursor survives outside the canvas during the drag"
         );
     })
     .expect("test window remains open");

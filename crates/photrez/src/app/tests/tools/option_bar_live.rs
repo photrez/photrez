@@ -601,6 +601,13 @@ fn eyedropper_hex_badge_shows_copy_tooltip(cx: &mut gpui_kit::TestAppContext) {
         window.hover("opt-copy-hex", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("opt-copy-hex-tooltip").is_none(),
+            "the HEX tooltip waits out the hover delay"
+        );
+    })
+    .expect("test window remains open");
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("opt-copy-hex-tooltip").is_some(),
             "the HEX badge carries its click-to-copy tooltip"
         );
@@ -610,8 +617,7 @@ fn eyedropper_hex_badge_shows_copy_tooltip(cx: &mut gpui_kit::TestAppContext) {
             window.try_find("opt-copy-hex-tooltip").is_none(),
             "leaving the badge hides the tooltip"
         );
-    })
-    .expect("test window remains open");
+    });
 }
 
 #[gpui_kit::test]

@@ -839,12 +839,11 @@ fn crop_ratio_open_latency(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
-/// A saved crop-bar capture at 1536 layout px paints two narrow field-filled boxes
-/// near the left that this build's resting capture does not show, which could mean a
-/// control was lost at that width. Enumerate the bar's controls at that width
-/// instead of reading the answer back off pixels.
+/// At a 1536 px layout width the crop bar paints two narrow field-filled boxes
+/// near the left. Enumerate the bar's controls at that width instead of
+/// reading the answer back off pixels.
 #[gpui_kit::test]
-fn crop_bar_keeps_every_control_at_the_capture_width(cx: &mut gpui_kit::TestAppContext) {
+fn crop_bar_keeps_every_control_at_the_reference_width(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
     cx.update_window(window.into(), |_, window, cx| {
@@ -865,13 +864,13 @@ fn crop_bar_keeps_every_control_at_the_capture_width(cx: &mut gpui_kit::TestAppC
             .collect();
         assert!(
             missing.is_empty(),
-            "the crop bar dropped controls at the capture width: {missing:?}"
+            "the crop bar dropped controls at the reference width: {missing:?}"
         );
         for id in ids {
             let bounds = window.find(id).bounds();
             assert!(
                 f32::from(bounds.size.width) > 0.0 && f32::from(bounds.size.height) > 0.0,
-                "{id} is laid out with no area at the capture width"
+                "{id} is laid out with no area at the reference width"
             );
         }
     })
@@ -916,6 +915,68 @@ fn crop_bar_mounts_no_more_trigger(cx: &mut gpui_kit::TestAppContext) {
                 "{id} still mounts after the trigger removal"
             );
         }
+    })
+    .expect("test window remains open");
+}
+
+/// A document change resets the crop frame and its mini-undo stacks. The
+/// fresh page seeds a full-frame crop for the new document size.
+#[gpui_kit::test]
+fn switching_documents_resets_the_crop_frame_and_history(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("first document");
+            app.state_for_test().update(cx, |state, _| {
+                state.active_tool = ToolId::Crop;
+                state.crop_rect = Some([20.0, 20.0, 200.0, 150.0]);
+                state.crop_history = vec![[10.0, 10.0, 100.0, 100.0]];
+                state.crop_redo = vec![[5.0, 5.0, 50.0, 50.0]];
+            });
+        });
+        let first_doc = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("first document id");
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("second document");
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).crop_rect_for_test(cx),
+            Some([0.0, 0.0, 200.0, 150.0]),
+            "creating a document re-seeds the crop frame for its page"
+        );
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(
+                state.crop_history.is_empty() && state.crop_redo.is_empty(),
+                "the previous document's crop stacks do not survive"
+            );
+        }
+
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.crop_rect = Some([15.0, 15.0, 90.0, 80.0]);
+                state.crop_history = vec![[1.0, 1.0, 2.0, 2.0]];
+            });
+        });
+        content.update(cx, |app, cx| {
+            app.activate_document(&first_doc, cx)
+                .expect("first document activates");
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).crop_rect_for_test(cx),
+            Some([0.0, 0.0, 400.0, 300.0]),
+            "switching tabs re-seeds the crop frame for the target page"
+        );
+        let state = content.read(cx).state_for_test().read(cx);
+        assert!(
+            state.crop_history.is_empty() && state.crop_redo.is_empty(),
+            "switching tabs clears the crop stacks"
+        );
     })
     .expect("test window remains open");
 }

@@ -15,7 +15,8 @@
 //! app offers none. The document-tab strip and the top-level
 //! menu triggers are also absent from the test access tree because their views
 //! do not call `.test_support()`; asserting them would require a production
-//! edit outside this lane. The native views remain visual-only or shot-gated,
+//! edit outside this lane. The native views remain visual-only or reachable
+//! only through a `--shot` state,
 //! or expose no corresponding production event; no handler or confirmation is
 //! fabricated. These checks do not measure pixels, present interval,
 //! input-to-photon latency, or smoothness.
@@ -95,18 +96,52 @@ fn open_app_sized(
     })
 }
 
-/// Clicking the brush button must move the real `AppState`.
+/// The active tab's underline must not move the label: active and inactive
+/// labels sit on one baseline, the way the reference draws its underline as an
+/// absolute overlay.
 ///
-/// The starting tool is written through the state entity so the test does not
-/// depend on the process-wide shot seed (`shot.rs` sets it per test binary).
+/// RED proof: against the underline-as-last-child tab this fails on a one
+/// pixel rise in the active label's centre.
+#[gpui_kit::test]
+fn active_tab_label_sits_on_the_inactive_baseline(cx: &mut TestAppContext) {
+    let (handle, content) = open_app(cx);
+    cx.update_window(handle.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+
+        let active = window.find("adjustments-label").bounds().center().y;
+        let inactive = window.find("properties-label").bounds().center().y;
+        assert!(
+            (active - inactive).abs() < px(0.5),
+            "the active label must not shift: active {active:?} vs inactive {inactive:?}"
+        );
+    })
+    .unwrap();
+}
+
+/// Clicking the brush button must move the real `AppState` while a document
+/// is open, and answer nothing without one - the rail paints at 50% and loses
+/// its clicks over the empty workspace, the Layers panel's own treatment.
 ///
-/// RED proof: before the tool-rail handler exists, the state stays on `Move`.
+/// The starting tool and the document flag are written through the state
+/// entity so the test does not depend on the process-wide shot seed
+/// (`shot.rs` sets it per test binary).
+///
+/// RED proof: re-attach the handlers unconditionally in `views/tool_rail.rs`
+/// and the first assert fails on the tool the inert click switched to.
 #[gpui_kit::test]
 fn tool_rail_click_updates_active_tool(cx: &mut TestAppContext) {
     let (handle, content) = open_app(cx);
     cx.update_window(handle.into(), |_, window, cx| {
         let state = content.read(cx).state_for_test().clone();
-        state.update(cx, |s, _| s.active_tool = ToolId::Move);
+        state.update(cx, |s, _| {
+            s.active_tool = ToolId::Move;
+            s.has_document = false;
+        });
         window.render_frame(cx);
         assert_eq!(
             state.read(cx).active_tool,
@@ -114,6 +149,16 @@ fn tool_rail_click_updates_active_tool(cx: &mut TestAppContext) {
             "the test must start from Move regardless of the shot seed"
         );
 
+        window.click("brush", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            state.read(cx).active_tool,
+            ToolId::Move,
+            "without a document the rail click must be inert"
+        );
+
+        state.update(cx, |s, _| s.has_document = true);
+        window.render_frame(cx);
         window.click("brush", cx);
         window.render_frame(cx);
 
@@ -482,13 +527,13 @@ fn menu_triggers_open_measured_popups(cx: &mut TestAppContext) {
     cx.update_window(handle.into(), |_, window, cx| {
         let menus = [
             ("menus.file", "menu-file-popup", 58.0),
-            ("menus.edit", "menu-edit-popup", 100.0),
-            ("menus.image", "menu-image-popup", 144.0),
-            ("menus.layer", "menu-layer-popup", 201.0),
-            ("menus.view", "menu-view-popup", 254.0),
-            ("menus.window", "menu-window-popup", 303.0),
-            ("menus.help", "menu-help-popup", 372.0),
-            ("menus.settings", "menu-settings-popup", 421.0),
+            ("menus.edit", "menu-edit-popup", 99.0),
+            ("menus.image", "menu-image-popup", 142.0),
+            ("menus.layer", "menu-layer-popup", 198.0),
+            ("menus.view", "menu-view-popup", 249.0),
+            ("menus.window", "menu-window-popup", 298.0),
+            ("menus.help", "menu-help-popup", 367.0),
+            ("menus.settings", "menu-settings-popup", 415.0),
         ];
         for (trigger, popup, x) in menus {
             window.click(trigger, cx);
@@ -540,6 +585,11 @@ fn menu_commands_open_the_shell_dialogs(cx: &mut TestAppContext) {
                 window.try_find("menu-overlay").is_none(),
                 "the menu must close when its command runs"
             );
+            // The overlay fades in over 200ms; the test clock must pass it
+            // before the overlay counts as visible for a click.
+            cx.background_executor()
+                .advance_clock(std::time::Duration::from_millis(250));
+            window.render_frame(cx);
 
             window.click_at(
                 "dialog-overlay",
@@ -551,8 +601,21 @@ fn menu_commands_open_the_shell_dialogs(cx: &mut TestAppContext) {
             );
             window.render_frame(cx);
             assert!(
+                window.find(dialog_id).visible(),
+                "{dialog_id} must stay open after an outside click"
+            );
+            window.click(
+                match dialog_id {
+                    "dialog-new-document" => "new-doc-cancel",
+                    "dialog-about" => "about-close",
+                    _ => "settings-ok",
+                },
+                cx,
+            );
+            window.render_frame(cx);
+            assert!(
                 window.try_find(dialog_id).is_none(),
-                "{dialog_id} must close"
+                "{dialog_id} must close from its own control"
             );
         }
     })
@@ -560,7 +623,8 @@ fn menu_commands_open_the_shell_dialogs(cx: &mut TestAppContext) {
 }
 
 /// Right-clicking the selection tool exposes its two sub-variants; choosing
-/// one updates both the shape and the active tool.
+/// one updates both the shape and the active tool. The rail answers the
+/// pointer only while a document is open, so the state seeds one.
 #[gpui_kit::test]
 fn selection_variant_flyout_exposes_rect_and_ellipse(cx: &mut TestAppContext) {
     let (handle, content) = open_app(cx);
@@ -570,6 +634,7 @@ fn selection_variant_flyout_exposes_rect_and_ellipse(cx: &mut TestAppContext) {
             s.active_tool = ToolId::Selection;
             s.selection_shape = SelectionShape::Rect;
             s.selection_flyout_open = false;
+            s.has_document = true;
         });
         window.render_frame(cx);
 
@@ -887,6 +952,114 @@ fn startup_open_keeps_active_bundle_until_candidate_is_presentable(cx: &mut Test
             assert_eq!(app.active_document_id_for_test().as_deref(), Some("doc-c"));
             assert_eq!(app.active_document_pixel_lengths_for_test(), Some((4, 0)));
         });
+    })
+    .unwrap();
+}
+
+/// The Navigator's no-document body: the dashed no-image state replaces the
+/// canvas and its pan hitbox, and the zoom row loses its handlers, so a stray
+/// click leaves no error behind.
+///
+/// RED proof: mount the canvas body regardless of the canvas and the second
+/// assert fails on the hitbox the empty branch must not install.
+#[gpui_kit::test]
+fn navigator_shows_the_no_image_state_without_a_document(cx: &mut TestAppContext) {
+    let (handle, content) = open_app(cx);
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("navigator-empty").is_some(),
+            "the dashed no-image state mounts without a document"
+        );
+        assert!(
+            window.try_find("navigator-hitbox").is_none(),
+            "the pan hitbox belongs to the canvas body, not the empty state"
+        );
+        assert!(
+            window.try_find("navigator-zoom-row").is_some(),
+            "the zoom row still mounts over the empty state"
+        );
+        for id in ["navigator-zoom-out", "navigator-zoom-in"] {
+            window.click(id, cx);
+            window.render_frame(cx);
+            assert!(
+                content
+                    .read(cx)
+                    .state_for_test()
+                    .read(cx)
+                    .status_error
+                    .is_none(),
+                "{id} must be inert without a document, not a rejected command"
+            );
+        }
+    })
+    .unwrap();
+}
+
+/// The collapse chevron folds the section to its header and back, and the fit
+/// button plus the zoom +/- steps drive the real camera.
+///
+/// RED proof: wire the buttons to no-ops and the zoom asserts fail on the
+/// unchanged camera.
+#[gpui_kit::test]
+fn navigator_collapse_and_zoom_drive_the_camera(cx: &mut TestAppContext) {
+    let paths = StartupTestFiles::new();
+    let source = paths.file("nav-zoom.ptz");
+    let io = Arc::new(StartupFileIo::default());
+    io.insert(&source, startup_archive("doc-nav", 1, 1, false, 0));
+    let (handle, content) = open_app_with(cx, Some((source, io)));
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("navigator-empty").is_none(),
+            "a document shows the canvas preview, not the empty state"
+        );
+        assert!(window.try_find("navigator-hitbox").is_some());
+
+        window.click("navigator-fit", cx);
+        window.render_frame(cx);
+        let fitted = content
+            .read(cx)
+            .camera_for_test()
+            .expect("fit stores a concrete camera")
+            .zoom;
+
+        window.click("navigator-zoom-in", cx);
+        window.render_frame(cx);
+        let zoomed = content
+            .read(cx)
+            .camera_for_test()
+            .expect("camera after zoom-in")
+            .zoom;
+        assert!(
+            zoomed > fitted,
+            "the navigator + button must zoom the camera in"
+        );
+
+        window.click("navigator-zoom-out", cx);
+        window.render_frame(cx);
+        let stepped = content
+            .read(cx)
+            .camera_for_test()
+            .expect("camera after zoom-out")
+            .zoom;
+        assert!(
+            stepped < zoomed,
+            "the navigator - button must zoom the camera back out"
+        );
+
+        window.click("navigator-collapse", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("navigator-hitbox").is_none(),
+            "the collapsed section mounts no body"
+        );
+        window.click("navigator-collapse", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("navigator-hitbox").is_some(),
+            "re-expanding mounts the body again"
+        );
     })
     .unwrap();
 }

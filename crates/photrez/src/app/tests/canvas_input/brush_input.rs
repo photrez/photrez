@@ -143,6 +143,35 @@ fn shift_locks_a_brush_stroke_to_the_dominant_axis(cx: &mut gpui_kit::TestAppCon
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn eraser_on_the_background_paints_the_background_color(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(100, 100, cx).expect("blank document");
+            app.state_for_test().update(cx, |state, _| {
+                state.active_tool = ToolId::Eraser;
+                state.eraser_size = 8.0;
+                state.eraser_hardness = 1.0;
+                state.eraser_opacity = 1.0;
+                state.eraser_flow = 1.0;
+                state.bg_color = [0, 255, 0, 255];
+            });
+        });
+        window.render_frame(cx);
+        drag_doc(window, (100, 100), (20.0, 20.0), (80.0, 20.0), cx);
+        let (width, _, after) = pixels(&content, cx);
+        let at = (20 * width as usize + 50) * 4;
+        assert_eq!(
+            &after[at..at + 4],
+            &[0, 255, 0, 255],
+            "background erase paints the swatch, not transparency"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// Perf: one Alt+Right brush-adjust move updates the Size/Hardness HUD
 /// and paints a frame, the surface's production update path.
 #[gpui_kit::test]

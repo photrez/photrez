@@ -116,6 +116,7 @@ fn edit_menu_disables_rows_until_their_state_exists(cx: &mut gpui_kit::TestAppCo
         content.update(cx, |app, cx| {
             app.create_document(200, 150, cx).expect("blank document");
         });
+        super::canvas_input::unlock_background_transform(&content, cx);
         window.render_frame(cx);
         window.click("menus.edit", cx);
         window.render_frame(cx);
@@ -367,6 +368,7 @@ fn keyboard_undo_redo_and_deselect_no_op_silently_at_their_boundaries(
         content.update(cx, |app, cx| {
             app.create_document(200, 150, cx).expect("blank document");
         });
+        super::canvas_input::unlock_background_transform(&content, cx);
         set_tool(&content, cx, ToolId::Selection, 1.0);
         window.render_frame(cx);
         drag_doc(window, (200, 150), (10.0, 10.0), (60.0, 60.0), cx);
@@ -455,7 +457,7 @@ fn keyboard_undo_redo_and_deselect_no_op_silently_at_their_boundaries(
 
 /// The live canvas menu uses the 210 px context shell: a row is
 /// 208 px wide (210 minus the two 1 px borders) and 28 px tall, matching the
-/// captured menu box (442,462 210x280) and its 28 px rows.
+/// measured menu box (442,462 210x280) and its 28 px rows.
 #[gpui_kit::test]
 fn canvas_context_menu_uses_the_210px_shell(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -475,7 +477,7 @@ fn canvas_context_menu_uses_the_210px_shell(cx: &mut gpui_kit::TestAppContext) {
         );
         assert!(
             (height - 28.0).abs() <= 1.0,
-            "context row height is {height}, expected 28 (captured row metric)"
+            "context row height is {height}, expected 28 (measured row metric)"
         );
     })
     .expect("test window remains open");
@@ -689,6 +691,134 @@ fn file_menu_recent_row_opens_the_recorded_project(cx: &mut gpui_kit::TestAppCon
         assert!(
             window.try_find("recent-file-0").is_none(),
             "the closed File menu unmounts its rows"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Native menubar switching: with a menu open, hovering a neighboring
+/// trigger swaps the popup without a click. Hovering a trigger while no
+/// menu is open does not open one.
+#[gpui_kit::test]
+fn hovering_a_neighboring_title_bar_menu_switches_the_open_menu(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("blank document");
+        });
+        window.render_frame(cx);
+        window.hover("menus.edit", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            None,
+            "hover alone does not open a menu"
+        );
+        window.click("menus.file", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            Some(crate::state::MenuId::File),
+            "clicking File opens the File menu"
+        );
+        window.hover("menus.edit", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            Some(crate::state::MenuId::Edit),
+            "hovering Edit while File is open switches to Edit"
+        );
+        assert!(
+            window.try_find("menu-edit-popup").is_some(),
+            "the Edit popup mounts on hover"
+        );
+        assert!(
+            window.try_find("menu-file-popup").is_none(),
+            "the File popup unmounts on hover"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Clicking the open menu's own trigger again closes it. Regression: the
+/// click-away overlay and the trigger both fired, so the overlay closed and
+/// the trigger reopened in the same dispatch and the menu never closed.
+#[gpui_kit::test]
+fn clicking_the_open_menu_trigger_again_closes_it(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("blank document");
+        });
+        window.render_frame(cx);
+        window.click("menus.file", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            Some(crate::state::MenuId::File),
+            "clicking File opens the File menu"
+        );
+        window.click("menus.file", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            None,
+            "clicking the File trigger again closes the menu"
+        );
+        assert!(
+            window.try_find("menu-file-popup").is_none(),
+            "the File popup unmounts after the second click"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Clicking the popup shell itself is consumed by the menu, not passed to
+/// the frame behind it and not treated as an outside-click dismissal.
+#[gpui_kit::test]
+fn clicking_the_menu_shell_does_not_close_or_pass_through(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("blank document");
+        });
+        window.render_frame(cx);
+        window.click("menus.file", cx);
+        window.render_frame(cx);
+        let bounds = window.find("menu-file-popup").bounds();
+        let position = gpui_kit::point(
+            bounds.origin.x + gpui_kit::px(2.0),
+            bounds.origin.y + gpui_kit::px(2.0),
+        );
+        let _ = window.dispatch_event(
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let _ = window.dispatch_event(
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).open_menu,
+            Some(crate::state::MenuId::File),
+            "a press on the shell edge leaves the menu open"
+        );
+        assert!(
+            window.try_find("menu-file-popup").is_some(),
+            "the popup is still mounted"
         );
     })
     .expect("test window remains open");

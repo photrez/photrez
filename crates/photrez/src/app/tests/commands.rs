@@ -118,8 +118,8 @@ fn ctrl_shift_p_toggles_the_side_panels(cx: &mut gpui_kit::TestAppContext) {
 }
 
 /// The two document commands the tab strip carries: `+` opens the New Document
-/// dialog and Export opens the Export dialog, both the same routes as the File
-/// menu rows.
+/// dialog, and Export opens its floating menu whose pick opens the Export
+/// dialog with the chosen format preset.
 #[gpui_kit::test]
 fn the_tab_strip_opens_new_document_and_export(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::test::TestWindowExt as _;
@@ -131,10 +131,22 @@ fn the_tab_strip_opens_new_document_and_export(cx: &mut gpui_kit::TestAppContext
         window.render_frame(cx);
         window.click("export-button", cx);
         window.render_frame(cx);
+        assert!(
+            window.try_find("tab-export-panel").is_some(),
+            "the strip's Export button opens its floating menu"
+        );
+        window.click("tab-export-option-2", cx);
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(
-            content.read(cx).state_for_test().read(cx).active_dialog,
+            state.export_format,
+            crate::state::ExportFormat::WebP,
+            "the WebP quick pick presets the format"
+        );
+        assert_eq!(
+            state.active_dialog,
             Some(crate::state::DialogId::Export),
-            "the strip's Export button opens the Export dialog"
+            "the pick opens the Export dialog"
         );
 
         content.update(cx, |app, cx| {
@@ -179,6 +191,75 @@ fn the_status_history_trigger_opens_the_history_panel(cx: &mut gpui_kit::TestApp
             "the trigger switches the dock to History"
         );
         assert!(state.dock_open, "and opens a dock the user had hidden");
+    })
+    .expect("test window remains open");
+}
+
+/// Undo back to the saved state is clean; leaving it again is dirty. A
+/// monotonic revision counter cannot express this, so the session keeps the
+/// history marker it wrote at save time.
+#[gpui_kit::test]
+fn undo_back_to_the_saved_state_clears_dirty(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.press("ctrl-s", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .map(|(_, _, dirty)| dirty),
+            Some(false)
+        );
+
+        content.update(cx, |app, cx| app.add_empty_layer(cx));
+        assert_eq!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .map(|(_, _, dirty)| dirty),
+            Some(true),
+            "a new layer dirties the document"
+        );
+
+        content.update(cx, |app, cx| {
+            app.step_history(true, cx).expect("undo succeeds");
+        });
+        assert_eq!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .map(|(_, _, dirty)| dirty),
+            Some(false),
+            "undo back to the saved state is clean"
+        );
+
+        content.update(cx, |app, cx| {
+            app.step_history(false, cx).expect("redo succeeds");
+        });
+        assert_eq!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .map(|(_, _, dirty)| dirty),
+            Some(true),
+            "redo leaves the saved state"
+        );
+
+        content.update(cx, |app, cx| {
+            app.step_history(true, cx).expect("undo succeeds");
+        });
+        assert_eq!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .map(|(_, _, dirty)| dirty),
+            Some(false),
+            "undo back again is clean"
+        );
     })
     .expect("test window remains open");
 }

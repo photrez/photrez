@@ -135,6 +135,7 @@ fn undo_restores_a_move_transform_through_the_metadata_branch(cx: &mut gpui_kit:
         content.update(cx, |app, cx| {
             app.create_document(400, 300, cx).expect("blank document");
         });
+        unlock_background_transform(&content, cx);
         set_tool(&content, cx, ToolId::Move, 2.0);
         window.render_frame(cx);
         tab_to_canvas(window, cx);
@@ -211,6 +212,30 @@ fn history_steps_two_brush_strokes_in_order(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         assert_eq!(pixels(&content, cx).2, second);
         assert_eq!(history_cursor(&content, cx), cursor_second);
+    })
+    .expect("test window remains open");
+}
+
+/// A press and release on the selected layer without movement must not add a
+/// history row. The same contract applies to the native transform drag.
+#[gpui_kit::test]
+fn a_click_without_drag_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("blank document");
+        });
+        unlock_background_transform(&content, cx);
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        let cursor_before = history_cursor(&content, cx);
+        click_doc(window, (400, 300), (200.0, 150.0), cx);
+        assert_eq!(
+            history_cursor(&content, cx),
+            cursor_before,
+            "a click without a drag must not add a Transform Layer entry"
+        );
     })
     .expect("test window remains open");
 }

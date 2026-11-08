@@ -20,6 +20,9 @@ fn ctrl_w_cancel_keeps_the_document_dirty(cx: &mut gpui_kit::TestAppContext) {
         window.press("ctrl-w", cx);
         window.render_frame(cx);
         assert!(window.find("dialog-dirty-close").visible());
+        cx.background_executor()
+            .advance_clock(std::time::Duration::from_millis(250));
+        window.render_frame(cx);
 
         window.click_at(
             "dialog-overlay",

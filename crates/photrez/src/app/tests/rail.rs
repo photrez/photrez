@@ -109,10 +109,12 @@ fn rail_hover_publishes_and_clears_the_hovered_tool(cx: &mut gpui_kit::TestAppCo
     .expect("test window remains open");
 }
 
-/// A hovered rail button carries its tooltip.
+/// A hovered rail button carries its tooltip, but only after the hover delay:
+/// the tooltip is absent the instant the pointer arrives and appears once the
+/// delay elapses, and leaving hides it at once.
 ///
-/// RED proof: remove the `rail-tooltip-move` publish from `tool_button` and the
-/// second assert fails with "hovering the Move button shows its tooltip".
+/// RED proof: against the instant-show tooltip this fails on the first assert,
+/// which finds the tooltip already mounted under the pointer.
 #[gpui_kit::test]
 fn rail_hover_shows_the_tool_tooltip(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -126,21 +128,33 @@ fn rail_hover_shows_the_tool_tooltip(cx: &mut gpui_kit::TestAppContext) {
         window.hover("move", cx);
         window.render_frame(cx);
         assert!(
+            window.try_find("rail-tooltip-move").is_none(),
+            "the tooltip waits out the hover delay"
+        );
+    })
+    .expect("test window remains open");
+    settle_tooltip(cx, window, |window, cx| {
+        assert!(
             window.try_find("rail-tooltip-move").is_some(),
-            "hovering the Move button shows its tooltip"
+            "hovering the Move button shows its tooltip after the delay"
         );
         window.hover("canvas-hitbox", cx);
         window.render_frame(cx);
         assert!(
             window.try_find("rail-tooltip-move").is_none(),
-            "leaving the button takes the tooltip away"
+            "leaving the button takes the tooltip away at once"
         );
         window.hover("fg-swatch", cx);
         window.render_frame(cx);
         assert!(
-            window.try_find("rail-tooltip-fg").is_some(),
-            "hovering the foreground swatch shows its tooltip"
+            window.try_find("rail-tooltip-fg").is_none(),
+            "the swatch's tooltip waits out the delay too"
         );
-    })
-    .expect("test window remains open");
+    });
+    settle_tooltip(cx, window, |window, _cx| {
+        assert!(
+            window.try_find("rail-tooltip-fg").is_some(),
+            "hovering the foreground swatch shows its tooltip after the delay"
+        );
+    });
 }

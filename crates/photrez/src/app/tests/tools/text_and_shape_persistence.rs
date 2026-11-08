@@ -64,7 +64,7 @@ fn text_click_opens_an_editor_and_typing_commits_to_the_layer(cx: &mut gpui_kit:
 /// chrome cannot quietly resize it.
 ///
 /// Bounds only: a mounted test reads geometry, never colour, so the ring's two
-/// paints are proven by the capture, not here.
+/// paints are not observed by this test.
 #[gpui_kit::test]
 fn text_edit_box_bounds_track_the_session_preview(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
@@ -208,6 +208,385 @@ fn mounted_text_renders_into_the_exported_png(cx: &mut gpui_kit::TestAppContext)
             .filter(|pixel| pixel[0] < 100 && pixel[1] < 100 && pixel[2] < 100)
             .count();
         assert!(ink > 0, "the exported PNG contains text ink");
+    })
+    .expect("test window remains open");
+}
+
+/// Commit one text layer and open an edit session on it. Returns its id.
+fn open_existing_text_session(
+    window: &mut gpui_kit::Window,
+    content: &Entity<App>,
+    cx: &mut gpui_kit::App,
+) -> String {
+    set_tool(content, cx, ToolId::Text, 1.0);
+    window.render_frame(cx);
+    let (w, h, _) = pixels(content, cx);
+    drag_doc(window, (w, h), (0.5, 0.5), (0.5, 0.5), cx);
+    tab_to_canvas(window, cx);
+    window.press("a", cx);
+    content.update(cx, |app, cx| {
+        let _ = app.commit_text_edit(cx);
+    });
+    window.render_frame(cx);
+    let layer_id = content
+        .read(cx)
+        .text_layer_id_for_test()
+        .expect("the committed text layer exists");
+    let data = content
+        .read(cx)
+        .text_layer_data_for_test()
+        .expect("the layer is text");
+    content.update(cx, |app, cx| {
+        app.begin_text_edit_existing(layer_id.clone(), 0.0, 0.0, data, cx);
+    });
+    tab_to_canvas(window, cx);
+    layer_id
+}
+
+fn click_doc_at(
+    window: &mut gpui_kit::Window,
+    doc: (u32, u32),
+    at: (f32, f32),
+    cx: &mut gpui_kit::App,
+) {
+    let (_, placement) = page(window, doc);
+    let local = gpui_kit::point(
+        gpui_kit::px(placement.0 + at.0 / doc.0 as f32 * placement.2),
+        gpui_kit::px(placement.1 + at.1 / doc.1 as f32 * placement.3),
+    );
+    window.click_at("canvas-hitbox", local, cx);
+    window.render_frame(cx);
+}
+
+fn double_click_doc(
+    window: &mut gpui_kit::Window,
+    doc: (u32, u32),
+    at: (f32, f32),
+    cx: &mut gpui_kit::App,
+) {
+    let (bounds, placement) = page(window, doc);
+    let position = window_point(bounds, placement, doc, at.0, at.1);
+    for click_count in [1usize, 2] {
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position,
+                click_count,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position,
+                click_count,
+                modifiers: Default::default(),
+            }),
+            cx,
+        );
+    }
+    window.render_frame(cx);
+}
+
+#[gpui_kit::test]
+fn double_clicking_a_text_layer_opens_its_editor(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Text, 1.0);
+        window.render_frame(cx);
+        let (w, h, _) = pixels(&content, cx);
+        drag_doc(window, (w, h), (0.5, 0.5), (0.5, 0.5), cx);
+        tab_to_canvas(window, cx);
+        window.press("a", cx);
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        let layer = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the text layer is selected")
+            .1;
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        double_click_doc(
+            window,
+            (w, h),
+            (layer.transform.x as f32, layer.transform.y as f32),
+            cx,
+        );
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_tool,
+            ToolId::Text,
+            "double-click switches to the Text tool"
+        );
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("a"),
+            "double-click opens the layer's editor"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn clicking_inside_the_text_editor_keeps_the_session(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        let layer_id = open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        let session = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .text_edit
+            .clone()
+            .expect("the editor is open");
+        let (doc_w, doc_h, _) = pixels(&content, cx);
+        let at = (
+            (session.doc_x + f64::from(session.preview.0) / 2.0) as f32,
+            (session.doc_y + f64::from(session.preview.1) / 2.0) as f32,
+        );
+        click_doc_at(window, (doc_w, doc_h), at, cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("ab"),
+            "a click inside the edit box keeps the session"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .text_layer_content_for_test(&layer_id)
+                .as_deref(),
+            Some("a"),
+            "the layer is not committed by an inside click"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn ctrl_z_undoes_typing_inside_the_text_editor(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("ab")
+        );
+        window.press("ctrl-z", cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("a"),
+            "Ctrl+Z undoes the typed character inside the editor"
+        );
+        window.press("ctrl-z", cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("a"),
+            "the undo stack stops at the session's opening text"
+        );
+        window.press("ctrl-shift-z", cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("ab"),
+            "Ctrl+Shift+Z redoes the character"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn switching_tools_commits_an_open_text_session(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        let layer_id = open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        window.click("brush", cx);
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).text_edit_content_for_test(cx).is_none(),
+            "a tool switch closes the text session"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .text_layer_content_for_test(&layer_id)
+                .as_deref(),
+            Some("ab"),
+            "a tool switch commits the typed text"
+        );
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_tool,
+            ToolId::Brush,
+            "the selected tool still becomes active"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn switching_tabs_commits_an_open_text_session_to_its_document(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("first document");
+        });
+        let first_doc = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("first document id");
+        content.update(cx, |app, cx| {
+            app.create_document(200, 150, cx).expect("second document");
+        });
+        let second_doc = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("second document id");
+        content.update(cx, |app, cx| {
+            app.activate_document(&first_doc, cx)
+                .expect("first document activates");
+        });
+        window.render_frame(cx);
+        let layer_id = open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        content.update(cx, |app, cx| {
+            app.activate_document(&second_doc, cx)
+                .expect("second document activates");
+        });
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).text_edit_content_for_test(cx).is_none(),
+            "a tab switch closes the text session"
+        );
+        let text = content
+            .read(cx)
+            .sessions
+            .get(&first_doc)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .and_then(|content| content.layers.iter().find(|layer| layer.id == layer_id))
+            .and_then(|layer| layer.text_data.as_ref())
+            .map(|data| data.content.clone());
+        assert_eq!(
+            text.as_deref(),
+            Some("ab"),
+            "the text is committed to the document that owns the layer"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn undo_while_editing_text_cancels_the_session_without_stepping_history(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        let layer_id = open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        let cursor_before = content
+            .read(cx)
+            .active_core_history_cursor_for_test()
+            .expect("the fixture has history");
+        content.update(cx, |app, cx| {
+            app.undo_document_action(&crate::app::history::UndoDocument, cx);
+        });
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).text_edit_content_for_test(cx).is_none(),
+            "undo closes the text session"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_history_cursor_for_test()
+                .expect("the fixture has history"),
+            cursor_before,
+            "undo during a text edit does not step document history"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .text_layer_content_for_test(&layer_id)
+                .as_deref(),
+            Some("a"),
+            "cancelling an existing text session keeps the original text"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn deleting_the_edited_text_layer_closes_the_session(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        let before = content
+            .read(cx)
+            .active_core_layer_count_for_test()
+            .expect("layer count");
+        content.update(cx, |app, cx| app.delete_selected_layer(cx));
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).text_edit_content_for_test(cx).is_none(),
+            "deleting the edited layer closes the text session"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_layer_count_for_test()
+                .expect("layer count"),
+            before - 1,
+            "the layer is gone"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn cancelling_an_existing_text_session_keeps_the_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        let layer_id = open_existing_text_session(window, &content, cx);
+        window.press("b", cx);
+        let before = content
+            .read(cx)
+            .active_core_layer_count_for_test()
+            .expect("layer count");
+        content.update(cx, |app, cx| {
+            let _ = app.cancel_text_edit(cx);
+        });
+        window.render_frame(cx);
+        assert!(
+            content.read(cx).text_edit_content_for_test(cx).is_none(),
+            "cancel closes the session"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_layer_count_for_test()
+                .expect("layer count"),
+            before,
+            "cancelling an existing text session keeps its layer"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .text_layer_content_for_test(&layer_id)
+                .as_deref(),
+            Some("a"),
+            "the original text survives cancel"
+        );
     })
     .expect("test window remains open");
 }

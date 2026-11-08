@@ -113,6 +113,56 @@ fn adjustments_panel_slider_writes_the_layer_adjustment(cx: &mut gpui_kit::TestA
     .expect("test window remains open");
 }
 
+/// Clicking the thumb overhang above the 4px track line jumps the slider
+/// too: the hitbox covers the visible 12px thumb, not just the line.
+#[gpui_kit::test]
+fn clicking_the_thumb_overhang_jumps_the_slider(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+        let bright = slider_bounds(&content, cx, 0);
+        let x = bright.origin.x + gpui_kit::px(f32::from(bright.size.width) * 0.25);
+        // 4px above the stored 4px-tall track bounds: inside the thumb
+        // overhang, outside the old line-only hitbox.
+        let y = bright.origin.y - gpui_kit::px(4.0);
+        let position = gpui_kit::point(x, y);
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position,
+                click_count: 1,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let value = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .adjustment_brightness;
+        assert_eq!(
+            value, -50.0,
+            "a press in the thumb overhang jumps the track to 25%"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
 fn adjustment_slider_latency(cx: &mut gpui_kit::TestAppContext) {
@@ -323,6 +373,230 @@ fn the_adjustment_tracks_answer_arrow_keys(cx: &mut gpui_kit::TestAppContext) {
             state.read(cx).adjustment_brightness,
             100.0,
             "stepping Saturate leaves Bright where End put it"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Pointer moves during a drag show a preview without touching core; the
+/// release commits once. A drag at the current value composites nothing.
+#[gpui_kit::test]
+fn slider_moves_coalesce_to_one_composite_per_frame(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    let mut initial_composites = 0;
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+        let bounds = slider_bounds(&content, cx, 0);
+        let before = content.read(cx).full_composites_for_test();
+        let y = bounds.origin.y + bounds.size.height / 2.0;
+        let at = |fraction: f32| {
+            gpui_kit::point(
+                bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * fraction),
+                y,
+            )
+        };
+        let down = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App, fraction: f32| {
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                    button: gpui_kit::MouseButton::Left,
+                    position: at(fraction),
+                    ..Default::default()
+                }),
+                cx,
+            );
+        };
+        let mov = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App, fraction: f32| {
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                    position: at(fraction),
+                    ..Default::default()
+                }),
+                cx,
+            );
+        };
+        let up = |window: &mut gpui_kit::Window, cx: &mut gpui_kit::App, fraction: f32| {
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                    button: gpui_kit::MouseButton::Left,
+                    position: at(fraction),
+                    click_count: 1,
+                    ..Default::default()
+                }),
+                cx,
+            );
+        };
+        down(window, cx, 0.60);
+        mov(window, cx, 0.70);
+        mov(window, cx, 0.75);
+        window.render_frame(cx);
+        // The coalesced value lands on the frame after the callback runs.
+        let _ = window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            before,
+            "during the drag the preview patches; core is not recomposited"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .adjustment_brightness,
+            50.0,
+            "the thumb follows the preview before any commit"
+        );
+        initial_composites = before;
+        up(window, cx, 0.75);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let _ = window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            initial_composites + 1,
+            "the release commits the previewed value exactly once"
+        );
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .adjustment_brightness,
+            50.0,
+            "the committed value survives the release"
+        );
+        // A drag at the current value must not composite.
+        let still = content.read(cx).full_composites_for_test();
+        let bounds = slider_bounds(&content, cx, 0);
+        let y = bounds.origin.y + bounds.size.height / 2.0;
+        let same = gpui_kit::point(
+            bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * 0.75),
+            y,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: same,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: same,
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: same,
+                click_count: 1,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            still,
+            "a move at the current value is a no-op for the canvas"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// With no document open the panel shows the centered "No image open" state
+/// instead of the Selected Layer box, the Basic sliders and the coming-soon
+/// cards — the same no-document branch the Properties panel already mounts.
+///
+/// RED proof: drop the `!has_document` branch in `views/adjustments_panel.rs`
+/// and the first assert fails on the slider section still being mounted.
+#[gpui_kit::test]
+fn adjustments_panel_shows_the_no_image_state_without_a_document(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let (window, content) = mount_app(cx, None, None);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+
+        assert!(
+            window.try_find("adjustments-no-image").is_some(),
+            "the panel mounts its no-image state without a document"
+        );
+        assert!(
+            window.try_find("adj-reset").is_none(),
+            "the Basic section stays off while no document is open"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Opening accordions past the panel's height makes the column scroll: a wheel
+/// over the panel moves the sections up while their x positions stay put, so
+/// the scrollbar never shifts the layout sideways.
+///
+/// RED proof: against the clipped, unscrollable column the wheel moves
+/// nothing and the last section's y stays put.
+#[gpui_kit::test]
+fn expanded_adjustment_sections_scroll_under_the_wheel(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+                state.open_adjustment_sections = vec![
+                    "adj-tone-curve".to_string(),
+                    "adj-hsl-color".to_string(),
+                    "adj-color-grading".to_string(),
+                    "adj-detail".to_string(),
+                ];
+            });
+        });
+        window.render_frame(cx);
+
+        let last = window.find("adj-lens-corrections").bounds();
+        let panel = window.find("inspector-body-adjustments").bounds();
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::Scroll(gpui_kit::ScrollEvent {
+                position: panel.center(),
+                delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(
+                    gpui_kit::px(0.),
+                    gpui_kit::px(-160.),
+                )),
+                modifiers: Default::default(),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+
+        let scrolled = window.find("adj-lens-corrections").bounds();
+        assert!(
+            scrolled.origin.y < last.origin.y,
+            "the wheel must scroll the expanded column up: {last:?} -> {scrolled:?}"
+        );
+        assert_eq!(
+            scrolled.origin.x, last.origin.x,
+            "scrolling must not shift the sections sideways"
         );
     })
     .expect("test window remains open");

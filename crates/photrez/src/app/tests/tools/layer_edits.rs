@@ -156,6 +156,249 @@ fn properties_panel_actions_reach_the_selected_layer(cx: &mut gpui_kit::TestAppC
     .expect("test window remains open");
 }
 
+/// Committing a rename at the name the layer already has changes nothing, so
+/// it must not add a history row.
+#[gpui_kit::test]
+fn committing_the_same_layer_name_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        let layer = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the fixture selects a layer")
+            .1;
+        let cursor_before = content
+            .read(cx)
+            .active_core_history_cursor_for_test()
+            .expect("the fixture has history");
+        content.update(cx, |app, cx| app.begin_rename_layer(layer.id, window, cx));
+        window.render_frame(cx);
+        content
+            .update(cx, |app, cx| app.commit_rename_layer(cx))
+            .expect("the rename commits");
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_history_cursor_for_test()
+                .expect("the fixture has history"),
+            cursor_before,
+            "a rename at the current name must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Repeating the font size a text layer already has must not add a history
+/// row.
+#[gpui_kit::test]
+fn committing_the_same_text_size_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Text, 1.0);
+        window.render_frame(cx);
+        let (w, h, _) = pixels(&content, cx);
+        drag_doc(window, (w, h), (0.5, 0.5), (0.5, 0.5), cx);
+        tab_to_canvas(window, cx);
+        window.press("a", cx);
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        window.render_frame(cx);
+        let size = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the committed text layer is selected")
+            .1
+            .text_data
+            .expect("the layer is text")
+            .font_size;
+        let cursor_before = content
+            .read(cx)
+            .active_core_history_cursor_for_test()
+            .expect("the fixture has history");
+        content.update(cx, |app, cx| {
+            app.set_text_font_size(size, cx)
+                .expect("the size field commits");
+        });
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_history_cursor_for_test()
+                .expect("the fixture has history"),
+            cursor_before,
+            "a text size at the current value must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Committing a text session whose buffer and payload did not change must not
+/// add a history row.
+#[gpui_kit::test]
+fn committing_an_unchanged_text_session_adds_no_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Text, 1.0);
+        window.render_frame(cx);
+        let (w, h, _) = pixels(&content, cx);
+        drag_doc(window, (w, h), (0.5, 0.5), (0.5, 0.5), cx);
+        tab_to_canvas(window, cx);
+        window.press("a", cx);
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        window.render_frame(cx);
+        let layer = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the committed text layer is selected")
+            .1;
+        let layer_id = layer.id;
+        let data = layer.text_data.expect("the layer is text");
+        content.update(cx, |app, cx| {
+            app.begin_text_edit(layer_id, 0.0, 0.0, data, cx);
+        });
+        let cursor_before = content
+            .read(cx)
+            .active_core_history_cursor_for_test()
+            .expect("the fixture has history");
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        assert_eq!(
+            content
+                .read(cx)
+                .active_core_history_cursor_for_test()
+                .expect("the fixture has history"),
+            cursor_before,
+            "an unchanged text commit must not add a history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Renaming the Background turns it into a normal layer for save and the
+/// panel, not only in the engine's private layer set.
+#[gpui_kit::test]
+fn renaming_the_background_clears_its_flags_in_the_replica(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("blank document");
+        });
+        window.render_frame(cx);
+        let layer = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the Background is selected")
+            .1;
+        assert_eq!(layer.is_background, Some(true));
+        content.update(cx, |app, cx| {
+            app.begin_rename_layer(layer.id, window, cx);
+            app.state_for_test().update(cx, |state, _| {
+                state
+                    .rename_layer
+                    .as_mut()
+                    .expect("the rename session is open")
+                    .content = "Renamed".to_string();
+            });
+            app.commit_rename_layer(cx).expect("the rename commits");
+        });
+        window.render_frame(cx);
+        let renamed = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("the renamed layer is selected")
+            .1;
+        assert_eq!(renamed.name, "Renamed");
+        assert_eq!(
+            renamed.is_background,
+            Some(false),
+            "the replica sees a normal layer"
+        );
+        assert_eq!(renamed.lock_position, Some(false));
+        assert_eq!(renamed.lock_rotation, Some(false));
+    })
+    .expect("test window remains open");
+}
+
+fn lock_selected_layer(content: &Entity<App>, cx: &mut gpui_kit::App) {
+    let core_id = content
+        .read(cx)
+        .selected_layer_for_cursor(cx)
+        .expect("the fixture selects a layer")
+        .1
+        .id;
+    content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+}
+
+/// The option bar guards Flip against a locked layer. The Properties panel
+/// repeats the same action, so it needs the same guard.
+#[gpui_kit::test]
+fn properties_flip_ignores_a_locked_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        lock_selected_layer(&content, cx);
+        window.render_frame(cx);
+        let flipped = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("selected layer")
+            .1
+            .transform
+            .flip_h;
+        assert!(!flipped, "the layer starts unflipped");
+        window.click("prop-flip-h", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .selected_layer_for_cursor(cx)
+                .expect("selected layer")
+                .1
+                .transform
+                .flip_h,
+            flipped,
+            "a locked layer must not flip from the Properties panel"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Reset from the Properties panel must not move a locked layer.
+#[gpui_kit::test]
+fn properties_reset_ignores_a_locked_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        content.update(cx, |app, cx| {
+            app.nudge_selected_layer(12.0, -7.0, cx)
+                .expect("nudge applies");
+        });
+        lock_selected_layer(&content, cx);
+        window.render_frame(cx);
+        window.click("prop-reset", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .selected_transform_for_test(cx)
+                .map(|transform| (transform.0, transform.1)),
+            Some((12.0, -7.0)),
+            "a locked layer must not reset from the Properties panel"
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn text_option_bar_edits_the_selected_layer_and_syncs_defaults(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
