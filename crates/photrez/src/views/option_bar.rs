@@ -51,8 +51,8 @@ use self::widgets::*;
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
-/// Height from the manifest: 44px.
-const BAR_H: f32 = 44.0;
+/// Height aligned with the tab bars: 38px.
+const BAR_H: f32 = 38.0;
 
 /// 12px — the bar's horizontal inset.
 const BAR_PX: f32 = 12.0;
@@ -398,7 +398,7 @@ pub fn brush_params(eraser: bool) -> BrushParams {
 
 // ── The bar ───────────────────────────────────────────────────────────────────
 
-/// The option bar: a 44px horizontal strip whose child row is selected by
+/// The option bar: a 38px horizontal strip whose child row is selected by
 /// `active_tool`. See the module docs on the container-query constants.
 pub fn render(
     state: &gpui_kit::Entity<AppState>,

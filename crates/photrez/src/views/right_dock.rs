@@ -60,9 +60,9 @@
 //!   reproduced.
 //! * Known deviation: the Presets tab's 50% opacity is omitted; re-add
 //!   `.opacity(0.5)` if the baseline flags it as too bright.
-//! * Navigator header's zoom controls, collapsible chevron button, and
-//!   `Fit Screen` button are omitted; the captured header is a
-//!   label and a canvas placeholder.
+//! * The Navigator mounts its collapse chevron, fit button and zoom row
+//!   function-first; the pixel shape follows this app's own slider and
+//!   header idioms rather than the captured one.
 
 use crate::components::ui;
 use crate::display::canvas_bridge::{self, Camera, CanvasImage};
@@ -181,6 +181,7 @@ pub fn render(
                 state,
                 canvas,
                 camera,
+                zoom_percent,
                 layer_w,
                 canvas_bounds,
                 navigator_bounds,
@@ -285,6 +286,7 @@ fn layer_dock(
     state: &Entity<AppState>,
     canvas: Option<&CanvasImage>,
     camera: Option<Camera>,
+    zoom_percent: Option<u32>,
     width: f32,
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -318,9 +320,17 @@ fn layer_dock(
                 .child(layer_body(&layer_tab, state, layer_thumbs, cx)),
         )
         .child(
-            navigator(canvas, camera, canvas_bounds, navigator_bounds, cx)
-                .id("navigator")
-                .test_support(),
+            navigator(
+                state,
+                canvas,
+                camera,
+                zoom_percent,
+                canvas_bounds,
+                navigator_bounds,
+                cx,
+            )
+            .id("navigator")
+            .test_support(),
         )
 }
 
@@ -395,41 +405,90 @@ fn presets_stub() -> Div {
         )
 }
 
-/// A top-bordered, non-growing section with a 38px header and the
-/// canvas below it.
+/// The bottom Navigator section: a collapsible header, the preview or the
+/// no-image state, and the zoom row.
 ///
-/// The preview itself is canvas-drawn,
-/// so this is the frame only. Its height is what is left of [`NAV_H`] after the
-/// 1px top border and the header: `NAV_H - NAV_HEADER_H - SPLIT_BORDER` = 146.
+/// The chevron collapses the section to its 38px header, the maximize button
+/// fits the canvas to the viewport, and the zoom row (minus, track, plus,
+/// percent) spans [`crate::app::NAV_ZOOM_MIN`] to [`crate::app::NAV_ZOOM_MAX`],
+/// stepping with the camera's own zoom actions. With no document open the
+/// preview shows its dashed no-image state and the zoom row paints at 50%
+/// without handlers, the treatment the Layers panel uses for its own rows.
+#[allow(clippy::too_many_arguments)] // one section reading one state record plus its canvas inputs
 fn navigator(
+    state: &Entity<AppState>,
     canvas: Option<&CanvasImage>,
     camera: Option<Camera>,
+    zoom_percent: Option<u32>,
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     cx: &Context<crate::app::App>,
 ) -> Div {
-    let state = canvas_bridge::navigator_element(
-        canvas,
-        camera,
-        canvas_bounds,
-        Rc::clone(&navigator_bounds),
+    let (has_document, collapsed) = {
+        let s = state.read(cx);
+        (s.has_document, s.navigator_collapsed)
+    };
+    // Fit to the viewport, the header's right button while the body shows.
+    // Without a document the handler answers nothing.
+    let fit = div()
+        .id("navigator-fit")
+        .test_support()
+        .p(px(4.0))
+        .rounded(px(3.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(color::WHITE_5))
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+            app.fit_to_screen(cx);
+        }))
+        .child(
+            Icon::default()
+                .data(icons::MAXIMIZE)
+                .size(px(14.0))
+                .text_color(color::TEXT_DIM),
+        );
+    let fit = crate::views::option_bar::controls::tooltip(
+        state,
+        "navigator-fit",
+        t("canvasProps.fitToScreen"),
+        None,
+        cx,
+        fit,
     );
-    v_flex()
+    let state_for_collapse = state.clone();
+    let header = h_flex()
         .w_full()
+        .h(px(NAV_HEADER_H))
         .flex_shrink_0()
-        .border_t(px(SPLIT_BORDER))
-        .border_color(color::BORDER)
-        .bg(color::PANEL)
+        .items_center()
+        .justify_between()
+        .px(px(12.0))
+        .when(!collapsed, |el| {
+            el.border_b(px(SPLIT_BORDER)).border_color(color::BORDER)
+        })
         .child(
             h_flex()
-                .w_full()
-                .h(px(NAV_HEADER_H))
-                .flex_shrink_0()
+                .id("navigator-collapse")
+                .test_support()
                 .items_center()
-                .justify_between()
-                .px(px(12.0))
-                .border_b(px(SPLIT_BORDER))
-                .border_color(color::BORDER)
+                .gap(px(6.0))
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        state_for_collapse
+                            .update(cx, |s, _| s.navigator_collapsed = !s.navigator_collapsed);
+                        cx.notify();
+                    }),
+                )
+                .child(
+                    Icon::default()
+                        .data(if collapsed {
+                            icons::CHEVRON_RIGHT
+                        } else {
+                            icons::CHEVRON_DOWN
+                        })
+                        .size(px(14.0))
+                        .text_color(color::TEXT_DIM),
+                )
                 .child(
                     div()
                         .text_size(px(11.5))
@@ -439,46 +498,197 @@ fn navigator(
                         .child(t("panels.navigator")),
                 ),
         )
-        .child(
+        .when(!collapsed, |el| el.child(fit));
+    if collapsed {
+        return v_flex()
+            .w_full()
+            .flex_shrink_0()
+            .border_t(px(SPLIT_BORDER))
+            .border_color(color::BORDER)
+            .bg(color::PANEL)
+            .child(header);
+    }
+    let preview = v_flex()
+        .relative()
+        .w_full()
+        .flex_1()
+        .min_h(px(0.0))
+        .overflow_hidden();
+    let preview = if canvas.is_some() {
+        let preview_element = canvas_bridge::navigator_element(
+            canvas,
+            camera,
+            canvas_bounds,
+            Rc::clone(&navigator_bounds),
+        );
+        preview.child(preview_element).child(
             div()
-                .relative()
-                .w_full()
-                .h(px(NAV_H - NAV_HEADER_H - SPLIT_BORDER))
-                .overflow_hidden()
-                // With no canvas the navigator shows its empty branch:
-                // the localized "No image open" line centred in the body.
-                .when(canvas.is_none(), |el| {
-                    el.child(
-                        div()
-                            .absolute()
-                            .inset(px(0.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(11.5))
-                            .font_family(ui::FONT_UI)
-                            .text_color(color::TEXT_DIM)
-                            .child(t("history.noImageOpen")),
-                    )
-                })
-                .child(state)
+                .id("navigator-hitbox")
+                .test_support()
+                .absolute()
+                .inset(px(0.0))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(
+                        |app: &mut crate::app::App,
+                         event: &gpui_kit::MouseDownEvent,
+                         _window,
+                         cx| {
+                            app.navigator_pan_to(event.position, cx);
+                        },
+                    ),
+                ),
+        )
+    } else {
+        preview.child(
+            div()
+                .id("navigator-empty")
+                .test_support()
+                .absolute()
+                .inset(px(8.0))
+                .border_1()
+                .border_dashed()
+                .border_color(color::BORDER)
+                .rounded(px(3.0))
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(8.0))
+                .child(
+                    Icon::default()
+                        .data(icons::CROP)
+                        .size(px(20.0))
+                        .text_color(color::TEXT_DIM)
+                        .opacity(0.5),
+                )
                 .child(
                     div()
-                        .id("navigator-hitbox")
+                        .text_size(px(12.0))
+                        .font_family(ui::FONT_UI)
+                        .text_color(color::TEXT_DIM)
+                        .child(t("history.noImageOpen")),
+                ),
+        )
+    };
+    // The zoom row: the percent readout rides the live camera, falling back
+    // to 100% where the dock has no readout yet.
+    let zoom_fraction = zoom_percent
+        .map(|percent| {
+            (percent as f32 / 100. - crate::app::NAV_ZOOM_MIN)
+                / (crate::app::NAV_ZOOM_MAX - crate::app::NAV_ZOOM_MIN)
+        })
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let zoom_label = zoom_percent
+        .map(|percent| format!("{percent}%"))
+        .unwrap_or_else(|| "100%".to_string());
+    let (zoom_bounds, zoom_capture) = {
+        let s = state.read(cx);
+        (s.nav_zoom_track_bounds.clone(), s.nav_zoom_capture.clone())
+    };
+    let track_visual = h_flex()
+        .id("navigator-zoom-track")
+        .test_support()
+        .relative()
+        .flex_1()
+        .h(px(14.0))
+        .items_center()
+        .child(ui::slider(
+            zoom_fraction * 100.0,
+            None,
+            ui::SliderKind::Default,
+            true,
+        ));
+    let track = if has_document {
+        zoom_track::ZoomSurface::new(
+            track_visual,
+            cx.entity().downgrade(),
+            zoom_bounds,
+            zoom_capture,
+        )
+        .into_any_element()
+    } else {
+        track_visual.into_any_element()
+    };
+    let minus = h_flex()
+        .id("navigator-zoom-out")
+        .test_support()
+        .size(px(16.0))
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .child(
+            Icon::default()
+                .data(icons::MINUS)
+                .size(px(12.0))
+                .text_color(color::TEXT_DIM),
+        );
+    let plus = h_flex()
+        .id("navigator-zoom-in")
+        .test_support()
+        .size(px(16.0))
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .child(
+            Icon::default()
+                .data(icons::PLUS)
+                .size(px(12.0))
+                .text_color(color::TEXT_DIM),
+        );
+    let (minus, plus) = if has_document {
+        (
+            minus
+                .cursor_pointer()
+                .hover(|style| style.text_color(color::TEXT))
+                .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    app.zoom_out(cx);
+                }))
+                .into_any_element(),
+            plus.cursor_pointer()
+                .hover(|style| style.text_color(color::TEXT))
+                .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    app.zoom_in(cx);
+                }))
+                .into_any_element(),
+        )
+    } else {
+        (minus.into_any_element(), plus.into_any_element())
+    };
+    v_flex()
+        .w_full()
+        .h(px(NAV_H))
+        .flex_shrink_0()
+        .border_t(px(SPLIT_BORDER))
+        .border_color(color::BORDER)
+        .bg(color::PANEL)
+        .child(header)
+        .child(preview)
+        .child(
+            h_flex()
+                .id("navigator-zoom-row")
+                .test_support()
+                .w_full()
+                .flex_shrink_0()
+                .items_center()
+                .gap(px(10.0))
+                .px(px(12.0))
+                .py(px(8.0))
+                .when(!has_document, |el| {
+                    el.opacity(crate::views::layers::disabled_row_opacity())
+                })
+                .child(minus)
+                .child(track)
+                .child(plus)
+                .child(
+                    div()
+                        .id("navigator-zoom-value")
                         .test_support()
-                        .absolute()
-                        .inset(px(0.0))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(
-                                |app: &mut crate::app::App,
-                                 event: &gpui_kit::MouseDownEvent,
-                                 _window,
-                                 cx| {
-                                    app.navigator_pan_to(event.position, cx);
-                                },
-                            ),
-                        ),
+                        .text_size(px(11.5))
+                        .font_family(ui::FONT_UI)
+                        .text_color(color::TEXT)
+                        .child(zoom_label),
                 ),
         )
 }
@@ -486,6 +696,7 @@ fn navigator(
 mod tabs;
 #[cfg(test)]
 mod tests;
+mod zoom_track;
 
 #[cfg(test)]
 use tabs::{inspector_tab_from_id, layer_tab_from_id};

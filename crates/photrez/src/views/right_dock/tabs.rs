@@ -112,12 +112,11 @@ pub(super) fn layer_tab_id(tab: &LayerTab) -> &'static str {
 /// A full-height, positioned button that centres 11.5px medium-weight text with
 /// 12px of horizontal inset, plus the 2px ACCENT underline under it when active.
 ///
-/// The underline is the button's *last child* rather than an absolutely
-/// positioned pseudo-element: nothing in GPUI pins an after-pseudo to the bottom
-/// edge across the full width - there are no pseudo-elements and no
-/// `z_index` to order an `absolute()` overlay against its siblings.
-/// Stacking the label in a `flex_1` row above a full-width 2px bar gets the
-/// same pixels without either.
+/// The underline is an absolutely positioned overlay on the button's bottom
+/// edge and takes no layout space, so the active label centres on exactly the
+/// same line as the inactive ones - the reference draws it as an absolute
+/// after-pseudo for the same reason. Stacking the label above an in-flow 2px
+/// bar centres the active label a pixel high, which a mounted test pins.
 ///
 /// The click handler writes the clicked tab id back onto the live state
 /// through `write` and notifies the owning root, so the next frame lights the
@@ -142,7 +141,8 @@ fn tab_button(
         state.update(cx, |s, _| write(s, id));
         cx.notify();
     });
-    let mut btn = v_flex()
+    let mut btn = h_flex()
+        .relative()
         .h_full()
         .flex_shrink_0()
         .id(id)
@@ -151,8 +151,8 @@ fn tab_button(
         .on_click(on_click)
         .child(
             h_flex()
-                .flex_1()
-                .items_center()
+                .id(format!("{id}-label"))
+                .test_support()
                 .px(px(TAB_PAD_X))
                 .text_size(px(TAB_TEXT))
                 .font_family(ui::FONT_UI)
@@ -161,7 +161,15 @@ fn tab_button(
                 .child(label),
         );
     if active {
-        btn = btn.child(div().w_full().h(px(UNDERLINE_H)).bg(color::ACCENT));
+        btn = btn.child(
+            div()
+                .absolute()
+                .bottom(px(0.))
+                .left(px(0.))
+                .right(px(0.))
+                .h(px(UNDERLINE_H))
+                .bg(color::ACCENT),
+        );
     } else {
         // The 2%-white hover fill and the plain-text hover colour are both
         // painted effects, not tokens. No token holds 2% white; use hsla inline.

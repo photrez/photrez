@@ -736,10 +736,10 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
 /// 15%. Live via the Crop bar, so [`ACTION_PX`] is consumed (the dead-code
 /// allow on it was dropped in mod.rs).
 ///
-/// The fill: the resting `option-crop` baseline blends the button interior to
+/// The fill: the resting Crop bar blends the button interior to
 /// `#3a2b20` (58, 43, 32) over the `#1b1b1b` bar - [`color::ACCENT_15`], not
-/// the solid accent fill. No baseline captures the transform bar's Apply, so
-/// the measured crop value is what paints here.
+/// the solid accent fill. No measurement covers the transform bar's Apply, so
+/// the measured Crop value is what paints here.
 pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl IntoElement {
     div()
         .id("opt-apply")

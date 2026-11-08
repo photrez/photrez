@@ -4,14 +4,14 @@
 //!
 //! Every popup is **224px wide** with its top edge at **y=36** — 10px inside
 //! the 46px title bar, which is the same `title::MENU_PX` the triggers use. The x is
-//! the *trigger's own left edge* (read from `manifest.json`), so a popup
-//! inherits `title_bar.rs`'s menu layout rather than re-deriving it:
+//! the *trigger's own left edge* as rendered by `title_bar.rs`, so a popup
+//! sits directly below the label it belongs to:
 //!
 //! ```text
-//!   menu-file      224x242 @  58,36      menu-edit    224x252 @ 100,36
-//!   menu-image     224x38  @ 144,36      menu-layer   224x224 @ 201,36
-//!   menu-view      224x308 @ 254,36      menu-window  224x103 @ 303,36
-//!   menu-help      224x38  @ 372,36      menu-settings 224x38 @ 421,36
+//!   menu-file      224x242 @  58,36      menu-edit    224x252 @  99,36
+//!   menu-image     224x38  @ 142,36      menu-layer   224x224 @ 198,36
+//!   menu-view      224x308 @ 249,36      menu-window  224x103 @ 298,36
+//!   menu-help      224x38  @ 367,36      menu-settings 224x38  @ 415,36
 //! ```
 //!
 //! Those heights are measured, not computed from the recorded entry list, and
@@ -78,13 +78,9 @@
 //! * No `z_index` — the frame convention above is the substitute, and it is
 //!   only correct while the caller appends late.
 //! * Colour transitions, keyboard-focus rings and keyboard navigation are
-//!   interaction. The hovered row *is* painted where a baseline shows it: the
-//!   two `menu-*-hover-item` captures seed their first row through the
-//!   `focus_bg` argument `components::ui::menu_row` already takes (see
-//!   `HOVER_ROW_FILL`), the same argument the pointer-anchored context menus
-//!   use for their keyboard-focused row. A live hover still cannot tint a row
-//!   without a per-variant `.id` + `Stateful` wrapper that breaks the
-//!   `Vec<Div>` shell builder, so only the seeded captures paint it.
+//!   interaction. The hovered row is painted by the shared row hover style,
+//!   with the pressed state on id-bearing rows. Seeded captures still use
+//!   `focus_bg` to paint their first row without a live pointer.
 //! * A global border colour would beat any per-element white border; these
 //!   menus ask for the divider value, which does resolve,
 //!   so `color::DIVIDER` is correct here rather than a fallback.
@@ -102,7 +98,7 @@ use crate::components::ui;
 use crate::i18n::t;
 use crate::shot;
 use crate::state::{AppState, DialogId, MenuId};
-use crate::tokens::color;
+use crate::tokens::{color, title};
 
 /// The transparent frame the popups live in: the whole client area, so a menu
 /// hangs at its capture origin no matter where the tree puts this module.
@@ -115,15 +111,16 @@ const MENU_W: f32 = 224.0;
 /// The popup's top edge, 10px inside the 46px bar.
 const MENU_TOP: f32 = 36.0;
 
-/// The trigger origins — one per menu, all read from `manifest.json`.
+/// The trigger origins — one per menu, matching `title_bar.rs`'s rendered
+/// left edges.
 const X_FILE: f32 = 58.0;
-const X_EDIT: f32 = 100.0;
-const X_IMAGE: f32 = 144.0;
-const X_LAYER: f32 = 201.0;
-const X_VIEW: f32 = 254.0;
-const X_WINDOW: f32 = 303.0;
-const X_HELP: f32 = 372.0;
-const X_SETTINGS: f32 = 421.0;
+const X_EDIT: f32 = 99.0;
+const X_IMAGE: f32 = 142.0;
+const X_LAYER: f32 = 198.0;
+const X_VIEW: f32 = 249.0;
+const X_WINDOW: f32 = 298.0;
+const X_HELP: f32 = 367.0;
+const X_SETTINGS: f32 = 415.0;
 
 /// 4px — the shell's vertical inset.
 const SHELL_PY: f32 = 4.0;
@@ -208,6 +205,8 @@ fn positioned(x: f32, id: &'static str, menu: Div) -> impl IntoElement {
     menu.absolute()
         .id(id)
         .test_support()
+        .block_mouse_except_scroll()
+        .on_click(|_, _, cx: &mut gpui_kit::App| cx.stop_propagation())
         .left(px(x))
         .top(px(MENU_TOP))
 }
@@ -257,7 +256,17 @@ pub fn render_open(
     };
     let state_for_close = state.clone();
     let close = cx.listener(
-        move |_, _, _, cx: &mut gpui_kit::Context<crate::app::App>| {
+        move |_,
+              event: &gpui_kit::ClickEvent,
+              _window,
+              cx: &mut gpui_kit::Context<crate::app::App>| {
+            // The menubar triggers own their toggle. A click in the title bar
+            // must reach them; if the click-away closed first, the trigger
+            // would see the menu already closed and open it again, so the
+            // menu never appears to close.
+            if event.position().y < gpui_kit::px(title::HEADER_H) {
+                return;
+            }
             state_for_close.update(cx, |state, _| state.open_menu = None);
             cx.notify();
         },
@@ -458,16 +467,17 @@ fn command_row_enabled(
         .id(id)
         .test_support();
     if enabled {
-        row.on_click(cx.listener(
-            move |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
-                state.update(cx, |state, _| {
-                    state.open_menu = None;
-                    state.context_menu = None;
-                });
-                run(app, cx);
-            },
-        ))
-        .into_any_element()
+        row.active(|style| style.bg(ui::MENU_ROW_HOVER_FILL))
+            .on_click(cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                    state.update(cx, |state, _| {
+                        state.open_menu = None;
+                        state.context_menu = None;
+                    });
+                    run(app, cx);
+                },
+            ))
+            .into_any_element()
     } else {
         // A disabled row is inert but still part of the menu: the press must not
         // bubble to the overlay's click-away, as an input-transparent row would.
@@ -912,18 +922,18 @@ pub fn render_context(
 mod tests {
     use super::*;
 
-    /// The eight top-level menu origins are pinned by `manifest.json`; a
+    /// The eight top-level menu origins follow the rendered trigger edges; a
     /// reordering would shift a popup's box and fail the diff.
     #[test]
     fn trigger_origins_match_manifest() {
         assert_eq!(X_FILE, 58.0);
-        assert_eq!(X_EDIT, 100.0);
-        assert_eq!(X_IMAGE, 144.0);
-        assert_eq!(X_LAYER, 201.0);
-        assert_eq!(X_VIEW, 254.0);
-        assert_eq!(X_WINDOW, 303.0);
-        assert_eq!(X_HELP, 372.0);
-        assert_eq!(X_SETTINGS, 421.0);
+        assert_eq!(X_EDIT, 99.0);
+        assert_eq!(X_IMAGE, 142.0);
+        assert_eq!(X_LAYER, 198.0);
+        assert_eq!(X_VIEW, 249.0);
+        assert_eq!(X_WINDOW, 298.0);
+        assert_eq!(X_HELP, 367.0);
+        assert_eq!(X_SETTINGS, 415.0);
     }
 
     /// `menu-file`'s measured height is a hard pin: 5 (vertical inset) + 6 rows*28 +

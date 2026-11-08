@@ -135,6 +135,8 @@ pub(super) fn export_body(
         )
         .child(trigger);
     if open {
+        // The format list floats over the dialog: deferred paints it above
+        // the dialog's own chrome, so the open list never expands the form.
         let mut list = v_flex().w_full().gap(px(2.0)).py(px(4.0));
         for candidate in [ExportFormat::Png, ExportFormat::Jpeg, ExportFormat::WebP] {
             let pick_state = state.clone();
@@ -175,13 +177,24 @@ pub(super) fn export_body(
             );
         }
         format_section = format_section.child(
-            v_flex()
-                .w_full()
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(color::BORDER)
-                .bg(color::PANEL)
-                .child(list),
+            div().relative().w_full().child(gpui_kit::deferred(
+                div()
+                    .absolute()
+                    .top(px(30.0))
+                    .left(px(0.0))
+                    .w_full()
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(color::BORDER)
+                    .bg(color::PANEL)
+                    .shadow(vec![BoxShadow::new(
+                        px(0.0),
+                        px(8.0),
+                        hsla(0.0, 0.0, 0.0, 0.5),
+                    )
+                    .blur_radius(px(20.0))])
+                    .child(list),
+            )),
         );
     }
     let description = match format {

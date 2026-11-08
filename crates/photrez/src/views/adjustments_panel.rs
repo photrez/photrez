@@ -46,6 +46,9 @@
 //! disabled. Five closed collapsible sections render only 42px headers;
 //! the five not-yet-available sections' descriptions do not render.
 //!
+//! With no document open the panel mounts the Properties panel's no-image
+//! state instead of its sections.
+//!
 //! # Known gaps
 //!
 //! * `LayerThumb` alternates `rgba(255,255,255,0.05)` and
@@ -77,6 +80,8 @@ use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
+use crate::views::properties_panel;
+use gpui_kit::component::scroll::ScrollableElement;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -242,9 +247,10 @@ pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
-    let (layer_name, layer_type, layer_w, layer_h) = {
+    let (has_document, layer_name, layer_type, layer_w, layer_h) = {
         let s = state.read(cx);
         (
+            s.has_document,
             s.active_layer_name.clone(),
             match s.selected_layer_type.as_deref() {
                 Some("shape") => "Shape",
@@ -257,68 +263,86 @@ pub fn render(
     };
     let open_sections = state.read(cx).open_adjustment_sections.clone();
     let is_open = |id: &str| open_sections.iter().any(|open| open == id);
+    let body = if !has_document {
+        // The Properties panel's no-document state, with this panel's own
+        // test id: sliders, cards and the Selected Layer box all stay off.
+        v_flex()
+            .flex_1()
+            .min_h(px(0.0))
+            .child(properties_panel::no_image_open("adjustments-no-image"))
+            .into_any_element()
+    } else {
+        v_flex()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .child(
+                v_flex()
+                    .id("adjustments-scroll")
+                    .h_full()
+                    // The scrollbar overlays the reserved 6px trailing gutter
+                    // and takes no layout space, so opening accordions never
+                    // shifts the sections sideways.
+                    .overflow_y_scrollbar()
+                    .pr(px(6.0))
+                    .child(selected_layer_section(
+                        &layer_name,
+                        layer_type,
+                        layer_w,
+                        layer_h,
+                    ))
+                    .child(basic_section(state, cx))
+                    // Each group starts collapsed, as in the capture, and opens on
+                    // its own header to the In Development card.
+                    .child(coming_soon_section(
+                        "adj-tone-curve",
+                        icons::with_stroke(icons::SPLINE, 1.75),
+                        color::TEXT_DIM,
+                        &t("adjustments.toneCurve"),
+                        is_open("adj-tone-curve"),
+                        cx,
+                    ))
+                    .child(coming_soon_section(
+                        "adj-hsl-color",
+                        icons::with_stroke(icons::PALETTE, 1.75),
+                        SKY_400,
+                        &t("adjustments.hslColor"),
+                        is_open("adj-hsl-color"),
+                        cx,
+                    ))
+                    .child(coming_soon_section(
+                        "adj-color-grading",
+                        icons::with_stroke(icons::SWATCH, 1.75),
+                        AMBER_400,
+                        &t("adjustments.colorGrading"),
+                        is_open("adj-color-grading"),
+                        cx,
+                    ))
+                    .child(coming_soon_section(
+                        "adj-detail",
+                        icons::with_stroke(icons::SPARKLES, 1.75),
+                        SKY_300,
+                        &t("adjustments.detail"),
+                        is_open("adj-detail"),
+                        cx,
+                    ))
+                    .child(coming_soon_section(
+                        "adj-lens-corrections",
+                        icons::with_stroke(icons::APERTURE, 1.75),
+                        EMERALD_400,
+                        &t("adjustments.lensCorrections"),
+                        is_open("adj-lens-corrections"),
+                        cx,
+                    )),
+            )
+            .into_any_element()
+    };
     v_flex()
         .w_full()
         .h_full()
         .overflow_hidden()
         .bg(color::PANEL)
-        .child(
-            v_flex()
-                .flex_1()
-                .overflow_hidden()
-                // The scrollbar gutter reserves 6px on every
-                // scrollable area; GPUI has no
-                // scrollbars, so reserve that space explicitly.
-                .child(selected_layer_section(
-                    &layer_name,
-                    layer_type,
-                    layer_w,
-                    layer_h,
-                ))
-                .child(basic_section(state, cx))
-                // Each group starts collapsed, as in the capture, and opens on
-                // its own header to the In Development card.
-                .child(coming_soon_section(
-                    "adj-tone-curve",
-                    icons::with_stroke(icons::SPLINE, 1.75),
-                    color::TEXT_DIM,
-                    &t("adjustments.toneCurve"),
-                    is_open("adj-tone-curve"),
-                    cx,
-                ))
-                .child(coming_soon_section(
-                    "adj-hsl-color",
-                    icons::with_stroke(icons::PALETTE, 1.75),
-                    SKY_400,
-                    &t("adjustments.hslColor"),
-                    is_open("adj-hsl-color"),
-                    cx,
-                ))
-                .child(coming_soon_section(
-                    "adj-color-grading",
-                    icons::with_stroke(icons::SWATCH, 1.75),
-                    AMBER_400,
-                    &t("adjustments.colorGrading"),
-                    is_open("adj-color-grading"),
-                    cx,
-                ))
-                .child(coming_soon_section(
-                    "adj-detail",
-                    icons::with_stroke(icons::SPARKLES, 1.75),
-                    SKY_300,
-                    &t("adjustments.detail"),
-                    is_open("adj-detail"),
-                    cx,
-                ))
-                .child(coming_soon_section(
-                    "adj-lens-corrections",
-                    icons::with_stroke(icons::APERTURE, 1.75),
-                    EMERALD_400,
-                    &t("adjustments.lensCorrections"),
-                    is_open("adj-lens-corrections"),
-                    cx,
-                )),
-        )
+        .child(body)
 }
 
 mod sections;

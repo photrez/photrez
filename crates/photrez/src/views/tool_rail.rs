@@ -185,14 +185,17 @@ fn shadow_md_layers() -> Vec<BoxShadow> {
 /// state this first shipped with is now read through this parameter.
 pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     // `Copy` the fields we branch on; the borrow of the state ends here.
-    let (active_tool, fg_color, bg_color) = {
+    let (active_tool, fg_color, bg_color, has_document) = {
         let s = state.read(cx);
-        (s.active_tool, s.fg_color, s.bg_color)
+        (s.active_tool, s.fg_color, s.bg_color, s.has_document)
     };
-    // `flex_none()` so the rail keeps its 52px at any window width; the shell
+    // With no document open the rail paints at 50% and its buttons and
+    // swatches lose their clicks, the treatment the Layers panel uses for its
+    // own rows. Keyboard tool shortcuts stay live; only the pointer is gated.
+    // `flex_none()` keeps the rail at its 52px at any window width; the shell
     // baselines were all captured at 1366 and a shrunken rail misplaces every
     // button by a different amount.
-    v_flex()
+    let mut rail = v_flex()
         .w(px(dim::RAIL_W))
         .h_full()
         .flex_none()
@@ -200,13 +203,22 @@ pub fn render(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl I
         .gap(px(dim::RAIL_GAP))
         .bg(color::TOOLBAR)
         .py(px(dim::RAIL_PY))
-        .children(TOOLS.iter().map(|t| tool_button(t, active_tool, state, cx)))
+        .children(
+            TOOLS
+                .iter()
+                .map(|t| tool_button(t, active_tool, has_document, state, cx)),
+        )
         .child(divider())
         .child(swatch_stack(
             crate::palette::hsla(fg_color),
             crate::palette::hsla(bg_color),
+            has_document,
             cx,
-        ))
+        ));
+    if !has_document {
+        rail = rail.opacity(0.5);
+    }
+    rail
 }
 
 /// The rail button's icon tint for its two visual states.
@@ -234,6 +246,7 @@ fn tool_icon_tint(active: bool, hovered: bool) -> Hsla {
 fn tool_button(
     tool: &Tool,
     active_tool: ToolId,
+    enabled: bool,
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -252,14 +265,9 @@ fn tool_button(
         tool.icon
     };
 
-    // Each button captures its own copy of the state handle; the handler runs
-    // on the owning App and re-enters the state entity through it.
-    let state_for_click = state.clone();
     let tool_id = tool.tool_id;
     let on_click = cx.listener(move |app, _, _, cx: &mut Context<crate::app::App>| {
-        app.cancel_canvas_gesture(cx);
-        state_for_click.update(cx, |s, _| s.active_tool = tool_id);
-        cx.notify();
+        app.select_canvas_tool(tool_id, cx);
     });
     let state_for_variants = state.clone();
     let on_right_click = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
@@ -288,22 +296,26 @@ fn tool_button(
         }
     });
 
-    div()
+    let mut button = div()
         .id(tool.id)
         .test_support()
         .relative()
         .size(px(dim::TOOL_BTN))
         .flex_shrink_0()
-        .cursor_pointer()
         .flex()
         .items_center()
         .justify_center()
         .rounded(px(dim::TOOL_BTN_RADIUS))
-        .on_click(on_click)
-        .on_hover(on_hover)
-        .when(tool.has_variants, |el| {
-            el.on_mouse_down(MouseButton::Right, on_right_click)
-        })
+        .on_hover(on_hover);
+    if enabled {
+        button = button
+            .cursor_pointer()
+            .on_click(on_click)
+            .when(tool.has_variants, |el| {
+                el.on_mouse_down(MouseButton::Right, on_right_click)
+            });
+    }
+    button
         .when(active, |el| el.bg(color::WHITE_5).text_color(color::TEXT))
         .when(!active, |el| {
             el.text_color(color::ICON)
@@ -441,7 +453,12 @@ fn divider() -> impl IntoElement {
 /// `.group("swatch")` is the direct equivalent of the upstream hover group, and
 /// the swap button below consumes it with `.group_hover("swatch", ..)` - i.e.
 /// the same parent-hover relationship, with no state on this view.
-fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn swatch_stack(
+    fg: Hsla,
+    bg: Hsla,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     div()
         .id("swatch-stack")
         .group("swatch")
@@ -449,9 +466,9 @@ fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoE
         .size(px(dim::SWATCH_BOX))
         .flex_shrink_0()
         .my(px(dim::SWATCH_MY))
-        .child(background_swatch(bg, cx))
-        .child(foreground_swatch(fg, cx))
-        .child(swap_button(cx))
+        .child(background_swatch(bg, enabled, cx))
+        .child(foreground_swatch(fg, enabled, cx))
+        .child(swap_button(enabled, cx))
 }
 
 /// The background swatch: a 28px circle flush to the box's bottom-right, stacked
@@ -459,8 +476,8 @@ fn swatch_stack(fg: Hsla, bg: Hsla, cx: &Context<crate::app::App>) -> impl IntoE
 /// shadow, and 5% larger on hover.
 ///
 /// Rendered first so the foreground swatch overlaps it, by paint order.
-fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
-    div()
+fn background_swatch(fill: Hsla, enabled: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let mut swatch = div()
         .id("bg-swatch")
         .test_support()
         .absolute()
@@ -476,12 +493,16 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         // `classify()` buckets #333333 and #484848 as the same `active` class.
         .border_color(color::BORDER)
         .bg(fill)
-        .shadow_md()
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-            cx.stop_propagation();
-            app.open_color_picker(crate::state::ColorTarget::Background, window, cx);
-        }))
+        .shadow_md();
+    if enabled {
+        swatch = swatch.cursor_pointer().on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                app.open_color_picker(crate::state::ColorTarget::Background, window, cx);
+            },
+        ));
+    }
+    swatch
 }
 
 /// The foreground swatch: a 28px circle flush to the box's top-left, stacked
@@ -496,14 +517,14 @@ fn background_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// `BoxShadow` reproduces an outline's geometry exactly (outside the border,
 /// no layout effect), so the ring is composited into the same `.shadow()` call
 /// as the medium shadow layers rather than using the `.shadow_md()` shorthand.
-fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn foreground_swatch(fill: Hsla, enabled: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
     let mut shadows = vec![
         // The 1px black-at-40% outer ring, the outline substitute
         BoxShadow::new(px(0.), px(0.), color::BLACK_40).spread_radius(px(1.)),
     ];
     shadows.extend(shadow_md_layers());
 
-    div()
+    let mut swatch = div()
         .id("fg-swatch")
         .test_support()
         .absolute()
@@ -515,14 +536,18 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
         .border_color(color::BORDER)
         .bg(fill)
         .shadow(shadows)
-        .cursor_pointer()
         .on_hover(cx.listener(|app, hovered: &bool, _, cx| {
             app.set_tooltip(hovered.then(|| "rail-tooltip-fg".to_string()), cx);
-        }))
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-            cx.stop_propagation();
-            app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);
-        }))
+        }));
+    if enabled {
+        swatch = swatch.cursor_pointer().on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);
+            },
+        ));
+    }
+    swatch
 }
 
 /// The swap button: a 16px circle 6px past the box's top-right, stacked on top,
@@ -536,8 +561,8 @@ fn foreground_swatch(fill: Hsla, cx: &Context<crate::app::App>) -> impl IntoElem
 /// piece is only the 150ms scale-*animation*.
 ///
 /// Note this icon keeps `stroke-width` 2, unlike the tool button glyphs.
-fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
-    div()
+fn swap_button(enabled: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+    let mut button = div()
         .id("swap-colors")
         .test_support()
         .absolute()
@@ -555,22 +580,25 @@ fn swap_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         .shadow_sm()
         .opacity(0.)
         .group_hover("swatch", |s| s.opacity(1.))
-        .hover(|s| s.text_color(color::TEXT))
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _, cx| {
-            cx.stop_propagation();
-            app.swap_colors(cx);
-        }))
-        .child(
-            // This micro-button's rotate icon uses the default stroke width
-            // (2). `icons::ROTATE` and `icons::ROTATE_CW` are the same glyph, but
-            // `icons::ROTATE_CW` is drawn at 1.5 by the option bars, so it is a
-            // different constant and not the one used here.
-            Icon::default()
-                .data(icons::ROTATE)
-                .size(px(dim::SWAP_ICON))
-                .text_color(color::ICON),
-        )
+        .hover(|s| s.text_color(color::TEXT));
+    if enabled {
+        button = button.cursor_pointer().on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _, cx| {
+                cx.stop_propagation();
+                app.swap_colors(cx);
+            },
+        ));
+    }
+    button.child(
+        // This micro-button's rotate icon uses the default stroke width
+        // (2). `icons::ROTATE` and `icons::ROTATE_CW` are the same glyph, but
+        // `icons::ROTATE_CW` is drawn at 1.5 by the option bars, so it is a
+        // different constant and not the one used here.
+        Icon::default()
+            .data(icons::ROTATE)
+            .size(px(dim::SWAP_ICON))
+            .text_color(color::ICON),
+    )
 }
 
 #[cfg(test)]

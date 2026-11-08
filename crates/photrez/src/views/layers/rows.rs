@@ -1,5 +1,7 @@
 use super::*;
 
+use gpui_kit::relative;
+
 use crate::views::option_bar::controls::tooltip;
 
 /// 22px — one reorder chevron.
@@ -19,14 +21,6 @@ const ADJUST_ICON: f32 = 14.0;
 const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
-
-/// The locked-row badge: 24px tall, 8px side inset, 4px icon gap, 12px glyph,
-/// 11px label.
-const BADGE_H: f32 = 24.0;
-const BADGE_PX: f32 = 8.0;
-const BADGE_GAP: f32 = 4.0;
-const BADGE_ICON: f32 = 12.0;
-const BADGE_TEXT: f32 = 11.0;
 
 /// 20px square with a 2px corner and a 12px glyph — the drag ghost's icon tile.
 const GHOST_TILE: f32 = 20.0;
@@ -80,52 +74,6 @@ pub(super) fn row_hover_fill() -> Hsla {
         l: 1.0,
         a: 0.03,
     }
-}
-
-/// The locked badge's three tiers: fill, edge, label.
-///
-/// The tiers are accent at 5% for the fill and at 20% for the edge. A label at
-/// 70% accent measures 3.33:1 on that fill over the active row's `ROW_ACTIVE`,
-/// under the 4.5:1 floor for 11px text, so the label keeps full
-/// `color::ACCENT`: 5.18:1 there, 6.38:1 over the plain panel. A function, so
-/// the tiers are assertable without a window.
-pub(super) fn locked_badge_colours() -> (Hsla, Hsla, Hsla) {
-    (
-        color::ACCENT.opacity(0.05),
-        color::ACCENT.opacity(0.2),
-        color::ACCENT,
-    )
-}
-
-/// The badge a locked row carries: the lock glyph plus the localized label, so
-/// the state never reads as colour alone.
-///
-/// It is a status label, not a control: the row's own lock button is what
-/// toggles, so this element takes no click handler and no pointer cursor.
-fn locked_badge(id: u64) -> impl IntoElement {
-    let (fill, edge, label) = locked_badge_colours();
-    h_flex()
-        .id(format!("layer-locked-badge-{id}"))
-        .test_support()
-        .h(px(BADGE_H))
-        .flex_shrink_0()
-        .items_center()
-        .gap(px(BADGE_GAP))
-        .px(px(BADGE_PX))
-        .rounded(px(R3))
-        .border_1()
-        .border_color(edge)
-        .bg(fill)
-        .font_family(ui::FONT_UI)
-        .text_size(px(BADGE_TEXT))
-        .text_color(label)
-        .child(
-            Icon::default()
-                .data(icons::LOCK)
-                .size(px(BADGE_ICON))
-                .text_color(label),
-        )
-        .child(t("layers.locked"))
 }
 
 /// The tile the drag ghost leads with, so a floating chip still reads as the
@@ -182,26 +130,37 @@ pub(super) fn layer_list(
     if layers.is_empty() {
         // The empty state: a centred layers glyph with two localized
         // lines, on the same bordered list box (mirrors the properties
-        // panel's no-document branch).
+        // panel's no-document branch). The rhythm matches the presets
+        // stub's card: 12px from the glyph to the title, 4px from the
+        // title to its supporting line.
         return v_flex()
             .w_full()
             .flex_1()
             .min_h(px(0.0))
             .overflow_hidden()
             .pr(px(6.0))
+            .px(px(24.0))
             .border_y(px(1.0))
             .border_color(color::BORDER)
             .items_center()
             .justify_center()
-            .gap(px(12.0))
             .child(
-                Icon::default()
-                    .data(icons::LAYERS)
-                    .size(px(24.0))
-                    .text_color(color::TEXT_DIM),
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .mb(px(12.0))
+                    .child(
+                        Icon::default()
+                            .data(icons::LAYERS)
+                            .size(px(24.0))
+                            .text_color(color::TEXT_DIM),
+                    ),
             )
             .child(
                 div()
+                    .id("layers-empty-title")
+                    .test_support()
                     .text_size(px(13.0))
                     .font_family(ui::FONT_UI)
                     .font_weight(FontWeight(500.))
@@ -210,8 +169,13 @@ pub(super) fn layer_list(
             )
             .child(
                 div()
+                    .id("layers-empty-sub")
+                    .test_support()
+                    .mt(px(4.0))
                     .text_size(px(12.0))
                     .font_family(ui::FONT_UI)
+                    .line_height(relative(1.3))
+                    .text_center()
                     .text_color(color::TEXT_DIM)
                     .child(t("layers.addAnImage")),
             );
@@ -250,24 +214,20 @@ struct RowView<'a> {
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
 }
 
-/// A 50px row with a 10px child gap and 14px side inset. Its fill and its inner
-/// edge follow three branches - see [`row_fill`], which is full
+/// A 50px row with a 10px child gap and 14px side inset. Its fill and its
+/// inner edge follow three branches - see [`row_fill`], which is full
 /// `ROW_ACTIVE` and a 1px inset `ACCENT` ring at 40% alpha on the active row,
-/// the same fill at 70% and a 20% ring on a row selected without being active,
-/// and no fill plus white/3% on hover for the rest.
+/// the same fill at 70% and a 20% ring on a row selected without being
+/// active, and no fill plus white/3% on hover for the rest.
 ///
-/// The ring is an inset shadow rather than a border, and the two are not
-/// interchangeable here: a border takes its pixel out of the content box, so a
-/// bordered row would paint its thumbnail and name 1px further in.
+/// The ring is an overlay child with its own 1px border, not an inset shadow:
+/// the shadow shares its last pixel with the row's bottom rule and loses, so
+/// the ring reads open at the bottom, while the reference closes it on all
+/// four sides just inside the rule. The overlay's border box stops at the
+/// padding edge, so its bottom line sits directly above the rule.
+///
 /// The row's bottom rule is a real border, because a bottom-only border leaves
 /// the content 49px of 50 - the same box the row's own layout works in.
-///
-/// On a ringed row the rule and the ring want the same last pixel and the rule
-/// wins, so the ring reads as open at the bottom where the baseline closes it
-/// one row higher. Measured in the layers capture, and still the closer of the
-/// two arrangements: the baseline's own bottom pixel is rgb(67,57,49), a grey
-/// rule with accent bleeding through it, where the bare ring would leave
-/// rgb(124,84,54).
 ///
 /// The id is the stable `layer-row-<id>` form: both the drag source and
 /// the drop target are this same element, and the mounted test addresses it by
@@ -354,6 +314,7 @@ fn layer_row(
     );
 
     let ghost_name = layer.name.clone();
+    let rename_core = layer.core_id.clone();
     let drag_payload = {
         let source_doc_id = state.read(cx).document_id.clone().unwrap_or_default();
         crate::app::cross_doc::LayerDragPayload {
@@ -385,23 +346,28 @@ fn layer_row(
 
     // The inner edge, in two tiers: accent at 40% on the active row, at 20% on
     // a row that is selected without being active, and nothing on the rest.
+    // Painted as an overlay ring (below), not an inset shadow: the shadow
+    // shares its last pixel with the row's bottom rule and loses, which reads
+    // as a ring open at the bottom; the reference closes it on all four sides.
     let accent = |alpha: f32| Hsla {
         h: color::ACCENT.h,
         s: color::ACCENT.s,
         l: color::ACCENT.l,
         a: alpha,
     };
-    let mut rings = Vec::new();
-    if active {
-        rings.push(ui::inset_ring(accent(0.4)));
+    let ring_alpha = if active {
+        Some(0.4)
     } else if selected {
-        rings.push(ui::inset_ring(accent(0.2)));
-    }
+        Some(0.2)
+    } else {
+        None
+    };
 
     h_flex()
         .id(format!("layer-row-{id}"))
         .test_support()
         .group(format!("layer-row-{id}"))
+        .relative()
         .w_full()
         .h(px(ROW_H))
         .flex_shrink_0()
@@ -412,23 +378,76 @@ fn layer_row(
         .border_color(row_hairline_colour())
         .bg(row_fill(active, selected))
         .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
-        .shadow(rings)
         .cursor_pointer()
         .on_click(on_click)
         .on_drag(drag_payload, on_drag)
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
+        .when_some(layer.core_id.clone(), |el, core_id| {
+            el.child(tooltip(
+                state,
+                format!("layer-eye-{id}"),
+                if visible {
+                    t("layers.hideLayer")
+                } else {
+                    t("layers.showLayer")
+                },
+                None,
+                cx,
+                div()
+                    .id(format!("layer-eye-{id}"))
+                    .test_support()
+                    .w(px(ROW_BTN))
+                    .h(px(ROW_BTN))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .on_click(
+                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                            cx.stop_propagation();
+                            app.toggle_layer_visibility(core_id.clone(), cx);
+                        }),
+                    )
+                    .child(
+                        Icon::default()
+                            .data(icons::EYE)
+                            .size(px(ROW_EYE_ICON))
+                            .text_color(color::ICON)
+                            .when(!visible, |icon| icon.opacity(0.3)),
+                    ),
+            ))
+        })
         .child(layer_thumb(thumb))
         .child(
             div()
+                .id(format!("layer-name-{id}"))
+                .test_support()
                 .flex_1()
                 .min_w(px(0.0))
                 .truncate()
                 .text_size(px(ROW_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(if locked { color::TEXT_DIM } else { color::TEXT })
+                // A double click opens the rename prompt, the way the
+                // reference starts a rename from the name; a single click
+                // falls through to the row's select.
+                .on_click(
+                    cx.listener(move |app, event: &gpui_kit::ClickEvent, window, cx| {
+                        let double = match event {
+                            gpui_kit::ClickEvent::Mouse(click) => click.up.click_count >= 2,
+                            _ => false,
+                        };
+                        if double {
+                            cx.stop_propagation();
+                            if let Some(core_id) = rename_core.clone() {
+                                app.begin_rename_layer(core_id, window, cx);
+                            }
+                        }
+                    }),
+                )
                 .child(name),
         )
-        .when(locked, |el| el.child(locked_badge(id)))
         .child(
             h_flex()
                 .items_center()
@@ -482,47 +501,12 @@ fn layer_row(
         })
         .when_some(layer.core_id.clone(), |el, core_id| {
             let lock_id = core_id.clone();
-            let rename_id = core_id.clone();
-            el.child(tooltip(
-                state,
-                format!("layer-eye-{id}"),
-                if visible {
-                    t("layers.hideLayer")
-                } else {
-                    t("layers.showLayer")
-                },
-                None,
-                cx,
-                div()
-                    .id(format!("layer-eye-{id}"))
-                    .test_support()
-                    .w(px(18.0))
-                    .h(px(18.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .flex_shrink_0()
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.stop_propagation();
-                            app.toggle_layer_visibility(core_id.clone(), cx);
-                        }),
-                    )
-                    .child(Icon::default().data(icons::EYE).size(px(14.0)).text_color(
-                        if visible {
-                            color::ICON
-                        } else {
-                            color::TEXT_DIM
-                        },
-                    )),
-            ))
-            .child(
+            el.child(
                 div()
                     .id(format!("layer-lock-{id}"))
                     .test_support()
-                    .w(px(18.0))
-                    .h(px(18.0))
+                    .w(px(ROW_BTN))
+                    .h(px(ROW_BTN))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -551,33 +535,20 @@ fn layer_row(
                             } else {
                                 icons::UNLOCK
                             })
-                            .size(px(13.0))
-                            .text_color(if locked { color::ICON } else { color::TEXT_DIM }),
+                            .size(px(ROW_LOCK_ICON))
+                            .text_color(color::ICON),
                     ),
             )
-            .child(
+        })
+        // The closed ring: a 1px overlay border on the row's padding box, so
+        // its bottom edge sits just above the rule instead of losing to it.
+        .when_some(ring_alpha, |el, alpha| {
+            el.child(
                 div()
-                    .id(format!("layer-rename-{id}"))
-                    .test_support()
-                    .w(px(18.0))
-                    .h(px(18.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .flex_shrink_0()
-                    .cursor_pointer()
-                    .on_click(
-                        cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            app.begin_rename_layer(rename_id.clone(), window, cx);
-                        }),
-                    )
-                    .child(
-                        Icon::default()
-                            .data(icons::PEN)
-                            .size(px(12.0))
-                            .text_color(color::TEXT_DIM),
-                    ),
+                    .absolute()
+                    .inset_0()
+                    .border_1()
+                    .border_color(accent(alpha)),
             )
         })
 }
@@ -634,6 +605,13 @@ fn move_button(
         button,
     )
 }
+
+/// 24px — the row's eye and lock buttons.
+const ROW_BTN: f32 = 24.0;
+
+/// 16px / 14px — the glyphs inside those buttons.
+const ROW_EYE_ICON: f32 = 16.0;
+const ROW_LOCK_ICON: f32 = 14.0;
 
 /// The chip GPUI paints under the pointer while a row is dragged.
 ///

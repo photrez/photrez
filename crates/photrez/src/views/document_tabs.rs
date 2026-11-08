@@ -1,7 +1,7 @@
 //! The document tab strip: its appearance.
 //!
 //! The 38px strip that caps the editor column, directly under the title bar:
-//! `manifest.json` records the active tab at `x52,y46,89.86x37`, and the
+//! at the default client area the active tab occupies `x52,y46,89.86x37`, and the
 //! column runs from the tool rail's right edge (x=52) to the right dock
 //! (x=833) — 781px wide. Left to right it holds the flexible tab list, the
 //! new-document button, and the utility cluster (Export only)
@@ -9,10 +9,8 @@
 //!
 //! # Scope: the resting state, with exactly one open (and active) document
 //!
-//! Captured baselines: `shell-doc-tab.png` (the tab alone) and
-//! `shell-full-page.png` (the whole strip — sampled pixel by pixel while
-//! writing this: strip #141414, tab #171717, every border column #333333,
-//! underline #F28E42 across y=81..82, export button 725..816).
+//! The strip measures: surface #141414, active tab #171717, every border
+//! column #333333, underline #F28E42 across y=81..82, export button 725..816.
 //!
 //! A static screenshot cannot show behaviour, so what stays out of this module
 //! is drag-to-reorder with drop indicators, cross-document drag dimming,
@@ -77,7 +75,7 @@
 //!   tree is built, before hover refinement, so the `plus` and
 //!   tab-close `x` glyphs do not brighten with their buttons — only the
 //!   backgrounds and plain text do. Same gap as `tool_rail` and `title_bar`;
-//!   no baseline captures a hover of those three controls, so it is unverified
+//!   no measurement covers a hover of those three controls, so it is unverified
 //!   either way.
 //! * The transition timings, the text-selection lock, the
 //!   ARIA roles and tab order have no pixel consequence and are dropped. The
@@ -179,6 +177,7 @@ const EXPORT_LABEL_KEY: &str = "menus.items.export";
 /// `v_flex().items_stretch()`, so it spans the editor column (781px) with no
 /// width of its own.
 pub fn render(
+    state: &gpui_kit::Entity<crate::state::AppState>,
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
     cx: &Context<crate::app::App>,
@@ -205,17 +204,17 @@ pub fn render(
         // squeezed, so the strip yields and they do not.
         .child(ui::clip(tab_list(tabs, active_id, cx)))
         .child(new_tab_button(cx))
-        .child(ui::pin(cluster(cx)))
+        .child(ui::pin(cluster(state, cx)))
 }
 
 /// The tab list: a row that takes the spare width and the strip's full height,
 /// stretches each tab to that height, may shrink below its content, and scrolls
 /// sideways; its accessibility role is `tablist`.
 ///
-/// The captured styling styled only a scrollbar
+/// The reference styling styled only a scrollbar
 /// that a single tab never produces, so the scroll
 /// container is dropped rather than emulated: a GPUI scroll host would
-/// reserve or overlay a scrollbar the baseline capture does not show here.
+/// reserve or overlay a scrollbar that is not present here.
 fn tab_list(
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
@@ -241,7 +240,7 @@ fn tab_list(
 /// 12px left and 10px right padding, the document background behind the active
 /// one, a pointer cursor and a 75ms colour transition.
 ///
-/// Only the **active** tab is rendered: the baseline captured the
+/// Only the **active** tab is rendered: the resting layout is the
 /// one-document state, and with one open document the list yields exactly
 /// one row. The hover-grouping marker is dropped because nothing inside the tab
 /// consumes a descendant hover rule (the close button uses a plain hover,
@@ -251,7 +250,7 @@ fn tab_list(
 /// invisible against it — plus the topbar hover fill, which names a token the
 /// app never declared and therefore paints nothing at all.
 ///
-/// Not reproduced, because a resting screenshot cannot show them:
+/// Not reproduced, because the resting layout cannot show them:
 /// the drag-over outline, the dimmed
 /// (30% opacity), and reordering states (60% opacity, a 0.98 scale and a ring)
 /// and the two drop-edge indicators.
@@ -447,7 +446,7 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 /// absent rather than omitted.
 /// See the module docs for the 117px arithmetic that confirms it, and for why
 /// the layout toggle is not mounted here.
-fn cluster(cx: &Context<crate::app::App>) -> Div {
+fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.
         .self_stretch()
@@ -458,7 +457,7 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
         .pr(px(CLUSTER_PAD_R))
         .border_l_1()
         .border_color(color::BORDER)
-        .child(export_button(cx))
+        .child(export_button(state, cx))
 }
 
 /// The export button: 28px tall, never squeezed, centred on one row with 8px
@@ -477,13 +476,18 @@ fn cluster(cx: &Context<crate::app::App>) -> Div {
 /// a ~44px advance for "Export…" = 92px, i.e. x=725..816 where
 /// `shell-full-page.png` has its two border columns.
 ///
-/// Clicking opens the Export dialog, the same command as File > Export. A
-/// quick-export menu would need three format commands that have no native
-/// counterpart yet, so the strip goes to the dialog.
-fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
-    h_flex()
+/// Clicking opens the floating export menu: quick exports that preset the
+/// dialog's format, and Export As... which opens it as-is. The save path
+/// itself stays an approved, user-picked target.
+fn export_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let open = state.read(cx).open_select == Some("tab-export");
+    let mut button = h_flex()
         .id("export-button")
         .test_support()
+        .relative()
         .h(px(EXPORT_H))
         .flex_shrink_0()
         .items_center()
@@ -497,8 +501,8 @@ fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         .cursor_pointer()
         .hover(|s| s.bg(color::WHITE_45))
         .on_click(cx.listener(
-            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
-                app.export_document_action(&crate::app::ExportDocument, cx);
+            |app, _: &gpui_kit::ClickEvent, window, cx: &mut Context<crate::app::App>| {
+                app.toggle_select("tab-export", 0, 4, window, cx);
             },
         ))
         .child(t(EXPORT_LABEL_KEY))
@@ -507,7 +511,27 @@ fn export_button(cx: &Context<crate::app::App>) -> impl IntoElement {
                 .data(icons::CHEVRON_DOWN)
                 .size(px(EXPORT_ICON))
                 .text_color(color::TEXT_DIM),
-        )
+        );
+    if open {
+        let options = [
+            t("menus.items.quickExportPng").to_string(),
+            t("menus.items.quickExportJpg").to_string(),
+            t("menus.items.quickExportWebp").to_string(),
+            t("menus.items.exportAs").to_string(),
+        ];
+        button = button.child(gpui_kit::deferred(
+            crate::views::option_bar::controls::floating_options_panel(
+                "tab-export",
+                &options,
+                0,
+                EXPORT_H + 4.0,
+                0.0,
+                210.0,
+                cx,
+            ),
+        ));
+    }
+    button
 }
 
 /// The chip GPUI paints under the pointer while a tab is dragged.

@@ -1,10 +1,10 @@
 //! Native status bar (the window footer).
 //!
-//! Geometry: `manifest.json` gives `shell-status-bar` as 1366x24 at (0,796) —
-//! the full client width, below the content area, and the last 24px that take the
-//! window from 796 to the baseline's 820.
+//! Geometry: at the default 1366x820 client area the bar is 1366x24 at
+//! (0,796) — the full client width, below the content area, and the last 24px
+//! that take the window from 796 to 820.
 //!
-//! # Scope: the resting state the baseline captures
+//! # Scope: the resting state
 //!
 //! The real footer is a live readout of engine state — document size, zoom,
 //! active tool, the tool hint, the selected layer — plus five conditional
@@ -16,35 +16,31 @@
 //! * the autosave dot, shown whenever the autosave status is not idle,
 //! * the manual-save progress row, shown whenever the save phase is not idle.
 //!
-//! Of those five, the dev-mode Frame cell IS captured in the resting state:
-//! it is gated only on dev frame stats being on with `frames > 0`, and the
-//! dev-mode capture has a live scheduler
-//! ticking, so `frames` is always > 0 and the cell is always present in the
-//! golden master. `baseline/README.md` records run-to-run variance inside the
-//! metrics segment (x 764-912, y 801-815 in viewport coords, affecting both
-//! `shell-status-bar` and `dock-closed`) — the comparison harness masks that
-//! segment rather than treating its numeric drift as a geometry failure.
+//! Of those five, only the dev-mode Frame cell is present in the resting
+//! layout: it is gated only on dev frame stats being on with `frames > 0`, and
+//! the dev scheduler ticks, so `frames` is always > 0. Its metrics segment
+//! (x 764-912, y 801-815 in viewport coords, affecting both `shell-status-bar`
+//! and `dock-closed`) varies run to run, so a pixel comparison of that segment
+//! is not a geometry check.
 //!
-//! The other four indicators are genuinely absent from the PNG: their backing
-//! signals are idle in the captured state, so a cell for them would be a pixel
-//! that does not exist in the golden master.
+//! The other four indicators are absent from the resting layout: their backing
+//! signals are idle, so no cell exists for them.
 //!
-//! The six cells visible in the PNG are rendered as the literals it shows; each
+//! The six resting cells are rendered as the literals they show; each
 //! `const` below names the state it stands in for, because this view has no
 //! engine to read from.
 //!
 //! Labels are the `en` locale strings (`tests/fixtures/i18n/en/translation.json`,
-//! `status.*`), the locale the baseline was captured in.
+//! `status.*`).
 //!
-//! # Transcription notes
+//! # Layout notes
 //!
 //! * Every border in the bar paints [`color::BORDER`] (#333333) — the top
 //!   rule and the four cell separators included, even where the divider token
-//!   names #2e2e2e. Sampling this very shot's top rule gives
-//!   #333333 x 1366/1366 pixels. [`color::DIVIDER`] stays out of it; it is a
-//!   fill token.
-//! * **Line height.** The captured line box is 1.5 x the footer's 10.5px,
-//!   i.e. 15.75px. Measured, each cell separator
+//!   names #2e2e2e. The top rule measures #333333 at all 1366 pixels.
+//!   [`color::DIVIDER`] stays out of it; it is a fill token.
+//! * **Line height.** The line box is 1.5 x the footer's 10.5px, i.e. 15.75px.
+//!   Measured, each cell separator
 //!   paints exactly 15 rows (y=5..19 of the 24px bar) — a 15px box centred in
 //!   the border-box content area `y=1..24` lands on precisely those rows, with
 //!   no dependence on how a text layout snaps a fractional edge. GPUI's own
@@ -58,10 +54,10 @@
 //!   [`StyledText`] carrying two [`TextRun`]s: one shaped line, one line box,
 //!   and no invented inter-word gap. Runs spell out `Inter` themselves because
 //!   an ambient `.font_family` reaches the element, not the run.
-//! * The five cell rules land at x=125, 204, 314, 608 and ~760 in the PNG.
-//!   Those are pure functions of the cell widths (padding 12 + gap 12 + 1px
-//!   rule), so they are reproduced exactly as long as Inter shapes the strings
-//!   the same way it does in `title_bar`, which measures to 0.005%.
+//! * At the default width the five cell rules land at x=125, 204, 314, 608 and
+//!   ~760. Those are pure functions of the cell widths (padding 12 + gap 12 +
+//!   1px rule), so they hold as long as Inter shapes the strings the same way
+//!   it does in `title_bar`, which measures to 0.005%.
 
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
@@ -77,12 +73,11 @@ use gpui_kit::Div;
 
 // ── Dimensions (root font size 16px) ──
 
-/// 24 px bar height. Same number as the manifest box
-/// height (24), which is where this constant was first pinned.
+/// The bar height is 24 px.
 const BAR_H: f32 = 24.0;
 
-/// 0.75rem (12px) footer inset. The PNG's first
-/// content pixel sits at x=12 and its last at x=1354, i.e. 12px both ends.
+/// 0.75rem (12px) footer inset. At the default width the first
+/// content pixel sits at x=12 and the last at x=1354, i.e. 12px at both ends.
 const BAR_PX: f32 = 12.0;
 
 /// 10.5px footer font size.
@@ -129,19 +124,18 @@ const SAVE_ERROR_MAX_W: f32 = 420.0;
 
 // ── State stand-ins ──
 //
-// The captured values. In the live app these are the document width x height,
+// The resting values. In the live app these are the document width x height,
 // the rounded zoom percent, the active tool's display name, that tool's status
 // sentence, the selected layer's name, and the dev-mode frame metrics read from
-// the frame scheduler. This view renders what the baseline PNG shows because
-// there is no engine behind it.
+// the frame scheduler. This view renders fixed values because there is no
+// engine behind it.
 
-/// Document size as `{width} x {height} px`. The document is
-/// the blank 800x600 "Baseline" capture recipe. The baseline renders the
-/// multiplication sign as
+/// Document size as `{width} x {height} px`. The document is blank and
+/// 800x600. The multiplication sign is
 /// the Unicode x-cross (`\u{d7}`); this string matches that glyph.
 const DOC_SIZE: &str = "800 \u{d7} 600 px"; // i18n-exempt: numeric value
 
-/// The rounded zoom percent, as captured (88%).
+/// The resting zoom percent is 88%.
 const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 
 // The active tool is Move, whose display name is `tools.move` in
@@ -161,7 +155,7 @@ const LAYER: &str = "Background"; // i18n-exempt: new-document layer name
 /// The tool-tip sentence colour: the plain text colour (#CACACA) at 60% alpha.
 ///
 /// Not `color::TEXT_DIM_60`, which is text-**dim** at 60%. Over the
-/// #1E1E1E panel it lands on ~#858585, and the PNG's status sentence peaks at
+/// #1E1E1E panel it lands on ~#858585, and the status sentence peaks at
 /// 132 where a full #CACACA peaks at 202 — consistent with 0.6 alpha.
 const STATUS_COLOR: Hsla = Hsla {
     h: color::TEXT.h,
@@ -171,8 +165,8 @@ const STATUS_COLOR: Hsla = Hsla {
 };
 
 /// The ` max {max}ms` tail span inside the Frame cell. Same base as
-/// [`STATUS_COLOR`] at 40%: the golden
-/// master measures one flat ~94 peak across that whole span, where the 60%
+/// [`STATUS_COLOR`] at 40%: the tail measures one flat ~94 peak
+/// across that whole span, where the 60%
 /// labels peak at ~122 and the full-alpha value at 202.
 const FRAME_TAIL_COLOR: Hsla = Hsla {
     h: color::TEXT.h,
@@ -183,27 +177,51 @@ const FRAME_TAIL_COLOR: Hsla = Hsla {
 
 /// The dev-mode frame metrics the Frame cell reads from the frame scheduler.
 ///
-/// The golden master captured `avg_ms = 1.1`, `max_ms = 1.9`;
-/// both are rendered to one decimal place.
-struct FrameMetrics {
-    avg_ms: f64,
-    max_ms: f64,
+/// Live values come from the app's frame sampler (p50/p95 over the last
+/// 120 draw durations). With no samples yet the resting row shows
+/// `p50 = 1.1`, `p95 = 1.9`; both render to one decimal place.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameMetrics {
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub frames: usize,
 }
 
-/// The captured frame metrics in the golden master; `frame_text` formats these
-/// through `FrameMetrics::avg_ms_str` / `max_ms_str` so the literal the test
+/// The resting frame metrics; `frame_text` formats these
+/// through `FrameMetrics::p50_str` / `p95_str` so the literal the test
 /// asserts against and the literal the cell paints come from the same source.
 const FRAME: FrameMetrics = FrameMetrics {
-    avg_ms: 1.1,
-    max_ms: 1.9,
+    p50_ms: 1.1,
+    p95_ms: 1.9,
+    frames: 1,
 };
 
 impl FrameMetrics {
-    fn avg_ms_str(&self) -> String {
-        format!("{:.1}", self.avg_ms)
+    fn p50_str(&self) -> String {
+        format!("{:.1}", self.p50_ms)
     }
-    fn max_ms_str(&self) -> String {
-        format!("{:.1}", self.max_ms)
+    fn p95_str(&self) -> String {
+        format!("{:.1}", self.p95_ms)
+    }
+}
+
+/// Nearest-rank percentile over draw durations, in ms. Empty input gives 0.0.
+pub fn frame_metrics_from_samples(samples: &[std::time::Duration]) -> FrameMetrics {
+    if samples.is_empty() {
+        return FrameMetrics::default();
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    fn rank(len: usize, fraction: f64) -> usize {
+        let index = ((len as f64) * fraction).ceil() as usize;
+        index.clamp(1, len) - 1
+    }
+    let p50 = sorted[rank(sorted.len(), 0.50)].as_secs_f64() * 1000.0;
+    let p95 = sorted[rank(sorted.len(), 0.95)].as_secs_f64() * 1000.0;
+    FrameMetrics {
+        p50_ms: p50,
+        p95_ms: p95,
+        frames: sorted.len(),
     }
 }
 
@@ -211,12 +229,12 @@ impl FrameMetrics {
 /// row with children pushed to both ends; 1px top border, panel fill, 12px
 /// side padding, 10.5px dim text, nothing selectable.
 ///
-/// Being positioned only exists in the recorded layout to anchor the tiling-progress
+/// Being positioned only exists to anchor the tiling-progress
 /// hairline (omitted above); it is kept so the tree mirrors the layout.
 ///
-/// `status_error` is production state, not a baseline value: the resting captures
-/// pass `None`, so the default bar is pixel-identical to the golden master. A
-/// failed save paints the typed service error in red until a save succeeds.
+/// `status_error` is production state: the resting layout
+/// passes `None`. A failed save paints the typed service error in red until a
+/// save succeeds.
 ///
 /// `state` and `cx` reach the History trigger's click handler and the accent
 /// tint of its panel; every other cell here is a value the caller passes in.
@@ -228,6 +246,7 @@ pub fn render(
     tool: crate::state::ToolId,
     layer_name: Option<&str>,
     autosave: crate::state::AutosaveStatus,
+    frame: FrameMetrics,
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -238,7 +257,7 @@ pub fn render(
         .flex_shrink_0()
         .justify_between()
         .border_t_1()
-        // The divider token names #2e2e2e, but the captured bar paints
+        // The divider token names #2e2e2e, but the bar paints
         // #333333 on every border — see `color::BORDER`.
         .border_color(color::BORDER)
         .bg(color::PANEL)
@@ -253,9 +272,9 @@ pub fn render(
         // the Canvas/Zoom/Active/Selected segment describes a document that
         // does not exist. The left child must still exist: `justify_between`
         // with a single child would park the History hint on the left, and
-        // the baseline keeps it on the right.
+        // the resting layout keeps it on the right.
         .child(if doc_size.is_some() {
-            ui::clip(left_group(zoom_percent, doc_size, tool, layer_name)).into_any_element()
+            ui::clip(left_group(zoom_percent, doc_size, tool, layer_name, frame)).into_any_element()
         } else {
             div().into_any_element()
         })
@@ -271,13 +290,14 @@ pub fn render(
 ///
 /// Six cells: Canvas, Zoom, Active, tool-hint, Selected Layer, and the dev-mode
 /// Frame timing. The Frame cell keeps a gate - it shows only
-/// while frame stats report at least one frame; the dev-mode capture
-/// always has frames > 0, so the cell is always present in the golden master.
+/// while frame stats report at least one frame; the dev scheduler
+/// always has frames > 0, so the cell is present in the resting layout.
 fn left_group(
     zoom_percent: Option<u32>,
     doc_size: Option<(u32, u32)>,
     tool: crate::state::ToolId,
     layer_name: Option<&str>,
+    frame: FrameMetrics,
 ) -> Div {
     let zoom = zoom_percent
         .map(|percent| format!("{percent}%"))
@@ -301,7 +321,7 @@ fn left_group(
             &format!("{}: ", t("status.selectedLayer")),
             &layer,
         ))
-        .child(divided_frame())
+        .child(divided_frame(frame))
 }
 
 fn tool_key(tool: crate::state::ToolId) -> &'static str {
@@ -336,16 +356,17 @@ fn divided_field(label: &str, value: &str) -> impl IntoElement {
 /// Its content is one line with three runs:
 ///
 /// ```text
-/// Frame: 1.1ms avg max 1.9ms
+/// Frame: 1.1ms p50 p95 1.9ms
 /// ```
 ///
-/// Per the golden master's measured pixel levels: `Frame:` at [`STATUS_COLOR`]
-/// (60%, peaks ~122), `{avg}ms avg` bold in `color::TEXT` (peaks 202), and the
-/// ` max {max}ms` tail at [`FRAME_TAIL_COLOR`] (one flat ~94 level - the
-/// number is not bold). The captured values come from the golden master:
-/// `avg_ms = 1.1`, `max_ms = 1.9`.
-fn divided_frame() -> impl IntoElement {
-    ruled(frame_text(&FRAME, STATUS_COLOR))
+/// Measured pixel levels: `Frame:` at [`STATUS_COLOR`]
+/// (60%, peaks ~122), `{p50}ms p50` bold in `color::TEXT` (peaks 202), and the
+/// ` p95 {p95}ms` tail at [`FRAME_TAIL_COLOR`] (one flat ~94 level - the
+/// number is not bold). With no live samples the resting values are
+/// `p50 = 1.1`, `p95 = 1.9`.
+fn divided_frame(frame: FrameMetrics) -> impl IntoElement {
+    let active = if frame.frames == 0 { FRAME } else { frame };
+    ruled(frame_text(&active, STATUS_COLOR))
 }
 
 /// One fragment of the Frame cell: its text, its colour, and whether it is
@@ -361,8 +382,8 @@ struct FrameRun {
 /// Extracted as a standalone function so the run structure is testable without
 /// inspecting the opaque `StyledText` (its fields are private in GPUI).
 fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> {
-    let avg = metrics.avg_ms_str();
-    let max = metrics.max_ms_str();
+    let p50 = metrics.p50_str();
+    let p95 = metrics.p95_str();
     vec![
         FrameRun {
             text: "Frame: ".to_string(), // i18n-exempt: not in catalog
@@ -370,25 +391,25 @@ fn frame_run_specs(metrics: &FrameMetrics, status_color: Hsla) -> Vec<FrameRun> 
             bold: false,
         },
         FrameRun {
-            text: format!("{avg}ms avg"),
+            text: format!("{p50}ms p50"),
             color: color::TEXT,
             bold: true,
         },
         FrameRun {
-            // One run, not two: ` max {max}ms` is one
-            // plain-text-at-40% run, and the golden master measures one
-            // flat ~94 level across the whole tail - `max 1.9ms` is NOT bold.
-            text: format!(" max {max}ms"),
+            // One run, not two: ` p95 {p95}ms` is one
+            // plain-text-at-40% run, and the tail measures one
+            // flat ~94 level across its whole width.
+            text: format!(" p95 {p95}ms"),
             color: FRAME_TAIL_COLOR,
             bold: false,
         },
     ]
 }
 
-/// Build the `Frame: <avg>ms avg max <max>ms` run with mixed weights.
+/// Build the `Frame: <p50>ms p50 p95 <p95>ms` run with mixed weights.
 ///
-/// `Frame:` uses `status_color` (60%); `{avg}ms avg` is bold `color::TEXT`;
-/// the ` max {max}ms` tail is [`FRAME_TAIL_COLOR`] (40%, not bold). Three runs
+/// `Frame:` uses `status_color` (60%); `{p50}ms p50` is bold `color::TEXT`;
+/// the ` p95 {p95}ms` tail is [`FRAME_TAIL_COLOR`] (40%, not bold). Three runs
 /// on one [`StyledText`] so they share a single line box — GPUI stacks text
 /// children rather than flowing them.
 fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
@@ -505,8 +526,8 @@ fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::Any
 
 /// The right-hand cells: centred on one row, never squeezed, 20px between them.
 ///
-/// The recorded panel also dims the group to 50% and ignores input when no document
-/// is open; the baseline has one, so that branch never renders here.
+/// The panel also dims the group to 50% and ignores input when no document
+/// is open; the resting layout has one, so that branch never renders here.
 fn right_group(
     status_error: Option<&str>,
     autosave: crate::state::AutosaveStatus,
@@ -536,8 +557,8 @@ fn right_group(
 /// transitioned, plain text colour on hover.
 ///
 /// It is accent-coloured while the History dock panel is the open one and dim
-/// otherwise; the resting captures have the Layers panel open, so the golden
-/// master shows dim. Clicking shows the History panel and opens the dock.
+/// otherwise; the resting layout has the Layers panel open, so the button
+/// shows dim. Clicking shows the History panel and opens the dock.
 ///
 /// This control carries no pressed-state attribute: GPUI has no surface for one,
 /// so the open state is shown by colour alone. The click wiring is real.
@@ -583,41 +604,53 @@ mod tests {
     /// RED proof: alter any text, bold, or alpha value in
     /// `frame_run_specs` and the corresponding assertion here flips.
     #[test]
-    fn frame_cell_runs_match_baseline() {
+    fn frame_cell_runs_match_resting_literal() {
         let runs = frame_run_specs(&FRAME, STATUS_COLOR);
 
         assert_eq!(runs.len(), 3, "frame cell must have exactly three runs");
 
         let full: String = runs.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(
-            full, "Frame: 1.1ms avg max 1.9ms",
-            "frame cell text must match the baseline literal"
+            full, "Frame: 1.1ms p50 p95 1.9ms",
+            "frame cell text must match the resting literal"
         );
 
-        // `Frame: ` - dim label, 60% (golden peaks ~122 where a full-alpha
+        // `Frame: ` - dim label, 60% (peaks ~122 where a full-alpha
         // peak measures 202)
         assert_eq!(runs[0].text, "Frame: ");
         assert!(!runs[0].bold);
         assert_eq!(runs[0].color.a, STATUS_COLOR.a);
 
-        // `{avg}ms avg` - the only bold fragment (golden peaks 202)
-        assert_eq!(runs[1].text, "1.1ms avg");
+        // `{p50}ms p50` - the only bold fragment (peaks 202)
+        assert_eq!(runs[1].text, "1.1ms p50");
         assert!(runs[1].bold);
         assert_eq!(runs[1].color.a, color::TEXT.a);
 
-        // ` max {max}ms` - one 40% span, number included, NOT bold (golden
-        // measures one flat ~94 level across the whole tail)
-        assert_eq!(runs[2].text, " max 1.9ms");
+        // ` p95 {p95}ms` - one 40% span, number included, NOT bold (the tail
+        // measures one flat ~94 level across its whole width)
+        assert_eq!(runs[2].text, " p95 1.9ms");
         assert!(!runs[2].bold);
         assert_eq!(runs[2].color.a, FRAME_TAIL_COLOR.a);
     }
 
-    /// The recorded values `FrameMetrics` formats must match the golden master:
-    /// `avg_ms = 1.1`, `max_ms = 1.9`.
+    /// The resting values `FrameMetrics` formats:
+    /// `p50 = 1.1`, `p95 = 1.9`.
     #[test]
     fn frame_metrics_source_values() {
-        assert_eq!(FRAME.avg_ms_str(), "1.1");
-        assert_eq!(FRAME.max_ms_str(), "1.9");
+        assert_eq!(FRAME.p50_str(), "1.1");
+        assert_eq!(FRAME.p95_str(), "1.9");
+    }
+
+    #[test]
+    fn frame_metrics_from_samples_computes_percentiles() {
+        use std::time::Duration;
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
+        let metrics = frame_metrics_from_samples(&samples);
+        assert_eq!(metrics.frames, 100);
+        assert_eq!(metrics.p50_ms, 50.0);
+        assert_eq!(metrics.p95_ms, 95.0);
+        let empty = frame_metrics_from_samples(&[]);
+        assert_eq!(empty.frames, 0);
     }
 
     /// The Active cell asks for a key chosen at runtime, so the literal-key

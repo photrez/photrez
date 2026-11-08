@@ -31,8 +31,8 @@ const DOCK_W: f32 = 533.0;
 const DOCK_W_WIDE: f32 = 598.0;
 /// Document tabs height: 38px.
 const TABBAR_H: f32 = 38.0;
-/// Option bar height: 44px.
-const OPTIONBAR_H: f32 = 44.0;
+/// Option bar height: 38px.
+const OPTIONBAR_H: f32 = 38.0;
 /// Text overlay hint strip width (the captured badge is 270 physical px).
 const HINT_W: f32 = 216.0;
 /// What the edit box's ring adds on each side: a 1px and a 2px band. The
@@ -50,7 +50,7 @@ const RING: f32 = 3.0;
 ///     LeftToolRail        52px
 ///     <center col> flex_1 min_w_0
 ///       DocumentTabs      (38px)
-///       OptionBar         (44px)
+///       OptionBar         (38px)
 ///       Canvas            flex_1  <- 668px at 820px window
 ///     RightDock           533px (only when dock_open)
 ///   BottomStatusBar        (24px)
@@ -85,6 +85,7 @@ pub(crate) fn render(
     can_redo: bool,
     committed_selection: Option<photrez_core::document::content::SelectionState>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    frame: status_bar::FrameMetrics,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
     // One read of the live state; every field the shell branches on is `Copy`.
@@ -208,6 +209,7 @@ pub(crate) fn render(
                                     el.child(
                                         // DocumentTabsBar — 38px
                                         div().h(px(TABBAR_H)).child(document_tabs::render(
+                                            state,
                                             &tabs,
                                             active_tab.as_deref(),
                                             cx,
@@ -216,7 +218,7 @@ pub(crate) fn render(
                                 })
                                 .when(has_document && chrome_visible, |el| {
                                     el.child(
-                                        // OptionBar — 44px
+                                        // OptionBar — 38px
                                         div().h(px(OPTIONBAR_H)).child(option_bar::render(
                                             state,
                                             f32::from(window.viewport_size().width)
@@ -338,6 +340,7 @@ pub(crate) fn render(
                 active_tool,
                 selected_layer_name.as_deref(),
                 autosave_status,
+                frame,
                 state,
                 cx,
             )))
@@ -382,6 +385,7 @@ pub(crate) fn render(
                 resize_focus,
                 new_document_focus,
                 dialog_focus,
+                window,
                 cx,
             ))
         })
@@ -584,7 +588,7 @@ fn canvas_hitbox(
                 app.canvas_space_up(event, cx)
             }),
         )
-        .on_scroll_wheel(
+        .on_scroll(
             cx.listener(|app: &mut crate::app::App, event, _window, cx| {
                 app.canvas_scroll(event, cx)
             }),

@@ -108,7 +108,11 @@ impl Element for CanvasPointerSurface {
         let down_capture = Rc::clone(&self.capture);
         let doc_size = self.doc_size;
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
-            if phase != DispatchPhase::Bubble || !down_hitbox.contains(&event.position) {
+            // `is_hovered_at` (not the geometric `contains`): a press on an
+            // occluding panel above the canvas — a floating dropdown, the
+            // dialog's chrome — belongs to that panel, not to the gesture.
+            if phase != DispatchPhase::Bubble || !down_hitbox.is_hovered_at(event.position, window)
+            {
                 return;
             }
             if let Some(current) = window.captured_hitbox() {
@@ -118,6 +122,15 @@ impl Element for CanvasPointerSurface {
                     return;
                 }
                 window.release_pointer();
+            }
+            // A modal dialog owns the input: a press that lands on the canvas
+            // behind it - the dialog's own titlebar press included - starts no
+            // gesture and captures nothing.
+            let blocked = down_app
+                .upgrade()
+                .is_some_and(|app| app.update(cx, |app, cx| app.modal_input_active(cx)));
+            if blocked {
+                return;
             }
             window.capture_pointer(down_hitbox.id);
             down_capture.set(Some(down_hitbox.id));
@@ -153,6 +166,15 @@ impl Element for CanvasPointerSurface {
             }
             if let Some(app) = move_app.upgrade() {
                 app.update(cx, |app, cx| {
+                    // A dialog opened over an in-flight gesture cancels it on
+                    // the first move, so the modal never drags a layer under
+                    // the pointer.
+                    if app.modal_input_active(cx) {
+                        app.cancel_canvas_gesture(cx);
+                        window.release_pointer();
+                        move_capture.set(None);
+                        return;
+                    }
                     app.canvas_pointer_move(event, &move_bounds, move_doc, window, cx);
                 });
             }

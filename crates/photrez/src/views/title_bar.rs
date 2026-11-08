@@ -62,7 +62,7 @@
 //! ## 3. Icon hover tint (uncompensated; unverified)
 //!
 //! As in `tool_rail`, `Icon` resolves tint before hover styles: undo/redo/window
-//! icons do not brighten, only their button backgrounds. No baseline captures
+//! icons do not brighten, only their button backgrounds. No measurement covers
 //! title-bar hover.
 //!
 //! # Per-platform window controls
@@ -222,7 +222,7 @@ pub(crate) fn logo(size: f32) -> impl IntoElement {
 /// The menu bar: one full-height row, centred, 2px between triggers.
 ///
 /// This bar always renders as the row: no narrow-window variant is mounted
-/// here. The 1366px baseline captures it at full width.
+/// here. At 1366px it renders at full width.
 fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl IntoElement {
     h_flex()
         .self_stretch()
@@ -241,15 +241,15 @@ fn menu_bar(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl Int
 ///
 /// `key` is the catalog key: it names the element id and resolves the visible
 /// label, so the id stays locale-independent while the text follows the locale.
-///
-/// The button is not given a popup — see the module docs for why the open
-/// state is out of scope.
+/// Click toggles the popup; while one menu is open, hovering a neighbor
+/// switches the popup to that neighbor.
 fn menu_trigger(
     key: &'static str,
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let menu = menu_id(key);
+    let is_open = menu.is_some_and(|menu| state.read(cx).open_menu == Some(menu));
     let state_for_click = state.clone();
     let on_click = cx.listener(move |_, _, _, cx: &mut Context<crate::app::App>| {
         let Some(menu) = menu else {
@@ -264,26 +264,55 @@ fn menu_trigger(
         });
         cx.notify();
     });
-    h_flex().relative().self_stretch().items_center().child(
-        div()
-            .id(key)
-            .test_support()
-            .on_click(on_click)
-            .h_flex()
-            .h(px(title::MENU_H))
-            .items_center()
-            .justify_center()
-            .rounded(px(title::RADIUS))
-            .px(px(pad_x(key)))
-            .text_size(px(title::MENU_TEXT))
-            // Medium weight.
-            .font_weight(FontWeight(500.))
-            // Text at 90%.
-            .text_color(color::TEXT_90)
-            // On hover: white at 4.5% behind it, full-strength text.
-            .hover(|s| s.bg(color::WHITE_45).text_color(color::TEXT))
-            .child(t(key)),
-    )
+    let state_for_hover = state.clone();
+    let on_hover = cx.listener(
+        move |_, hovered: &bool, _, cx: &mut Context<crate::app::App>| {
+            if !*hovered {
+                return;
+            }
+            let Some(menu) = menu else {
+                return;
+            };
+            let changed = state_for_hover.update(cx, |state, _| {
+                if state.open_menu.is_some() && state.open_menu != Some(menu) {
+                    state.open_menu = Some(menu);
+                    true
+                } else {
+                    false
+                }
+            });
+            if changed {
+                cx.notify();
+            }
+        },
+    );
+    let mut trigger = div()
+        .id(key)
+        .test_support()
+        .on_click(on_click)
+        .on_hover(on_hover)
+        .h_flex()
+        .h(px(title::MENU_H))
+        .items_center()
+        .justify_center()
+        .rounded(px(title::RADIUS))
+        .px(px(pad_x(key)))
+        .text_size(px(title::MENU_TEXT))
+        // Medium weight.
+        .font_weight(FontWeight(500.))
+        // Text at 90%.
+        .text_color(color::TEXT_90)
+        // On hover: white at 4.5% behind it, full-strength text.
+        .hover(|s| s.bg(color::WHITE_45).text_color(color::TEXT))
+        .active(|s| s.bg(color::WHITE_45).text_color(color::TEXT));
+    if is_open {
+        trigger = trigger.bg(color::WHITE_45).text_color(color::TEXT);
+    }
+    h_flex()
+        .relative()
+        .self_stretch()
+        .items_center()
+        .child(trigger.child(t(key)))
 }
 
 fn menu_id(key: &str) -> Option<MenuId> {
@@ -356,8 +385,9 @@ fn center_group(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> impl
 /// The right-hand group: a shrinkable centred row of undo/redo and window controls.
 ///
 /// The side-panel toggle is hidden at large widths: it exists below
-/// 1024px and is absent from the 1366px baseline. The branch is decided from
-/// the live window width so the 74-shot baseline comparison is unchanged.
+/// 1024px and is absent at 1366px. The branch is decided from
+/// the live window width, so the row keeps its measured geometry at the
+/// default width.
 fn right_group(
     window: &mut Window,
     state: &Entity<AppState>,

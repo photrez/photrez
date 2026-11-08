@@ -269,7 +269,13 @@ pub(crate) fn tooltip(
     child: impl IntoElement,
 ) -> impl IntoElement {
     let id: String = id.into();
-    let shown = state.read(cx).tooltip.as_deref() == Some(id.as_str());
+    let shown = {
+        let s = state.read(cx);
+        s.tooltip.as_deref() == Some(id.as_str())
+            && s.tooltip_since.is_some_and(|since| {
+                cx.background_executor().now().duration_since(since) >= crate::app::TOOLTIP_DELAY
+            })
+    };
     let hover_id = id.clone();
     let mut wrapper = h_flex()
         .id(format!("{id}-hover"))
@@ -381,63 +387,94 @@ pub(super) fn live_select(
     ));
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
-        let mut panel = div()
-            .id(format!("{id}-panel"))
-            .absolute()
-            .top(px(CTRL_H + 4.0))
-            .left(px(0.0))
-            .min_w(px(140.0))
-            .flex()
-            .flex_col()
-            .rounded(px(RADIUS))
-            .border_1()
-            .border_color(color::BORDER)
-            .bg(color::MENU_LIST)
-            .py(px(4.0))
-            .occlude()
-            .shadow(vec![
-                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
-            ]);
-        for (index, option) in options.iter().enumerate() {
-            panel = panel.child(
-                div()
-                    .id(format!("{id}-option-{index}"))
-                    .test_support()
-                    .h(px(24.0))
-                    .px(px(FIELD_PX))
-                    .flex()
-                    .items_center()
-                    .gap(px(GAP))
-                    .text_size(px(TEXT_SM))
-                    .text_color(if index == active {
-                        color::ACCENT
-                    } else {
-                        color::TEXT
-                    })
-                    .cursor_pointer()
-                    .hover(|s| s.bg(FIELD_60))
-                    .on_click(
-                        cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                            app.choose_select(id, index, cx);
-                        }),
-                    )
-                    .child(*option)
-                    .when(index == active, |el| {
-                        el.child(
-                            Icon::default()
-                                .data(icons::CHECK)
-                                .size(px(ICON_SM))
-                                .text_color(color::ACCENT),
-                        )
-                    }),
-            );
-        }
+        let panel = floating_options_panel(
+            id,
+            &options
+                .iter()
+                .map(|option| option.to_string())
+                .collect::<Vec<_>>(),
+            active,
+            CTRL_H + 4.0,
+            0.0,
+            140.0,
+            cx,
+        );
         wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(
             panel,
             panel_bounds,
         )));
     }
     wrapper
+}
+
+/// The shared floating options panel: one dropdown body for every select in
+/// the app — option-bar controls, the layer blend modes, the export menu and
+/// dialog fields. Positioned under the trigger in the trigger's own
+/// coordinate space, it highlights on hover, marks the active option with the
+/// accent and a check, and choosing one routes through
+/// [`crate::app::App::choose_select`].
+pub(crate) fn floating_options_panel(
+    id: &'static str,
+    options: &[String],
+    active: usize,
+    anchor_top: f32,
+    anchor_left: f32,
+    min_w: f32,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let mut panel = div()
+        .id(format!("{id}-panel"))
+        .test_support()
+        .absolute()
+        .top(px(anchor_top))
+        .left(px(anchor_left))
+        .min_w(px(min_w))
+        .flex()
+        .flex_col()
+        .rounded(px(RADIUS))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(color::MENU_LIST)
+        .py(px(4.0))
+        .occlude()
+        .shadow(vec![
+            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+        ]);
+    for (index, option) in options.iter().enumerate() {
+        panel = panel.child(
+            div()
+                .id(format!("{id}-option-{index}"))
+                .test_support()
+                .h(px(24.0))
+                .px(px(FIELD_PX))
+                .flex()
+                .items_center()
+                .justify_between()
+                .text_size(px(TEXT_SM))
+                .text_color(if index == active {
+                    color::ACCENT
+                } else {
+                    color::TEXT
+                })
+                .cursor_pointer()
+                .hover(|s| s.bg(FIELD_60))
+                .on_click(
+                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                        app.choose_select(id, index, cx);
+                    }),
+                )
+                .child(option.clone())
+                .when(index == active, |el| {
+                    el.child(
+                        Icon::default()
+                            .data(icons::CHECK)
+                            .size(px(ICON_SM))
+                            .text_color(color::ACCENT),
+                    )
+                }),
+        );
+    }
+    panel
 }
 
 /// A 1.75-stroke chevron used by the text bar's custom buttons.

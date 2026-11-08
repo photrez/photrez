@@ -5,9 +5,11 @@ use gpui_kit::{
     div, hsla, px, BoxShadow, Div, FocusHandle, FontWeight, Hsla, Stateful, TestSupportExt,
 };
 
+use super::drag;
 use crate::components::ui;
 use crate::icons;
 use crate::tokens::color;
+use crate::views::title_bar;
 
 use super::{
     ACTIONS_H, BAR_PX, BODY_PX, BODY_PY, BRAND, BTN_H, BTN_MIN_W, BTN_R, BTN_TEXT, CLOSE_BOX,
@@ -19,8 +21,26 @@ use super::{
 /// Height is fixed rather than derived from the body so that a stubbed body
 /// still occupies the same space the real one will: a dialog whose footer moves
 /// when its body is filled in would make every before/after comparison lie.
-pub(super) fn dialog_shell(title: &str, w: f32, h: f32, body: Div) -> Div {
-    dialog_shell_with_actions(title, w, h, body, Vec::new())
+pub(super) fn dialog_shell(
+    title: &str,
+    w: f32,
+    h: f32,
+    body: Div,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
+) -> Div {
+    dialog_shell_with_actions(title, w, h, body, Vec::new(), cx_title)
+}
+
+/// The live shell with a caller-supplied titlebar close.
+pub(super) fn dialog_shell_live(
+    title: &str,
+    w: f32,
+    h: f32,
+    body: Div,
+    close: impl IntoElement,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
+) -> Div {
+    dialog_shell_with_actions_live(title, w, h, body, Vec::new(), close, cx_title)
 }
 
 /// Content-sized shell with live footer buttons and a live titlebar close.
@@ -30,6 +50,7 @@ pub(super) fn dialog_shell_auto_actions(
     body: Div,
     buttons: Vec<gpui_kit::AnyElement>,
     close: impl IntoElement,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
 ) -> Div {
     v_flex()
         .w(px(w))
@@ -40,11 +61,11 @@ pub(super) fn dialog_shell_auto_actions(
         .overflow_hidden()
         .shadow(vec![BoxShadow::new(
             px(0.0),
-            px(18.0),
-            hsla(0.0, 0.0, 0.0, 0.55),
+            px(12.0),
+            hsla(0.0, 0.0, 0.0, 0.45),
         )
-        .blur_radius(px(50.0))])
-        .child(titlebar_with(title, close))
+        .blur_radius(px(32.0))])
+        .child(titlebar_with(title, close, cx_title))
         .child(div().w_full().px(px(BODY_PX)).py(px(BODY_PY)).child(body))
         .child(actions(buttons))
 }
@@ -56,6 +77,20 @@ pub(super) fn dialog_shell_with_actions(
     h: f32,
     body: Div,
     buttons: Vec<gpui_kit::AnyElement>,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
+) -> Div {
+    dialog_shell_with_actions_live(title, w, h, body, buttons, close_box(), cx_title)
+}
+
+/// The live shell with a caller-supplied titlebar close.
+pub(super) fn dialog_shell_with_actions_live(
+    title: &str,
+    w: f32,
+    h: f32,
+    body: Div,
+    buttons: Vec<gpui_kit::AnyElement>,
+    close: impl IntoElement,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
 ) -> Div {
     let inner_h = h - TITLEBAR_H - ACTIONS_H;
     v_flex()
@@ -68,11 +103,11 @@ pub(super) fn dialog_shell_with_actions(
         .overflow_hidden()
         .shadow(vec![BoxShadow::new(
             px(0.0),
-            px(18.0),
-            hsla(0.0, 0.0, 0.0, 0.55),
+            px(12.0),
+            hsla(0.0, 0.0, 0.0, 0.45),
         )
-        .blur_radius(px(50.0))])
-        .child(titlebar(title))
+        .blur_radius(px(32.0))])
+        .child(titlebar_with(title, close, cx_title))
         .child(
             div()
                 .w_full()
@@ -85,18 +120,37 @@ pub(super) fn dialog_shell_with_actions(
         .child(actions(buttons))
 }
 
-/// 36px tall, centred on one row with the ends pushed apart, 1px bottom
-/// DIVIDER border, TOPBAR fill and 12px side inset \u{2014} brand mark, title,
-/// close button.
-pub(super) fn titlebar(title: &str) -> Div {
-    titlebar_with(title, close_box())
+/// The live titlebar with a caller-supplied close button.
+pub(super) fn titlebar_live(
+    title: &str,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
+    close: impl IntoElement,
+) -> impl IntoElement {
+    titlebar_with(title, close, cx_title)
 }
 
 /// The titlebar with a caller-supplied close button. Static previews use the
 /// inert affordance; a live dialog passes `dialog_close_button` so the same
 /// 20x20 hit area dismisses it.
-fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
-    h_flex()
+///
+/// The titlebar is the shared drag handle: a live dialog grabs it with the
+/// left button, a static preview stays inert.
+fn titlebar_with(
+    title: &str,
+    close: impl IntoElement,
+    cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
+) -> impl IntoElement {
+    let drag = match cx_title {
+        Some((cx, dialog)) => Some(cx.listener(
+            move |_app, event: &gpui_kit::MouseDownEvent, _window, _cx| {
+                drag::start_drag(dialog, event.position);
+            },
+        )),
+        None => None,
+    };
+    let titlebar = h_flex()
+        .id("dialog-drag-handle")
+        .test_support()
         .w_full()
         .h(px(TITLEBAR_H))
         .flex_shrink_0()
@@ -106,32 +160,27 @@ fn titlebar_with(title: &str, close: impl IntoElement) -> Div {
         .border_b_1()
         .border_color(color::DIVIDER)
         .bg(color::TOPBAR)
+        .cursor_grab()
         .child(
             h_flex()
                 .items_center()
                 .gap(px(GAP_2))
                 .min_w(px(0.0))
-                // This chrome draws a flat accent slot rather than the brand
-                // mark; `title_bar.rs` owns the importable LOGO. The mark needs
-                // no mask or filter, so a rasteriser cannot refuse it.
-                .child(
-                    div()
-                        .w(px(BRAND))
-                        .h(px(BRAND))
-                        .flex_shrink_0()
-                        .rounded(px(4.0))
-                        .bg(color::ACCENT),
-                )
+                .child(title_bar::logo(BRAND))
                 .child(
                     div()
                         .text_size(px(TITLE_TEXT))
                         .font_family(ui::FONT_UI)
-                        .font_weight(FontWeight(500.))
+                        .font_weight(FontWeight(600.))
                         .text_color(color::TEXT)
                         .child(title.to_string()),
                 ),
-        )
-        .child(close)
+        );
+    let titlebar = match drag {
+        Some(listener) => titlebar.on_mouse_down(gpui_kit::MouseButton::Left, listener),
+        None => titlebar,
+    };
+    titlebar.child(close)
 }
 
 /// The close button: a centred 20px square, 4px corners, icon colour, with an
@@ -209,6 +258,13 @@ pub(super) fn dialog_button(label: &str, primary: bool) -> Div {
             color::FIELD_BORDER
         })
         .bg(if primary { color::ACCENT } else { color::FIELD })
+        .hover(|s| {
+            s.bg(if primary {
+                color::ACCENT.opacity(0.92)
+            } else {
+                hsla(0.0, 0.0, 1.0, 0.06)
+            })
+        })
         .px(px(BAR_PX))
         .child(
             div()

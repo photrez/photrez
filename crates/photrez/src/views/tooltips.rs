@@ -323,13 +323,16 @@ pub(crate) fn render_live(
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
-    let (hovered, selection_shape) = {
+    let (hovered, since, selection_shape) = {
         let s = state.read(cx);
-        (s.tooltip.clone(), s.selection_shape)
+        (s.tooltip.clone(), s.tooltip_since, s.selection_shape)
     };
     let Some(id) = hovered.filter(|id| id.starts_with(RAIL_TOOLTIP_PREFIX)) else {
         return div().into_any_element();
     };
+    if !tooltip_delay_elapsed(since, cx) {
+        return div().into_any_element();
+    }
     let Some((y, label, shortcut)) = live_spec(&id, selection_shape) else {
         return div().into_any_element();
     };
@@ -345,6 +348,17 @@ pub(crate) fn render_live(
         .left(px(x))
         .top(px(y))
         .into_any_element()
+}
+
+/// Whether the hovered control's tooltip delay has elapsed, read from the
+/// executor's clock so tests advance it with the fake timer and production
+/// reads real time. The one-shot notify task repaints an idle shell; this
+/// check keeps an earlier repaint from showing the tooltip too soon.
+fn tooltip_delay_elapsed(since: Option<std::time::Instant>, cx: &Context<crate::app::App>) -> bool {
+    let Some(since) = since else {
+        return false;
+    };
+    cx.background_executor().now().duration_since(since) >= crate::app::TOOLTIP_DELAY
 }
 
 /// The label run — 11px sans in the text colour, carrying the content

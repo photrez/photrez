@@ -408,22 +408,22 @@ fn select(shot: Option<&str>) -> EmptyVariant {
     }
 }
 
-/// A transparent full-viewport frame with the captured state pinned inside it.
+/// A transparent full-viewport frame with the resting state pinned inside it.
 ///
 /// The two arms are deliberately not symmetric:
 ///
 /// * `empty-card` (and `empty-full`, and any unset id) draw the card.
 /// * `empty-new-document` is **the New Document dialog**, not the card, and
 ///   `crate::dialogs` owns it - see the module docs for the measured
-///   comparison of the two baselines. Delegating means the dialog is drawn
+///   difference between the two states. Delegating means the dialog is drawn
 ///   once; drawing a second copy here would guarantee the two drift.
 ///
 /// The frame is absolute so it disturbs nothing wherever appended, and the
 /// caller must add it late: GPUI has no stacking index, so paint order is the
 /// only stacking control. The
-/// live `canvas_col_w` is the canvas column width: the recorded layout centres the card inside it, so the painted
+/// live `canvas_col_w` is the canvas column width: the default layout centres the card inside it, so the painted
 /// left edge moves with the viewport and the wide-viewport dock widths (the
-/// captured `CARD_X = 183`: the formula at the 1366x820 baseline).
+/// measured `CARD_X = 183`: the formula at the default 1366x820 client area).
 /// `col_left` is the canvas column's left edge in window coordinates (the
 /// rail width); the card's painted left edge is
 /// `col_left + (col_w - CARD_W) / 2`.

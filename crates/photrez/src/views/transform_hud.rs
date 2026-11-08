@@ -134,7 +134,7 @@ struct RowSpec {
 
 fn row_specs(hud: HudInfo) -> Vec<RowSpec> {
     // The HUD's axis/size labels are fixed, non-translated literals (X, Y,
-    // W, H, R, px, %), verified against the baseline capture.
+    // W, H, R, px, %), verified against the measured reference.
     match hud.mode {
         HudMode::Move => vec![
             RowSpec {

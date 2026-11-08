@@ -134,8 +134,8 @@ const HDR_ICON: f32 = 15.0;
 const HDR_TEXT: f32 = 12.5;
 
 // --- Static "Selected Layer" literals (single-selected-layer branch) ---
-// ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact text the
-// baseline capture shows; change them only if a capture disagrees.
+// ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact resting
+// text; change them only with a new measurement.
 pub const LAYER_NAME: &str = "Background"; // i18n-exempt: new-document layer name
 pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
 
@@ -174,7 +174,10 @@ pub fn render(
         )
     };
     let body = if !has_document {
-        v_flex().child(no_image_open())
+        v_flex()
+            .flex_1()
+            .min_h(px(0.0))
+            .child(no_image_open("properties-no-image"))
     } else if !has_layers {
         v_flex().child(canvas_properties(state, document_size, zoom_percent, cx))
     } else if multi {
@@ -199,10 +202,11 @@ pub fn render(
         .child(v_flex().flex_1().overflow_hidden().child(body))
 }
 
-/// `PropertiesPanel`'s no-document branch: icon + two centred lines.
-fn no_image_open() -> impl IntoElement {
+/// The no-document branch both inspector panels mount: icon + two centred
+/// lines. `id` gives each panel its own test id.
+pub(crate) fn no_image_open(id: &'static str) -> impl IntoElement {
     v_flex()
-        .id("properties-no-image")
+        .id(id)
         .test_support()
         .flex_1()
         .h_full()

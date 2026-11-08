@@ -11,10 +11,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{
-    AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, FocusHandle,
-    GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    WeakEntity, Window,
+    point, px, size, AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId,
+    FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId,
+    IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, WeakEntity, Window,
 };
 
 use crate::components::ui;
@@ -89,7 +89,16 @@ impl Element for BarSliderSurface {
         cx: &mut App,
     ) -> Self::PrepaintState {
         self.visual.prepaint(window, cx);
-        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+        // The painted track is 4px tall, but the thumb is 12px and overhangs
+        // it by 4px on each side (and half its width past the ends). A
+        // native slider makes that whole visible control clickable, so the
+        // hitbox grows by half the thumb on every side while the x mapping
+        // keeps using the laid-out track bounds.
+        let hit_bounds = Bounds::new(
+            point(bounds.origin.x - px(6.0), bounds.origin.y - px(6.0)),
+            size(bounds.size.width + px(12.0), bounds.size.height + px(12.0)),
+        );
+        window.insert_hitbox(hit_bounds, HitboxBehavior::Normal)
     }
 
     fn paint(
@@ -129,7 +138,12 @@ impl Element for BarSliderSurface {
             }
             if let Some(app) = down_app.upgrade() {
                 app.update(cx, |app, cx| {
-                    app.slider_pointer_down_for(down_target, f32::from(event.position.x), cx);
+                    app.slider_pointer_down_for(
+                        down_target,
+                        f32::from(event.position.x),
+                        window,
+                        cx,
+                    );
                 });
             }
         });
@@ -143,7 +157,12 @@ impl Element for BarSliderSurface {
             }
             if let Some(app) = move_app.upgrade() {
                 app.update(_cx, |app, cx| {
-                    app.slider_pointer_move_for(move_target, f32::from(event.position.x), cx);
+                    app.slider_pointer_move_for(
+                        move_target,
+                        f32::from(event.position.x),
+                        window,
+                        cx,
+                    );
                 });
             }
         });
@@ -157,7 +176,7 @@ impl Element for BarSliderSurface {
             up_capture.set(None);
             if let Some(app) = up_app.upgrade() {
                 let _ = event;
-                app.update(cx, |app, _cx| app.slider_pointer_up());
+                app.update(cx, |app, cx| app.slider_pointer_up(cx));
             }
         });
 

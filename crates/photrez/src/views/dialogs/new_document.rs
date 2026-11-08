@@ -322,7 +322,9 @@ fn new_doc_select(
                     .child(text),
             );
         }
-        wrapper = wrapper.child(panel);
+        // The panel floats over the dialog: deferred paints it above the
+        // dialog's own chrome, so the open list never expands the form.
+        wrapper = wrapper.child(gpui_kit::deferred(panel));
     }
     wrapper
 }
@@ -653,6 +655,7 @@ fn new_doc_button(label: &str, primary: bool) -> Div {
 /// plus the dialog's own 460 px body (its footer is part of that body).
 pub(super) fn new_document_shell(
     state: &Entity<AppState>,
+    dialog: crate::state::DialogId,
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> impl IntoElement {
     let stop = cx.listener(|_app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -670,11 +673,20 @@ pub(super) fn new_document_shell(
         .overflow_hidden()
         .shadow(vec![BoxShadow::new(
             px(0.0),
-            px(18.0),
-            hsla(0.0, 0.0, 0.0, 0.55),
+            px(12.0),
+            hsla(0.0, 0.0, 0.0, 0.45),
         )
-        .blur_radius(px(50.0))])
+        .blur_radius(px(32.0))])
         .on_click(stop)
-        .child(chrome::titlebar(&t("dialogs.newDocument.title")))
+        .child(chrome::titlebar_live(
+            &t("dialogs.newDocument.title"),
+            Some((cx, dialog)),
+            chrome::dialog_close_button(cx.listener(
+                |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    cx.stop_propagation();
+                    app.close_new_document(cx);
+                },
+            )),
+        ))
         .child(new_document_body(state, cx))
 }

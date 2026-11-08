@@ -19,7 +19,7 @@ pub(super) fn resize_canvas_body(
                 session.field,
                 session.unit,
                 session.aspect_locked,
-                read.resize_unit_open,
+                read.open_select == Some("resize-unit"),
                 read.resize_field_focus(0),
                 read.resize_field_focus(1),
             ),
@@ -94,6 +94,7 @@ fn resize_field(
     let trigger = div()
         .id(trigger_id)
         .test_support()
+        .relative()
         .h(px(28.0))
         .w(px(60.0))
         .flex()
@@ -108,10 +109,12 @@ fn resize_field(
         .text_size(px(11.0))
         .text_color(color::TEXT)
         .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-            cx.stop_propagation();
-            app.toggle_resize_unit(cx);
-        }))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                app.toggle_select_stay("resize-unit", unit_index, DimensionUnit::ALL.len(), cx);
+            }),
+        )
         .child(unit.label())
         .child(
             Icon::default()
@@ -163,49 +166,27 @@ fn resize_field(
             focus,
         ))
         .child(trigger);
-    if !(list_open && field == 0) {
+    if !list_open {
         return row;
     }
-    // The list expands inline: a popup deferred inside the dialog overlay
-    // never receives hits (measured on this control).
-    let mut list = v_flex()
-        .w(px(60.0))
-        .flex()
-        .flex_col()
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(color::FIELD_BORDER)
-        .bg(color::TOOLBAR)
-        .py(px(4.0));
-    for (index, candidate) in DimensionUnit::ALL.iter().enumerate() {
-        list = list.child(
-            div()
-                .id(format!("resize-unit-{}", candidate.label()))
-                .test_support()
-                .h(px(22.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(11.0))
-                .text_color(if index == unit_index {
-                    color::ACCENT
-                } else {
-                    color::TEXT
-                })
-                .cursor_pointer()
-                .on_click(
-                    cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        app.choose_select("resize-unit", index, cx);
-                    }),
-                )
-                .child(candidate.label()),
-        );
-    }
-    v_flex()
-        .gap(px(4.0))
-        .child(row)
-        .child(h_flex().justify_end().child(list))
+    // The unit list floats over the dialog from the shared dropdown panel:
+    // it paints late (deferred), above the dialog's own chrome, and takes
+    // its clicks itself.
+    let options = DimensionUnit::ALL
+        .iter()
+        .map(|candidate| candidate.label().to_string())
+        .collect::<Vec<_>>();
+    row.child(gpui_kit::deferred(
+        crate::views::option_bar::controls::floating_options_panel(
+            "resize-unit",
+            &options,
+            unit_index,
+            28.0 + 4.0,
+            0.0,
+            60.0,
+            cx,
+        ),
+    ))
 }
 
 /// The `Keep proportions` pill's colours for one lock state, kept out of the

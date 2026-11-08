@@ -69,6 +69,9 @@
 //! carrying the `layers.moveLayerUp/Down`
 //! tooltips and dimmed to 20% at the two ends of the stack.
 //!
+//! With no document open the blend row, the lock row and the actions footer
+//! paint at 50% and lose their clicks; the list shows the empty state.
+//!
 //! # Gaps
 //!
 //! * The layer thumbnail is canvas-drawn;
@@ -87,12 +90,13 @@
 //!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
 //!   does not derive it from adjustment values itself.
 
+use crate::app::{blend_label, BLEND_MODES};
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, LayerRow};
 use crate::tokens::color;
-use crate::views::option_bar::controls::tooltip;
+use crate::views::option_bar::controls::{floating_options_panel, tooltip};
 
 use photrez_core::protocol::LockKind;
 
@@ -267,21 +271,33 @@ pub fn render(
         .child(actions_footer(state, cx))
 }
 
+/// 50% — what the panel's control rows paint at while no document is open.
+/// The whole row grays at once instead of dimming each control twice: the
+/// state disables everything the row holds, and one row-level step keeps the
+/// label, value and glyphs on a single tier. Kept as a function so the tier
+/// is assertable without a window; the Navigator's zoom row shares it.
+pub(crate) fn disabled_row_opacity() -> f32 {
+    0.5
+}
+
 /// Centred on one row with an 8px gap, 14px side inset and 12px top inset —
 /// the blend select and the opacity readout, pushed to the right by `.ml_auto()`.
+///
+/// With no document open the row paints at [`disabled_row_opacity`] and its
+/// controls lose their clicks.
 fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
-    let (blend, opacity) = {
+    let (blend, opacity, active_document) = {
         let s = state.read(cx);
-        (s.layer_blend.clone(), s.layer_opacity)
+        (s.layer_blend.clone(), s.layer_opacity, !s.layers.is_empty())
     };
-    h_flex()
+    let mut row = h_flex()
         .w_full()
         .flex_shrink_0()
         .items_center()
         .gap(px(GAP_2))
         .px(px(PAD_X))
         .pt(px(PAD_T))
-        .child(blend_select(blend, cx))
+        .child(blend_select(blend, active_document, state, cx))
         .child(
             h_flex()
                 .ml_auto()
@@ -294,7 +310,13 @@ fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div 
                         .text_color(color::TEXT_DIM)
                         .child(t("tools.options.opacity")),
                 )
-                .child(opacity_button("layer-opacity-dec", "-", cx, -0.1))
+                .child(opacity_button(
+                    "layer-opacity-dec",
+                    "-",
+                    active_document,
+                    cx,
+                    -0.1,
+                ))
                 .child(
                     div()
                         .id("layer-opacity-value")
@@ -305,17 +327,28 @@ fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div 
                         .text_color(color::TEXT)
                         .child(format!("{:.0}%", opacity * 100.0)),
                 )
-                .child(opacity_button("layer-opacity-inc", "+", cx, 0.1)),
-        )
+                .child(opacity_button(
+                    "layer-opacity-inc",
+                    "+",
+                    active_document,
+                    cx,
+                    0.1,
+                )),
+        );
+    if !active_document {
+        row = row.opacity(disabled_row_opacity());
+    }
+    row
 }
 
 fn opacity_button(
     id: &'static str,
     label: &'static str,
+    enabled: bool,
     cx: &Context<crate::app::App>,
     delta: f64,
 ) -> impl IntoElement {
-    div()
+    let mut button = div()
         .id(id)
         .test_support()
         .w(px(16.0))
@@ -327,22 +360,39 @@ fn opacity_button(
         .border_1()
         .border_color(color::BORDER)
         .text_size(px(10.0))
-        .text_color(color::TEXT_DIM)
-        .cursor_pointer()
-        .hover(|style| style.text_color(color::TEXT))
-        .on_click(
-            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                app.adjust_selected_opacity(delta, cx);
-            }),
-        )
-        .child(label)
+        .text_color(color::TEXT_DIM);
+    if enabled {
+        button = button
+            .cursor_pointer()
+            .hover(|style| style.text_color(color::TEXT))
+            .on_click(
+                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                    app.adjust_selected_opacity(delta, cx);
+                }),
+            );
+    }
+    button.child(label)
 }
 
 /// The native select control's resting chrome: 26px tall and 120px wide, a
 /// 4px radius, a 1px FIELD_BORDER edge on a FIELD fill, 8px side inset and
 /// 11px semibold text, with a chevron standing in for the control's own arrow.
-fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElement {
-    h_flex()
+/// A disabled select keeps the chrome and loses the pointer and the click.
+/// Enabled, it opens the shared floating dropdown over the twelve blend
+/// modes; the pick applies through core history.
+fn blend_select(
+    label: String,
+    enabled: bool,
+    state: &Entity<AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let open = state.read(cx).open_select == Some("layer-blend");
+    let active = BLEND_MODES
+        .iter()
+        .position(|mode| blend_label(mode) == label)
+        .unwrap_or(0);
+    let current_label = label.clone();
+    let mut select = h_flex()
         .id("layer-blend-cycle")
         .test_support()
         .w(px(SELECT_W))
@@ -354,11 +404,19 @@ fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElemen
         .border(px(1.0))
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
-        .px(px(GAP_2))
-        .cursor_pointer()
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-            app.cycle_selected_blend(cx);
-        }))
+        .px(px(GAP_2));
+    if enabled {
+        select = select.cursor_pointer().on_click(cx.listener(
+            move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                let active = BLEND_MODES
+                    .iter()
+                    .position(|mode| blend_label(mode) == current_label)
+                    .unwrap_or(0);
+                app.toggle_select_stay("layer-blend", active, 12, cx);
+            },
+        ));
+    }
+    let select = select
         // Same split as the status bar: the value is the text that gives way,
         // the chevron is the mark that stays whole.
         .child(ui::clip(
@@ -374,7 +432,25 @@ fn blend_select(label: String, cx: &Context<crate::app::App>) -> impl IntoElemen
                 .data(icons::CHEVRON_DOWN)
                 .size(px(12.0))
                 .text_color(color::FIELD_CAPTION),
-        ))
+        ));
+    let mut wrapper = div().relative().flex_shrink_0().child(select);
+    if enabled && open {
+        let options = BLEND_MODES
+            .iter()
+            .map(blend_label)
+            .map(|label| label.to_string())
+            .collect::<Vec<_>>();
+        wrapper = wrapper.child(gpui_kit::deferred(floating_options_panel(
+            "layer-blend",
+            &options,
+            active,
+            SELECT_H + 4.0,
+            0.0,
+            SELECT_W,
+            cx,
+        )));
+    }
+    wrapper
 }
 
 /// One header lock toggle: which flag it flips, its glyph, and whether the
@@ -476,7 +552,17 @@ fn lock_toggles(flags: Option<crate::state::LayerFlags>) -> Vec<LockToggle> {
 ///
 /// Each button carries its `Tooltip`; the locked variants tint ACCENT and the
 /// three partial locks dim while the base lock is on. The background layer
-/// cannot be locked at all — its tooltips say to rename it first.
+/// cannot be locked at all — its tooltips say to rename it first. With no
+/// document open the whole row paints at [`disabled_row_opacity`], so the
+/// base toggle and the label gray with the partials' existing 30% tier.
+/// Centred on one row with a 16px gap, 14px side and 12px vertical inset —
+/// the "Lock:" label and four 16px icon buttons.
+///
+/// Each button carries its `Tooltip`; the locked variants tint ACCENT and the
+/// three partial locks dim while the base lock is on. The background layer
+/// cannot be locked at all — its tooltips say to rename it first. With no
+/// document open the whole row paints at [`disabled_row_opacity`], so the
+/// base toggle and the label gray with the partials' existing 30% tier.
 fn lock_header(
     active: Option<&(String, crate::state::LayerFlags)>,
     state: &Entity<AppState>,
@@ -484,7 +570,8 @@ fn lock_header(
 ) -> Div {
     let flags = active.map(|(_, flags)| *flags);
     let toggles = lock_toggles(flags);
-    h_flex()
+    let active_document = !state.read(cx).layers.is_empty();
+    let mut row = h_flex()
         .w_full()
         .flex_shrink_0()
         .items_center()
@@ -506,7 +593,11 @@ fn lock_header(
                     let core_id = active.map(|(id, _)| id.clone());
                     lock_button(spec, core_id, state, cx).into_any_element()
                 })),
-        )
+        );
+    if !active_document {
+        row = row.opacity(disabled_row_opacity());
+    }
+    row
 }
 
 fn lock_button(
@@ -564,8 +655,12 @@ fn lock_button(
 /// Each button carries its tooltip and a 30% disabled
 /// gate: duplicate and merge-down need an active layer, merge-down also needs
 /// one beneath it, flatten needs more than one layer, and delete refuses the
-/// last layer and the Background. Resting captures show all five glyphs at
-/// measured `#868686`.
+/// last layer and the Background. New Layer needs a document at all; with none
+/// open the whole footer paints at [`disabled_row_opacity`] and every click
+/// goes away, so the row dim covers New Layer instead of a second tier.
+/// Resting captures show all five glyphs at measured `#868686`.
+///
+/// [`footer_button_states`] holds the per-button rules.
 fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let (layers, selected, flags) = {
         let s = state.read(cx);
@@ -578,13 +673,13 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
     let has_active = position.is_some();
     let at_bottom = position.is_none_or(|index| index + 1 >= layers.len());
     let single = layers.len() <= 1;
-    let disabled = [
-        false,
-        !has_active,
-        !has_active || at_bottom,
+    let states = footer_button_states(
+        !layers.is_empty(),
+        has_active,
+        at_bottom,
         single,
-        single || background,
-    ];
+        background,
+    );
     let texts = [
         t("layers.newLayer"),
         t("layers.duplicateLayer"),
@@ -597,7 +692,7 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
         },
     ];
 
-    h_flex()
+    let mut row = h_flex()
         .w_full()
         .flex_shrink_0()
         .items_center()
@@ -606,53 +701,80 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
         .py(px(FOOT_PAD_Y))
         .border_t(px(1.0))
         .border_color(color::BORDER)
-        .bg(color::PANEL)
-        .children(FOOTER_ICONS.iter().enumerate().map(|(index, fi)| {
-            let mut button = footer_icon(fi.svg)
-                .id(format!("layer-action-{index}"))
-                .test_support();
-            if disabled[index] {
-                button = button.opacity(0.3);
-            } else {
-                button = button.cursor_pointer().on_click(cx.listener(
-                    move |app: &mut crate::app::App, _: &gpui_kit::ClickEvent, _window, cx| {
-                        match index {
-                            0 => app.add_empty_layer(cx),
-                            1 => {
-                                let result = app.duplicate_selected_layer(cx);
-                                app.report_layer_op_for_view(result, cx);
-                            }
-                            2 => {
-                                let result = if app.selected_layer_count(cx) > 1 {
-                                    app.merge_selected_layers(cx)
-                                } else {
-                                    app.merge_selected_layer_down(cx)
-                                };
-                                app.report_layer_op_for_view(result, cx);
-                            }
-                            3 => {
-                                let result = app.flatten_document(cx);
-                                app.report_layer_op_for_view(result, cx);
-                            }
-                            _ => app.delete_selected_layer(cx),
-                        }
-                    },
-                ));
-            }
-            let tagged = tooltip(
-                state,
-                format!("layer-action-{index}"),
-                texts[index].clone(),
-                None,
-                cx,
-                button,
-            );
-            if fi.trailing {
-                div().ml_auto().child(tagged).into_any_element()
-            } else {
-                tagged.into_any_element()
-            }
-        }))
+        .bg(color::PANEL);
+    if layers.is_empty() {
+        row = row.opacity(disabled_row_opacity());
+    }
+    row.children(FOOTER_ICONS.iter().enumerate().map(|(index, fi)| {
+        let (clickable, dimmed) = states[index];
+        let mut button = footer_icon(fi.svg)
+            .id(format!("layer-action-{index}"))
+            .test_support();
+        if dimmed {
+            button = button.opacity(0.3);
+        }
+        if clickable {
+            button = button.cursor_pointer().on_click(cx.listener(
+                move |app: &mut crate::app::App, _: &gpui_kit::ClickEvent, _window, cx| match index
+                {
+                    0 => app.add_empty_layer(cx),
+                    1 => {
+                        let result = app.duplicate_selected_layer(cx);
+                        app.report_layer_op_for_view(result, cx);
+                    }
+                    2 => {
+                        let result = if app.selected_layer_count(cx) > 1 {
+                            app.merge_selected_layers(cx)
+                        } else {
+                            app.merge_selected_layer_down(cx)
+                        };
+                        app.report_layer_op_for_view(result, cx);
+                    }
+                    3 => {
+                        let result = app.flatten_document(cx);
+                        app.report_layer_op_for_view(result, cx);
+                    }
+                    _ => app.delete_selected_layer(cx),
+                },
+            ));
+        }
+        let tagged = tooltip(
+            state,
+            format!("layer-action-{index}"),
+            texts[index].clone(),
+            None,
+            cx,
+            button,
+        );
+        if fi.trailing {
+            div().ml_auto().child(tagged).into_any_element()
+        } else {
+            tagged.into_any_element()
+        }
+    }))
+}
+
+/// Per footer button, in source order: (clickable, dimmed to 30%).
+///
+/// New Layer needs a document at all; the other four need an active layer,
+/// and merge-down, flatten and delete add their stack rules on top. While no
+/// document is open the footer's row dim covers the whole strip, so New Layer
+/// only loses its click where the others also take the 30% tier. Kept as a
+/// function so the rules are assertable without a window.
+fn footer_button_states(
+    active_document: bool,
+    has_active: bool,
+    at_bottom: bool,
+    single: bool,
+    background: bool,
+) -> [(bool, bool); 5] {
+    [
+        (active_document, false),
+        (has_active, !has_active),
+        (has_active && !at_bottom, !has_active || at_bottom),
+        (!single, single),
+        (!single && !background, single || background),
+    ]
 }
 
 /// One footer glyph: the recorded footer button had no size attribute (trace-exempt: that
@@ -822,6 +944,59 @@ mod tests {
         let absent = lock_toggles(None);
         assert!(absent.iter().all(|toggle| toggle.disabled));
         assert_eq!(absent[0].text, t("layers.lockLayer"));
+    }
+
+    /// RED proof by mutation: return 1.0 from [`disabled_row_opacity`] and
+    /// this fails at the assert, with the resting capture left unchanged.
+    #[test]
+    fn the_disabled_row_tier_is_fifty_percent() {
+        assert_eq!(disabled_row_opacity(), 0.5);
+    }
+
+    /// RED proof by mutation: make New Layer's clickability `true` in
+    /// [`footer_button_states`] and this fails on the first assert, which is
+    /// the rejected-command error the mounted run leaves behind.
+    #[test]
+    fn footer_buttons_lose_their_clicks_while_no_document_is_open() {
+        let states = footer_button_states(false, false, false, true, false);
+        assert!(
+            states.iter().all(|(clickable, _)| !clickable),
+            "no footer action runs without a document"
+        );
+        assert!(
+            !states[0].1,
+            "New Layer takes only the row dim, not the 30% tier on top"
+        );
+        assert!(
+            states[1].1 && states[2].1 && states[3].1 && states[4].1,
+            "the stack-gated buttons keep their 30% tier"
+        );
+    }
+
+    #[test]
+    fn footer_buttons_keep_their_pinned_rules_while_a_document_is_open() {
+        let open = footer_button_states(true, true, false, false, false);
+        assert!(open.iter().all(|(clickable, _)| *clickable));
+        assert!(open.iter().all(|(_, dimmed)| !dimmed));
+
+        // No active layer gates duplicate, merge and flatten; delete refuses
+        // the last layer and the Background on top of that.
+        let gated = footer_button_states(true, false, true, true, true);
+        assert!(gated[0].0, "New Layer only needs the document");
+        assert!(!gated[1].0 && !gated[2].0 && !gated[3].0 && !gated[4].0);
+        assert!(gated[1].1 && gated[2].1 && gated[3].1 && gated[4].1);
+
+        // Merge-down runs with a layer beneath and refuses the bottom row;
+        // flatten and delete refuse a one-layer stack.
+        let bottom = footer_button_states(true, true, true, false, false);
+        assert!(!bottom[2].0, "merge-down refuses the bottom layer");
+        assert!(bottom[1].0, "duplicate runs on the bottom layer");
+        let last = footer_button_states(true, true, false, true, false);
+        assert!(
+            !last[3].0 && !last[4].0,
+            "flatten and delete refuse a one-layer stack"
+        );
+        assert!(last[1].0, "duplicate runs on the only layer");
     }
 }
 

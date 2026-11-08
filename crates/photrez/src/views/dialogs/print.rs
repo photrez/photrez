@@ -256,13 +256,21 @@ pub(super) fn render(
         .test_support()
         .w(px(DIALOG_W))
         .h(px(DIALOG_H))
-        .rounded(px(8.0))
+        .rounded(px(10.0))
         .border_1()
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .overflow_hidden()
+        .shadow(vec![BoxShadow::new(
+            px(0.0),
+            px(12.0),
+            hsla(0.0, 0.0, 0.0, 0.45),
+        )
+        .blur_radius(px(32.0))])
         .child(
             h_flex()
+                .id("dialog-drag-handle")
+                .test_support()
                 .h(px(TITLE_H))
                 .w_full()
                 .flex_none()
@@ -272,21 +280,24 @@ pub(super) fn render(
                 .border_color(color::BORDER)
                 .bg(color::TOPBAR)
                 .px(px(12.0))
+                .cursor_grab()
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(
+                        move |_app, event: &gpui_kit::MouseDownEvent, _window, _cx| {
+                            super::drag::start_drag(super::DialogId::Print, event.position);
+                        },
+                    ),
+                )
                 .child(
                     h_flex()
                         .items_center()
                         .gap(px(8.0))
-                        .child(
-                            div()
-                                .w(px(18.0))
-                                .h(px(18.0))
-                                .rounded(px(4.0))
-                                .bg(color::ACCENT),
-                        )
+                        .child(crate::views::title_bar::logo(18.0))
                         .child(
                             div()
                                 .text_size(px(12.0))
-                                .font_weight(FontWeight(500.))
+                                .font_weight(FontWeight(600.))
                                 .text_color(color::TEXT)
                                 .child(title),
                         ),

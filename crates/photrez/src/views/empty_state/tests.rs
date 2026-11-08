@@ -4,10 +4,10 @@ use super::*;
 
 #[test]
 fn card_x_formula_reproduces_the_1366_pin() {
-    // The live formula is centre-in-canvas-column. At the 1366x820 baseline
-    // the canvas column is 1366 - 52 (rail) - 533 (dock) = 781, so the box
+    // The live formula is centre-in-canvas-column. At the default 1366x820
+    // client area the canvas column is 1366 - 52 (rail) - 533 (dock) = 781, so the box
     // sits at 52 + (781-520)/2 = 182.5 and the snapped painted edge is 183 -
-    // exactly the recorded baseline pin.
+    // exactly the measured pin.
     const CARD_X_AT_1366: f32 = 183.0;
     let canvas_col_w = 1366.0 - 52.0 - 533.0;
     assert_eq!((canvas_col_w - CARD_W) / 2.0, 130.5);

@@ -382,7 +382,7 @@ fn layer_menu() -> Div {
 /// The brush panel at brush defaults: 200px panel, 6px corners, 12px
 /// padding, 12px gaps, a large drop shadow. Three slider sections, the 2x2
 /// preset grid (all four `tool: "both"` presets, none selected), Reset.
-/// Slider percentages are the capture state's: size 20px maps to
+/// Slider percentages are the resting state's: size 20px maps to
 /// `paintSizeToSizeSlider(20)` = round(19/499 * 75) = 3; hardness 0.8 -> 80;
 /// strength (opacity) 1.0 -> 100. Tracks and thumbs come from [`ui::slider`].
 fn brush_panel() -> Div {
