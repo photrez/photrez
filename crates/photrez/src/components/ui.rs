@@ -27,7 +27,7 @@
 //! * **interaction** — `EditableNumField` cannot be edited, `SelectField`
 //!   cannot open, `Slider` cannot be dragged. These need focus, a keymap and a
 //!   mutable value, which is `Render`/`Entity` territory rather than a
-//!   function returning `impl IntoElement`, and the captured baseline shows
+//!   function returning `impl IntoElement`, and the resting layout shows
 //!   none of it.
 //! * **the focus ring** — same problem: there is no focus state to ring.
 //!   A 1px-spread `BoxShadow` would stand in for the ring if a focused variant
@@ -49,7 +49,7 @@
 
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, TestSupportExt};
+use gpui_kit::{div, px, Div, FontWeight, Hsla, TestSupportExt};
 
 use crate::tokens::color;
 
@@ -93,21 +93,15 @@ const TEXT_SM: f32 = 11.0;
 /// `EditableNumField`.
 ///
 /// The numeric field values use a monospace face. On this
-/// Windows build the face that resolves is Consolas. It stands in for the
-/// reference's monospace stack rather than being that stack literally, a gap
-/// first recorded in the option bar's font notes and unchanged here.
+/// Windows build the face that resolves is Consolas: one fixed face, not a
+/// monospace fallback stack. The option bar's font notes first recorded that
+/// gap, and it is unchanged here.
 ///
 /// Public for the same reason as [`FONT_UI`]: view modules that render mono
 /// values read it directly instead of spelling "Consolas" per module.
 pub const FONT_MONO: &str = "Consolas"; // i18n-exempt: technical token
 
-/// The sans face — Inter, on everything that is *not* monospace.
-/// Inter, the font every label uses.
-///
-/// Public because thirteen modules each declared their own copy before this
-/// existed, and a font that is spelled out per-module is a font that can be
-/// changed in one place and missed in twelve. The default `.SystemUIFont`
-/// (Segoe UI) cannot stand in: every measurement was taken against Inter.
+/// Shared UI face. Keep view labels on this token to avoid mixed font families.
 pub const FONT_UI: &str = "Inter"; // i18n-exempt: technical token
 
 /// A menu row's measured height, and its insets — the same figures both menu
@@ -115,6 +109,12 @@ pub const FONT_UI: &str = "Inter"; // i18n-exempt: technical token
 const MENU_ROW_H: f32 = 28.0;
 const MENU_ROW_PX: f32 = 12.0;
 const MENU_ROW_GAP: f32 = 24.0;
+pub const MENU_ROW_HOVER_FILL: Hsla = Hsla {
+    h: 0.0,
+    s: 0.0,
+    l: 35.0 / 255.0,
+    a: 1.0,
+};
 const MENU_ROW_TEXT: f32 = 12.0;
 const MENU_SHORTCUT_TEXT: f32 = 10.0;
 
@@ -148,7 +148,7 @@ const MENU_SEP_MY: f32 = 4.0;
 ///
 /// `focus_bg` is `Option` rather than a plain colour because the two callers
 /// genuinely differ here: the pointer-anchored context menus capture a
-/// focus-visible accent tint (accent at 15% opacity) on the first enabled row
+/// focused accent tint (accent at 15% opacity) on the first enabled row
 /// (a state the keyboard produces, not the mouse), while the title-bar popups
 /// have no captured focus tint at all. `None` paints no background, which is
 /// what a static render of those should do.
@@ -195,8 +195,7 @@ pub fn inset_well() -> gpui_kit::BoxShadow {
 ///
 /// Applied to the field chrome that the dialogs share — new-document inputs and
 /// selects, the resize dimension inputs and their unit pickers. Not applied to
-/// the print or export dialogs' own rows, whose reference controls carry no
-/// inset layer.
+/// the print or export dialogs' own rows: those rows carry no inset layer.
 pub fn field_well() -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(1.), gpui_kit::hsla(0.0, 0.0, 0.0, 0.35))
         .blur_radius(px(2.))
@@ -215,8 +214,8 @@ pub fn accent_well() -> gpui_kit::BoxShadow {
 /// this palette already builds for option-bar swatches.
 ///
 /// An inset ring and a 1px border put the same line on the same pixel edge, but
-/// only the ring leaves the content box alone, so children stay exactly where
-/// the 0.1 build put them. Two inset spreads cannot stack: both bands
+/// only the ring leaves the content box alone, so children keep the position
+/// the layout gives them. Two inset spreads cannot stack: both bands
 /// start at the same edge, so the later one overwrites the earlier.
 pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour)
@@ -224,10 +223,10 @@ pub fn inset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
         .inset()
 }
 
-/// The same spread with no `.inset()`: a halo that grows *outside* the box,
-/// which is what a plain `ring-1` is. [`inset_ring`] and this are not
-/// interchangeable; the 0.1 build uses the inset form for layer rows and the
-/// outset form for field halos, and they land on different pixels.
+/// The same spread with no `.inset()`: a halo 1px wide that grows *outside*
+/// the box. [`inset_ring`] and this are not interchangeable; the layer rows
+/// here take the inset form and the field halos take this one, and they land
+/// on different pixels.
 ///
 /// A drop shadow fills its whole dilated rect, and only the background painted
 /// after it hides the inside. So this reads as a ring on an opaque surface and
@@ -237,9 +236,9 @@ pub fn outset_ring(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour).spread_radius(px(1.))
 }
 
-/// An inset accent band approximating the focus outline declared in the pinned
-/// reference source. Its compiled cascade and pointer-focus behavior are
-/// unverified. GPUI has no outline property, so this uses an inset spread.
+/// An inset accent band approximating the focus outline the shipped release
+/// declared for these inputs. The recorded ring and pointer-focus behavior
+/// are unverified. GPUI has no outline property, so this uses an inset spread.
 pub fn focus_band(colour: gpui_kit::Hsla) -> gpui_kit::BoxShadow {
     gpui_kit::BoxShadow::new(px(0.), px(0.), colour)
         .spread_radius(px(1.5))
@@ -265,8 +264,8 @@ where
 
 /// The layers a bare numeric field carries while it is being edited.
 ///
-/// The pinned reference source declares a focus outline for number inputs, but
-/// the compiled cascade and pointer-focus behavior are unverified. The edge
+/// The shipped release declared a focus outline for number inputs, but the
+/// recorded ring and pointer-focus behavior are unverified. The edge
 /// stays [`color::BORDER`] at the call site; the accent is a shadow.
 pub fn outline_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
     if active {
@@ -278,9 +277,9 @@ pub fn outline_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
 
 /// The layers a labelled number field carries while it is being edited.
 ///
-/// The 0.1 build wraps the input in a box that grows a 1px accent/70 halo
-/// outside its border, so unlike [`outline_cue`] the cue follows the wrapper
-/// rather than the text control inside it.
+/// The labelled field wraps the input in a box that grows a 1px accent at 70%
+/// halo outside that box's border, so unlike [`outline_cue`] the cue follows
+/// the wrapper rather than the text control inside it.
 pub fn ring_cue(active: bool) -> Vec<gpui_kit::BoxShadow> {
     if active {
         vec![outset_ring(color::ACCENT.opacity(0.7))]
@@ -301,7 +300,8 @@ pub fn menu_row(
         .items_center()
         .justify_between()
         .gap(px(MENU_ROW_GAP))
-        .px(px(MENU_ROW_PX));
+        .px(px(MENU_ROW_PX))
+        .hover(|style| style.bg(MENU_ROW_HOVER_FILL));
     if let Some(bg) = focus_bg {
         row = row.bg(bg);
     }
@@ -344,6 +344,7 @@ pub fn menu_row_action(
     menu_row(label, shortcut, false, None)
         .id(id)
         .test_support()
+        .active(|style| style.bg(MENU_ROW_HOVER_FILL))
         .on_click(listener)
 }
 
@@ -450,6 +451,18 @@ mod tests {
     //! silent edit to `centre_fill`'s piecewise math or to the 24px field
     //! height below reddens these.
 
+    #[gpui_kit::test]
+    fn bundled_ui_font_is_inherited_by_standard_controls(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::load_fonts(cx);
+            assert_eq!(
+                gpui_kit::component::Theme::global(cx).font_family.as_ref(),
+                super::FONT_UI
+            );
+        });
+    }
+
     /// `centre_fill` positions a centre-origin fill: 0% sits at the centre
     /// tick with zero width; positive values fill rightward from the centre;
     /// negative values fill leftward from the centre; and the width is always
@@ -474,8 +487,8 @@ mod tests {
         assert_eq!(super::FIELD_H, 24.0);
     }
 
-    /// The three inset wells are the 0.1 build's shadow layers: inset, at the
-    /// reference offset, blur and alpha, with no spread.
+    /// The three inset wells are shadow layers, drawn inset, at the fixed
+    /// offset, blur and alpha, with no spread.
     ///
     /// The harness cannot read a painted shadow (gpui-kit's `TestWindowExt`
     /// snapshot exposes bounds and visibility only), so this pins the values the
@@ -539,7 +552,7 @@ mod tests {
         assert_eq!(ring.spread_radius, px(1.));
     }
 
-    /// The focus band keeps the 0.1 build's 1.5px width and its inset side.
+    /// The focus band is 1.5px wide and drawn inset.
     /// RED proof: round the spread to 1px or drop `.inset()` and it fails.
     #[test]
     fn focus_band_is_a_one_and_a_half_pixel_inset_band() {

@@ -66,7 +66,7 @@ pub(super) fn painted_rotate_cursor(
 /// rect and a 1px black-at-60% ring one pixel outside it.
 ///
 /// A third chrome layer, an 8px offset with a 32px blur, is not painted:
-/// this path has no blur primitive, so the deviation ships with the capture.
+/// this path has no blur primitive, so the deviation ships with the measurement.
 pub(super) fn painted_artboard_chrome(window: &mut gpui_kit::Window, page: Bounds<Pixels>) {
     window.paint_quad(outline(
         page.dilate(px(1.)),

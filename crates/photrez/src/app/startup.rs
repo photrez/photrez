@@ -75,7 +75,7 @@ impl App {
         };
         // A `--shot` launch seeds the demo document without a session, so the
         // tab strip's projection from real sessions would be empty while the
-        // document is on screen. The captured shell has one open document, so
+        // document is on screen. The seeded shell has one open document, so
         // seed its display-only tab row to match.
         if shot_id.is_some() {
             state.seed_shot_tab();
@@ -337,6 +337,17 @@ impl App {
             pending_transform_drag_update: None,
             transform_drag_frame_pending: false,
             transform_drag_frame_generation: 0,
+            transform_preview_cache: None,
+            slider_preview_next: None,
+            slider_preview_job_active: false,
+            slider_preview_job_generation: 0,
+            pending_slider_update: None,
+            slider_frame_pending: false,
+            slider_frame_generation: 0,
+            slider_preview: None,
+            last_slider_preview_update: None,
+            frame_samples: std::collections::VecDeque::new(),
+            frame_collector: gpui_kit::profiler::FrameTimingCollector::new(),
             snap_guides: Vec::new(),
             hover_pos: None,
             last_cursor: crate::input_policy::CursorPolicy::SystemDefault,
@@ -351,6 +362,8 @@ impl App {
             sessions: SessionRegistry::default(),
             file_io,
             retired_textures: Vec::new(),
+            canvas_refresh_active: false,
+            canvas_refresh_generation: 0,
             print_backend: Arc::new(PrintService::default()),
             close_after_save: false,
             close_after_dirty: false,
@@ -488,7 +501,7 @@ impl App {
             app.install_shot_document(cx);
         }
         // A `real-dialog-*` launch opens the live dialog through the same
-        // command the user's shortcut runs, so the capture shows the body the
+        // command the user's shortcut runs, so the launch shows the body the
         // `dialog-*` fixture stubs.
         match AppState::real_dialog_shot(shot_id) {
             Some(crate::state::DialogId::NewDocument) => app.open_new_document(cx),
@@ -500,7 +513,7 @@ impl App {
                 }
             }
             // The layer rows carry the core id the prompt renames by, so the
-            // shot's own first row is the layer a capture renames.
+            // shot's own first row is the layer the launch renames.
             Some(crate::state::DialogId::Rename) => {
                 let layer_id = app
                     .state

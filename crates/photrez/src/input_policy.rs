@@ -131,6 +131,9 @@ pub struct BrushTarget {
     pub width: u32,
     pub height: u32,
     pub display_scale: f64,
+    /// The Background layer erases to the background swatch, not to
+    /// transparent pixels.
+    pub is_background: bool,
 }
 
 /// One in-flight brush or eraser stroke.
@@ -514,7 +517,7 @@ fn resize_tip_premultiplied(tip: &BrushTip, edge: u32) -> Vec<u8> {
 }
 
 #[allow(clippy::too_many_arguments)] // source/crop/destination are one geometric record
-fn downsample_premultiplied(
+pub(crate) fn downsample_premultiplied(
     source: &[u8],
     source_width: usize,
     source_height: usize,

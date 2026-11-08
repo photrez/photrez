@@ -14,6 +14,8 @@ use crate::state::{TextEditSession, ToolId};
 
 use super::App;
 
+const TEXT_UNDO_LIMIT: usize = 100;
+
 impl App {
     pub(crate) fn begin_text_edit(
         &mut self,
@@ -21,6 +23,31 @@ impl App {
         doc_x: f64,
         doc_y: f64,
         data: TextData,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_text_edit(layer_id, doc_x, doc_y, data, true, cx);
+    }
+
+    /// Open an edit session on a layer that already exists. Cancel drops the
+    /// buffer without deleting the layer.
+    pub(crate) fn begin_text_edit_existing(
+        &mut self,
+        layer_id: String,
+        doc_x: f64,
+        doc_y: f64,
+        data: TextData,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_text_edit(layer_id, doc_x, doc_y, data, false, cx);
+    }
+
+    fn start_text_edit(
+        &mut self,
+        layer_id: String,
+        doc_x: f64,
+        doc_y: f64,
+        data: TextData,
+        delete_on_cancel: bool,
         cx: &mut Context<Self>,
     ) {
         let content = data.content.clone();
@@ -32,6 +59,9 @@ impl App {
                 content,
                 data,
                 preview: (0, 0),
+                delete_on_cancel,
+                undo_stack: Vec::new(),
+                redo_stack: Vec::new(),
             });
         });
         cx.notify();
@@ -42,13 +72,36 @@ impl App {
     /// commits, Escape cancels, and a bare Enter inserts a newline.
     pub(crate) fn text_edit_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
         let key = event.keystroke.key.as_str();
+        let control = event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
+        if control && matches!(key, "z" | "y") {
+            let redo = key == "y" || event.keystroke.modifiers.shift;
+            let mut changed = false;
+            self.state.update(cx, |state, _| {
+                let Some(session) = state.text_edit.as_mut() else {
+                    return;
+                };
+                if redo {
+                    if let Some(next) = session.redo_stack.pop() {
+                        session.undo_stack.push(session.content.clone());
+                        session.content = next;
+                        changed = true;
+                    }
+                } else if let Some(previous) = session.undo_stack.pop() {
+                    session.redo_stack.push(session.content.clone());
+                    session.content = previous;
+                    changed = true;
+                }
+            });
+            if changed {
+                self.refresh_text_preview(cx);
+            }
+            return true;
+        }
         if key == "escape" {
             let _ = self.cancel_text_edit(cx);
             return true;
         }
-        if key == "enter"
-            && (event.keystroke.modifiers.control || event.keystroke.modifiers.platform)
-        {
+        if key == "enter" && control {
             let _ = self.commit_text_edit(cx);
             return true;
         }
@@ -57,6 +110,7 @@ impl App {
             let Some(session) = state.text_edit.as_mut() else {
                 return;
             };
+            let previous = session.content.clone();
             match key {
                 "backspace" => {
                     session.content.pop();
@@ -82,6 +136,13 @@ impl App {
                     }
                 }
             }
+            if changed {
+                if session.undo_stack.len() >= TEXT_UNDO_LIMIT {
+                    session.undo_stack.remove(0);
+                }
+                session.undo_stack.push(previous);
+                session.redo_stack.clear();
+            }
         });
         if changed {
             self.refresh_text_preview(cx);
@@ -103,6 +164,9 @@ impl App {
         self.state.update(cx, |state, _| state.text_edit = None);
         let mut data = session.data.clone();
         data.content = session.content.clone();
+        if data == session.data {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::SetLayerParams {
@@ -143,6 +207,9 @@ impl App {
         let doc_id = self.active_doc_id()?;
         self.discard_text_preview();
         self.state.update(cx, |state, _| state.text_edit = None);
+        if !session.delete_on_cancel {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::DeleteLayer {

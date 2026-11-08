@@ -399,7 +399,7 @@ impl App {
             return Err("pixel region write was refused".to_string());
         }
         self.sessions
-            .mark_dirty(&doc_id)
+            .mark_history_dirty(&doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         if let Some(session) = self.sessions.get_mut(&doc_id) {
             session

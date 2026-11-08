@@ -162,6 +162,7 @@ impl App {
                                                          // panels must not keep projecting its layers or history.
             state.layers.clear();
             state.selected_layers.clear();
+            state.paint_target_core_id = None;
             state.layer_flags.clear();
             state.history.clear();
         });
@@ -785,6 +786,9 @@ impl App {
     }
 
     pub(crate) fn set_status_error(&mut self, error: Option<String>, cx: &mut Context<Self>) {
+        if self.state.read(cx).status_error.as_ref() == error.as_ref() {
+            return;
+        }
         self.state.update(cx, |state, _| state.status_error = error);
         cx.notify();
     }

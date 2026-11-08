@@ -1,8 +1,7 @@
 //! Shot selection from `--shot <id>`.
 //!
-//! A capture harness launches the app once per named UI state and screenshots
-//! it. The `--shot <id>` CLI argument (parsed in `main.rs`) selects which state
-//! to render; with no argument the app renders its default state.
+//! The `--shot <id>` CLI argument (parsed in `main.rs`) selects one named UI
+//! state to render; with no argument the app renders its default state.
 //!
 //! # Why a module-level static rather than GPUI state
 //!
@@ -63,7 +62,7 @@ fn matches(active: Option<&str>, query: &str) -> bool {
     active.is_some_and(|a| a.starts_with(query))
 }
 
-/// The scale a capture asked for, as a zoom factor (`0.88` for 88 %).
+/// The scale a `--zoom` launch asked for, as a zoom factor (`0.88` for 88 %).
 static ZOOM: OnceLock<Option<f32>> = OnceLock::new();
 
 /// Records the requested zoom. The first caller wins, like the shot id.
@@ -76,7 +75,7 @@ pub fn zoom() -> Option<f32> {
     ZOOM.get().and_then(|v| *v)
 }
 
-/// The page origin a capture asked for, in element-local screen pixels.
+/// The page origin a `--pan` launch asked for, in element-local screen pixels.
 static PAN: OnceLock<Option<(f32, f32)>> = OnceLock::new();
 
 /// Records the requested origin. The first caller wins, like the other selectors.

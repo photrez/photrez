@@ -80,16 +80,18 @@ mod viewport;
 pub(crate) use commands::PRINT_PAPERS;
 pub(crate) use history::{RedoDocument, UndoDocument};
 pub(crate) use layers::{
-    DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
-    SelectAllLayersAction, StampVisibleAction,
+    blend_label, DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
+    SelectAllLayersAction, StampVisibleAction, BLEND_MODES,
 };
 pub(crate) use selection::{
     CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
     PasteSelectionAction, SelectAllAction,
 };
+pub(crate) use tooltips::TOOLTIP_DELAY;
 pub(crate) use viewport::{
     ActualSizeAction, FitToScreenAction, ZoomInAction, ZoomOutAction, ZoomToSelectionAction,
 };
+pub(crate) use viewport::{NAV_ZOOM_MAX, NAV_ZOOM_MIN};
 
 /// The Save command. Bound to `ctrl-s` in [`App::new_inner`] and handled on
 /// the root element, so it works wherever the shell has focus.
@@ -175,28 +177,25 @@ pub fn probe_document_size() -> (f64, f64) {
     (doc.width, doc.height)
 }
 
-/// Registers Inter with GPUI's text system and reports whether it landed.
-///
-/// This is load-bearing rather than cosmetic: every measurement in the
-/// 0.1 captures was taken from a window rendering Inter. If this
-/// silently falls back to a system font, glyph advances differ and diffs fail
-/// for reasons that have nothing to do with the layout being measured.
-pub fn load_fonts(cx: &gpui_kit::App) {
+/// Registers bundled fonts and reports a missing UI face instead of hiding fallback.
+pub fn load_fonts(cx: &mut gpui_kit::App) {
+    let family = crate::components::ui::FONT_UI;
+    gpui_kit::component::Theme::global_mut(cx).font_family = family.into();
     match cx
         .text_system()
         .add_fonts(vec![Cow::Borrowed(crate::INTER)])
     {
-        Err(error) => eprintln!("photrez: FAILED to register Inter: {error:#}"),
+        Err(error) => eprintln!("photrez: FAILED to register bundled fonts: {error:#}"),
         Ok(()) => {
             let names = cx.text_system().all_font_names();
-            if names.iter().any(|name| name.trim() == "Inter") {
+            if names.iter().any(|name| name.trim() == family) {
                 eprintln!(
-                    "photrez: Inter registered ({} families visible)",
+                    "photrez: {family} registered ({} families visible)",
                     names.len()
                 );
             } else {
                 eprintln!(
-                    "photrez: WARNING - Inter not found after registration. \
+                    "photrez: WARNING - {family} not found after registration. \
                      DirectWrite sees {names:?}"
                 );
             }
@@ -206,9 +205,9 @@ pub fn load_fonts(cx: &gpui_kit::App) {
 
 /// Root entity — the window's single GPUI root.
 ///
-/// Holds the `AppState` that drives every region of the shell. At this stage
-/// `AppState` is seeded entirely from `shot::active()`, so a `--shot` launch
-/// renders the exact baseline state; `probe_document_size()` is kept as an
+/// Holds the `AppState` that drives every region of the shell. A `--shot`
+/// launch seeds `AppState` from `shot::active()`; every other launch starts
+/// from the empty state. `probe_document_size()` is kept as an
 /// in-process wiring proof that `photrez-core`'s JSON reader works.
 pub struct App {
     state: Entity<AppState>,
@@ -266,6 +265,31 @@ pub struct App {
     pending_transform_drag_update: Option<transform_move::TransformDragUpdate>,
     transform_drag_frame_pending: bool,
     transform_drag_frame_generation: u64,
+    /// Screen-resolution raster buffers for the live transform preview, built
+    /// once per drag. Cleared with the drag so the next drag re-reads pixels
+    /// and display scale from the current document.
+    transform_preview_cache: Option<(String, f64, std::sync::Arc<slider::PreviewInput>)>,
+    /// A slider drag value waiting for the next frame. The first move of a
+    /// frame applies now; moves that arrive before that render coalesce
+    /// into one apply through the frame callback.
+    pending_slider_update: Option<slider::PendingSliderUpdate>,
+    slider_frame_pending: bool,
+    slider_frame_generation: u64,
+    /// Latest slider value whose preview is queued or running. The job
+    /// carries its own generation so stale completions never repaint.
+    slider_preview_next: Option<slider::PendingSliderUpdate>,
+    slider_preview_job_active: bool,
+    slider_preview_job_generation: u64,
+    /// Downscaled raster stack for the live slider drag, built on the first
+    /// move and dropped on pointer-up when the exact value commits.
+    slider_preview: Option<slider::SliderPreview>,
+    /// Latest value shown as a preview during the drag; committed to core
+    /// once on pointer-up.
+    last_slider_preview_update: Option<slider::PendingSliderUpdate>,
+    /// Last 120 draw durations for the dev frame readout.
+    frame_samples: std::collections::VecDeque<Duration>,
+    /// Profiler ring the drill readout drains each render.
+    frame_collector: gpui_kit::profiler::FrameTimingCollector,
     /// Active smart-guide lines while a transform snaps.
     snap_guides: Vec<(bool, f64)>,
     /// Last hovered canvas position (window coords) for crop cursors.
@@ -297,6 +321,10 @@ pub struct App {
     /// Display textures retired by a document swap. `render` is the next place
     /// a window exists, so it releases them there.
     retired_textures: Vec<Arc<RenderImage>>,
+    /// One background exact composite at a time; later refresh requests
+    /// supersede it and stale completions are ignored by version.
+    canvas_refresh_active: bool,
+    canvas_refresh_generation: u64,
     /// The print boundary. Production uses the native print service; tests
     /// inject a recorder so the caller is provable without a printer.
     print_backend: Arc<dyn PrintDispatch>,
@@ -391,6 +419,24 @@ impl App {
         self.live = Some(restorable_geometry(window));
     }
 
+    /// Drain finished draws and fold them into the dev frame readout.
+    fn poll_frame_metrics(&mut self) {
+        for event in self.frame_collector.collect_unseen() {
+            if let gpui_kit::profiler::FrameEvent::Draw(timing) = event {
+                self.frame_samples.push_back(timing.draw_duration());
+                while self.frame_samples.len() > 120 {
+                    self.frame_samples.pop_front();
+                }
+            }
+        }
+    }
+
+    /// The live p50/p95 over the last 120 draws; empty until the first draw.
+    pub fn frame_metrics(&self) -> crate::views::status_bar::FrameMetrics {
+        let samples: Vec<Duration> = self.frame_samples.iter().copied().collect();
+        crate::views::status_bar::frame_metrics_from_samples(&samples)
+    }
+
     /// Writes the last seen geometry when it differs from the record already on
     /// disk. `settled` marks the end of a gesture (focus loss, quit), where the
     /// throttle must not skip the final position.
@@ -443,6 +489,10 @@ impl App {
         source_path: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.cancel_canvas_gesture(cx);
+        if self.state.read(cx).text_edit.is_some() {
+            let _ = self.commit_text_edit(cx);
+        }
         let doc_id = loaded.document_id().to_owned();
         let display_name = loaded.document_snapshot().name.clone();
         let display_name_for_tab = display_name.clone();
@@ -490,6 +540,7 @@ impl App {
             state.document_id = Some(doc_id.clone());
             state.has_document = true;
         });
+        self.reset_transient_for_active_document(cx);
         if let Some(path) = recent_path.as_deref() {
             self.record_recent_file(path, cx);
         }
@@ -610,6 +661,8 @@ impl Render for App {
         // The geometry is sampled here because this is the only place the root
         // is handed a live window every frame.
         self.remember_bounds(window);
+        self.poll_frame_metrics();
+        let frame = self.frame_metrics();
         if std::mem::take(&mut self.pending_new_document_focus) {
             window.focus(&self.new_document_focus, cx);
         }
@@ -665,6 +718,7 @@ impl Render for App {
             can_redo,
             committed_selection,
             transform_readout,
+            frame,
             cx,
         )
     }

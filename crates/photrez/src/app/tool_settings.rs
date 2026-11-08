@@ -1,7 +1,7 @@
 //! Live tool settings behind the option bar's compact controls.
 //!
 //! The option bars expose these as sliders, number fields and
-//! checkboxes; the native bar keeps the captured chrome and adds a compact
+//! checkboxes; the native bar keeps the existing chrome and adds a compact
 //! stepper strip so every setting below is user-reachable. The values and
 //! clamps match the tool defaults the bars are built on.
 
@@ -352,6 +352,14 @@ impl App {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
         let mut adjustment = layer.basic_adjustment.clone().unwrap_or_default();
         let value = value.clamp(-100.0, 100.0);
+        let current = match channel {
+            0 => adjustment.brightness,
+            1 => adjustment.contrast,
+            _ => adjustment.saturation,
+        };
+        if current == value {
+            return Ok(());
+        }
         match channel {
             0 => adjustment.brightness = value,
             1 => adjustment.contrast = value,
@@ -445,6 +453,9 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
+        if layer.locked {
+            return Ok(());
+        }
         let mut transform = layer.transform.clone();
         if horizontal {
             transform.flip_h = !transform.flip_h;
@@ -608,6 +619,12 @@ impl App {
             .text_data
             .clone()
             .ok_or_else(|| "the selected layer is not text".to_string())?;
+        if data.font_size == value {
+            self.state
+                .update(cx, |state, _| state.text_font_size = value);
+            cx.notify();
+            return Ok(());
+        }
         data.font_size = value;
         self.state
             .update(cx, |state, _| state.text_font_size = value);

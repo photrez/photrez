@@ -103,10 +103,24 @@ impl App {
             return Err("the layer name cannot be empty".to_string());
         }
         let doc_id = self.active_doc_id()?;
+        let unchanged = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .and_then(|content| {
+                content
+                    .layers
+                    .iter()
+                    .find(|layer| layer.id == session.layer_id)
+            })
+            .is_some_and(|layer| layer.name == name);
         self.state.update(cx, |state, _| {
             state.rename_layer = None;
             state.active_dialog = None;
         });
+        if unchanged {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::Rename {

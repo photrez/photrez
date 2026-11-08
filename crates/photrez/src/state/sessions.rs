@@ -105,6 +105,13 @@ pub struct TextEditSession {
     pub data: photrez_core::document::layer_params::TextData,
     /// Rasterized preview size in document pixels, refreshed per keystroke.
     pub preview: (u32, u32),
+    /// A session that created its layer discards that draft on cancel. A
+    /// session that re-edits an existing layer only drops the buffer.
+    pub delete_on_cancel: bool,
+    /// In-field typing history. Ctrl+Z inside the editor walks these buffers,
+    /// not the document history.
+    pub undo_stack: Vec<String>,
+    pub redo_stack: Vec<String>,
 }
 
 /// The autosave status the footer dot and copy read.

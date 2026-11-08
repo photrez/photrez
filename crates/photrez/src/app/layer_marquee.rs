@@ -104,6 +104,12 @@ impl App {
         };
         if !session.exceeded && !session.additive {
             self.state.update(cx, |state, _| {
+                let paint_target = state
+                    .layers
+                    .iter()
+                    .find(|row| row.id == state.selected_layer)
+                    .and_then(|row| row.core_id.clone());
+                state.paint_target_core_id = paint_target.or(state.paint_target_core_id.clone());
                 state.selected_layers.clear();
                 state.selected_layer = 0;
                 state.multi_bounds = None;

@@ -59,13 +59,19 @@ impl App {
                 return false;
             }
         };
+        let paint_background = eraser && target.is_background;
         let (size, hardness, color, opacity, flow, smoothing) = {
             let state = self.state.read(cx);
             if eraser {
+                let color = if paint_background {
+                    state.bg_color
+                } else {
+                    state.fg_color
+                };
                 (
                     state.eraser_size,
                     state.eraser_hardness,
-                    state.fg_color,
+                    color,
                     state.eraser_opacity,
                     state.eraser_flow,
                     state.eraser_smoothing,
@@ -85,7 +91,8 @@ impl App {
         self.paint_smoother.set_strength(smoothing);
         self.paint_smoother.reset();
         let alpha = (opacity * flow).clamp(0.0, 1.0);
-        let stroke = brush::begin_stroke(target, x, y, size, eraser, alpha, tip);
+        let stroke =
+            brush::begin_stroke(target, x, y, size, eraser && !paint_background, alpha, tip);
         if !self.input.begin_brush(stroke) {
             self.set_status_error(Some("Brush: a gesture is already active".into()), cx);
             false
@@ -180,7 +187,7 @@ impl App {
         if let Some(after) = after {
             #[cfg(feature = "input-measurement")]
             let mut refresh_succeeded = false;
-            if let Err(error) = self.sessions.mark_dirty(&doc_id) {
+            if let Err(error) = self.sessions.mark_history_dirty(&doc_id) {
                 self.set_status_error(Some(format!("Brush: dirty state failed: {error:?}")), cx);
             } else {
                 let display = if single_layer {

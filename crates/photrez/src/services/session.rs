@@ -17,8 +17,20 @@ pub(crate) struct DocumentSession {
     source_path: Option<PathBuf>,
     revision: u64,
     saved_revision: u64,
+    saved_marker: Option<HistoryMarker>,
+    /// A change that no history entry records (a new document's initial
+    /// identity, or a test-forced dirty flag). Only save clears it.
+    dirty_override: bool,
     closed: bool,
     loaded: LoadedDocument,
+}
+
+/// The history position a save wrote. Undo or redo that returns here is clean,
+/// even though the revision counter moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct HistoryMarker {
+    cursor: u64,
+    tip_seq: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -37,16 +49,23 @@ impl DocumentSession {
         let instance_id = NEXT_SESSION_INSTANCE_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServiceError::Internal("Document session ID overflow".into()))?;
-        Ok(Self {
+        let has_file_baseline = source_path.is_some();
+        let mut session = Self {
             instance_id,
             doc_id: loaded.document_id().to_owned(),
             display_name,
             source_path,
             revision: 0,
             saved_revision: 0,
+            saved_marker: None,
+            dirty_override: false,
             closed: false,
             loaded,
-        })
+        };
+        if has_file_baseline {
+            session.saved_marker = session.current_marker();
+        }
+        Ok(session)
     }
 
     pub(crate) fn doc_id(&self) -> &str {
@@ -70,7 +89,39 @@ impl DocumentSession {
     }
 
     pub(crate) fn is_dirty(&self) -> bool {
-        self.revision != self.saved_revision
+        if self.dirty_override {
+            return true;
+        }
+        match self.saved_marker {
+            Some(saved) => self.current_marker() != Some(saved),
+            None => self.revision != self.saved_revision,
+        }
+    }
+
+    fn current_marker(&self) -> Option<HistoryMarker> {
+        self.loaded
+            .registry
+            .history_query(&self.doc_id)
+            .map(|query| HistoryMarker {
+                cursor: query.cursor,
+                tip_seq: query
+                    .cursor
+                    .checked_sub(1)
+                    .and_then(|index| query.entries.get(index as usize))
+                    .map(|entry| entry.seq),
+            })
+    }
+
+    /// A history step that lands back on the saved marker is clean; every
+    /// other step counts as an edit.
+    fn sync_dirty_to_marker(&mut self) -> Result<(), ServiceError> {
+        if let Some(saved) = self.saved_marker {
+            if self.current_marker() == Some(saved) {
+                self.revision = self.saved_revision;
+                return Ok(());
+            }
+        }
+        self.bump_revision().map(|_| ())
     }
 
     pub(crate) fn is_closed(&self) -> bool {
@@ -93,7 +144,19 @@ impl DocumentSession {
         }
     }
 
+    /// A change no history entry records. It stays dirty until save.
     fn mark_dirty(&mut self) -> Result<u64, ServiceError> {
+        self.dirty_override = true;
+        self.bump_revision()
+    }
+
+    /// A change the history stream records. Returning to the saved marker can
+    /// make the document clean again.
+    fn mark_history_dirty(&mut self) -> Result<u64, ServiceError> {
+        self.bump_revision()
+    }
+
+    fn bump_revision(&mut self) -> Result<u64, ServiceError> {
         self.ensure_open()?;
         self.revision = self
             .revision
@@ -113,6 +176,9 @@ impl DocumentSession {
         self.loaded.save_to(files, path, save_stream)?;
         self.source_path = Some(path.to_path_buf());
         self.saved_revision = revision;
+        let marker = self.current_marker();
+        self.saved_marker = marker;
+        self.dirty_override = false;
         Ok(SaveReceipt {
             instance_id: self.instance_id,
             doc_id: self.doc_id.clone(),
@@ -212,6 +278,20 @@ impl SessionRegistry {
             .get_mut(doc_id)
             .ok_or_else(|| ServiceError::Conflict("Document session is not open".into()))?
             .mark_dirty()
+    }
+
+    pub(crate) fn mark_history_dirty(&mut self, doc_id: &str) -> Result<u64, ServiceError> {
+        self.sessions
+            .get_mut(doc_id)
+            .ok_or_else(|| ServiceError::Conflict("Document session is not open".into()))?
+            .mark_history_dirty()
+    }
+
+    pub(crate) fn sync_dirty_to_marker(&mut self, doc_id: &str) -> Result<(), ServiceError> {
+        self.sessions
+            .get_mut(doc_id)
+            .ok_or_else(|| ServiceError::Conflict("Document session is not open".into()))?
+            .sync_dirty_to_marker()
     }
 
     pub(crate) fn save(

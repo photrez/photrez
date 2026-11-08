@@ -102,6 +102,23 @@ pub(super) fn aggregate_events(events: &[Value]) -> Value {
     let present = collect_metric(events, "present");
     let handler = collect_metric(events, "handler_ms");
     let draw = collect_metric(events, "draw_duration_ms");
+    let draw_max = collect_metric(events, "draw_duration_max_ms");
+    let flattened_draws: Vec<Value> = events
+        .iter()
+        .filter_map(|event| event.get("draw_durations_ms"))
+        .filter_map(Value::as_array)
+        .flat_map(|values| values.iter().cloned())
+        .collect();
+    let flattened_move_present: Vec<Value> = events
+        .iter()
+        .filter_map(|event| event.get("move_present_ms"))
+        .filter_map(Value::as_array)
+        .flat_map(|values| values.iter().cloned())
+        .collect();
+    let draw_frame_count: usize = events
+        .iter()
+        .filter_map(|event| event.get("draw_frame_count").and_then(Value::as_u64))
+        .sum::<u64>() as usize;
     let raw: Vec<Value> = events
         .iter()
         .map(|event| event.get("present").cloned().unwrap_or(Value::Null))
@@ -116,6 +133,10 @@ pub(super) fn aggregate_events(events: &[Value]) -> Value {
         },
         "handler_dispatch_ms": metric_summary(&handler),
         "draw_duration_ms": metric_summary(&draw),
+        "draw_duration_max_ms": metric_summary(&draw_max),
+        "draw_frame_count": draw_frame_count,
+        "draw_durations_ms": flattened_draws,
+        "move_present_samples_ms": flattened_move_present,
         "dispatch_to_present_samples_ms": raw,
     })
 }

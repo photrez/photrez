@@ -40,6 +40,24 @@ impl App {
         cx.notify();
     }
 
+    /// The dialog-field variant: same toggle without the canvas focus handoff,
+    /// which would pull focus out of the dialog's own trap.
+    pub(crate) fn toggle_select_stay(
+        &mut self,
+        id: &'static str,
+        active: usize,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let open = self.state.read(cx).open_select == Some(id);
+        self.state.update(cx, |state, _| {
+            state.open_select = if open { None } else { Some(id) };
+            state.select_cursor = if active < count { active } else { 0 };
+            state.select_count = count;
+        });
+        cx.notify();
+    }
+
     /// Moves the open dropdown's highlight; Enter commits it.
     pub(crate) fn select_arrow(&mut self, delta: isize, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
@@ -100,6 +118,9 @@ impl App {
                         crate::state::SelectionShape::Rect
                     };
                 }
+                "layer-blend" | "tab-export" | "settings-language" | "export-format" => {
+                    // Applied after the panel closes; see the arms below.
+                }
                 "opt-shape-kind" => {
                     state.shape_kind = match index {
                         1 => crate::state::ShapeTool::Ellipse,
@@ -154,6 +175,49 @@ impl App {
             let table: &[usize] = if eraser { &ERASER } else { &BRUSH };
             if let Some(global) = table.get(index) {
                 self.apply_brush_preset(*global, cx);
+            }
+        }
+        if id == "layer-blend" {
+            self.set_selected_blend(index, cx);
+        }
+        if id == "tab-export" {
+            // The quick items open the Export dialog with the format preset;
+            // the save path itself stays an approved, user-picked target.
+            if let Some(format) = [
+                crate::state::ExportFormat::Png,
+                crate::state::ExportFormat::Jpeg,
+                crate::state::ExportFormat::WebP,
+            ]
+            .get(index)
+            {
+                self.state.update(cx, |state, _| {
+                    state.export_format = format.clone();
+                    state.export_format_open = false;
+                    state.active_dialog = Some(crate::state::DialogId::Export);
+                });
+            } else {
+                self.export_document_action(&crate::app::ExportDocument, cx);
+            }
+        }
+        if id == "settings-language" {
+            let locale = match index {
+                1 => crate::i18n::Locale::Id,
+                2 => crate::i18n::Locale::Bjn,
+                _ => crate::i18n::Locale::En,
+            };
+            self.choose_settings_language(locale, cx);
+        }
+        if id == "export-format" {
+            let format = [
+                crate::state::ExportFormat::Png,
+                crate::state::ExportFormat::Jpeg,
+                crate::state::ExportFormat::WebP,
+            ]
+            .get(index)
+            .cloned();
+            if let Some(format) = format {
+                self.state
+                    .update(cx, |state, _| state.export_format = format);
             }
         }
         cx.notify();

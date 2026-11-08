@@ -38,6 +38,19 @@ pub(crate) struct FlattenDocumentAction;
 #[action(namespace = photrez, no_json)]
 pub(crate) struct StampVisibleAction;
 
+fn next_new_layer_name(names: &[String]) -> String {
+    let mut highest = 0u32;
+    for name in names {
+        if let Some(number) = name
+            .strip_prefix("Layer ")
+            .and_then(|rest| rest.parse::<u32>().ok())
+        {
+            highest = highest.max(number);
+        }
+    }
+    format!("Layer {}", highest + 1)
+}
+
 impl App {
     pub(crate) fn duplicate_layer_action(
         &mut self,
@@ -216,6 +229,23 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
+        let blocked = layer.locked
+            || (layer.lock_position.unwrap_or(false)
+                && (layer.transform.x != 0.0 || layer.transform.y != 0.0))
+            || (layer.lock_rotation.unwrap_or(false) && layer.transform.rotation != 0.0);
+        if blocked {
+            return Ok(());
+        }
+        let unchanged = layer.transform.x == 0.0
+            && layer.transform.y == 0.0
+            && layer.transform.scale_x == 1.0
+            && layer.transform.scale_y == 1.0
+            && layer.transform.rotation == 0.0
+            && !layer.transform.flip_h
+            && !layer.transform.flip_v;
+        if unchanged {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::TransformLayer {
@@ -475,7 +505,7 @@ impl App {
             return Err(format!("{}: {}", error.code, error.message));
         }
         self.sessions
-            .mark_dirty(doc_id)
+            .mark_history_dirty(doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         self.project_layers(cx);
         self.refresh_active_canvas(cx)?;
@@ -560,6 +590,13 @@ impl App {
             let width = doc_w.max(1.0) as u32;
             let height = doc_h.max(1.0) as u32;
             let doc_id = self.active_doc_id()?;
+            let names: Vec<String> = self
+                .content(&doc_id)?
+                .layers
+                .iter()
+                .map(|layer| layer.name.clone())
+                .collect();
+            let name = next_new_layer_name(&names);
             let id = next_layer_id();
             self.seed_layer(
                 &doc_id,
@@ -572,7 +609,7 @@ impl App {
                 &doc_id,
                 Command::AddLayer {
                     id: id.clone(),
-                    name: "Layer".to_string(),
+                    name,
                     width: doc_w,
                     height: doc_h,
                     index: 0,
@@ -635,18 +672,25 @@ impl App {
         if layer.locked {
             return Ok(());
         }
+        let opacity = opacity.clamp(0.0, 1.0);
+        if (layer.opacity - opacity).abs() < 1e-9 {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::SetOpacity {
                 id: layer.id,
-                opacity: opacity.clamp(0.0, 1.0),
+                opacity,
             },
             true,
             cx,
         )
     }
 
-    /// Cycle the selected layer through the engine's blend modes.
+    /// Cycle the selected layer through the engine's blend modes. Superseded
+    /// by [`App::set_selected_blend`] for the dropdown; the keyboard path may
+    /// still reach it.
+    #[expect(dead_code, reason = "dropdown replaces the cycle interaction")]
     pub(crate) fn cycle_selected_blend(&mut self, cx: &mut Context<Self>) {
         let result = (|| {
             let (doc_id, layer) = self.selected_layer(cx)?;
@@ -656,6 +700,24 @@ impl App {
                     id: layer.id,
                     mode: next_blend_mode(&layer.blend_mode),
                 },
+                true,
+                cx,
+            )
+        })();
+        self.report_layer_op(result, cx);
+    }
+
+    /// Set the selected layer's blend mode outright; the dropdown's pick.
+    pub(crate) fn set_selected_blend(&mut self, index: usize, cx: &mut Context<Self>) {
+        let result = (|| {
+            let mode = BLEND_MODES
+                .get(index)
+                .cloned()
+                .ok_or_else(|| "unknown blend mode".to_string())?;
+            let (doc_id, layer) = self.selected_layer(cx)?;
+            self.apply_core_command(
+                &doc_id,
+                Command::SetBlendMode { id: layer.id, mode },
                 true,
                 cx,
             )
@@ -680,6 +742,22 @@ pub(crate) fn blend_label(mode: &BlendMode) -> &'static str {
         BlendMode::Exclusion => "Exclusion",
     }
 }
+
+/// The engine's blend modes in the order the dropdown lists them.
+pub(crate) const BLEND_MODES: [BlendMode; 12] = [
+    BlendMode::Normal,
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::SoftLight,
+    BlendMode::HardLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+];
 
 fn next_blend_mode(mode: &BlendMode) -> BlendMode {
     match mode {

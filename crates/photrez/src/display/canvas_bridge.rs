@@ -31,9 +31,8 @@
 //! after the base tiles, and `commit_patches` folds the overlay into the base
 //! tiles in one frame. `update_region` is the base-tile path and refuses to run
 //! while patches are pending. The caller must evict every retired texture (see
-//! `update_region`, `commit_patches` and `into_textures`); the app's edit path
-//! still lands with its own sub-plan, so the bench is the current dirty-path
-//! caller.
+//! `update_region`, `commit_patches` and `into_textures`); the app's brush path
+//! and the `measure-frames` bench are the dirty-path callers.
 //!
 //! ## What deliberately is not here yet
 //!
@@ -66,7 +65,7 @@ pub const MAX_CANVAS_DIM: u32 = 16384;
 
 /// One checkerboard cell, in screen pixels.
 pub const CHECKER_CELL: f32 = 8.;
-/// Checker cell greys, sampled from the captured checkerboard
+/// Checker cell greys, sampled from the measured checkerboard
 /// (0.78 and 0.55 relative luminance).
 pub const CHECKER_LIGHT: [u8; 4] = [199, 199, 199, 255];
 pub const CHECKER_DARK: [u8; 4] = [140, 140, 140, 255];

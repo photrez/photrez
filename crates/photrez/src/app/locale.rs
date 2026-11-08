@@ -32,19 +32,13 @@ impl App {
         cx.notify();
     }
 
-    /// The Settings language dropdown (`LanguageSwitcher`). The list expands
-    /// inline: a deferred popup inside a dialog overlay never receives hits.
-    pub(crate) fn toggle_settings_language(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| {
-            state.settings_language_open = !state.settings_language_open;
-        });
-        cx.notify();
-    }
-
+    /// The Settings language dropdown (`LanguageSwitcher`). The list floats
+    /// over the dialog from the shell's shared dropdown host; the
+    /// inline-expansion predecessor never received hits as a popup.
     pub(crate) fn choose_settings_language(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.set_locale(locale, cx);
         self.state.update(cx, |state, _| {
-            state.settings_language_open = false;
+            state.open_select = None;
         });
         cx.notify();
     }
@@ -52,7 +46,7 @@ impl App {
     pub(crate) fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
             state.active_dialog = None;
-            state.settings_language_open = false;
+            state.open_select = None;
         });
         cx.notify();
     }

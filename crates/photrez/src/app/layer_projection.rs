@@ -105,6 +105,23 @@ impl App {
                 mapped.push(state.selected_layer);
             }
             state.selected_layers = mapped;
+            let primary_core = state
+                .layers
+                .iter()
+                .find(|row| row.id == state.selected_layer)
+                .and_then(|row| row.core_id.clone());
+            if !state.selected_layers.is_empty() {
+                state.paint_target_core_id = primary_core;
+            } else if state
+                .paint_target_core_id
+                .as_deref()
+                .map_or(true, |id| !layers.iter().any(|layer| layer.id == id))
+            {
+                state.paint_target_core_id = layers
+                    .iter()
+                    .find(|layer| matches!(layer.layer_type, LayerType::Raster))
+                    .map(|layer| layer.id.clone());
+            }
             state.multi_bounds = if state.selected_layers.len() > 1 {
                 let mut bounds: Option<(f64, f64, f64, f64)> = None;
                 for row in state
@@ -198,6 +215,19 @@ impl App {
                 }
             }
         });
+        let text_layer_missing = {
+            let state = self.state.read(cx);
+            state.text_edit.as_ref().is_some_and(|session| {
+                !state
+                    .layers
+                    .iter()
+                    .any(|row| row.core_id.as_deref() == Some(session.layer_id.as_str()))
+            })
+        };
+        if text_layer_missing {
+            self.discard_text_preview();
+            self.state.update(cx, |state, _| state.text_edit = None);
+        }
         self.refresh_layer_thumbs(&doc_id);
     }
 

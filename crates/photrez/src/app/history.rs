@@ -22,6 +22,13 @@ pub(crate) struct RedoDocument;
 
 impl App {
     pub(crate) fn undo_document_action(&mut self, _: &UndoDocument, cx: &mut Context<Self>) {
+        // Undo during a text edit closes the editor and does not step the
+        // document history, so the edit cannot outlive or rewrite the undone
+        // layer state.
+        if self.state.read(cx).text_edit.is_some() {
+            let _ = self.cancel_text_edit(cx);
+            return;
+        }
         if self.crop_mini_undos_active(cx) {
             if self.crop_undo(cx) {
                 self.set_status_error(None, cx);
@@ -32,6 +39,10 @@ impl App {
     }
 
     pub(crate) fn redo_document_action(&mut self, _: &RedoDocument, cx: &mut Context<Self>) {
+        if self.state.read(cx).text_edit.is_some() {
+            let _ = self.cancel_text_edit(cx);
+            return;
+        }
         if self.crop_mini_undos_active(cx) {
             if self.crop_redo(cx) {
                 self.set_status_error(None, cx);
@@ -219,7 +230,7 @@ impl App {
             return Ok(false);
         }
         self.sessions
-            .mark_dirty(&doc_id)
+            .sync_dirty_to_marker(&doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         // Metadata undos (opacity, adjustment, transforms) leave layer fields
         // changed even when a dirty-rect pixel handoff rides the same delta, so

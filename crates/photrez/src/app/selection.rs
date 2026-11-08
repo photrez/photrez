@@ -155,6 +155,9 @@ impl App {
     }
 
     pub(crate) fn cut_selection_action(&mut self, _: &CutSelectionAction, cx: &mut Context<Self>) {
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            return;
+        }
         if !self.copy_cut_enabled(cx) {
             return;
         }
@@ -179,6 +182,11 @@ impl App {
         _: &DeleteSelectionAction,
         cx: &mut Context<Self>,
     ) {
+        // A live transform owns the layer until pointer-up. A pixel delete
+        // here would race the commit and act on geometry the user cannot see.
+        if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
+            return;
+        }
         let result = self.delete_selection(cx);
         self.run_selection_action(result, cx);
     }
@@ -507,7 +515,7 @@ impl App {
             .ok_or_else(|| "pixel region write was refused".to_string())?;
         let _ = written;
         self.sessions
-            .mark_dirty(&doc_id)
+            .mark_history_dirty(&doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         if let Some(session) = self.sessions.get_mut(&doc_id) {
             session
@@ -575,7 +583,7 @@ impl App {
             return Err(format!("{}: {}", error.code, error.message));
         }
         self.sessions
-            .mark_dirty(&doc_id)
+            .mark_history_dirty(&doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         if let Some(session) = self.sessions.get_mut(&doc_id) {
             session

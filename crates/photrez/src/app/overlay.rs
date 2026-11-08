@@ -133,6 +133,60 @@ impl App {
                 }
             }
         }
+        // The Move tool paints the same rotate sprite on a rotate hover, so
+        // the pointer reads as a rotation rather than a crosshair. Space
+        // and an active pan keep the grab cursors and paint no sprite.
+        if state.active_tool == crate::state::ToolId::Move
+            && state.show_transform_controls
+            && self.pan.is_none()
+            && !self.space_pressed
+        {
+            if let (Some(position), Some(doc_size)) = (
+                self.hover_pos,
+                self.active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions()),
+            ) {
+                if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
+                    let zoom = self
+                        .effective_camera()
+                        .map(|camera| camera.zoom as f64)
+                        .unwrap_or(1.0);
+                    let (frame_w, frame_h) =
+                        crate::app::transform_geometry::layer_frame_size(&layer);
+                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
+                        position,
+                        &self.canvas_bounds,
+                        doc_size,
+                        self.active_camera(),
+                    ) {
+                        let hover = crate::app::transform_geometry::detect_handle(
+                            crate::app::transform_geometry::Point { x, y },
+                            &layer.transform,
+                            frame_w,
+                            frame_h,
+                            zoom,
+                        );
+                        if hover == Some(crate::app::transform_geometry::Handle::Rotate) {
+                            let centre = crate::app::transform_geometry::layer_center(
+                                &layer.transform,
+                                frame_w,
+                                frame_h,
+                            );
+                            let angle = crate::app::transform_geometry::angle_about(
+                                centre,
+                                crate::app::transform_geometry::Point { x, y },
+                            ) + 45.0;
+                            overlay.rotate_cursor =
+                                Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                                    position: [f32::from(position.x), f32::from(position.y)],
+                                    angle: angle as f32,
+                                });
+                        }
+                    }
+                }
+            }
+        }
         if let Some(crop) = state.crop_rect {
             overlay.crop = Some((crop[0], crop[1], crop[2], crop[3]));
         }
@@ -169,49 +223,39 @@ impl App {
                     overlay.transform = Some(frame);
                 }
             } else if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                // A rest frame draws only for a multi-layer selection. With
-                // one layer selected and Move active, this build drew 2,653
-                // accent pixels where the geometry draws none. A single layer
-                // gets handles only while a transform is actually being
-                // dragged.
-                let dragging = self
+                // A single selected layer under Move keeps its frame at
+                // rest, like the reference editor: the bounding box and its
+                // handles stay visible so the layer is always grabbable.
+                let transform = self
                     .transform_drag
                     .as_ref()
-                    .is_some_and(|drag| drag.layer_id == layer.id);
-                if dragging || !matches!(state.active_tool, crate::state::ToolId::Move) {
-                    let transform = self
-                        .transform_drag
-                        .as_ref()
-                        .filter(|drag| drag.layer_id == layer.id)
-                        .map(|drag| drag.preview.clone())
-                        .unwrap_or_else(|| layer.transform.clone());
-                    let (frame_w, frame_h) =
-                        crate::app::transform_geometry::layer_frame_size(&layer);
-                    let corners =
-                        crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
-                    let mid =
-                        |a: crate::app::transform_geometry::Point,
-                         b: crate::app::transform_geometry::Point| {
-                            crate::app::transform_geometry::Point {
-                                x: (a.x + b.x) / 2.0,
-                                y: (a.y + b.y) / 2.0,
-                            }
-                        };
-                    let handles = [
-                        corners[0],
-                        corners[1],
-                        corners[2],
-                        corners[3],
-                        mid(corners[0], corners[1]),
-                        mid(corners[1], corners[2]),
-                        mid(corners[2], corners[3]),
-                        mid(corners[3], corners[0]),
-                    ];
-                    overlay.transform = Some(TransformFrame {
-                        corners: corners.map(|point| [point.x, point.y]),
-                        handles: handles.map(|point| [point.x, point.y]),
-                    });
-                }
+                    .filter(|drag| drag.layer_id == layer.id)
+                    .map(|drag| drag.preview.clone())
+                    .unwrap_or_else(|| layer.transform.clone());
+                let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+                let corners =
+                    crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
+                let mid = |a: crate::app::transform_geometry::Point,
+                           b: crate::app::transform_geometry::Point| {
+                    crate::app::transform_geometry::Point {
+                        x: (a.x + b.x) / 2.0,
+                        y: (a.y + b.y) / 2.0,
+                    }
+                };
+                let handles = [
+                    corners[0],
+                    corners[1],
+                    corners[2],
+                    corners[3],
+                    mid(corners[0], corners[1]),
+                    mid(corners[1], corners[2]),
+                    mid(corners[2], corners[3]),
+                    mid(corners[3], corners[0]),
+                ];
+                overlay.transform = Some(TransformFrame {
+                    corners: corners.map(|point| [point.x, point.y]),
+                    handles: handles.map(|point| [point.x, point.y]),
+                });
             }
         }
         // A non-active layer under the Move pointer gets a

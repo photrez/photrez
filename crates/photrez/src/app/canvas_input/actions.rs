@@ -73,6 +73,13 @@ impl App {
             let has_selection = !self.state.read(cx).selected_layers.is_empty();
             if has_selection {
                 self.state.update(cx, |state, _| {
+                    let paint_target = state
+                        .layers
+                        .iter()
+                        .find(|row| row.id == state.selected_layer)
+                        .and_then(|row| row.core_id.clone());
+                    state.paint_target_core_id =
+                        paint_target.or(state.paint_target_core_id.clone());
                     state.selected_layers.clear();
                     state.selected_layer = 0;
                     state.multi_bounds = None;
@@ -174,7 +181,10 @@ impl App {
         cx.notify();
     }
 
-    pub(super) fn select_canvas_tool(&mut self, tool: ToolId, cx: &mut Context<Self>) {
+    pub(crate) fn select_canvas_tool(&mut self, tool: ToolId, cx: &mut Context<Self>) {
+        if tool != ToolId::Text && self.state.read(cx).text_edit.is_some() {
+            let _ = self.commit_text_edit(cx);
+        }
         self.cancel_canvas_gesture(cx);
         self.selection_edit_mode = false;
         // Entering Crop with no pending frame opens the default frame

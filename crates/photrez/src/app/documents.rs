@@ -75,6 +75,10 @@ impl App {
             return Err("that document is not open".to_string());
         }
         let canvas = self.composite_for(doc_id)?;
+        self.cancel_canvas_gesture(cx);
+        if self.state.read(cx).text_edit.is_some() {
+            let _ = self.commit_text_edit(cx);
+        }
         let camera = self.tab_cameras.remove(doc_id).flatten();
         if let Some(previous) = self.active_document.as_ref() {
             self.tab_cameras
@@ -99,11 +103,36 @@ impl App {
             state.has_document = true;
             state.status_error = None;
         });
+        self.reset_transient_for_active_document(cx);
         self.project_layers(cx);
         self.project_history(cx);
         self.project_tabs(cx);
         cx.notify();
         Ok(())
+    }
+
+    /// A document change invalidates interactive state that is addressed in
+    /// document coordinates. Crop is re-seeded for the new page, and a stale
+    /// frame or undo stack never crosses documents.
+    pub(crate) fn reset_transient_for_active_document(&mut self, cx: &mut Context<Self>) {
+        self.crop_drag = None;
+        self.selection_edit_mode = false;
+        let Some((width, height)) = self
+            .active_document
+            .as_ref()
+            .map(|document| document.canvas.dimensions())
+        else {
+            return;
+        };
+        let crop_active = self.state.read(cx).active_tool == crate::state::ToolId::Crop;
+        self.state.update(cx, |state, _| {
+            state.crop_rect =
+                crop_active.then_some([0.0, 0.0, f64::from(width), f64::from(height)]);
+            state.crop_history.clear();
+            state.crop_redo.clear();
+            state.selection_drag = None;
+            state.hud = None;
+        });
     }
 
     /// Close one tab. A dirty tab opens the same save/discard prompt as a
@@ -285,7 +314,7 @@ impl App {
         }
     }
 
-    /// A `--shot` launch renders the captured shell without a session. Install
+    /// A `--shot` launch renders the seeded shell without a session. Install
     /// the same one-layer Background document a New Document creates, so the
     /// Layers row, its eye/lock controls and the Properties banner read core
     /// state exactly as the mounted panels read it. The document starts clean.

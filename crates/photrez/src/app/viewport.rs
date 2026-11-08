@@ -7,7 +7,7 @@
 
 use gpui_kit::{
     Context, KeyDownEvent, KeyUpEvent, MouseDownEvent, MouseMoveEvent, Pixels, Point, ScrollDelta,
-    ScrollWheelEvent,
+    ScrollEvent,
 };
 
 use crate::display::canvas_bridge::Camera;
@@ -17,6 +17,12 @@ use super::App;
 const FIT_PADDING: f32 = 80.;
 const ZOOM_STEP: f32 = 1.25;
 const WHEEL_LINE_PX: f32 = 20.;
+
+/// The Navigator zoom row's slider range. The camera itself allows a wider
+/// wheel range; the slider covers the useful editing band and the +/- buttons
+/// stop at the same edges.
+pub(crate) const NAV_ZOOM_MIN: f32 = 0.05;
+pub(crate) const NAV_ZOOM_MAX: f32 = 4.0;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
@@ -56,7 +62,7 @@ impl App {
         self.capture_camera()
     }
 
-    /// The camera for a capture that named its zoom, and optionally its page
+    /// The camera for a launch that named its zoom, and optionally its page
     /// origin.
     ///
     /// A `--shot` launch has no document session, so the display live-fits and
@@ -158,6 +164,34 @@ impl App {
         if let Some(camera) = Camera::fit(viewport_w, viewport_h, doc_w, doc_h) {
             self.set_camera(camera, cx);
         }
+    }
+
+    /// Set the zoom outright, keeping the viewport's centre point anchored.
+    /// The Navigator's track and +/- buttons drive this.
+    pub(crate) fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let Some(mut camera) = self.effective_camera() else {
+            return;
+        };
+        let Some((viewport_w, viewport_h)) = self.viewport_size() else {
+            return;
+        };
+        let target = zoom.clamp(NAV_ZOOM_MIN, NAV_ZOOM_MAX);
+        let factor = target / camera.zoom;
+        camera.zoom_to_point(factor, viewport_w / 2., viewport_h / 2.);
+        self.set_camera(camera, cx);
+    }
+
+    /// Map a pointer x across the Navigator's laid-out zoom track onto the
+    /// slider range and apply it. The fraction matches the shared slider
+    /// visual, whose thumb centre rides `fraction * width`.
+    pub(crate) fn set_zoom_from_x(&mut self, x: f32, cx: &mut Context<Self>) {
+        let Some(bounds) = self.state.read(cx).nav_zoom_track_bounds.get() else {
+            return;
+        };
+        let width = f32::from(bounds.size.width).max(1.);
+        let fraction = ((x - f32::from(bounds.origin.x)) / width).clamp(0., 1.);
+        let zoom = NAV_ZOOM_MIN + fraction * (NAV_ZOOM_MAX - NAV_ZOOM_MIN);
+        self.set_zoom(zoom, cx);
     }
 
     pub(crate) fn actual_size(&mut self, cx: &mut Context<Self>) {
@@ -282,7 +316,12 @@ impl App {
 
     /// Wheel over the canvas: Ctrl/Alt zooms at the cursor, plain wheel pans
     /// and Shift pans horizontally.
-    pub(crate) fn canvas_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    pub(crate) fn canvas_scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
+        // A modal dialog owns the input: the wheel behind it neither zooms
+        // nor pans.
+        if self.modal_input_active(cx) {
+            return;
+        }
         let Some(bounds) = self.canvas_bounds.get() else {
             return;
         };

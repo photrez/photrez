@@ -234,6 +234,22 @@ impl App {
             }
             return true;
         }
+        if key == " " || key == "space" {
+            if panel_open {
+                self.dismiss_new_document_panel(cx);
+                return true;
+            }
+            if self
+                .state
+                .read(cx)
+                .new_document
+                .as_ref()
+                .is_some_and(|session| session.field.is_none())
+            {
+                self.create_new_document(cx);
+                return true;
+            }
+        }
         match key {
             "enter" => {
                 self.create_new_document(cx);

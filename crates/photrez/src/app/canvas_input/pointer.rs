@@ -121,20 +121,75 @@ impl App {
         if event.button != gpui_kit::MouseButton::Left {
             return;
         }
-        if self.state.read(cx).text_edit.is_some() {
-            let _ = self.commit_text_edit(cx);
-            return;
-        }
         let camera = self.active_camera();
         let tool = self.state.read(cx).active_tool;
+        let free_mapped = canvas_doc_coords_free(event.position, bounds, doc_size, camera);
         let mapped = if tool == ToolId::Move {
-            canvas_doc_coords_free(event.position, bounds, doc_size, camera)
+            free_mapped
         } else {
             canvas_doc_coords(event.position, bounds, doc_size, camera)
         };
+        if self.state.read(cx).text_edit.is_some() {
+            let inside_editor = free_mapped.is_some_and(|(x, y)| {
+                let session = self
+                    .state
+                    .read(cx)
+                    .text_edit
+                    .as_ref()
+                    .cloned()
+                    .expect("the session was just observed");
+                let zoom = display_scale(bounds, doc_size, camera).max(f64::EPSILON);
+                let min_box = 24.0 / zoom;
+                let width = f64::from(session.preview.0).max(min_box);
+                let height = f64::from(session.preview.1).max(min_box);
+                x >= session.doc_x
+                    && x <= session.doc_x + width
+                    && y >= session.doc_y
+                    && y <= session.doc_y + height
+            });
+            if !inside_editor {
+                let _ = self.commit_text_edit(cx);
+            }
+            return;
+        }
         let Some((x, y)) = mapped else {
             return;
         };
+        if event.click_count >= 2 && matches!(tool, ToolId::Move | ToolId::Selection) {
+            if let Some(core_id) = self.layer_hit_at(x, y) {
+                let text_layer = self.active_document.as_ref().and_then(|document| {
+                    self.sessions
+                        .get(&document.doc_id)
+                        .and_then(|session| session.loaded_document().content_snapshot())
+                        .and_then(|content| {
+                            content
+                                .layers
+                                .iter()
+                                .find(|layer| layer.id == core_id)
+                                .filter(|layer| {
+                                    matches!(layer.layer_type, LayerType::Text)
+                                        && layer.text_data.is_some()
+                                })
+                                .cloned()
+                        })
+                });
+                if let Some(layer) = text_layer {
+                    self.move_auto_select_click(x, y, false, cx);
+                    self.select_canvas_tool(ToolId::Text, cx);
+                    self.begin_text_edit_existing(
+                        layer.id,
+                        layer.transform.x,
+                        layer.transform.y,
+                        layer
+                            .text_data
+                            .clone()
+                            .expect("the layer was filtered on text data"),
+                        cx,
+                    );
+                    return;
+                }
+            }
+        }
         if tool == ToolId::Crop {
             if let Some(rect) = self.state.read(cx).crop_rect {
                 let zoom = self

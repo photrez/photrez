@@ -351,32 +351,18 @@ pub(crate) fn apply_resize_handle(
 
     if keep_aspect {
         if corner {
-            let corners = layer_corners(transform, width, height);
-            let index = match handle {
-                Handle::Nw => 0,
-                Handle::Ne => 1,
-                Handle::Se => 2,
-                Handle::Sw => 3,
-                _ => 0,
-            };
-            let anchor_index = match handle {
-                Handle::Nw => 2,
-                Handle::Ne => 3,
-                Handle::Se => 0,
-                Handle::Sw => 1,
-                _ => 0,
-            };
-            let visual_corner = corners[index];
-            let visual_anchor = corners[anchor_index];
-            let diag_x = visual_corner.x - visual_anchor.x;
-            let diag_y = visual_corner.y - visual_anchor.y;
-            let diag_len = (diag_x * diag_x + diag_y * diag_y).sqrt();
-            if diag_len > 0.0 {
-                let mut projected = (screen_dx * diag_x + screen_dy * diag_y) / diag_len;
-                if alt_key {
-                    projected *= 2.0;
-                }
-                let factor = (diag_len + projected) / diag_len;
+            // Drive the factor by the two outward edge parts. The parts
+            // cancel on the anti-diagonal, so NE/SW at SE keeps the size.
+            let denom = old_w + old_h;
+            if denom > 0.0 {
+                let (out_x, out_y) = match handle {
+                    Handle::Nw => (-local_dx, -local_dy),
+                    Handle::Ne => (local_dx, -local_dy),
+                    Handle::Se => (local_dx, local_dy),
+                    Handle::Sw => (-local_dx, local_dy),
+                    _ => (0.0, 0.0),
+                };
+                let factor = (denom + out_x + out_y) / denom;
                 let factor = factor.max(1.0 / old_w).max(1.0 / old_h);
                 visual_w = old_w * factor;
                 visual_h = old_h * factor;
@@ -774,6 +760,73 @@ mod tests {
         );
         assert!(resized.scale_x > 0.0);
         assert!(resized.flip_h);
+    }
+
+    #[test]
+    fn se_corner_drag_along_the_diagonal_is_monotonic() {
+        // Drag the SE corner outward along the diagonal in equal steps; the
+        // visual size must grow monotonically and the SE corner must track
+        // the pointer.
+        let transform = base(|_| {});
+        let mut last = 0.0;
+        for step in 0..=8 {
+            let d = step as f64 * 10.0;
+            let resized = apply_resize_handle(
+                &transform,
+                200.0,
+                100.0,
+                Handle::Se,
+                d,
+                d / 2.0,
+                false,
+                false,
+            );
+            let w = 200.0 * resized.scale_x.abs();
+            let h = 100.0 * resized.scale_y.abs();
+            println!(
+                "step {step}: dx={d} dy={} -> w={w} h={h} x={} y={}",
+                d / 2.0,
+                resized.x,
+                resized.y
+            );
+            assert!(w >= last, "width must not shrink while dragging out");
+            last = w;
+            // SE corner should sit at start SE (300,200) + (d, d/2).
+            let corner_x = resized.x + w;
+            let corner_y = resized.y + h;
+            assert!(
+                (corner_x - (300.0 + d)).abs() < 1e-6
+                    && (corner_y - (200.0 + d / 2.0)).abs() < 1e-6,
+                "SE corner tracks the pointer"
+            );
+            // Aspect preserved.
+            assert!((w / h - 2.0).abs() < 1e-6, "aspect ratio stays 2:1");
+            // NW anchor stays fixed.
+            assert!((resized.x - 100.0).abs() < 1e-6 && (resized.y - 100.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn se_corner_drag_along_the_anti_diagonal_keeps_the_size() {
+        // The anti-diagonal through SE is NE and SW. A move along it must
+        // keep the size of the layer.
+        let transform = base(|_| {});
+        for (dx, dy) in [(40.0, -40.0), (-40.0, 40.0)] {
+            let resized =
+                apply_resize_handle(&transform, 200.0, 100.0, Handle::Se, dx, dy, false, false);
+            assert!(
+                (resized.scale_x - 1.0).abs() < 1e-9,
+                "NE/SW must not change the width scale"
+            );
+            assert!(
+                (resized.scale_y - 1.0).abs() < 1e-9,
+                "NE/SW must not change the height scale"
+            );
+            assert!(
+                (resized.x - 100.0).abs() < 1e-9 && (resized.y - 100.0).abs() < 1e-9,
+                "the anchor must stay fixed"
+            );
+        }
     }
 
     #[test]

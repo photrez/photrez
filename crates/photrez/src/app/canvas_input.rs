@@ -8,7 +8,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{
-    Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
+    AppContext, Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    Window,
 };
 use photrez_core::document::content::{
     LayerType, PtzLayer, SelectionShape as CoreSelectionShape, SelectionState,
@@ -20,6 +21,7 @@ use photrez_core::protocol::{Command, CommandEnvelope, TransformPatch, CONTRACT_
 use photrez_core::raster::paint::raster::RasterTip;
 use photrez_core::raster::tile::TilePatch;
 
+use super::slider::PreviewInput;
 use super::transform_move::TransformDragUpdate;
 use super::App;
 use crate::display::canvas_bridge::CanvasImage;
@@ -83,6 +85,13 @@ impl App {
     pub(crate) fn release_canvas_pointer(&self, window: &mut gpui_kit::Window) {
         window.release_pointer();
         self.canvas_capture.set(None);
+    }
+
+    /// Whether a modal dialog owns the input: the canvas surface refuses
+    /// presses, wheel and in-flight gestures while one is open, so a drag on
+    /// a dialog can never double as a canvas gesture behind it.
+    pub(crate) fn modal_input_active(&self, cx: &Context<Self>) -> bool {
+        self.state.read(cx).active_dialog.is_some()
     }
 
     /// Drop any in-flight canvas gesture before the active tool changes.
@@ -292,7 +301,7 @@ impl App {
         }
         if mark_dirty {
             self.sessions
-                .mark_dirty(doc_id)
+                .mark_history_dirty(doc_id)
                 .map_err(|error| format!("dirty state failed: {error:?}"))?;
             self.project_layers_with_selection(added_layer.as_deref(), cx);
             self.refresh_active_canvas(cx)?;
@@ -345,6 +354,34 @@ impl App {
 
     /// The cursor the canvas should show, from the reachable native inputs.
     pub(crate) fn canvas_cursor_policy(&self, cx: &Context<Self>) -> CursorPolicy {
+        // Space starts a pan and wins over every handle cursor, the same
+        // priority the reference cursor resolver uses.
+        if self.pan.is_some() {
+            return CursorPolicy::Grabbing;
+        }
+        if self.space_pressed {
+            return CursorPolicy::OpenHand;
+        }
+        let transform_mode = self
+            .transform_drag
+            .as_ref()
+            .map(|drag| drag.mode)
+            .or_else(|| self.group_transform_drag.as_ref().map(|drag| drag.mode));
+        if let Some(mode) = transform_mode {
+            return match mode {
+                crate::app::transform_move::TransformMode::Move => {
+                    if self.pointer_alt {
+                        CursorPolicy::Cloning
+                    } else {
+                        CursorPolicy::Grabbing
+                    }
+                }
+                crate::app::transform_move::TransformMode::Rotate => CursorPolicy::Crosshair,
+                crate::app::transform_move::TransformMode::Resize(handle) => {
+                    cursor_for_handle(handle)
+                }
+            };
+        }
         if self.state.read(cx).active_tool == ToolId::Crop {
             if let (Some(rect), Some(position), Some(bounds)) = (
                 self.state.read(cx).crop_rect,
@@ -418,25 +455,11 @@ impl App {
                             frame_h,
                             zoom,
                         ) {
-                            use crate::app::transform_geometry::Handle;
-                            return match handle {
-                                Handle::Move => CursorPolicy::SystemDefault,
-                                Handle::Rotate => CursorPolicy::Crosshair,
-                                Handle::Nw | Handle::Se => CursorPolicy::ResizeNwse,
-                                Handle::Ne | Handle::Sw => CursorPolicy::ResizeNesw,
-                                Handle::W | Handle::E => CursorPolicy::ResizeEw,
-                                Handle::N | Handle::S => CursorPolicy::ResizeNs,
-                            };
+                            return cursor_for_handle(handle);
                         }
                     }
                 }
             }
-        }
-        if self.pan.is_some() {
-            return CursorPolicy::Grabbing;
-        }
-        if self.space_pressed {
-            return CursorPolicy::OpenHand;
         }
         let selected = self.selected_layer(cx).ok();
         let layer_locked = selected
@@ -463,7 +486,44 @@ impl App {
         allow_locked: bool,
         cx: &Context<Self>,
     ) -> Result<(String, PtzLayer), String> {
-        let (doc_id, layer) = self.selected_layer(cx)?;
+        let doc_id = self
+            .active_document
+            .as_ref()
+            .map(|document| document.doc_id.clone())
+            .ok_or_else(|| "no active document".to_string())?;
+        let loaded = self
+            .sessions
+            .get(&doc_id)
+            .ok_or_else(|| "active session is missing".to_string())?
+            .loaded_document();
+        let content = loaded
+            .content_snapshot()
+            .ok_or_else(|| "loaded content is missing".to_string())?;
+        let state = self.state.read(cx);
+        let primary_core = state
+            .layers
+            .iter()
+            .find(|row| row.id == state.selected_layer)
+            .and_then(|row| row.core_id.clone());
+        // The Move box may clear its selection without taking the paint target
+        // with it. Paint owns the target, so the last active layer stays
+        // paintable until another layer is selected or deleted.
+        let target = if state.selected_layers.is_empty() {
+            state.paint_target_core_id.clone().or(primary_core)
+        } else {
+            primary_core
+        };
+        let layer = target
+            .as_deref()
+            .and_then(|id| content.layers.iter().find(|layer| layer.id == id))
+            .or_else(|| {
+                content
+                    .layers
+                    .iter()
+                    .find(|layer| matches!(layer.layer_type, LayerType::Raster))
+            })
+            .ok_or_else(|| "no raster layer is available".to_string())?
+            .clone();
         if !allow_locked && layer.locked {
             return Err("the selected layer is locked".to_string());
         }
@@ -497,6 +557,7 @@ impl App {
             width: canonical.width,
             height: canonical.height,
             display_scale,
+            is_background: layer.is_background.unwrap_or(false),
         })
     }
 
@@ -529,6 +590,8 @@ impl App {
 
     /// Recompose the active document after a core mutation.
     pub(crate) fn refresh_active_canvas(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        self.canvas_refresh_generation = self.canvas_refresh_generation.wrapping_add(1);
+        self.canvas_refresh_active = false;
         #[cfg(test)]
         self.full_composites.set(self.full_composites.get() + 1);
         let doc_id = self
@@ -562,6 +625,123 @@ impl App {
         self.project_tabs(cx);
         cx.notify();
         Ok(())
+    }
+
+    /// Composite the active document on a background executor, then swap the
+    /// canvas on the foreground. Stale completions are ignored when the
+    /// document or history version moves.
+    pub(crate) fn refresh_active_canvas_async(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let doc_id = self
+            .active_document
+            .as_ref()
+            .map(|document| document.doc_id.clone())
+            .ok_or_else(|| "no active document".to_string())?;
+        let (content, pixels, version) = {
+            let session = self
+                .sessions
+                .get(&doc_id)
+                .ok_or_else(|| "active session is missing".to_string())?;
+            let loaded = session.loaded_document();
+            let content = loaded
+                .content_snapshot()
+                .ok_or_else(|| "loaded content is missing".to_string())?
+                .clone();
+            let version = loaded
+                .registry
+                .get_history_version(&doc_id)
+                .ok_or_else(|| "history version is missing".to_string())?;
+            let mut pixels = Vec::with_capacity(content.layers.len());
+            for layer in content
+                .layers
+                .iter()
+                .filter(|layer| layer.layer_type == LayerType::Raster)
+            {
+                let canonical = loaded
+                    .registry
+                    .get_layer(&doc_id, &layer.id)
+                    .ok_or_else(|| "loaded layer pixels are missing".to_string())?;
+                pixels.push((
+                    layer.id.clone(),
+                    canonical.width,
+                    canonical.height,
+                    canonical.pixels.to_vec(),
+                ));
+            }
+            (content, pixels, version)
+        };
+        self.canvas_refresh_generation = self.canvas_refresh_generation.wrapping_add(1);
+        self.canvas_refresh_active = true;
+        let generation = self.canvas_refresh_generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let input = PreviewInput { layers: pixels };
+                    photrez_core::render::compositor::composite_layers_with_font_data(
+                        &content,
+                        &input,
+                        Some(crate::INTER),
+                    )
+                    .map(|composite| (composite.width, composite.height, composite.pixels))
+                    .map_err(|error| error.to_string())
+                })
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                app.finish_canvas_refresh_async(&doc_id, version, generation, result, cx);
+            });
+        })
+        .detach();
+        Ok(())
+    }
+
+    fn finish_canvas_refresh_async(
+        &mut self,
+        doc_id: &str,
+        version: u64,
+        generation: u64,
+        result: Result<(u32, u32, Vec<u8>), String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.canvas_refresh_active = false;
+        if generation != self.canvas_refresh_generation {
+            return;
+        }
+        let active = match self.active_document.as_mut() {
+            Some(active) if active.doc_id == doc_id => active,
+            _ => return,
+        };
+        if self.sessions.get(doc_id).and_then(|session| {
+            session
+                .loaded_document()
+                .registry
+                .get_history_version(doc_id)
+        }) != Some(version)
+        {
+            return;
+        }
+        let (width, height, pixels) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.set_status_error(Some(format!("Canvas refresh: {error}")), cx);
+                return;
+            }
+        };
+        let canvas = match CanvasImage::from_rgba(width, height, pixels) {
+            Ok(canvas) => canvas,
+            Err(error) => {
+                self.set_status_error(Some(format!("Canvas refresh: {error:?}")), cx);
+                return;
+            }
+        };
+        #[cfg(test)]
+        self.full_composites.set(self.full_composites.get() + 1);
+        let retired = std::mem::replace(&mut active.canvas, canvas);
+        self.retired_textures.extend(retired.into_textures());
+        self.project_history(cx);
+        self.project_tabs(cx);
+        cx.notify();
     }
 
     #[cfg(test)]
@@ -679,6 +859,18 @@ impl App {
 /// pointer-up commit stays full-resolution.
 /// Weighted ring-buffer smoothing: each
 /// move is averaged with recent points, newest weighted heaviest.
+fn cursor_for_handle(handle: crate::app::transform_geometry::Handle) -> CursorPolicy {
+    use crate::app::transform_geometry::Handle;
+    match handle {
+        Handle::Move => CursorPolicy::SystemDefault,
+        Handle::Rotate => CursorPolicy::Crosshair,
+        Handle::Nw | Handle::Se => CursorPolicy::ResizeNwse,
+        Handle::Ne | Handle::Sw => CursorPolicy::ResizeNesw,
+        Handle::W | Handle::E => CursorPolicy::ResizeEw,
+        Handle::N | Handle::S => CursorPolicy::ResizeNs,
+    }
+}
+
 pub(crate) struct PaintSmoother {
     xs: [f64; 10],
     ys: [f64; 10],
@@ -741,7 +933,7 @@ impl PaintSmoother {
     }
 }
 
-fn display_scale(
+pub(crate) fn display_scale(
     bounds: &Rc<Cell<Option<Bounds<Pixels>>>>,
     doc_size: (u32, u32),
     camera: Option<crate::display::canvas_bridge::Camera>,

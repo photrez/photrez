@@ -31,6 +31,8 @@ pub(crate) enum TransformMode {
 pub(crate) struct GroupMember {
     pub id: String,
     pub start: Transform2D,
+    pub lock_position: bool,
+    pub lock_rotation: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +62,23 @@ pub(crate) struct TransformDragUpdate {
     pub shift: bool,
     pub alt: bool,
     pub bypass_snap: bool,
+}
+
+fn nearly_equal(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
+
+/// A transform update that leaves every field at its starting value is a
+/// no-op, not a history entry. This covers click-without-drag and a drag that
+/// returns to its origin.
+fn transforms_equal(a: &Transform2D, b: &Transform2D) -> bool {
+    nearly_equal(a.x, b.x)
+        && nearly_equal(a.y, b.y)
+        && nearly_equal(a.scale_x, b.scale_x)
+        && nearly_equal(a.scale_y, b.scale_y)
+        && nearly_equal(a.rotation, b.rotation)
+        && a.flip_h == b.flip_h
+        && a.flip_v == b.flip_v
 }
 
 impl App {
@@ -152,6 +171,14 @@ impl App {
             flip_h: None,
             flip_v: None,
         };
+        let unchanged = nearly_equal(transform.x, layer.transform.x)
+            && nearly_equal(transform.y, layer.transform.y)
+            && nearly_equal(transform.scale_x, layer.transform.scale_x)
+            && nearly_equal(transform.scale_y, layer.transform.scale_y)
+            && nearly_equal(transform.rotation, layer.transform.rotation);
+        if unchanged {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::TransformLayer {
@@ -235,7 +262,14 @@ impl App {
             Handle::Rotate => TransformMode::Rotate,
             other => TransformMode::Resize(other),
         };
+        let blocked = layer.locked
+            || (mode == TransformMode::Move && layer.lock_position.unwrap_or(false))
+            || (mode == TransformMode::Rotate && layer.lock_rotation.unwrap_or(false));
+        if blocked {
+            return false;
+        }
         self.clear_queued_transform_drag_update();
+        self.invalidate_transform_preview();
         self.transform_drag = Some(TransformDrag {
             layer_id: layer.id,
             start: layer.transform.clone(),
@@ -275,12 +309,14 @@ impl App {
         let mut max_y = f64::NEG_INFINITY;
         for id in selected_ids {
             let layer = content.layers.iter().find(|layer| layer.id == id)?;
-            if !layer.visible {
+            if !layer.visible || layer.locked {
                 continue;
             }
             members.push(GroupMember {
                 id: layer.id.clone(),
                 start: layer.transform.clone(),
+                lock_position: layer.lock_position.unwrap_or(false),
+                lock_rotation: layer.lock_rotation.unwrap_or(false),
             });
             let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(layer);
             let (x, y, w, h) =
@@ -310,7 +346,7 @@ impl App {
         zoom: f64,
         cx: &Context<Self>,
     ) -> bool {
-        let Some((members, group_start)) = self.group_members(cx) else {
+        let Some((mut members, group_start)) = self.group_members(cx) else {
             return false;
         };
         let group_transform = Transform2D {
@@ -339,11 +375,20 @@ impl App {
             Handle::Rotate => TransformMode::Rotate,
             other => TransformMode::Resize(other),
         };
+        members.retain(|member| match mode {
+            TransformMode::Move => !member.lock_position,
+            TransformMode::Rotate => !member.lock_rotation,
+            TransformMode::Resize(_) => true,
+        });
+        if members.is_empty() {
+            return false;
+        }
         let previews = members
             .iter()
             .map(|member| (member.id.clone(), member.start.clone()))
             .collect();
         self.clear_queued_transform_drag_update();
+        self.invalidate_transform_preview();
         self.group_transform_drag = Some(GroupTransformDrag {
             members,
             group_start,
@@ -518,7 +563,7 @@ impl App {
             },
         };
         self.state.update(cx, |state, _| state.hud = Some(hud));
-        if let Err(error) = self.display_with_transform(&drag.layer_id, &drag.start, &next, cx) {
+        if let Err(error) = self.preview_transform_single(&drag.layer_id, &drag.start, &next, cx) {
             self.set_status_error(Some(format!("Transform preview: {error}")), cx);
         }
         cx.notify();
@@ -667,7 +712,7 @@ impl App {
         if let Some(state) = self.group_transform_drag.as_mut() {
             state.previews = previews.clone();
         }
-        if let Err(error) = self.display_with_transforms(&drag.members, &previews, cx) {
+        if let Err(error) = self.preview_transform_group(&drag.members, &previews, cx) {
             self.set_status_error(Some(format!("Transform preview: {error}")), cx);
         }
         cx.notify();
@@ -753,18 +798,28 @@ impl App {
     pub(crate) fn finish_transform_drag(&mut self, cx: &mut Context<Self>) -> bool {
         if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
             self.clear_queued_transform_drag_update();
+            self.invalidate_transform_preview();
         }
         self.state.update(cx, |state, _| state.hud = None);
         if let Some(drag) = self.group_transform_drag.take() {
             let Ok(doc_id) = self.active_doc_id() else {
                 return true;
             };
+            let mut changed = false;
             let mut result = Ok(());
-            for (id, transform) in drag.previews {
+            for (id, transform) in &drag.previews {
+                let unchanged = drag
+                    .members
+                    .iter()
+                    .any(|member| member.id == *id && transforms_equal(&member.start, transform));
+                if unchanged {
+                    continue;
+                }
+                changed = true;
                 let applied = self.apply_core_command(
                     &doc_id,
                     Command::TransformLayer {
-                        id,
+                        id: id.clone(),
                         transform: TransformPatch {
                             x: transform.x,
                             y: transform.y,
@@ -783,6 +838,11 @@ impl App {
                     break;
                 }
             }
+            if !changed {
+                self.set_status_error(None, cx);
+                cx.notify();
+                return true;
+            }
             match result {
                 Ok(()) => self.set_status_error(None, cx),
                 Err(error) => self.set_status_error(Some(format!("Transform: {error}")), cx),
@@ -794,6 +854,11 @@ impl App {
             return false;
         };
         self.snap_guides.clear();
+        if transforms_equal(&drag.preview, &drag.start) {
+            self.set_status_error(None, cx);
+            cx.notify();
+            return true;
+        }
         let Ok(doc_id) = self.active_doc_id() else {
             return true;
         };
@@ -834,6 +899,9 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer_for_cursor(cx)?;
+        if layer.locked || layer.lock_position.unwrap_or(false) {
+            return Ok(());
+        }
         self.apply_core_command(
             &doc_id,
             Command::TransformLayer {
@@ -856,6 +924,7 @@ impl App {
     /// Drop the preview without committing.
     pub(crate) fn cancel_transform_drag(&mut self, cx: &mut Context<Self>) -> bool {
         self.clear_queued_transform_drag_update();
+        self.invalidate_transform_preview();
         self.state.update(cx, |state, _| state.hud = None);
         if self.group_transform_drag.take().is_some() {
             let _ = self.refresh_active_canvas(cx);

@@ -21,7 +21,7 @@ impl App {
         let width_px = width as u32;
         let height_px = height as u32;
         self.state.update(cx, |state, _| {
-            state.resize_unit_open = false;
+            state.open_select = None;
             state.resize_canvas = Some(ResizeSession {
                 width_px,
                 height_px,
@@ -76,10 +76,16 @@ impl App {
         })
     }
 
-    /// Expands/collapses the unit list.
+    /// Expands/collapses the unit list. Superseded by the shared
+    /// `open_select` toggle; the dialog trigger uses `toggle_select_stay`.
+    #[expect(dead_code, reason = "superseded by the shared select toggle")]
     pub(crate) fn toggle_resize_unit(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
-            state.resize_unit_open = !state.resize_unit_open;
+            state.open_select = if state.open_select == Some("resize-unit") {
+                None
+            } else {
+                Some("resize-unit")
+            };
         });
         cx.notify();
     }
@@ -99,7 +105,7 @@ impl App {
                 session.width = unit.format(session.width_px);
                 session.height = unit.format(session.height_px);
             }
-            state.resize_unit_open = false;
+            state.open_select = None;
         });
         cx.notify();
     }
@@ -118,7 +124,7 @@ impl App {
             state.resize_canvas = None;
             state.active_dialog = None;
             state.open_select = None;
-            state.resize_unit_open = false;
+            state.open_select = None;
         });
         cx.notify();
     }
@@ -140,9 +146,8 @@ impl App {
         }
         match key {
             "escape" => {
-                if self.state.read(cx).resize_unit_open {
-                    self.state
-                        .update(cx, |state, _| state.resize_unit_open = false);
+                if self.state.read(cx).open_select == Some("resize-unit") {
+                    self.state.update(cx, |state, _| state.open_select = None);
                     cx.notify();
                 } else {
                     self.cancel_resize_canvas(cx);
@@ -249,7 +254,7 @@ impl App {
             state.resize_canvas = None;
             state.active_dialog = None;
             state.open_select = None;
-            state.resize_unit_open = false;
+            state.open_select = None;
         });
         self.apply_core_command(
             &doc_id,

@@ -336,7 +336,7 @@ impl App {
             .apply_command(doc_id, envelope)
             .map_err(|error| format!("{}: {}", error.code, error.message))?;
         self.sessions
-            .mark_dirty(doc_id)
+            .mark_history_dirty(doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         let active = self
             .active_document

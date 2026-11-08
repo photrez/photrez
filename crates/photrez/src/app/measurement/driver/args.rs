@@ -3,7 +3,7 @@
 
 use super::fixture::{Base, Content};
 
-pub(super) const USAGE: &str = "measure-input [options]\n  --samples N       independent runs (default 1; max 10)\n  --strokes N       strokes per run (default 1; max 100)\n  --moves N         pointer moves per stroke (default 1; max 1000)\n  --canvas N        canvas width (2 = bounded fixture; default 2; max 4096)\n  --canvas-height N canvas height (default: same as --canvas)\n  --layers N        raster layers in the generated fixture (default 1; max 4)\n  --brush-sizes A,B brush sizes in document px (default 2)\n  --base blank|opaque base layer for a generated canvas (default opaque)\n  --content plain|canonical layer content of a generated canvas\n                  (default plain; canonical = distinct patterned layers)\n  --case stroke|click|hover  measured interaction (default stroke)\n  --mode cold|warm  warm-up phase before the measured samples (default cold)\n  --warmup N        warm-up events (default 3 warm, 0 cold)\n  --fixture-out PATH  copy the staged fixture here so it can be hashed\n  --help            show this help\n\nCanonical fixture: --canvas 4096 --canvas-height 1024 --layers 3 --content canonical --brush-sizes 800,40 --samples 3 --strokes 12 --moves 40";
+pub(super) const USAGE: &str = "measure-input [options]\n  --samples N       independent runs (default 1; max 10)\n  --strokes N       strokes per run (default 1; max 100)\n  --moves N         pointer moves per stroke (default 1; max 1000)\n  --canvas N        canvas width (2 = bounded fixture; default 2; max 4096)\n  --canvas-height N canvas height (default: same as --canvas)\n  --layers N        raster layers in the generated fixture (default 1; max 4)\n  --brush-sizes A,B brush sizes in document px (default 2)\n  --base blank|opaque base layer for a generated canvas (default opaque)\n  --content plain|canonical layer content of a generated canvas\n                  (default plain; canonical = distinct patterned layers)\n  --case stroke|click|hover|slider-adjust|slider-opacity|dialog-drag|pan|transform  measured interaction (default stroke)\n  --mode cold|warm  warm-up phase before the measured samples (default cold)\n  --warmup N        warm-up events (default 3 warm, 0 cold)\n  --fixture-out PATH  copy the staged fixture here so it can be hashed\n  --help            show this help\n\nCanonical fixture: --canvas 4096 --canvas-height 1024 --layers 3 --content canonical --brush-sizes 800,40 --samples 3 --strokes 12 --moves 40";
 
 const MAX_SAMPLES: usize = 10;
 const MAX_STROKES: usize = 100;
@@ -14,12 +14,19 @@ const MAX_LAYERS: usize = 4;
 
 /// Which production interaction the run drives. `stroke` is the brush path;
 /// `click` is a Move-tool press/release on the page (a selection/metadata
-/// change); `hover` is a single pointer move with the Brush cursor armed.
+/// change); `hover` is a single pointer move with the Brush cursor armed. The
+/// remaining cases are drags: a slider track, a dialog titlebar, a middle
+/// pan, and a Move transform.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Case {
     Stroke,
     Click,
     Hover,
+    SliderAdjust,
+    SliderOpacity,
+    DialogDrag,
+    Pan,
+    Transform,
 }
 
 impl Case {
@@ -28,7 +35,23 @@ impl Case {
             Self::Stroke => "stroke",
             Self::Click => "click",
             Self::Hover => "hover",
+            Self::SliderAdjust => "slider-adjust",
+            Self::SliderOpacity => "slider-opacity",
+            Self::DialogDrag => "dialog-drag",
+            Self::Pan => "pan",
+            Self::Transform => "transform",
         }
+    }
+
+    pub(super) fn is_drag(self) -> bool {
+        matches!(
+            self,
+            Self::SliderAdjust
+                | Self::SliderOpacity
+                | Self::DialogDrag
+                | Self::Pan
+                | Self::Transform
+        )
     }
 }
 
@@ -210,6 +233,11 @@ pub(super) fn parse_args(args: &[String]) -> Result<Option<Config>, String> {
                     "stroke" => Case::Stroke,
                     "click" => Case::Click,
                     "hover" => Case::Hover,
+                    "slider-adjust" => Case::SliderAdjust,
+                    "slider-opacity" => Case::SliderOpacity,
+                    "dialog-drag" => Case::DialogDrag,
+                    "pan" => Case::Pan,
+                    "transform" => Case::Transform,
                     other => return Err(format!("unknown case: {other}")),
                 };
             }
@@ -289,6 +317,23 @@ mod tests {
         assert_eq!(config.mode, "cold");
         assert_eq!(config.warmup, 0);
         assert_eq!(config.content, Content::Plain);
+    }
+
+    #[test]
+    fn parser_selects_the_drag_cases() {
+        for (value, case) in [
+            ("slider-adjust", Case::SliderAdjust),
+            ("slider-opacity", Case::SliderOpacity),
+            ("dialog-drag", Case::DialogDrag),
+            ("pan", Case::Pan),
+            ("transform", Case::Transform),
+        ] {
+            let config = parse_args(&["--case".into(), value.into()])
+                .expect("parses")
+                .expect("not help");
+            assert_eq!(config.case, case);
+            assert!(case.is_drag());
+        }
     }
 
     #[test]

@@ -105,6 +105,22 @@ impl CanvasImage {
         self.tile_size
     }
 
+    /// Document-space rectangles of the pending live preview overlays.
+    #[cfg(test)]
+    pub fn preview_patch_rects(&self) -> Vec<(u32, u32, u32, u32)> {
+        self.preview_patches
+            .iter()
+            .map(|patch| {
+                (
+                    patch.rect.x,
+                    patch.rect.y,
+                    patch.rect.width,
+                    patch.rect.height,
+                )
+            })
+            .collect()
+    }
+
     fn validate_region(
         &self,
         x: u32,

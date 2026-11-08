@@ -1,8 +1,7 @@
 //! Typed application state for the native shell.
 //!
-//! Seeded from `--shot <id>` via [`AppState::seeded`] so the capture harness
-//! can drive one deterministic UI state per manifest entry without a real
-//! document.
+//! Seeded from `--shot <id>` via [`AppState::seeded`] so one named UI state
+//! can render without a real document.
 
 use crate::units::DimensionUnit;
 
@@ -280,13 +279,16 @@ pub struct AppState {
     pub selected_layer: u64,
     /// All selected row ids (Ctrl-click adds/removes; the primary is last).
     pub selected_layers: Vec<u64>,
+    /// Core id the layer-editing tools keep targeting after the transform
+    /// selection is cleared. Paint owns this target; the Move box does not.
+    pub paint_target_core_id: Option<String>,
     /// History rows projected from the active document's core stream.
     pub history: Vec<HistoryRow>,
     /// `chrome-hidden`: the rail, option bar, dock and status bar hidden while
     /// the title bar and the document tabs stay.
     pub chrome_visible: bool,
     /// The last save failure, shown in the status bar until a save succeeds.
-    /// `None` is the resting state the baseline captures.
+    /// `None` is the resting state.
     pub status_error: Option<String>,
     /// The live toast stack, oldest first, capped at three.
     pub toasts: Vec<Toast>,
@@ -368,10 +370,6 @@ pub struct AppState {
     /// source for background-filled areas.
     pub bg_color: [u8; 4],
     /// Crop bar `Delete`: discard pixels outside the crop (on by default).
-    /// The Settings dialog's language list is expanded (`LanguageSwitcher`).
-    pub settings_language_open: bool,
-    /// The Resize Canvas unit list is expanded.
-    pub resize_unit_open: bool,
     pub crop_delete_pixels: bool,
     /// Crop bar `Fill BG`: bake the background colour under the crop.
     pub crop_fill_background: bool,
@@ -488,6 +486,14 @@ pub struct AppState {
     /// Which not-yet-built adjustment groups are expanded, by section id. Each
     /// group opens independently and shows its In Development card.
     pub open_adjustment_sections: Vec<String>,
+    /// Whether the Navigator section's body is collapsed to its header.
+    pub navigator_collapsed: bool,
+    /// Laid-out bounds of the Navigator's zoom track, for pointer-to-zoom math.
+    pub nav_zoom_track_bounds:
+        std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// The Navigator zoom track's pointer capture, held across renders so a
+    /// drag started on the track keeps routing move and release events.
+    pub nav_zoom_capture: std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
     /// Mini undo/redo for the crop frame.
@@ -598,7 +604,12 @@ pub struct AppState {
     pub brush_menu_capture: std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
     /// Control whose tooltip is showing, if any. A `String` because layer-row
     /// tooltips carry the row's numeric id, which no static key can encode.
+    /// The id arrives on hover enter; the overlay paints it only once the
+    /// hover delay measured from [`AppState::tooltip_since`] has elapsed.
     pub tooltip: Option<String>,
+    /// When the hovered control's hover began, on the executor's clock, so
+    /// the overlay and the tests read one time source.
+    pub tooltip_since: Option<std::time::Instant>,
     /// Tool-rail button under the pointer, if any. The rail resolves its icon
     /// tint from this because `Icon` reads its own colour field at build time.
     pub hovered_tool: Option<ToolId>,

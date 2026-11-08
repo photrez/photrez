@@ -22,6 +22,7 @@ impl Default for AppState {
             }],
             selected_layer: 0,
             selected_layers: vec![0],
+            paint_target_core_id: None,
             layer_flags: vec![LayerFlags {
                 visible: true,
                 locked: false,
@@ -80,8 +81,6 @@ impl Default for AppState {
             print_scale_slider_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             fg_color: [225, 90, 23, 255],
             bg_color: [255, 255, 255, 255],
-            settings_language_open: false,
-            resize_unit_open: false,
             crop_delete_pixels: true,
             crop_fill_background: true,
             #[cfg(test)]
@@ -159,6 +158,9 @@ impl Default for AppState {
             show_transform_controls: true,
             constrain_ratio: true,
             open_adjustment_sections: Vec::new(),
+            navigator_collapsed: false,
+            nav_zoom_track_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
+            nav_zoom_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
             crop_rect: None,
             crop_history: Vec::new(),
             crop_redo: Vec::new(),
@@ -209,6 +211,7 @@ impl Default for AppState {
             brush_menu_strength_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             brush_menu_capture: std::rc::Rc::new(std::cell::Cell::new(None)),
             tooltip: None,
+            tooltip_since: None,
             hovered_tool: None,
             resize_canvas: None,
         }

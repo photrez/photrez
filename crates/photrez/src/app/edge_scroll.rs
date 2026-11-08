@@ -13,6 +13,9 @@ use super::App;
 const EDGE_ZONE: f32 = 40.;
 const SPEED_FACTOR: f32 = 0.45;
 const TICK: Duration = Duration::from_millis(16);
+/// A stalled loop or a suspended process must not turn into a teleport when
+/// it resumes. Three ticks is the most one frame may contribute.
+const MAX_TICK_DT: f32 = 0.05;
 
 fn smoothstep(t: f32) -> f32 {
     let c = t.clamp(0., 1.);
@@ -113,6 +116,7 @@ impl App {
         if generation != self.edge_scroll_generation || !self.edge_scroll_active {
             return false;
         }
+        let dt = dt.clamp(0., MAX_TICK_DT);
         let Some(position) = self.edge_pointer else {
             return false;
         };
