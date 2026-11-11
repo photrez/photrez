@@ -611,7 +611,7 @@ fn text_swatch_paints_the_foreground_in_draw_mode(cx: &mut gpui_kit::TestAppCont
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
 
-    cx.update_window(window.into(), |_, window, cx| {
+    let _ = cx.update_window(window.into(), |_, window, cx| {
         set_tool(&content, cx, ToolId::Text, 1.0);
         window.render_frame(cx);
         content.update(cx, |app, cx| {

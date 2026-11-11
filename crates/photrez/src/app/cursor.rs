@@ -338,9 +338,7 @@ mod imp {
     pub(super) fn ensure_subclass() -> bool {
         static INSTALL_LOCK: Mutex<()> = Mutex::new(());
         install_once(&PREVIOUS_WNDPROC, &INSTALL_LOCK, || {
-            let Some(root) = root_window_at_cursor() else {
-                return None;
-            };
+            let root = root_window_at_cursor()?;
             let previous = unsafe {
                 SetWindowLongPtrW(root, GWLP_WNDPROC, rotate_wndproc as *const () as isize)
             };
@@ -348,7 +346,7 @@ mod imp {
                 eprintln!("photrez: cursor subclass failed to install");
                 return None;
             }
-            Some(unsafe { std::mem::transmute(previous) })
+            Some(unsafe { std::mem::transmute::<isize, WndProc>(previous) })
         })
     }
 }

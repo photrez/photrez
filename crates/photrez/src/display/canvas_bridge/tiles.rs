@@ -2,11 +2,11 @@
 use super::TILE_SIZE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct TileRect {
-    pub(super) x: u32,
-    pub(super) y: u32,
-    pub(super) width: u32,
-    pub(super) height: u32,
+pub(crate) struct TileRect {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
 #[cfg(test)]

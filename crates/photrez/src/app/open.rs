@@ -90,20 +90,19 @@ impl App {
 fn watch_open_progress(generation: u64, progress: Arc<AtomicU32>, cx: &mut Context<App>) {
     cx.spawn(async move |this, cx| loop {
         cx.background_executor().timer(PROGRESS_POLL).await;
-        let stop = match this.update(cx, |app, cx| {
-            let loading = app.state.read(cx).loading;
-            if app.loading_generation != generation || loading.is_none() {
-                return true;
-            }
-            let fraction = progress.load(Ordering::Relaxed) as f32 / 1000.0;
-            if fraction > 0.0 {
-                app.set_loading_progress(fraction, cx);
-            }
-            false
-        }) {
-            Ok(stop) => stop,
-            Err(_) => true,
-        };
+        let stop = this
+            .update(cx, |app, cx| {
+                let loading = app.state.read(cx).loading;
+                if app.loading_generation != generation || loading.is_none() {
+                    return true;
+                }
+                let fraction = progress.load(Ordering::Relaxed) as f32 / 1000.0;
+                if fraction > 0.0 {
+                    app.set_loading_progress(fraction, cx);
+                }
+                false
+            })
+            .unwrap_or(true);
         if stop {
             break;
         }

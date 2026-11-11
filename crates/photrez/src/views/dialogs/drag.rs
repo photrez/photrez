@@ -11,8 +11,9 @@ use crate::state::DialogId;
 const SLOT_COUNT: usize = 10;
 
 thread_local! {
-    static DIALOG_OFFSETS: RefCell<[(f32, f32); SLOT_COUNT]> = RefCell::new([(0.0, 0.0); SLOT_COUNT]);
-    static DRAG_SESSION: RefCell<Option<DragSession>> = RefCell::new(None);
+    static DIALOG_OFFSETS: RefCell<[(f32, f32); SLOT_COUNT]> =
+        const { RefCell::new([(0.0, 0.0); SLOT_COUNT]) };
+    static DRAG_SESSION: RefCell<Option<DragSession>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy)]

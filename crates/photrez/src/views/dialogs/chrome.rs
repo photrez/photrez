@@ -140,14 +140,13 @@ fn titlebar_with(
     close: impl IntoElement,
     cx_title: Option<(&gpui_kit::Context<crate::app::App>, crate::state::DialogId)>,
 ) -> impl IntoElement {
-    let drag = match cx_title {
-        Some((cx, dialog)) => Some(cx.listener(
+    let drag = cx_title.map(|(cx, dialog)| {
+        cx.listener(
             move |_app, event: &gpui_kit::MouseDownEvent, _window, _cx| {
                 drag::start_drag(dialog, event.position);
             },
-        )),
-        None => None,
-    };
+        )
+    });
     let titlebar = h_flex()
         .id("dialog-drag-handle")
         .test_support()

@@ -191,7 +191,7 @@ impl App {
             .get(index)
             {
                 self.state.update(cx, |state, _| {
-                    state.export_format = format.clone();
+                    state.export_format = *format;
                     state.export_format_open = false;
                     state.active_dialog = Some(crate::state::DialogId::Export);
                 });

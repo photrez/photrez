@@ -158,10 +158,10 @@ impl App {
     }
 
     fn close_document_by_id(&mut self, doc_id: &str, cx: &mut Context<Self>) {
-        if !self
+        if self
             .active_document
             .as_ref()
-            .is_some_and(|document| document.doc_id == doc_id)
+            .is_none_or(|document| document.doc_id != doc_id)
         {
             self.close_document_tab_unchecked(doc_id, cx);
             return;
@@ -267,10 +267,10 @@ impl App {
             .and_then(|session| session.source_path())
             .is_some();
         if !has_source {
-            if !self
+            if self
                 .active_document
                 .as_ref()
-                .is_some_and(|document| document.doc_id == doc_id)
+                .is_none_or(|document| document.doc_id != doc_id)
             {
                 if let Err(error) = self.activate_document(&doc_id, cx) {
                     self.pending_close = None;

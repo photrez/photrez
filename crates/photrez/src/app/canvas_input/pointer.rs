@@ -129,15 +129,8 @@ impl App {
         } else {
             canvas_doc_coords(event.position, bounds, doc_size, camera)
         };
-        if self.state.read(cx).text_edit.is_some() {
+        if let Some(session) = self.state.read(cx).text_edit.clone() {
             let inside_editor = free_mapped.is_some_and(|(x, y)| {
-                let session = self
-                    .state
-                    .read(cx)
-                    .text_edit
-                    .as_ref()
-                    .cloned()
-                    .expect("the session was just observed");
                 let zoom = display_scale(bounds, doc_size, camera).max(f64::EPSILON);
                 let min_box = 24.0 / zoom;
                 let width = f64::from(session.preview.0).max(min_box);
@@ -174,16 +167,16 @@ impl App {
                         })
                 });
                 if let Some(layer) = text_layer {
+                    let Some(text_data) = layer.text_data.clone() else {
+                        return;
+                    };
                     self.move_auto_select_click(x, y, false, cx);
                     self.select_canvas_tool(ToolId::Text, cx);
                     self.begin_text_edit_existing(
                         layer.id,
                         layer.transform.x,
                         layer.transform.y,
-                        layer
-                            .text_data
-                            .clone()
-                            .expect("the layer was filtered on text data"),
+                        text_data,
                         cx,
                     );
                     return;

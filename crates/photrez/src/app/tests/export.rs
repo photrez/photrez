@@ -187,7 +187,7 @@ fn export_path_selection_stays_bound_to_the_document_active_when_prompt_started(
         exported, baseline,
         "export must encode the document that was active when the prompt started"
     );
-    content.update(cx, |app, cx| {
+    content.update(cx, |app, _cx| {
         assert_eq!(
             app.active_document_id_for_test().as_deref(),
             Some(second_doc_id.as_str()),

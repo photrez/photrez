@@ -115,7 +115,7 @@ impl App {
             } else if state
                 .paint_target_core_id
                 .as_deref()
-                .map_or(true, |id| !layers.iter().any(|layer| layer.id == id))
+                .is_none_or(|id| !layers.iter().any(|layer| layer.id == id))
             {
                 state.paint_target_core_id = layers
                     .iter()

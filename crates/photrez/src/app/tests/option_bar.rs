@@ -145,7 +145,7 @@ fn brush_overflow_folds_into_the_more_dropdown_below_880(cx: &mut gpui_kit::Test
 fn option_bar_controls_show_hover_tooltips(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
-    cx.update_window(window.into(), |_, window, cx| {
+    let _ = cx.update_window(window.into(), |_, window, cx| {
         set_tool(&content, cx, ToolId::Shape, 1.0);
         window.render_frame(cx);
         window.hover("opt-shape-kind", cx);

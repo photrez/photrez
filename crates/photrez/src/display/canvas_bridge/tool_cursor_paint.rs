@@ -37,8 +37,9 @@ fn tool_image(index: usize) -> Arc<RenderImage> {
     CACHE[index]
         .get_or_init(|| {
             let rgba = decode_tool_rgba(index);
-            let buffer =
-                ::image::ImageBuffer::from_raw(32, 32, rgba).expect("tool cursor bitmap is 32x32");
+            let Some(buffer) = ::image::ImageBuffer::from_raw(32, 32, rgba) else {
+                unreachable!("tool cursor bitmap is 32x32");
+            };
             Arc::new(RenderImage::new(vec![::image::Frame::new(buffer)]))
         })
         .clone()
