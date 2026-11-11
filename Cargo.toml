@@ -1,3 +1,10 @@
+# `App::set_pointer_hidden` (gpui-fast 0.1.13) keeps the brush ring as the only
+# pointer on macOS, X11, and Wayland. Patched crates live on photrez/gpui-fast
+# branch release/0.1.13-photrez-pointer until crates.io publishes the API.
+[patch.crates-io]
+gpui-fast = { git = "https://github.com/photrez/gpui-fast", rev = "d5af71f0cfdbcf7fa1878d85cbf09569f8574c81" }
+gpui-fast-linux = { git = "https://github.com/photrez/gpui-fast", rev = "d5af71f0cfdbcf7fa1878d85cbf09569f8574c81", package = "gpui-fast-linux" }
+
 [workspace]
 resolver = "2"
 members = ["crates/*"]
@@ -40,6 +47,13 @@ gpui-kit = { opt-level = 2 }
 gpui-pre = { opt-level = 2 }
 photrez = { opt-level = 2 }
 photrez-core = { opt-level = 3 }
+# The compositor, brush rasterizer, and codecs do the per-pixel work for every
+# edit. At opt-level 0 a 12 MP composite takes about 1.2 s, so the dev build
+# stalls on the UI thread. Keep the pixel crates at the core's level.
+photrez-document = { opt-level = 3 }
+photrez-format = { opt-level = 3 }
+photrez-raster = { opt-level = 3 }
+photrez-render = { opt-level = 3 }
 
 # Dev builds need backtraces, not variable-level DWARF: full debug info was most
 # of the 773 MB binary (292 MB with this setting). When a debugger needs
@@ -61,3 +75,7 @@ photrez = { opt-level = 1 }
 inherits = "dev"
 opt-level = 3
 debug = "line-tables-only"
+
+
+
+
