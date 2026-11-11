@@ -269,11 +269,13 @@ impl App {
         let mut min_y = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut max_y = f64::NEG_INFINITY;
+        let mut transformable = false;
         for id in &selected_ids {
             let layer = content.layers.iter().find(|layer| &layer.id == id)?;
             if !layer.visible {
                 continue;
             }
+            transformable |= crate::app::transform_geometry::layer_can_transform(layer);
             let transform = previews
                 .iter()
                 .find(|(preview_id, _)| preview_id == id)
@@ -286,6 +288,9 @@ impl App {
             min_y = min_y.min(y);
             max_x = max_x.max(x + w);
             max_y = max_y.max(y + h);
+        }
+        if !transformable {
+            return None;
         }
         if !min_x.is_finite() || !min_y.is_finite() || max_x <= min_x || max_y <= min_y {
             return None;

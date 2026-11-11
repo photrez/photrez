@@ -207,7 +207,20 @@ pub fn load_document_candidate(
     file_io: &dyn FileIo,
     approved_path: &Path,
 ) -> Result<LoadedDocument, ServiceError> {
+    load_document_candidate_with_progress(file_io, approved_path, &mut |_| {})
+}
+
+/// The same load, with completed-fraction updates for the loading overlay. The
+/// fractions follow the real stages: archive read, validation, one step per
+/// raster layer, registry seed, composite.
+pub fn load_document_candidate_with_progress(
+    file_io: &dyn FileIo,
+    approved_path: &Path,
+    progress: &mut (dyn FnMut(f32) + Send),
+) -> Result<LoadedDocument, ServiceError> {
+    progress(0.02);
     let archive_bytes = file_io.read_approved(approved_path, MAX_ARCHIVE_ENTRY_BYTES)?;
+    progress(0.10);
     let archive_size = u64::try_from(archive_bytes.len())
         .map_err(|_| resource_limit("project archive size does not fit in file-size range"))?;
     if archive_size > MAX_ARCHIVE_ENTRY_BYTES {
@@ -223,6 +236,7 @@ pub fn load_document_candidate(
     if archive.has_overlapping_entries().map_err(invalid_archive)? {
         return Err(validation("project archive entries overlap"));
     }
+    progress(0.15);
 
     let mut seen_names = HashSet::with_capacity(archive.len());
     let mut document_entry: Option<ArchiveEntry> = None;
@@ -269,11 +283,13 @@ pub fn load_document_candidate(
         .map_err(|error| validation(format!("invalid document.json: {error}")))?;
 
     let rasters = validate_content(&content, layer_entries, &mut budget)?;
+    progress(0.20);
 
     let document_id = content.id.clone();
     let mut registry = PixelStoreRegistry::new();
     registry.open_document(&document_id);
-    for raster in &rasters {
+    let raster_total = rasters.len().max(1);
+    for (index, raster) in rasters.iter().enumerate() {
         let pixels = if raster.width == 0 {
             Vec::new()
         } else {
@@ -294,10 +310,12 @@ pub fn load_document_candidate(
                 pixels,
             )
             .map_err(|error| validation(format!("cannot seed raster pixels: {error}")))?;
+        progress(0.20 + 0.70 * ((index + 1) as f32 / raster_total as f32));
     }
     registry
         .seed_document(&document_id, content)
         .map_err(|error| validation(format!("cannot seed document metadata: {error}")))?;
+    progress(0.95);
 
     let content = registry
         .document_content(&document_id)
@@ -312,6 +330,7 @@ pub fn load_document_candidate(
             "the supported layer stack could not be rendered: {error}"
         ))
     })?;
+    progress(1.0);
 
     Ok(LoadedDocument {
         registry,

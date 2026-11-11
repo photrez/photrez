@@ -1,65 +1,21 @@
 //! The loading overlay.
 //!
-//! # Geometry, and why it stops below the title bar
-//!
-//! ```text
-//!   loading-overlay  1366x774 @ 0,46
-//!   loading-status   1366x24  @ 0,796
-//! ```
-//!
-//! 774 = 820 - 46, so the overlay covers everything *below* the title bar and
-//! the title bar keeps drawing normally on top of nothing.
-//! `loading-status` is the last 24 rows, which is exactly `shell-status-bar`'s
-//! rect - so the two overlap by construction, and this view renders the overlay
-//! over the content while `status_bar::render()` keeps its own 24px rather than
-//! treating them as a separate surface.
-//!
-//! # There *is* a scrim here, unlike the dialogs
-//!
-//! `dialogs.rs` measured a fully transparent backdrop on its dialog surface.
-//! This overlay is the opposite, and the measurement is
-//! unambiguous on every *resting* surface: the rail's `#1b1b1b` (27) reads
-//! `#101010` (16, = 27 * 0.6), the dock's `#1e1e1e` (30) reads 18, and the
-//! white canvas (255) reads 153 - a flat 40%, so the scrim is black at 40%.
-//! An earlier read of 22 at (20,100) compared against the resting rail when
-//! that row's own fill reads 38 (a highlighted rail row; 38 * 0.6 = 22.8) -
-//! the alpha was pinned from a row fill, not from the background.
-//!
-//! # What is measured and what is not
-//!
-//! The scrim and the rect are measured. What sits *on top* of the scrim is not
-//! fully resolved: scanning the overlay's ink finds a 527px-tall band
-//! (y=151..677) whose cross-section at y=410 is 31 vertical stripes from x=100
-//! to x=596, each 8px wide on a 16px pitch, with denser text-like ink from 636
-//! to 720. A 16px pitch of 8px bars is not a pattern this view can attribute
-//! confidently - it is consistent with a segmented progress indicator, and also
-//! with a checkerboard or a thumbnail grid at that spacing.
-//!
-//! Rather than pick one, this view draws the scrim plus a centred spinner of the
-//! size the ink band's *centre* implies and records the stripe run in this doc.
-//! That is a deliberate gap: a guessed progress bar would score well against a
-//! baseline it happened to match and mislead the next reader about what the
-//! overlay actually shows.
-//!
-//! # The defining gap
-//!
-//! **No rotation and no animation.** A spinner is a continuously rotating
-//! element, so any single frame is an arbitrary rotation of it - there is no
-//! correct static pose. The capture caught one pose and this view draws
-//! another, and neither is wrong; only the geometry can be compared.
+//! The scrim is measured: black at 40% over the resting surfaces, covering
+//! everything below the 46px title bar. The owner redesigned the captured
+//! content as a compact progress bar: one caption above one track. The overlay
+//! renders during a live document open and for `--shot loading-*`. Project
+//! loads report per-layer progress; a raster decode stays indeterminate.
+//! `None` draws the indeterminate segment rather than a fabricated percentage.
 
 use gpui_kit::base::v_flex;
 use gpui_kit::prelude::*;
 use gpui_kit::{div, px, Div, FontWeight, Hsla};
 
 use crate::components::ui;
-use crate::shot;
 use crate::tokens::color;
 
 /// The overlay covers everything below the 46px title bar.
 const OVERLAY_Y: f32 = 46.0;
-const OVERLAY_H: f32 = 774.0;
-const OVERLAY_W: f32 = 1366.0;
 
 /// Black at 40% - the scrim, measured on the resting surfaces: the rail's
 /// `#1b1b1b` (27) becomes `#101010` (16, = 27 * 0.6), the dock becomes 18 and
@@ -71,96 +27,65 @@ const SCRIM: Hsla = Hsla {
     a: 0.4,
 };
 
-/// The ink band's measured extent: y=151..677 within the crop, so 527px tall
-/// starting 105px below the overlay's own top.
-#[allow(
-    dead_code,
-    reason = "measured constant for the unresolved ink band; retained for future readers, not painted"
-)]
-const BAND_Y: f32 = 105.0;
-#[allow(
-    dead_code,
-    reason = "measured constant for the unresolved ink band; retained for future readers, not painted"
-)]
-const BAND_H: f32 = 527.0;
+/// The compact frame: a 280px track under a one-line caption.
+const BAR_W: f32 = 280.0;
+const BAR_H: f32 = 6.0;
+const CAPTION_GAP: f32 = 8.0;
 
-/// The stripe run: x=100..596 at y=410, 8px bars on a 16px pitch.
-const STRIPE_X0: f32 = 100.0;
-const STRIPE_X1: f32 = 596.0;
-const STRIPE_PITCH: f32 = 16.0;
-const STRIPE_W: f32 = 8.0;
+/// The fraction drawn when no caller has real progress to report.
+const INDETERMINATE_FRACTION: f32 = 0.35;
 
-/// A spinner of the size the band's centre implies - drawn as a ring, because
-/// a real spinner is a rotating arc and any single frame of it is an arbitrary
-/// rotation.
-const SPINNER: f32 = 32.0;
-
-/// The caption beneath the spinner; static, because the captured frame shows
-/// it at rest.
-const LABEL: &str = "Loading"; // i18n-exempt: not in catalog <"Loading" differs from common.loading's "Loading…"; the loading overlay renders engine status messages, not this caption>
-
-pub fn render() -> impl IntoElement {
-    // `loading-status` is only the bottom 24 rows, and that rectangle is
-    // `status_bar`'s - the overlay itself is the same thing either way, so the
-    // status shot reuses it rather than getting a second implementation.
-    let _ = shot::active();
-
+pub fn render(progress: Option<f32>) -> impl IntoElement {
+    let fill_width = BAR_W * progress_fraction(progress);
     div()
         .absolute()
         .top(px(OVERLAY_Y))
         .left(px(0.0))
-        .w(px(OVERLAY_W))
-        .h(px(OVERLAY_H))
+        .right(px(0.0))
+        .bottom(px(0.0))
+        .occlude()
         .bg(SCRIM)
-        .child(centred_spinner())
+        .child(centred_progress(fill_width))
 }
 
-/// The overlay's own content, centred in the area it covers.
-///
-/// The centred column is the one thing the measurement *does* support: the ink
-/// band is symmetric about the crop's own centre, and a spinner is what a
-/// loading overlay is for. The stripe run is recorded in the module docs
-/// rather than reproduced, because no reading of it is confident enough to be
-/// worth the pixels it would get wrong.
-fn centred_spinner() -> Div {
+fn centred_progress(fill_width: f32) -> Div {
     v_flex()
         .size_full()
         .items_center()
         .justify_center()
-        .gap(px(12.0))
-        .child(
-            // A ring, not an arc: an arc would claim a rotation a resting
-            // overlay never has.
-            div()
-                .w(px(SPINNER))
-                .h(px(SPINNER))
-                .rounded_full()
-                .border_2()
-                .border_color(color::ACCENT),
-        )
+        .gap(px(CAPTION_GAP))
         .child(
             div()
                 .text_size(px(12.0))
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
                 .text_color(color::TEXT)
-                .child(LABEL.to_string()),
+                .child(crate::i18n::t("common.loading")),
+        )
+        .child(
+            div()
+                .w(px(BAR_W))
+                .h(px(BAR_H))
+                .rounded_full()
+                .bg(color::BORDER)
+                .child(
+                    div()
+                        .w(px(fill_width))
+                        .h_full()
+                        .rounded_full()
+                        .bg(color::ACCENT),
+                ),
         )
 }
 
-/// The measured stripe run, returned as its count, pitch and width so a future
-/// reader can decide what it was without re-scanning the PNG.
-///
-/// A function rather than three constants because the count is derived, and a
-/// caller that wants "how many bars" should ask rather than divide a width by a
-/// pitch and hope both are still the numbers they were when it was measured.
-#[allow(
-    dead_code,
-    reason = "documented measurement helper: dead in non-test builds (render path does not paint the stripe run), used by unit tests in test builds; allow never warns where expect would go unfulfilled"
-)]
-pub fn stripe_run() -> (usize, f32, f32) {
-    let count = ((STRIPE_X1 - STRIPE_X0) / STRIPE_PITCH).round() as usize;
-    (count, STRIPE_PITCH, STRIPE_W)
+/// `None` means no real progress is known; the bar shows its indeterminate
+/// segment instead of inventing a percentage.
+fn progress_fraction(progress: Option<f32>) -> f32 {
+    match progress {
+        None => INDETERMINATE_FRACTION,
+        Some(value) if value.is_finite() => value.clamp(0.0, 1.0),
+        Some(_) => 0.0,
+    }
 }
 
 #[cfg(test)]
@@ -168,26 +93,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stripe_run_is_thirty_one_bars() {
-        // (596 - 100) / 16 = 31 exactly.
-        assert_eq!(stripe_run(), (31, 16.0, 8.0));
+    fn determinate_progress_clamps_to_the_track() {
+        assert_eq!(progress_fraction(Some(0.0)), 0.0);
+        assert_eq!(progress_fraction(Some(0.5)), 0.5);
+        assert_eq!(progress_fraction(Some(1.0)), 1.0);
+        assert_eq!(progress_fraction(Some(1.7)), 1.0);
+        assert_eq!(progress_fraction(Some(-0.2)), 0.0);
     }
 
     #[test]
-    fn overlay_covers_everything_below_title_bar() {
-        // 46 + 774 = 820, the full window height.
-        assert_eq!(OVERLAY_Y + OVERLAY_H, 820.0);
-    }
-
-    #[test]
-    fn scrim_is_forty_percent_black() {
-        assert_eq!(SCRIM.a, 0.4);
-        assert_eq!(SCRIM.h, 0.0);
-        assert_eq!(SCRIM.s, 0.0);
-    }
-
-    #[test]
-    fn spinner_label_is_static_loading() {
-        assert_eq!(LABEL, "Loading");
+    fn missing_progress_draws_the_indeterminate_segment() {
+        assert_eq!(progress_fraction(None), INDETERMINATE_FRACTION);
+        assert_eq!(progress_fraction(Some(f32::NAN)), 0.0);
     }
 }
