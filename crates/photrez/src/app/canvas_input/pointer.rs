@@ -438,16 +438,166 @@ impl App {
         let _ = doc_size;
         self.hover_pos = Some(event.position);
         let tool = self.state.read(cx).active_tool;
+        let policy = self.canvas_cursor_policy(cx);
+        crate::app::cursor::set_tool_cursor(crate::app::cursor::tool_cursor_index(tool, policy));
+        if matches!(tool, ToolId::Brush | ToolId::Eraser) {
+            let ring = self.brush_ring_for_overlay(cx);
+            let visible = ring.is_some();
+            let hide = visible && policy == CursorPolicy::SystemDefault;
+            crate::app::cursor::set_brush_hidden(hide);
+            let native =
+                ring.is_some_and(|ring| crate::app::ring_overlay::show(ring, self.window_scale));
+            if native != self.native_ring_active {
+                self.native_ring_active = native;
+                cx.notify();
+            } else if !native && visible {
+                cx.notify();
+            }
+            if !visible {
+                crate::app::ring_overlay::hide();
+                self.native_ring_active = false;
+            }
+        }
         if (tool == ToolId::Crop && self.state.read(cx).crop_rect.is_some()) || tool == ToolId::Move
         {
-            let policy = self.canvas_cursor_policy(cx);
-            if policy != self.last_cursor {
+            let rotate = tool == ToolId::Move && policy == CursorPolicy::Rotate;
+            let direction = if rotate {
+                self.rotate_cursor_direction(cx).unwrap_or(0)
+            } else {
+                0
+            };
+            crate::app::cursor::set_rotate(rotate, direction);
+            if policy != self.last_cursor
+                || (rotate && !crate::app::cursor::native_rotate_available())
+            {
                 self.last_cursor = policy;
                 cx.notify();
             }
         }
+        self.sync_photrez_system_pointer(cx, tool, policy);
     }
 
+    /// The 22.5-degree bucket of the pointer around the layer centre.
+    pub(crate) fn rotate_cursor_direction(&self, cx: &Context<Self>) -> Option<u8> {
+        let position = self.hover_pos?;
+        let (doc_w, doc_h) = self.active_document.as_ref()?.canvas.dimensions();
+        let (x, y) = canvas_doc_coords_free(
+            position,
+            &self.canvas_bounds,
+            (doc_w, doc_h),
+            self.active_camera(),
+        )?;
+        let (_, layer) = self.selected_layer_for_cursor(cx).ok()?;
+        let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+        let center =
+            crate::app::transform_geometry::layer_center(&layer.transform, frame_w, frame_h);
+        Some(crate::app::cursor::direction_bucket(
+            (center.x, center.y),
+            (x, y),
+        ))
+    }
+
+    /// The pointer left the canvas: no hover cursor or sprite may outlive it.
+    pub(crate) fn canvas_hover_end(&mut self, cx: &mut Context<Self>) {
+        let erase_brush_ring = self.hover_pos.is_some()
+            && matches!(
+                self.state.read(cx).active_tool,
+                ToolId::Brush | ToolId::Eraser
+            );
+        self.hover_pos = None;
+        crate::app::cursor::set_rotate(false, 0);
+        crate::app::cursor::set_brush_hidden(false);
+        crate::app::cursor::set_tool_cursor(None);
+        crate::app::ring_overlay::hide();
+        self.native_ring_active = false;
+        let policy_changed = self.last_cursor != CursorPolicy::SystemDefault;
+        if policy_changed {
+            self.last_cursor = CursorPolicy::SystemDefault;
+        }
+        if erase_brush_ring || policy_changed {
+            cx.notify();
+        }
+        self.release_photrez_system_pointer();
+    }
+
+    /// Re-evaluate native hover cursors after a key or tool change without a move.
+    pub(crate) fn sync_hover_cursor(&mut self, cx: &Context<Self>) {
+        crate::app::ring_overlay::hide();
+        self.native_ring_active = false;
+        let tool = self.state.read(cx).active_tool;
+        let policy = self.canvas_cursor_policy(cx);
+        let rotate = tool == ToolId::Move && policy == CursorPolicy::Rotate;
+        let direction = if rotate {
+            self.rotate_cursor_direction(cx).unwrap_or(0)
+        } else {
+            0
+        };
+        crate::app::cursor::set_rotate(rotate, direction);
+        let tool_cursor = if self.hover_pos.is_some() {
+            crate::app::cursor::tool_cursor_index(tool, policy)
+        } else {
+            None
+        };
+        crate::app::cursor::set_tool_cursor(tool_cursor);
+        let brush_hidden =
+            self.brush_cursor_shape(cx).is_some() && policy == CursorPolicy::SystemDefault;
+        crate::app::cursor::set_brush_hidden(brush_hidden);
+        self.sync_photrez_system_pointer(cx, tool, policy);
+    }
+
+    fn photrez_owns_pointer(&self, cx: &Context<Self>, tool: ToolId, policy: CursorPolicy) -> bool {
+        if self.space_pressed || self.pan.is_some() || self.state.read(cx).overlay_owns_canvas() {
+            return false;
+        }
+        if policy == CursorPolicy::NotAllowed {
+            return false;
+        }
+        if matches!(tool, ToolId::Brush | ToolId::Eraser)
+            && self.brush_cursor_shape(cx).is_some()
+            && policy == CursorPolicy::SystemDefault
+        {
+            return !cfg!(windows);
+        }
+        if tool == ToolId::Move
+            && policy == CursorPolicy::Rotate
+            && !crate::app::cursor::native_rotate_available()
+        {
+            return true;
+        }
+        if crate::app::cursor::tool_cursor_index(tool, policy).is_some()
+            && !crate::app::cursor::native_tool_cursor_available()
+        {
+            return true;
+        }
+        false
+    }
+
+    fn sync_photrez_system_pointer(
+        &mut self,
+        cx: &Context<Self>,
+        tool: ToolId,
+        policy: CursorPolicy,
+    ) {
+        let hide = self.photrez_owns_pointer(cx, tool, policy);
+        if self.system_pointer_hidden == hide {
+            return;
+        }
+        self.system_pointer_hidden = hide;
+        crate::app::cursor::set_photrez_pointer_active(hide);
+        let _ = cx;
+    }
+
+    pub(crate) fn system_pointer_hidden_for_gpui(&self) -> bool {
+        self.system_pointer_hidden
+    }
+
+    fn release_photrez_system_pointer(&mut self) {
+        if !self.system_pointer_hidden {
+            return;
+        }
+        self.system_pointer_hidden = false;
+        crate::app::cursor::set_photrez_pointer_active(false);
+    }
     pub(crate) fn close_context_menu(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| state.context_menu = None);
         cx.notify();

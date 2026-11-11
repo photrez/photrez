@@ -104,15 +104,8 @@ pub(crate) fn navigator_element(
     main_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
 ) -> impl IntoElement {
-    let images: Vec<(TileRect, Arc<RenderImage>)> = canvas_image
-        .map(|canvas| {
-            canvas
-                .tiles
-                .iter()
-                .map(|tile| (tile.rect, Arc::clone(&tile.image)))
-                .collect()
-        })
-        .unwrap_or_default();
+    let images: Vec<(TileRect, Arc<RenderImage>)> =
+        canvas_image.map(super::base_images).unwrap_or_default();
     let doc_size = canvas_image.map(|canvas| (canvas.width as f32, canvas.height as f32));
     canvas(
         move |bounds, _window, _cx| {
@@ -231,6 +224,8 @@ pub(crate) struct CanvasOverlay {
     pub hover_highlight: Option<(f64, f64, f64, f64)>,
     /// Brush/eraser ring painted at the pointer (screen-visible cursor).
     pub brush_cursor: Option<BrushCursor>,
+    /// Painted tool icon when the OS has no native tool cursor.
+    pub tool_cursor: Option<ToolCursorOverlay>,
     /// Live gradient drag line while the Gradient tool is drawing.
     pub gradient_line: Option<GradientLine>,
 }
@@ -242,6 +237,23 @@ pub(crate) struct GradientLine {
     pub start: [f64; 2],
     pub end: [f64; 2],
     pub radial: bool,
+}
+
+/// The brush ring in window space, ready for the paint call. A view of its
+/// own repaints it without rebuilding the shell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BrushRing {
+    pub center: [f32; 2],
+    pub radii: [f32; 2],
+    pub rotation: f32,
+    pub crosshair: bool,
+}
+
+/// Painted tool icon when native cursors are unavailable.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ToolCursorOverlay {
+    pub position: [f32; 2],
+    pub index: u8,
 }
 
 /// The brush cursor ring: it marks the 20% alpha contour of the

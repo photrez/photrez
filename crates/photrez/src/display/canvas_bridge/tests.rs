@@ -696,3 +696,94 @@ fn navigator_indicator_paints_nothing_for_a_frame_outside_the_box() {
     assert!(soft.is_none());
     assert!(edges.is_empty());
 }
+
+/// The projection already holds every visible layer, so its paint list must
+/// replace the stale base tiles. Painting both would let stale alpha show
+/// through the projection's transparent pixels.
+#[test]
+fn projection_replaces_the_stale_base_tiles_in_the_paint_list() {
+    let mut image = CanvasImage::from_rgba(2, 2, vec![0; 2 * 2 * 4]).expect("valid");
+    image
+        .push_patch(0, 0, 1, 1, &solid(1, 1, [255, 0, 0, 255]))
+        .expect("patch");
+    let projected = super::render_image(1, 1, vec![0, 0, 255, 255]).expect("projection image");
+    let _ = image.set_projection(0, 0, 2, 2, projected);
+
+    let images = super::display_images(&image);
+    assert_eq!(images.len(), 2, "the projection replaces the base tile");
+    assert_eq!(
+        images[0].0,
+        super::TileRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2
+        },
+        "the projection keeps its document rect"
+    );
+    assert_eq!(
+        images[0].1.as_bytes(0).expect("one frame"),
+        &[0, 0, 255, 255],
+        "the first image is the projection, not a zeroed base tile"
+    );
+    assert_eq!(
+        images[1].0,
+        super::TileRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1
+        },
+        "an exact patch still paints after the projection"
+    );
+}
+
+/// Without a projection the base tiles remain the page content.
+#[test]
+fn base_tiles_paint_when_no_projection_exists() {
+    let image = CanvasImage::from_rgba(2, 2, vec![0; 2 * 2 * 4]).expect("valid");
+    let images = super::display_images(&image);
+    assert_eq!(images.len(), 1, "one base tile for a 2x2 document");
+    assert_eq!(
+        images[0].0,
+        super::TileRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2
+        }
+    );
+}
+
+/// A tile outside the projection still paints: a pan can reveal a region
+/// whose new projection has not landed yet, and the old tile is better than
+/// an empty page area.
+#[test]
+fn base_tiles_outside_the_projection_keep_painting() {
+    let mut image = CanvasImage::from_rgba_with_tile_size(4, 1, vec![0; 4 * 4], 2).expect("valid");
+    let projected = super::render_image(1, 1, vec![255, 255, 255, 255]).expect("projection image");
+    let _ = image.set_projection(2, 0, 2, 1, projected);
+
+    let images = super::display_images(&image);
+    assert_eq!(images.len(), 2, "the uncovered tile plus the projection");
+    assert_eq!(
+        images[0].0,
+        super::TileRect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1
+        },
+        "the first image is the base tile the projection does not cover"
+    );
+    assert_eq!(
+        images[1].0,
+        super::TileRect {
+            x: 2,
+            y: 0,
+            width: 2,
+            height: 1
+        },
+        "the projection paints only its own rect"
+    );
+}

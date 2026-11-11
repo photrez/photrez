@@ -24,8 +24,7 @@ use gpui_kit::{
 use photrez_core::document::content::LayerType;
 
 use crate::display::canvas_bridge::{
-    thumbnail_image, BrushCursor, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine,
-    TransformFrame,
+    thumbnail_image, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine, TransformFrame,
 };
 use crate::services;
 use crate::services::document::LoadedDocument;
@@ -43,20 +42,25 @@ mod color_picker;
 mod commands;
 mod crop;
 pub(crate) mod cross_doc;
+mod cursor;
 mod documents;
+mod ring_overlay;
 pub(crate) use canvas_input::canvas_doc_coords_free;
 mod canvas_input;
+mod canvas_refresh;
 mod drop;
 mod edge_scroll;
 mod history;
 mod layer_marquee;
 mod layer_projection;
 mod layers;
+mod loading;
 mod locale;
 #[cfg(feature = "input-measurement")]
 pub mod measurement;
 mod new_document;
 pub(crate) mod num_field;
+mod open;
 mod overlay;
 mod recents;
 mod rename;
@@ -145,10 +149,29 @@ const WRITE_INTERVAL: Duration = Duration::from_millis(500);
 struct ActiveDocument {
     doc_id: String,
     canvas: CanvasImage,
+    /// The full-resolution tile cache lags the core after a large edit. The
+    /// viewport projection paints the current pixels until a reader needs the
+    /// exact base tiles again.
+    canvas_stale: bool,
     /// `None` means the view still follows the live fit (first open), exactly
     /// the first-open refit; a concrete camera survives resize and is
     /// what the session writes back into the `.ptz` viewport.
     camera: Option<Camera>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CloseIntent {
+    Document { doc_id: String },
+    Tab { doc_id: String },
+    Window { doc_id: String },
+}
+
+impl CloseIntent {
+    fn doc_id(&self) -> &str {
+        match self {
+            Self::Document { doc_id } | Self::Tab { doc_id } | Self::Window { doc_id } => doc_id,
+        }
+    }
 }
 
 /// The `.ptz` `document.json` payload the bridge probe parses below: a real
@@ -294,6 +317,12 @@ pub struct App {
     snap_guides: Vec<(bool, f64)>,
     /// Last hovered canvas position (window coords) for crop cursors.
     hover_pos: Option<Point<Pixels>>,
+    /// The window scale last rendered; the native ring raster uses it.
+    window_scale: f32,
+    /// The native ring window owns the pointer; the painted ring is hidden.
+    native_ring_active: bool,
+    /// GPUI must keep the system pointer hidden while Photrez paints the cursor.
+    system_pointer_hidden: bool,
     last_cursor: crate::input_policy::CursorPolicy,
     /// Edge auto-scroll state: holding the pointer near a canvas edge pans
     /// the view while a drag is in flight.
@@ -325,20 +354,17 @@ pub struct App {
     /// supersede it and stale completions are ignored by version.
     canvas_refresh_active: bool,
     canvas_refresh_generation: u64,
+    projection_cache: Option<std::sync::Arc<canvas_refresh::ProjectionCache>>,
+    projection_key: Option<canvas_refresh::ProjectionKey>,
+    projection_generation: u64,
+    /// Identifies the live loading overlay so stale progress watchers stop.
+    loading_generation: u64,
     /// The print boundary. Production uses the native print service; tests
     /// inject a recorder so the caller is provable without a printer.
     print_backend: Arc<dyn PrintDispatch>,
-    /// A Save As started from the dirty-close prompt closes the document after
-    /// the chosen path is written.
-    close_after_save: bool,
-    /// The dirty prompt was opened by a window-close request, so a successful
-    /// save/discard also closes the window.
-    close_after_dirty: bool,
-    /// Set by `close_active_document`; the next render removes the window.
+    /// The next render removes the window after a confirmed close request.
     pending_window_close: bool,
-    /// The tab whose dirty-close prompt is open, if the prompt came from a tab
-    /// close rather than a window close.
-    pending_tab_close: Option<String>,
+    pending_close: Option<CloseIntent>,
     /// In-flight canvas gesture state (brush chain; later tools join here).
     input: crate::input_policy::InputState,
     /// App-local pixel clipboard (the in-memory selection buffer).
@@ -361,6 +387,8 @@ pub struct App {
     /// The canvas hitbox that currently owns the captured pointer. Shared with
     /// the custom pointer surface, whose hitbox id changes every frame.
     canvas_capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
+    /// The color-picker surface and hitbox that own the captured pointer.
+    color_picker_capture: Rc<Cell<Option<(crate::state::PickerArea, gpui_kit::HitboxId)>>>,
     /// The laid-out canvas bounds, published by the display seam and read by
     /// the camera actions and pointer mapping.
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -390,6 +418,12 @@ pub struct App {
     /// Accepted brush previews for this window (multi-layer proof).
     #[cfg(test)]
     preview_pushes: Cell<usize>,
+    /// Display updates that recomposited only a dirty region.
+    #[cfg(test)]
+    region_refreshes: Cell<usize>,
+    /// Raster layer buffers copied into the projection source cache.
+    #[cfg(test)]
+    projection_pixel_copies: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
     /// The app-cache directory holding the autosave store, resolved once so
@@ -500,13 +534,16 @@ impl App {
         let recent_path = source_path.clone();
 
         if active_id.as_deref() == Some(doc_id.as_str()) {
+            self.cancel_color_picker_for_document_change(cx);
             self.sessions
                 .replace(loaded, display_name, source_path)
                 .map_err(|error| format!("session replacement failed: {error:?}"))?;
+            self.invalidate_projection_for_document_replacement(&doc_id);
         } else {
             self.sessions
                 .open(loaded, display_name, source_path)
                 .map_err(|error| format!("session registration failed: {error:?}"))?;
+            self.cancel_color_picker_for_document_change(cx);
             if let Some(previous) = active_id.as_deref() {
                 let camera = self
                     .active_document
@@ -529,6 +566,7 @@ impl App {
         let retired = self.active_document.replace(ActiveDocument {
             doc_id: doc_id.clone(),
             canvas,
+            canvas_stale: false,
             camera,
         });
         if let Some(retired) = retired {
@@ -626,10 +664,25 @@ impl Render for App {
         if std::mem::take(&mut self.pending_window_close) {
             window.remove_window();
         }
+        self.window_scale = window.scale_factor();
+        self.maybe_schedule_viewport_projection(cx);
+        if self.state.read(cx).overlay_owns_canvas() {
+            crate::app::cursor::set_rotate(false, 0);
+            crate::app::cursor::set_brush_hidden(false);
+            crate::app::cursor::set_tool_cursor(None);
+            crate::app::ring_overlay::hide();
+            self.native_ring_active = false;
+        }
         // A dialog that has just closed gives focus back to whatever held it
         // before. The saved handle is refreshed only while no dialog is up, so
         // on the frame a dialog disappears it still names the pre-dialog element.
         let dialog_open = self.state.read(cx).active_dialog.is_some();
+        if dialog_open
+            || self.state.read(cx).loading.is_some()
+            || self.state.read(cx).color_picker.is_none()
+        {
+            self.release_color_picker_pointer(window);
+        }
         if self.dialog_was_open && !dialog_open {
             if let Some(handle) = self.shell_focus_before_dialog.take() {
                 handle.focus(window, cx);
@@ -638,6 +691,13 @@ impl Render for App {
         self.dialog_was_open = dialog_open;
         if !dialog_open {
             self.shell_focus_before_dialog = window.focused(cx);
+        }
+        if !dialog_open
+            && self.state.read(cx).loading.is_none()
+            && self.state.read(cx).color_picker.is_none()
+            && self.picker_focus.is_focused(window)
+        {
+            window.focus(&self.canvas_focus_handle, cx);
         }
         #[cfg(feature = "input-measurement")]
         let render_identity = self.active_document.as_ref().and_then(|document| {
@@ -672,6 +732,21 @@ impl Render for App {
         // Delegate to the workspace renderer.
         let cursor = self.canvas_cursor_policy(cx);
         let camera = self.active_camera();
+        // A size, zoom or layer change moves no pointer but still reshapes the
+        // ring; refresh the native bitmap before deciding the painted path.
+        #[cfg(not(test))]
+        if !window.is_window_active() {
+            self.hover_pos = None;
+            crate::app::ring_overlay::hide();
+            self.native_ring_active = false;
+        }
+        let ring = self.brush_ring_for_overlay(cx);
+        let native = window.is_window_active()
+            && ring.is_some_and(|ring| crate::app::ring_overlay::show(ring, self.window_scale));
+        if !native {
+            crate::app::ring_overlay::hide();
+        }
+        self.native_ring_active = native;
         let overlay = self.canvas_overlay(cx);
         let has_pixel_selection = self.pixel_selection_present();
         let has_copyable_selection = has_pixel_selection && self.active_layer_has_bitmap(cx);
@@ -710,6 +785,7 @@ impl Render for App {
             &self.dialog_focus,
             &self.picker_focus,
             Rc::clone(&self.canvas_capture),
+            Rc::clone(&self.color_picker_capture),
             cursor,
             has_pixel_selection,
             has_copyable_selection,

@@ -8,8 +8,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{
-    AppContext, Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    Window,
+    Bounds, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
 };
 use photrez_core::document::content::{
     LayerType, PtzLayer, SelectionShape as CoreSelectionShape, SelectionState,
@@ -17,14 +16,12 @@ use photrez_core::document::content::{
 use photrez_core::document::layer_params::{
     ShapeFill, ShapeFillKind, ShapeKind, ShapeParams, ShapeStroke, TextData,
 };
-use photrez_core::protocol::{Command, CommandEnvelope, TransformPatch, CONTRACT_VERSION};
+use photrez_core::protocol::{Command, TransformPatch};
 use photrez_core::raster::paint::raster::RasterTip;
 use photrez_core::raster::tile::TilePatch;
 
-use super::slider::PreviewInput;
 use super::transform_move::TransformDragUpdate;
 use super::App;
-use crate::display::canvas_bridge::CanvasImage;
 use crate::input_policy::{
     brush, BrushTarget, CursorContext, CursorPolicy, PaintTarget, PendingGesture,
 };
@@ -91,7 +88,7 @@ impl App {
     /// presses, wheel and in-flight gestures while one is open, so a drag on
     /// a dialog can never double as a canvas gesture behind it.
     pub(crate) fn modal_input_active(&self, cx: &Context<Self>) -> bool {
-        self.state.read(cx).active_dialog.is_some()
+        self.state.read(cx).active_dialog.is_some() || self.state.read(cx).loading.is_some()
     }
 
     /// Drop any in-flight canvas gesture before the active tool changes.
@@ -104,10 +101,11 @@ impl App {
         self.state.update(cx, |state, _| state.hud = None);
         self.cancel_transform_drag(cx);
         self.cancel_selection_rotation(cx);
+        let had_crop_drag = self.crop_drag.take().is_some();
         let had_brush = self.input.has_active_brush();
         let had_preview = self.state.read(cx).selection_drag.is_some();
         let tool = self.state.read(cx).active_tool;
-        if had_brush || had_preview || self.pending_gesture.is_some() {
+        if had_brush || had_preview || had_crop_drag || self.pending_gesture.is_some() {
             self.input.cancel();
             self.pending_gesture = None;
             self.state.update(cx, |state, _| {
@@ -272,43 +270,6 @@ impl App {
             .and_then(|content| content.selection.clone())
     }
 
-    pub(crate) fn apply_core_command(
-        &mut self,
-        doc_id: &str,
-        command: Command,
-        mark_dirty: bool,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let added_layer = match &command {
-            Command::AddLayer { id, .. } => Some(id.clone()),
-            _ => None,
-        };
-        let envelope = CommandEnvelope {
-            contract_version: CONTRACT_VERSION,
-            expected_version: None,
-            command,
-        };
-        {
-            let session = self
-                .sessions
-                .get_mut(doc_id)
-                .ok_or_else(|| "active session is missing".to_string())?;
-            session
-                .loaded_document_mut()
-                .registry
-                .apply_command(doc_id, envelope)
-                .map_err(|error| format!("{}: {}", error.code, error.message))?;
-        }
-        if mark_dirty {
-            self.sessions
-                .mark_history_dirty(doc_id)
-                .map_err(|error| format!("dirty state failed: {error:?}"))?;
-            self.project_layers_with_selection(added_layer.as_deref(), cx);
-            self.refresh_active_canvas(cx)?;
-        }
-        Ok(())
-    }
-
     /// The document layer selected in the Layers panel.
     ///
     /// Falls back to the first raster layer when the rows are not projected
@@ -376,7 +337,7 @@ impl App {
                         CursorPolicy::Grabbing
                     }
                 }
-                crate::app::transform_move::TransformMode::Rotate => CursorPolicy::Crosshair,
+                crate::app::transform_move::TransformMode::Rotate => CursorPolicy::Rotate,
                 crate::app::transform_move::TransformMode::Resize(handle) => {
                     cursor_for_handle(handle)
                 }
@@ -435,27 +396,29 @@ impl App {
                     .as_ref()
                     .map(|document| document.canvas.dimensions()),
             ) {
-                if let Some((x, y)) = canvas_doc_coords(
+                if let Some((x, y)) = canvas_doc_coords_free(
                     position,
                     &self.canvas_bounds,
                     (doc_w, doc_h),
                     self.active_camera(),
                 ) {
                     if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                        let zoom = self
-                            .effective_camera()
-                            .map(|camera| camera.zoom as f64)
-                            .unwrap_or(1.0);
-                        let (frame_w, frame_h) =
-                            crate::app::transform_geometry::layer_frame_size(&layer);
-                        if let Some(handle) = crate::app::transform_geometry::detect_handle(
-                            crate::app::transform_geometry::Point { x, y },
-                            &layer.transform,
-                            frame_w,
-                            frame_h,
-                            zoom,
-                        ) {
-                            return cursor_for_handle(handle);
+                        if crate::app::transform_geometry::layer_can_transform(&layer) {
+                            let zoom = self
+                                .effective_camera()
+                                .map(|camera| camera.zoom as f64)
+                                .unwrap_or(1.0);
+                            let (frame_w, frame_h) =
+                                crate::app::transform_geometry::layer_frame_size(&layer);
+                            if let Some(handle) = crate::app::transform_geometry::detect_handle(
+                                crate::app::transform_geometry::Point { x, y },
+                                &layer.transform,
+                                frame_w,
+                                frame_h,
+                                zoom,
+                            ) {
+                                return cursor_for_handle(handle);
+                            }
                         }
                     }
                 }
@@ -587,271 +550,6 @@ impl App {
             base_pixels: canonical.pixels.clone(),
         })
     }
-
-    /// Recompose the active document after a core mutation.
-    pub(crate) fn refresh_active_canvas(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
-        self.canvas_refresh_generation = self.canvas_refresh_generation.wrapping_add(1);
-        self.canvas_refresh_active = false;
-        #[cfg(test)]
-        self.full_composites.set(self.full_composites.get() + 1);
-        let doc_id = self
-            .active_document
-            .as_ref()
-            .map(|document| document.doc_id.clone())
-            .ok_or_else(|| "no active document".to_string())?;
-        let composite = {
-            let loaded = self
-                .sessions
-                .get(&doc_id)
-                .ok_or_else(|| "active session is missing".to_string())?
-                .loaded_document();
-            let content = loaded
-                .content_snapshot()
-                .ok_or_else(|| "loaded content is missing".to_string())?;
-            photrez_core::render::compositor::composite_layers_with_font_data(
-                content,
-                &loaded.registry,
-                Some(crate::INTER),
-            )
-            .map_err(|error| error.to_string())?
-        };
-        let canvas = CanvasImage::from_rgba(composite.width, composite.height, composite.pixels)
-            .map_err(|error| format!("{error:?}"))?;
-        if let Some(active) = self.active_document.as_mut() {
-            let retired = std::mem::replace(&mut active.canvas, canvas);
-            self.retired_textures.extend(retired.into_textures());
-        }
-        self.project_history(cx);
-        self.project_tabs(cx);
-        cx.notify();
-        Ok(())
-    }
-
-    /// Composite the active document on a background executor, then swap the
-    /// canvas on the foreground. Stale completions are ignored when the
-    /// document or history version moves.
-    pub(crate) fn refresh_active_canvas_async(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let doc_id = self
-            .active_document
-            .as_ref()
-            .map(|document| document.doc_id.clone())
-            .ok_or_else(|| "no active document".to_string())?;
-        let (content, pixels, version) = {
-            let session = self
-                .sessions
-                .get(&doc_id)
-                .ok_or_else(|| "active session is missing".to_string())?;
-            let loaded = session.loaded_document();
-            let content = loaded
-                .content_snapshot()
-                .ok_or_else(|| "loaded content is missing".to_string())?
-                .clone();
-            let version = loaded
-                .registry
-                .get_history_version(&doc_id)
-                .ok_or_else(|| "history version is missing".to_string())?;
-            let mut pixels = Vec::with_capacity(content.layers.len());
-            for layer in content
-                .layers
-                .iter()
-                .filter(|layer| layer.layer_type == LayerType::Raster)
-            {
-                let canonical = loaded
-                    .registry
-                    .get_layer(&doc_id, &layer.id)
-                    .ok_or_else(|| "loaded layer pixels are missing".to_string())?;
-                pixels.push((
-                    layer.id.clone(),
-                    canonical.width,
-                    canonical.height,
-                    canonical.pixels.to_vec(),
-                ));
-            }
-            (content, pixels, version)
-        };
-        self.canvas_refresh_generation = self.canvas_refresh_generation.wrapping_add(1);
-        self.canvas_refresh_active = true;
-        let generation = self.canvas_refresh_generation;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let input = PreviewInput { layers: pixels };
-                    photrez_core::render::compositor::composite_layers_with_font_data(
-                        &content,
-                        &input,
-                        Some(crate::INTER),
-                    )
-                    .map(|composite| (composite.width, composite.height, composite.pixels))
-                    .map_err(|error| error.to_string())
-                })
-                .await;
-            let _ = this.update(cx, |app, cx| {
-                app.finish_canvas_refresh_async(&doc_id, version, generation, result, cx);
-            });
-        })
-        .detach();
-        Ok(())
-    }
-
-    fn finish_canvas_refresh_async(
-        &mut self,
-        doc_id: &str,
-        version: u64,
-        generation: u64,
-        result: Result<(u32, u32, Vec<u8>), String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.canvas_refresh_active = false;
-        if generation != self.canvas_refresh_generation {
-            return;
-        }
-        let active = match self.active_document.as_mut() {
-            Some(active) if active.doc_id == doc_id => active,
-            _ => return,
-        };
-        if self.sessions.get(doc_id).and_then(|session| {
-            session
-                .loaded_document()
-                .registry
-                .get_history_version(doc_id)
-        }) != Some(version)
-        {
-            return;
-        }
-        let (width, height, pixels) = match result {
-            Ok(result) => result,
-            Err(error) => {
-                self.set_status_error(Some(format!("Canvas refresh: {error}")), cx);
-                return;
-            }
-        };
-        let canvas = match CanvasImage::from_rgba(width, height, pixels) {
-            Ok(canvas) => canvas,
-            Err(error) => {
-                self.set_status_error(Some(format!("Canvas refresh: {error:?}")), cx);
-                return;
-            }
-        };
-        #[cfg(test)]
-        self.full_composites.set(self.full_composites.get() + 1);
-        let retired = std::mem::replace(&mut active.canvas, canvas);
-        self.retired_textures.extend(retired.into_textures());
-        self.project_history(cx);
-        self.project_tabs(cx);
-        cx.notify();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_layer_origin_for_test(
-        &self,
-        layer_type: LayerType,
-    ) -> Option<(f64, f64)> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let content = self
-            .sessions
-            .get(&doc_id)?
-            .loaded_document()
-            .content_snapshot()?;
-        content
-            .layers
-            .iter()
-            .find(|layer| layer.layer_type == layer_type)
-            .map(|layer| (layer.transform.x, layer.transform.y))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn core_layer_origins_for_test(&self, layer_type: LayerType) -> Vec<(f64, f64)> {
-        let Some(doc_id) = self.active_document.as_ref().map(|d| d.doc_id.clone()) else {
-            return Vec::new();
-        };
-        self.sessions
-            .get(&doc_id)
-            .and_then(|session| session.loaded_document().content_snapshot())
-            .map(|content| {
-                content
-                    .layers
-                    .iter()
-                    .filter(|layer| layer.layer_type == layer_type)
-                    .map(|layer| (layer.transform.x, layer.transform.y))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn core_layer_pixels_for_test(&self, layer_id: &str) -> Option<(u32, u32, Vec<u8>)> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let layer = self
-            .sessions
-            .get(&doc_id)?
-            .loaded_document()
-            .registry
-            .get_layer(&doc_id, layer_id)?;
-        Some((layer.width, layer.height, layer.pixels.clone()))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_layer_count_for_test(&self) -> Option<usize> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let loaded = self.sessions.get(&doc_id)?.loaded_document();
-        Some(loaded.content_snapshot()?.layers.len())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_layer_types_for_test(&self) -> Option<Vec<LayerType>> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let loaded = self.sessions.get(&doc_id)?.loaded_document();
-        Some(
-            loaded
-                .content_snapshot()?
-                .layers
-                .iter()
-                .map(|layer| layer.layer_type.clone())
-                .collect(),
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_selection_for_test(&self) -> Option<SelectionState> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let loaded = self.sessions.get(&doc_id)?.loaded_document();
-        loaded.content_snapshot()?.selection.clone()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_transform_for_test(&self) -> Option<(f64, f64)> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        let loaded = self.sessions.get(&doc_id)?.loaded_document();
-        let content = loaded.content_snapshot()?;
-        let layer = content
-            .layers
-            .iter()
-            .find(|layer| matches!(layer.layer_type, LayerType::Raster))?;
-        Some((layer.transform.x, layer.transform.y))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_history_version_for_test(&self) -> Option<u64> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        self.sessions
-            .get(&doc_id)?
-            .loaded_document()
-            .registry
-            .get_history_version(&doc_id)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_core_history_cursor_for_test(&self) -> Option<usize> {
-        let doc_id = self.active_document.as_ref()?.doc_id.clone();
-        self.sessions
-            .get(&doc_id)?
-            .loaded_document()
-            .registry
-            .get_history_cursor(&doc_id)
-    }
 }
 
 /// The zoom the display currently applies to the document, clamped to the
@@ -863,7 +561,7 @@ fn cursor_for_handle(handle: crate::app::transform_geometry::Handle) -> CursorPo
     use crate::app::transform_geometry::Handle;
     match handle {
         Handle::Move => CursorPolicy::SystemDefault,
-        Handle::Rotate => CursorPolicy::Crosshair,
+        Handle::Rotate => CursorPolicy::Rotate,
         Handle::Nw | Handle::Se => CursorPolicy::ResizeNwse,
         Handle::Ne | Handle::Sw => CursorPolicy::ResizeNesw,
         Handle::W | Handle::E => CursorPolicy::ResizeEw,

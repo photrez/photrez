@@ -350,6 +350,9 @@ impl App {
             frame_collector: gpui_kit::profiler::FrameTimingCollector::new(),
             snap_guides: Vec::new(),
             hover_pos: None,
+            window_scale: 1.0,
+            native_ring_active: false,
+            system_pointer_hidden: false,
             last_cursor: crate::input_policy::CursorPolicy::SystemDefault,
             edge_pointer: None,
             edge_scroll_active: false,
@@ -364,11 +367,13 @@ impl App {
             retired_textures: Vec::new(),
             canvas_refresh_active: false,
             canvas_refresh_generation: 0,
+            projection_cache: None,
+            projection_key: None,
+            projection_generation: 0,
+            loading_generation: 0,
             print_backend: Arc::new(PrintService::default()),
-            close_after_save: false,
-            close_after_dirty: false,
             pending_window_close: false,
-            pending_tab_close: None,
+            pending_close: None,
             input: crate::input_policy::InputState::new(),
             clipboard: None,
             brush_tips: crate::input_policy::BrushTipCache::default(),
@@ -379,6 +384,7 @@ impl App {
             alt_sampling: false,
             brush_adjust: None,
             canvas_capture: Rc::new(Cell::new(None)),
+            color_picker_capture: Rc::new(Cell::new(None)),
             canvas_bounds: Rc::new(Cell::new(None)),
             checker_cache: Rc::new(RefCell::new(CheckerCache::default())),
             navigator_bounds: Rc::new(Cell::new(None)),
@@ -393,16 +399,22 @@ impl App {
             #[cfg(test)]
             full_composites: Cell::new(0),
             #[cfg(test)]
+            region_refreshes: Cell::new(0),
+            #[cfg(test)]
+            projection_pixel_copies: Cell::new(0),
+            #[cfg(test)]
             preview_pushes: Cell::new(0),
             autosave_task: None,
             autosave_cache_root: None,
         };
         #[cfg(feature = "input-measurement")]
         app.measurement.share_bounds(Rc::clone(&app.canvas_bounds));
-        let blur = cx.on_blur(&app.canvas_focus_handle, window, |this, _window, cx| {
+        let focus_out = cx.on_focus_out(&app.canvas_focus_handle, window, |this, _, window, cx| {
+            this.release_canvas_pointer(window);
+            this.cancel_canvas_gesture(cx);
             this.release_navigation(cx);
         });
-        app._window_watch.push(blur);
+        app._window_watch.push(focus_out);
         // Only a settings-backed launch owns the real app cache; a test mount
         // injects its own root through `new_with_cache_root`.
         app.autosave_cache_root = cache_root;

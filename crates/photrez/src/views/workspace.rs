@@ -77,6 +77,7 @@ pub(crate) fn render(
     dialog_focus: &gpui_kit::FocusHandle,
     picker_focus: &gpui_kit::FocusHandle,
     capture: Rc<Cell<Option<gpui_kit::HitboxId>>>,
+    color_picker_capture: Rc<Cell<Option<(crate::state::PickerArea, gpui_kit::HitboxId)>>>,
     cursor: crate::input_policy::CursorPolicy,
     has_pixel_selection: bool,
     has_copyable_selection: bool,
@@ -102,6 +103,7 @@ pub(crate) fn render(
         context_menu,
         brush_menu,
         active_dialog,
+        loading,
         color_picker_open,
         autosave_status,
         text_edit,
@@ -123,6 +125,7 @@ pub(crate) fn render(
             s.context_menu,
             s.brush_menu,
             s.active_dialog,
+            s.loading,
             s.color_picker.is_some(),
             s.autosave_status,
             s.text_edit.clone(),
@@ -389,9 +392,17 @@ pub(crate) fn render(
                 cx,
             ))
         })
-        .when(color_picker_open, |el| {
-            el.child(color_picker::render(state, picker_focus, cx))
-        })
+        .when(
+            color_picker_open && active_dialog.is_none() && loading.is_none(),
+            |el| {
+                el.child(color_picker::render(
+                    state,
+                    picker_focus,
+                    Rc::clone(&color_picker_capture),
+                    cx,
+                ))
+            },
+        )
         .when(shot::starts_with("ctx-"), |el| {
             el.child(context_menus::render())
         })
@@ -413,8 +424,12 @@ pub(crate) fn render(
         .when(shot::starts_with("dialog-"), |el| {
             el.child(dialogs::render())
         })
-        .when(shot::starts_with("loading-"), |el| {
-            el.child(loading::render())
+        .when(loading.is_some() || shot::starts_with("loading-"), |el| {
+            let progress = match loading {
+                Some(crate::state::LoadingState::Progress(fraction)) => Some(fraction),
+                _ => None,
+            };
+            el.child(loading::render(progress))
         })
         // A hovered rail button's own tooltip, painted here because the panel
         // overlaps the canvas and GPUI paints in tree order. The `tooltip-*` fixture
@@ -588,6 +603,11 @@ fn canvas_hitbox(
                 app.canvas_space_up(event, cx)
             }),
         )
+        .on_hover(cx.listener(|app, hovered: &bool, _window, cx| {
+            if !hovered {
+                app.canvas_hover_end(cx);
+            }
+        }))
         .on_scroll(
             cx.listener(|app: &mut crate::app::App, event, _window, cx| {
                 app.canvas_scroll(event, cx)
@@ -619,13 +639,13 @@ fn canvas_hitbox(
             )
         })
         .absolute()
-        .inset(px(0.0))
-        // The focus ring is the 1px border only. A zero-blur spread shadow is
-        // painted across the element's interior as a tint, which covered the
-        // whole page in 55% black after any keyboard shortcut.
-        .focus_visible(|style| style.border_1().border_color(color::ACCENT));
+        .inset(px(0.0));
+    // No focus ring on the canvas: it is a direct-manipulation surface, not a
+    // control, so keyboard shortcuts must not outline the viewport. Focus
+    // tracking stays for the Canvas key context and shortcut routing.
     let hitbox = match cursor {
-        crate::input_policy::CursorPolicy::SystemDefault => hitbox,
+        crate::input_policy::CursorPolicy::SystemDefault
+        | crate::input_policy::CursorPolicy::Rotate => hitbox,
         crate::input_policy::CursorPolicy::Crosshair => {
             hitbox.cursor(gpui_kit::CursorStyle::Crosshair)
         }

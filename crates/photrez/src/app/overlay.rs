@@ -3,6 +3,8 @@
 
 use super::*;
 
+use crate::display::canvas_bridge::{BrushCursor, BrushRing};
+
 impl App {
     /// The selection and crop chrome painted over the page this frame.
     ///
@@ -58,7 +60,7 @@ impl App {
         // The rotate sprite follows the pointer angle about
         // the selection centre while a pin drag rotates, and on the pin hover
         // in edit mode.
-        if state.active_tool == crate::state::ToolId::Selection {
+        if state.active_tool == crate::state::ToolId::Selection && !state.overlay_owns_canvas() {
             let mut sprite_point = None;
             if self.selection_rotation_drag.is_some() {
                 sprite_point = self.hover_pos;
@@ -134,12 +136,14 @@ impl App {
             }
         }
         // The Move tool paints the same rotate sprite on a rotate hover, so
-        // the pointer reads as a rotation rather than a crosshair. Space
-        // and an active pan keep the grab cursors and paint no sprite.
+        // the pointer reads as a rotation rather than a crosshair. Windows
+        // uses the native cursor instead, so the sprite would double it.
         if state.active_tool == crate::state::ToolId::Move
             && state.show_transform_controls
             && self.pan.is_none()
             && !self.space_pressed
+            && !crate::app::cursor::native_rotate_available()
+            && !state.overlay_owns_canvas()
         {
             if let (Some(position), Some(doc_size)) = (
                 self.hover_pos,
@@ -148,40 +152,42 @@ impl App {
                     .map(|document| document.canvas.dimensions()),
             ) {
                 if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                    let zoom = self
-                        .effective_camera()
-                        .map(|camera| camera.zoom as f64)
-                        .unwrap_or(1.0);
-                    let (frame_w, frame_h) =
-                        crate::app::transform_geometry::layer_frame_size(&layer);
-                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
-                        position,
-                        &self.canvas_bounds,
-                        doc_size,
-                        self.active_camera(),
-                    ) {
-                        let hover = crate::app::transform_geometry::detect_handle(
-                            crate::app::transform_geometry::Point { x, y },
-                            &layer.transform,
-                            frame_w,
-                            frame_h,
-                            zoom,
-                        );
-                        if hover == Some(crate::app::transform_geometry::Handle::Rotate) {
-                            let centre = crate::app::transform_geometry::layer_center(
+                    if crate::app::transform_geometry::layer_can_transform(&layer) {
+                        let zoom = self
+                            .effective_camera()
+                            .map(|camera| camera.zoom as f64)
+                            .unwrap_or(1.0);
+                        let (frame_w, frame_h) =
+                            crate::app::transform_geometry::layer_frame_size(&layer);
+                        if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords_free(
+                            position,
+                            &self.canvas_bounds,
+                            doc_size,
+                            self.active_camera(),
+                        ) {
+                            let hover = crate::app::transform_geometry::detect_handle(
+                                crate::app::transform_geometry::Point { x, y },
                                 &layer.transform,
                                 frame_w,
                                 frame_h,
+                                zoom,
                             );
-                            let angle = crate::app::transform_geometry::angle_about(
-                                centre,
-                                crate::app::transform_geometry::Point { x, y },
-                            ) + 45.0;
-                            overlay.rotate_cursor =
-                                Some(crate::display::canvas_bridge::RotateCursorOverlay {
-                                    position: [f32::from(position.x), f32::from(position.y)],
-                                    angle: angle as f32,
-                                });
+                            if hover == Some(crate::app::transform_geometry::Handle::Rotate) {
+                                let centre = crate::app::transform_geometry::layer_center(
+                                    &layer.transform,
+                                    frame_w,
+                                    frame_h,
+                                );
+                                let angle = crate::app::transform_geometry::angle_about(
+                                    centre,
+                                    crate::app::transform_geometry::Point { x, y },
+                                ) + 45.0;
+                                overlay.rotate_cursor =
+                                    Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                                        position: [f32::from(position.x), f32::from(position.y)],
+                                        angle: angle as f32,
+                                    });
+                            }
                         }
                     }
                 }
@@ -217,45 +223,53 @@ impl App {
             crate::state::ToolId::Move | crate::state::ToolId::Shape
         ) && state.selected_layers.contains(&state.selected_layer)
         {
-            overlay.transform_controls = state.show_transform_controls;
             if state.selected_layers.len() > 1 {
                 if let Some(frame) = self.group_overlay_frame(cx) {
                     overlay.transform = Some(frame);
+                    overlay.transform_controls = state.show_transform_controls;
                 }
             } else if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
                 // A single selected layer under Move keeps its frame at
                 // rest, like the reference editor: the bounding box and its
-                // handles stay visible so the layer is always grabbable.
-                let transform = self
-                    .transform_drag
-                    .as_ref()
-                    .filter(|drag| drag.layer_id == layer.id)
-                    .map(|drag| drag.preview.clone())
-                    .unwrap_or_else(|| layer.transform.clone());
-                let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
-                let corners =
-                    crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
-                let mid = |a: crate::app::transform_geometry::Point,
-                           b: crate::app::transform_geometry::Point| {
-                    crate::app::transform_geometry::Point {
-                        x: (a.x + b.x) / 2.0,
-                        y: (a.y + b.y) / 2.0,
-                    }
-                };
-                let handles = [
-                    corners[0],
-                    corners[1],
-                    corners[2],
-                    corners[3],
-                    mid(corners[0], corners[1]),
-                    mid(corners[1], corners[2]),
-                    mid(corners[2], corners[3]),
-                    mid(corners[3], corners[0]),
-                ];
-                overlay.transform = Some(TransformFrame {
-                    corners: corners.map(|point| [point.x, point.y]),
-                    handles: handles.map(|point| [point.x, point.y]),
-                });
+                // handles stay visible so the layer is always grabbable. A
+                // fully locked layer is skipped: its handles would promise a
+                // drag the transform refuses.
+                let transformable = crate::app::transform_geometry::layer_can_transform(&layer);
+                overlay.transform_controls = state.show_transform_controls && transformable;
+                if transformable {
+                    let transform = self
+                        .transform_drag
+                        .as_ref()
+                        .filter(|drag| drag.layer_id == layer.id)
+                        .map(|drag| drag.preview.clone())
+                        .unwrap_or_else(|| layer.transform.clone());
+                    let (frame_w, frame_h) =
+                        crate::app::transform_geometry::layer_frame_size(&layer);
+                    let corners =
+                        crate::app::transform_geometry::layer_corners(&transform, frame_w, frame_h);
+                    let mid =
+                        |a: crate::app::transform_geometry::Point,
+                         b: crate::app::transform_geometry::Point| {
+                            crate::app::transform_geometry::Point {
+                                x: (a.x + b.x) / 2.0,
+                                y: (a.y + b.y) / 2.0,
+                            }
+                        };
+                    let handles = [
+                        corners[0],
+                        corners[1],
+                        corners[2],
+                        corners[3],
+                        mid(corners[0], corners[1]),
+                        mid(corners[1], corners[2]),
+                        mid(corners[2], corners[3]),
+                        mid(corners[3], corners[0]),
+                    ];
+                    overlay.transform = Some(TransformFrame {
+                        corners: corners.map(|point| [point.x, point.y]),
+                        handles: handles.map(|point| [point.x, point.y]),
+                    });
+                }
             }
         }
         // A non-active layer under the Move pointer gets a
@@ -319,72 +333,107 @@ impl App {
                 }
             }
         }
-        // Brush and eraser hide the system cursor and
-        // paint the 20% alpha ring at the pointer. Alt/space take over the
-        // pointer for sampling and panning, and the ring is hidden then.
-        if matches!(
-            state.active_tool,
-            crate::state::ToolId::Brush | crate::state::ToolId::Eraser
-        ) && self.pan.is_none()
-            && !self.space_pressed
-        {
-            if let (Some(position), Some(bounds)) = (self.hover_pos, self.canvas_bounds.get()) {
-                let px_x: f32 = position.x.into();
-                let px_y: f32 = position.y.into();
-                let origin_x = f32::from(bounds.origin.x);
-                let origin_y = f32::from(bounds.origin.y);
-                let width: f32 = bounds.size.width.into();
-                let height: f32 = bounds.size.height.into();
-                let inside = px_x >= origin_x
-                    && px_y >= origin_y
-                    && px_x < origin_x + width
-                    && px_y < origin_y + height;
-                if inside {
-                    let doc_size = self
-                        .active_document
-                        .as_ref()
-                        .map(|document| document.canvas.dimensions())
-                        .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
-                    if let Some(doc_size) = doc_size {
-                        if let Some(center) = crate::app::canvas_input::canvas_doc_position(
-                            position,
-                            &self.canvas_bounds,
-                            doc_size,
-                            self.active_camera(),
-                        ) {
-                            let is_eraser = state.active_tool == crate::state::ToolId::Eraser;
-                            let (size, hardness) = if is_eraser {
-                                (state.eraser_size, state.eraser_hardness)
-                            } else {
-                                (state.brush_size, state.brush_hardness)
-                            };
-                            let scale =
-                                photrez_core::raster::brush::tip::get_brush_cursor_radius_scale(
-                                    hardness,
-                                );
-                            let base = (size / 2.0) * scale;
-                            let (scale_x, scale_y, rotation) = self
-                                .selected_layer_for_cursor(cx)
-                                .map(|(_, layer)| {
-                                    (
-                                        layer.transform.scale_x,
-                                        layer.transform.scale_y,
-                                        layer.transform.rotation,
-                                    )
-                                })
-                                .unwrap_or((1.0, 1.0, 0.0));
-                            overlay.brush_cursor = Some(BrushCursor {
-                                center: [center.0, center.1],
-                                radii: [base * scale_x.abs(), base * scale_y.abs()],
-                                rotation,
-                                crosshair: !is_eraser,
-                            });
-                        }
-                    }
+        if !crate::app::ring_overlay::visible() {
+            overlay.brush_cursor = self.brush_cursor_shape(cx);
+        }
+        if !crate::app::cursor::native_tool_cursor_available() {
+            let state = self.state.read(cx);
+            let policy = self.canvas_cursor_policy(cx);
+            if self.hover_pos.is_some()
+                && !state.overlay_owns_canvas()
+                && self.pan.is_none()
+                && !self.space_pressed
+            {
+                if let (Some(tool_index), Some(position)) = (
+                    crate::app::cursor::tool_cursor_index(state.active_tool, policy),
+                    self.hover_pos,
+                ) {
+                    overlay.tool_cursor = Some(crate::display::canvas_bridge::ToolCursorOverlay {
+                        position: [f32::from(position.x), f32::from(position.y)],
+                        index: tool_index,
+                    });
                 }
             }
         }
         overlay
+    }
+
+    fn active_canvas_dimensions(&self) -> Option<(u32, u32)> {
+        self.active_document
+            .as_ref()
+            .map(|document| document.canvas.dimensions())
+            .or_else(|| {
+                self.demo_canvas
+                    .as_ref()
+                    .map(crate::display::canvas_bridge::CanvasImage::dimensions)
+            })
+    }
+
+    /// The brush ring in document space, or `None` when no ring may show.
+    pub(crate) fn brush_cursor_shape(&self, cx: &Context<Self>) -> Option<BrushCursor> {
+        if self.pan.is_some() || self.space_pressed {
+            return None;
+        }
+        let (is_eraser, size, hardness) = {
+            let state = self.state.read(cx);
+            if state.overlay_owns_canvas() {
+                return None;
+            }
+            match state.active_tool {
+                crate::state::ToolId::Eraser => (true, state.eraser_size, state.eraser_hardness),
+                crate::state::ToolId::Brush => (false, state.brush_size, state.brush_hardness),
+                _ => return None,
+            }
+        };
+        let position = self.hover_pos?;
+        let (doc_w, doc_h) = self.active_canvas_dimensions()?;
+        let center = crate::app::canvas_input::canvas_doc_position(
+            position,
+            &self.canvas_bounds,
+            (doc_w, doc_h),
+            self.active_camera(),
+        )?;
+        let radius_scale =
+            photrez_core::raster::brush::tip::get_brush_cursor_radius_scale(hardness);
+        let base = (size / 2.0) * radius_scale;
+        let (scale_x, scale_y, rotation) = self
+            .selected_layer_for_cursor(cx)
+            .map(|(_, layer)| {
+                (
+                    layer.transform.scale_x,
+                    layer.transform.scale_y,
+                    layer.transform.rotation,
+                )
+            })
+            .unwrap_or((1.0, 1.0, 0.0));
+        Some(BrushCursor {
+            center: [center.0, center.1],
+            radii: [base * scale_x.abs(), base * scale_y.abs()],
+            rotation,
+            crosshair: !is_eraser,
+        })
+    }
+
+    /// The brush ring in window space for the native overlay and the painted
+    /// fallback.
+    pub(crate) fn brush_ring_for_overlay(&self, cx: &Context<Self>) -> Option<BrushRing> {
+        let cursor = self.brush_cursor_shape(cx)?;
+        let position = self.hover_pos?;
+        let (doc_w, doc_h) = self.active_canvas_dimensions()?;
+        let scale = crate::app::canvas_input::display_scale(
+            &self.canvas_bounds,
+            (doc_w, doc_h),
+            self.active_camera(),
+        ) as f32;
+        Some(BrushRing {
+            center: [f32::from(position.x), f32::from(position.y)],
+            radii: [
+                cursor.radii[0] as f32 * scale,
+                cursor.radii[1] as f32 * scale,
+            ],
+            rotation: cursor.rotation as f32,
+            crosshair: cursor.crosshair,
+        })
     }
     #[cfg(test)]
     pub(crate) fn hover_highlight_for_test(
@@ -402,7 +451,7 @@ impl App {
     }
     #[cfg(test)]
     pub(crate) fn brush_cursor_for_test(&self, cx: &Context<Self>) -> Option<BrushCursor> {
-        self.canvas_overlay(cx).brush_cursor
+        self.brush_cursor_shape(cx)
     }
     #[cfg(test)]
     pub(crate) fn gradient_line_for_test(&self, cx: &Context<Self>) -> Option<GradientLine> {

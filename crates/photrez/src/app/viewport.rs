@@ -382,6 +382,7 @@ impl App {
         }
         if event.keystroke.key == "space" && !self.space_pressed {
             self.space_pressed = true;
+            self.sync_hover_cursor(cx);
             cx.notify();
         }
     }
@@ -389,6 +390,7 @@ impl App {
     pub(crate) fn canvas_space_up(&mut self, event: &KeyUpEvent, cx: &mut Context<Self>) {
         if event.keystroke.key == "space" && self.space_pressed {
             self.space_pressed = false;
+            self.sync_hover_cursor(cx);
             cx.notify();
         }
     }
@@ -406,6 +408,7 @@ impl App {
             start: event.position,
             camera,
         });
+        self.sync_hover_cursor(cx);
         cx.notify();
         true
     }
@@ -425,6 +428,7 @@ impl App {
 
     pub(crate) fn end_pan(&mut self, cx: &mut Context<Self>) -> bool {
         if self.pan.take().is_some() {
+            self.sync_hover_cursor(cx);
             cx.notify();
             true
         } else {
@@ -435,8 +439,21 @@ impl App {
     /// Release latched navigation when the window loses input focus.
     pub(crate) fn release_navigation(&mut self, cx: &mut Context<Self>) {
         self.stop_edge_scroll();
+        let had_ring = self.hover_pos.is_some()
+            && matches!(
+                self.state.read(cx).active_tool,
+                crate::state::ToolId::Brush | crate::state::ToolId::Eraser
+            );
+        self.hover_pos = None;
+        crate::app::cursor::set_brush_hidden(false);
+        crate::app::cursor::set_rotate(false, 0);
+        crate::app::cursor::set_tool_cursor(None);
+        crate::app::ring_overlay::hide();
+        self.native_ring_active = false;
         if self.pan.take().is_some() || self.space_pressed {
             self.space_pressed = false;
+            cx.notify();
+        } else if had_ring {
             cx.notify();
         }
     }

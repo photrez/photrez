@@ -155,7 +155,6 @@ pub(super) fn painted_dashed_polyline(
     let mut path = PathBuilder::stroke(px(width));
     // Arc distance until the next dash boundary, relative to each edge start.
     let mut position = -offset.rem_euclid(period);
-    let mut first = true;
     for pair in points.windows(2) {
         let from = (pair[0].0, pair[0].1);
         let to = (pair[1].0, pair[1].1);
@@ -171,12 +170,9 @@ pub(super) fn painted_dashed_polyline(
             if end > start {
                 let a = point(px(from.0 + ux * start), px(from.1 + uy * start));
                 let b = point(px(from.0 + ux * end), px(from.1 + uy * end));
-                if first {
-                    path.move_to(a);
-                    first = false;
-                } else {
-                    path.line_to(a);
-                }
+                // Each dash is its own subpath; a line_to from the previous
+                // dash would paint the gap as a connecting segment.
+                path.move_to(a);
                 path.line_to(b);
             }
             position += period;

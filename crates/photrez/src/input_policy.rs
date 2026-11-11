@@ -20,6 +20,9 @@ use crate::state::ToolId;
 pub(crate) enum CursorPolicy {
     SystemDefault,
     Crosshair,
+    /// The rotate hover. The platform cursor stays the default because the
+    /// native cursor or the painted sprite supplies the rotate icon.
+    Rotate,
     Text,
     Grabbing,
     /// The clone affordance: the cursor switches to copy while the

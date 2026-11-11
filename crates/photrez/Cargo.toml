@@ -11,6 +11,7 @@ default-run = "photrez"
 
 [features]
 input-measurement = []
+hot-reload = ["dep:gpui-fast"]
 
 # The hardest gate the new crate can carry, because it is the only tree with
 # no legacy to grandfather: an unsafe block, dead code, or an unwrap/expect/
@@ -33,6 +34,10 @@ panic = "deny"
 # trace used only by the `measure-frames` binary; it is a Tier C decision the
 # user approved 2026-10-19 and pulls `hdrhistogram`, not a gpui backend.
 gpui-kit = { version = "=0.9.0", features = ["profiler", "gpui-fast"] }
+# Direct edge so `hot-reload` can turn on the Subsecond patch server inside
+# gpui-fast: gpui-kit 0.9.0 does not forward that feature. Pinned to 0.1.13
+# so it unifies with the version gpui-kit already pulls in.
+gpui-fast = { version = "=0.1.13", features = ["hot-reload"], optional = true }
 photrez-core = { path = "../core" }
 fontdb = "0.20"
 # Parses the embedded message catalogs (`assets/i18n/*.json`, baked in with
@@ -50,6 +55,10 @@ futures = "0.3"
 # fetches no new package - and no default features, matching gpui-pre's own
 # edge, so the feature union does not move either.
 image = { version = "0.25", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.4", default-features = false }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSCursor"] }
 [target.'cfg(windows)'.dependencies]
 # GDI capture for the measure-frames paint-prove and the Windows print adapter.
 # windows-sys 0.52 is already in this crate's lock via the gpui-kit dependency

@@ -146,13 +146,24 @@ impl Element for CanvasPointerSurface {
         let hover_hitbox = hitbox.clone();
         let hover_doc = self.doc_size;
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, _window, cx| {
-            if phase != DispatchPhase::Bubble || !hover_hitbox.contains(&event.position) {
+            if phase != DispatchPhase::Bubble {
+                return;
+            }
+            if !hover_hitbox.contains(&event.position) {
+                if let Some(app) = hover_app.upgrade() {
+                    app.update(cx, |app, cx| {
+                        app.canvas_hover_end(cx);
+                    });
+                    cx.set_pointer_hidden(false);
+                }
                 return;
             }
             if let Some(app) = hover_app.upgrade() {
-                app.update(cx, |app, cx| {
+                let hidden = app.update(cx, |app, cx| {
                     app.canvas_hover(event, &hover_bounds, hover_doc, cx);
+                    app.system_pointer_hidden_for_gpui()
                 });
+                cx.set_pointer_hidden(hidden);
             }
         });
 
@@ -190,9 +201,18 @@ impl Element for CanvasPointerSurface {
             }
             up_capture.set(None);
             if let Some(app) = up_app.upgrade() {
-                app.update(cx, |app, cx| {
-                    app.canvas_pointer_up(event, &up_bounds, up_doc, cx);
+                let cancelled = app.update(cx, |app, cx| {
+                    if app.modal_input_active(cx) {
+                        app.cancel_canvas_gesture(cx);
+                        true
+                    } else {
+                        app.canvas_pointer_up(event, &up_bounds, up_doc, cx);
+                        false
+                    }
                 });
+                if cancelled {
+                    window.release_pointer();
+                }
             }
         });
 

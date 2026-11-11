@@ -9,11 +9,13 @@ use gpui_kit::{MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Platfo
 use photrez_core::document::content::{LayerType, SelectionShape, SelectionState};
 use photrez_core::document::layer_params::{ShapeFillKind, ShapeKind};
 
+mod brush_cursor;
 mod brush_preview_and_move;
 mod latency;
 mod layer_edits;
 mod option_bar_live;
 mod text_and_shape_persistence;
+mod tool_cursors;
 
 pub(super) fn set_state(
     content: &Entity<App>,

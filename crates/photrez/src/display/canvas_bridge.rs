@@ -128,6 +128,26 @@ struct PreviewPatch {
     image: Arc<RenderImage>,
 }
 
+/// Build one GPUI image from RGBA8 pixels.
+pub(crate) fn image_from_rgba(
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+) -> Result<Arc<RenderImage>, FrameError> {
+    let expected = width as usize * height as usize * 4;
+    if rgba.len() != expected {
+        return Err(FrameError::LengthMismatch {
+            expected,
+            got: rgba.len(),
+        });
+    }
+    let mut bgra = rgba;
+    for pixel in bgra.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    render_image(width, height, bgra)
+}
+
 fn render_image(width: u32, height: u32, bgra: Vec<u8>) -> Result<Arc<RenderImage>, FrameError> {
     let expected = width as usize * height as usize * 4;
     let got = bgra.len();
@@ -154,13 +174,31 @@ pub struct CanvasImage {
     tiles: Vec<Tile>,
     patches: Vec<Patch>,
     preview_patches: Vec<PreviewPatch>,
+    pub(crate) projection: Option<Projection>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Projection {
+    pub(crate) rect: TileRect,
+    pub(crate) image: Arc<RenderImage>,
 }
 
 mod camera;
 mod image;
 mod navigator;
+mod paint_list;
 mod painted;
 mod tiles;
+mod tool_cursor_paint;
+pub(crate) fn base_images(canvas_image: &CanvasImage) -> Vec<(TileRect, Arc<RenderImage>)> {
+    paint_list::base_images(canvas_image)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
+pub(crate) fn display_images(canvas_image: &CanvasImage) -> Vec<(TileRect, Arc<RenderImage>)> {
+    paint_list::display_images(canvas_image)
+}
 
 /// A 34x34 layer thumbnail: nearest-sample the layer's RGBA pixels into a
 /// BGRA `RenderImage` for the row. Non-raster or empty layers return `None`.
@@ -675,6 +713,13 @@ fn canvas_element_inner(
                         }
                     }
                 }
+            }
+            if let Some(cursor) = overlay.tool_cursor {
+                tool_cursor_paint::painted_tool_cursor(
+                    window,
+                    (cursor.position[0], cursor.position[1]),
+                    cursor.index,
+                );
             }
             if let Some(line) = overlay.gradient_line {
                 if let (Some(start), Some(end)) = (

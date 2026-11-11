@@ -8,7 +8,6 @@ use photrez_core::document::content::{LayerType, PtzLayer, Transform2D};
 
 pub(crate) const DEG: f64 = std::f64::consts::PI / 180.0;
 pub(crate) const HANDLE_HIT_PX: f64 = 16.0;
-pub(crate) const ROTATE_THRESHOLD_PX: f64 = 250.0;
 
 /// The size the selection frame uses for a layer.
 ///
@@ -25,6 +24,20 @@ pub(crate) fn layer_frame_size(layer: &PtzLayer) -> (f64, f64) {
             .unwrap_or((layer.width, layer.height)),
         _ => (layer.width, layer.height),
     }
+}
+
+/// Whether the Move tool may transform this layer. The general lock blocks
+/// every transform. A Background's missing per-axis locks read as locked,
+/// because older files mark the role without storing the fields; an explicit
+/// `false` unlocks the axis. Fully locked axes block move and rotation.
+pub(crate) fn layer_can_transform(layer: &PtzLayer) -> bool {
+    if layer.locked {
+        return false;
+    }
+    let background = layer.is_background.unwrap_or(false);
+    let lock_position = layer.lock_position.unwrap_or(background);
+    let lock_rotation = layer.lock_rotation.unwrap_or(background);
+    !(lock_position && lock_rotation)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -192,8 +205,8 @@ pub(crate) fn nearest_rotate_corner(
     }
 }
 
-/// Handle hit test in document space. `zoom` maps the 16 px/250 px
-/// screen tolerances into document units.
+/// Hover hit test. Hover and press share the same adaptive rotate band, so
+/// the cursor only promises the rotate a press will start.
 pub(crate) fn detect_handle(
     point: Point,
     transform: &Transform2D,
@@ -201,13 +214,12 @@ pub(crate) fn detect_handle(
     height: f64,
     zoom: f64,
 ) -> Option<Handle> {
-    detect_handle_with_rotate(point, transform, width, height, zoom, ROTATE_THRESHOLD_PX)
+    detect_press_handle(point, transform, width, height, zoom)
 }
 
-/// Press hit test. The interactive rotate region is the adaptive
-/// 32..60 px ring around the frame,
-/// while the 250 px threshold only drives the hover cursor. A press outside
-/// that ring belongs to the active tool instead (the Shape tool draws again).
+/// Press hit test. The rotate region is the adaptive 40..96 px ring around
+/// the frame; a press outside it belongs to the active tool instead (the
+/// Shape tool draws again).
 pub(crate) fn detect_press_handle(
     point: Point,
     transform: &Transform2D,
@@ -228,9 +240,9 @@ pub(crate) fn detect_press_handle(
 }
 
 pub(crate) fn adaptive_rotate_band_px(width: f64, height: f64) -> f64 {
-    (width.abs().min(height.abs()) * 0.15 + 20.0)
+    (width.abs().min(height.abs()) * 0.15 + 24.0)
         .round()
-        .clamp(32.0, 60.0)
+        .clamp(40.0, 96.0)
 }
 
 fn detect_handle_with_rotate(
@@ -707,6 +719,29 @@ mod tests {
         close(at_center.y, 50.0);
     }
 
+    /// A cursor must only promise the rotate a press starts: the hover and
+    /// press tests share one adaptive band. The old 250 px hover band showed
+    /// rotate far outside the 40..96 px press ring.
+    #[test]
+    fn hover_and_press_share_the_rotate_band() {
+        let transform = base(|_| {});
+        let close = Point { x: 335.0, y: 150.0 };
+        let far = Point { x: 500.0, y: 150.0 };
+        assert_eq!(
+            detect_handle(close, &transform, 200.0, 100.0, 1.0),
+            Some(Handle::Rotate)
+        );
+        assert_eq!(
+            detect_press_handle(close, &transform, 200.0, 100.0, 1.0),
+            Some(Handle::Rotate)
+        );
+        assert_eq!(detect_handle(far, &transform, 200.0, 100.0, 1.0), None);
+        assert_eq!(
+            detect_press_handle(far, &transform, 200.0, 100.0, 1.0),
+            None
+        );
+    }
+
     #[test]
     fn detect_handle_selects_corners_sides_move_and_rotate() {
         let transform = base(|_| {});
@@ -723,7 +758,7 @@ mod tests {
             Some(Handle::Move)
         );
         assert_eq!(
-            detect_handle(Point { x: 200.0, y: 400.0 }, &transform, 200.0, 100.0, 1.0),
+            detect_handle(Point { x: 200.0, y: 235.0 }, &transform, 200.0, 100.0, 1.0),
             Some(Handle::Rotate)
         );
         assert_eq!(
