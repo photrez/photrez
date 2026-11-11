@@ -13,7 +13,7 @@ members = ["crates/*"]
 # We will define shared dependencies here as we proceed.
 
 [workspace.package]
-rust-version = "1.96.0"
+rust-version = "1.98.1"
 
 # One dependency-free mechanism, one place: members opt in with
 # `[lints] workspace = true`. `crates/core` opts in and contains no `unsafe`
@@ -75,7 +75,6 @@ photrez = { opt-level = 1 }
 inherits = "dev"
 opt-level = 3
 debug = "line-tables-only"
-
 
 
 
