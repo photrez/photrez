@@ -424,4 +424,3 @@ fn the_export_quality_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppContex
     })
     .expect("test window remains open");
 }
-
