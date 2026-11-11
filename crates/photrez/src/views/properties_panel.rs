@@ -428,7 +428,6 @@ fn canvas_property_button(
         .text_size(px(12.0))
         .font_family(ui::FONT_UI)
         .text_color(color::TEXT)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 let result = action(app, window, cx);
@@ -514,7 +513,6 @@ pub(super) fn canvas_action_button(
         .text_size(px(12.0))
         .font_family(ui::FONT_UI)
         .text_color(text)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 let result = action(app, window, cx);
@@ -694,7 +692,6 @@ fn wired_action_button(
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(6.0))
-        .cursor_pointer()
         .on_click(
             cx.listener(
                 move |app, _: &gpui_kit::ClickEvent, _window, cx| match action(app, cx) {

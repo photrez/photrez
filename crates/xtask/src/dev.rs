@@ -39,7 +39,11 @@ const MINGW_BIN_CANDIDATES: &[&str] = &[
 
 /// Directory holding `gcc.exe` for the gnu link chain, or `None` when no
 /// known MSYS2/MSYS2-clone installation exists on this machine.
-fn find_mingw_bin() -> Option<PathBuf> {
+pub(crate) fn mingw_bin_candidates() -> &'static [&'static str] {
+    MINGW_BIN_CANDIDATES
+}
+
+pub(crate) fn find_mingw_bin() -> Option<PathBuf> {
     for candidate in MINGW_BIN_CANDIDATES {
         let dir = PathBuf::from(expand_user_profile(candidate));
         if dir.join("gcc.exe").is_file() {
@@ -68,6 +72,16 @@ fn expand_user_profile(path: &str) -> String {
 /// Build and run the app with the linker directory on the child `PATH`.
 /// Extra arguments are forwarded to the application binary after `--`.
 pub fn run(args: &[String]) -> i32 {
+    run_inner(args, None)
+}
+
+/// UI iteration profile: same linker fix as `dev`, with the app crate at
+/// opt-level 1 (`dev-ui` in the workspace `Cargo.toml`).
+pub fn run_ui(args: &[String]) -> i32 {
+    run_inner(args, Some("dev-ui"))
+}
+
+fn run_inner(args: &[String], profile: Option<&str>) -> i32 {
     let Some(mingw) = find_mingw_bin() else {
         eprintln!(
             "xtask dev: no gnu linker directory found. Tried: {}. \
@@ -79,7 +93,18 @@ pub fn run(args: &[String]) -> i32 {
     println!("xtask dev: linker directory {}", mingw.display());
 
     let mut cmd = Command::new("cargo");
-    cmd.args(["run", "-p", "photrez", "--bin", "photrez"]);
+    cmd.arg("run");
+    if let Some(profile) = profile {
+        cmd.args(["--profile", profile]);
+    }
+    cmd.args([
+        "-p",
+        "photrez",
+        "--features",
+        "hot-reload",
+        "--bin",
+        "photrez",
+    ]);
     if !args.is_empty() {
         cmd.arg("--").args(args);
     }

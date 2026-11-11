@@ -677,11 +677,6 @@ fn file_menu_recent_row_opens_the_recorded_project(cx: &mut gpui_kit::TestAppCon
         window.click("recent-file-0", cx);
         window.render_frame(cx);
         content.update(cx, |app, cx| {
-            assert_eq!(
-                app.active_tab_id_for_test().as_deref(),
-                Some("multi-doc"),
-                "the recent row re-opens the recorded project"
-            );
             let state = app.state_for_test().read(cx);
             assert!(
                 state.open_menu.is_none(),
@@ -692,6 +687,24 @@ fn file_menu_recent_row_opens_the_recorded_project(cx: &mut gpui_kit::TestAppCon
             window.try_find("recent-file-0").is_none(),
             "the closed File menu unmounts its rows"
         );
+    })
+    .expect("test window remains open");
+
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.active_tab_id_for_test().as_deref(),
+                Some("multi-doc"),
+                "the recent row re-opens the recorded project"
+            );
+            assert_eq!(
+                app.state_for_test().read(cx).loading,
+                None,
+                "the loading overlay clears after the install"
+            );
+        });
     })
     .expect("test window remains open");
 }

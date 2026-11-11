@@ -170,7 +170,6 @@ pub(super) fn crop_ratio_control(
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             cx.stop_propagation();
             app.toggle_crop_ratio(cx);
@@ -363,8 +362,7 @@ pub(super) fn crop_ratio_action_row(
     }
     row = row.child(div().child(label.to_string()));
     if enabled {
-        row.cursor_pointer()
-            .hover(|style| style.bg(color::WHITE_10))
+        row.hover(|style| style.bg(color::WHITE_10))
             .on_click(listener)
     } else {
         row.opacity(0.4)
@@ -391,7 +389,6 @@ pub(super) fn crop_ratio_preset_row(
         } else {
             FontWeight(400.)
         })
-        .cursor_pointer()
         .hover(|style| style.bg(color::FIELD.opacity(0.6)))
         .on_click(listener)
         .child(label.to_string())
@@ -490,7 +487,6 @@ pub(super) fn crop_size_fields(
                         .items_center()
                         .justify_center()
                         .rounded(px(RADIUS))
-                        .cursor_pointer()
                         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
                             app.crop_swap_size(cx);
@@ -527,7 +523,6 @@ pub(super) fn crop_size_fields(
                         .text_size(px(TEXT_SM))
                         .font_weight(FontWeight(600.))
                         .text_color(color::WHITE)
-                        .cursor_pointer()
                         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
                             app.toggle_crop_unit(cx);
@@ -568,7 +563,6 @@ pub(super) fn crop_edit_field(
         .bg(color::FIELD)
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();

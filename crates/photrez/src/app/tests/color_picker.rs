@@ -81,6 +81,220 @@ fn fg_swatch_opens_the_picker_and_the_sv_box_paints_live(cx: &mut gpui_kit::Test
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn opening_a_modal_during_color_picker_drag_stops_later_pointer_updates(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        let picker_focus = content.read(cx).picker_focus.clone();
+        window.click("fg-swatch", cx);
+        window.render_frame(cx);
+        let bounds = window.find("color-picker-sv").bounds();
+        let at = |x: f32, y: f32| {
+            gpui_kit::point(
+                bounds.origin.x + px(f32::from(bounds.size.width) * x),
+                bounds.origin.y + px(f32::from(bounds.size.height) * y),
+            )
+        };
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.2, 0.8),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(
+            window.captured_hitbox().is_some(),
+            "the color surface owns pointer capture"
+        );
+        let (after_down, _, picker_open) = content.update(cx, |app, cx| read_colors(app, cx));
+        assert!(picker_open, "the picker remains active during the drag");
+        assert_ne!(after_down, OPENING_FG, "the press changes the live color");
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: at(0.8, 0.2),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let (before_modal, _, _) = content.update(cx, |app, cx| read_colors(app, cx));
+        assert_ne!(
+            before_modal, after_down,
+            "a captured move updates the live color before another modal opens"
+        );
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::NewDocument),
+            "the global shortcut opens a modal while the picker has capture"
+        );
+        assert!(
+            window.captured_hitbox().is_none(),
+            "the modal transition releases color-picker capture"
+        );
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .color_picker
+                .is_some(),
+            "opening a modal leaves the picker session active"
+        );
+        assert!(
+            window.try_find("color-picker-sv").is_none(),
+            "the active modal owns the visible overlay"
+        );
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: at(0.3, 0.6),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let (after_modal, _, _) = content.update(cx, |app, cx| read_colors(app, cx));
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.3, 0.6),
+                click_count: 1,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(
+            window.captured_hitbox().is_none(),
+            "mouse-up clears pointer capture"
+        );
+        assert_eq!(
+            after_modal, before_modal,
+            "a captured picker move must not change color behind a modal"
+        );
+        window.click("new-doc-width", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window.find("new-doc-width").focused(),
+            Some(true),
+            "the modal remains interactive after the picker drag is cancelled"
+        );
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert!(
+            window.find("color-picker-sv").visible(),
+            "closing the modal restores the still-active picker session"
+        );
+        assert_eq!(
+            window.focused(cx),
+            Some(picker_focus),
+            "closing the modal restores focus to the picker input"
+        );
+        let (after_close, _, _) = content.update(cx, |app, cx| read_colors(app, cx));
+        assert_eq!(
+            after_close, before_modal,
+            "closing the modal keeps the last accepted color"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn creating_a_new_document_cancels_a_picker_session_for_the_previous_selection(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Text, 1.0);
+        window.render_frame(cx);
+        create_text_layer(window, &content, cx);
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| state.fg_color = OPENING_FG);
+        });
+        let previous_doc_id = content
+            .read(cx)
+            .active_document
+            .as_ref()
+            .expect("the text document is active")
+            .doc_id
+            .clone();
+
+        window.click("opt-text-color", cx);
+        window.render_frame(cx);
+        window.click_at(
+            "color-picker-sv",
+            Point {
+                x: px(160.),
+                y: px(20.),
+            },
+            cx,
+        );
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert_eq!(
+                app.text_layer_data_for_test()
+                    .expect("selected text exists")
+                    .color,
+                crate::palette::to_hex(sv_click_color([0, 0, 0, 255])),
+                "the open picker changes the previous document's text live"
+            );
+            assert_eq!(
+                app.state_for_test().read(cx).fg_color,
+                OPENING_FG,
+                "editing a selected text layer leaves the paint foreground alone"
+            );
+        });
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        window.click("new-doc-create", cx);
+        window.render_frame(cx);
+        let picker_visible_after_create = window.try_find("color-picker").is_some();
+        let picker_session_after_create = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .color_picker
+            .is_some();
+        let new_doc_id = content
+            .read(cx)
+            .active_document
+            .as_ref()
+            .expect("the new document is active")
+            .doc_id
+            .clone();
+        let canvas_focus = content.read(cx).canvas_focus_handle.clone();
+        assert_ne!(new_doc_id, previous_doc_id, "creation activates a new tab");
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        let (foreground, _, picker_open) = content.update(cx, |app, cx| read_colors(app, cx));
+        assert!(
+            !picker_visible_after_create
+                && !picker_session_after_create
+                && !picker_open
+                && foreground == OPENING_FG
+                && window.focused(cx) == Some(canvas_focus),
+            "creating a document cancels the old selection's picker without applying its rollback to the new document"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// Escape and the Cancel button both restore the colour the picker opened on.
 #[gpui_kit::test]
 fn escape_and_cancel_restore_the_opening_color(cx: &mut gpui_kit::TestAppContext) {

@@ -296,7 +296,6 @@ fn constrain_toggle(on: bool, cx: &Context<crate::app::App>) -> impl IntoElement
         .items_center()
         .justify_center()
         .flex_shrink_0()
-        .cursor_pointer()
         .aria_label("Constrain proportions") // i18n-exempt: hardcoded accessible name
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_constrain_ratio(cx);

@@ -125,6 +125,12 @@ impl Element for ZoomSurface {
                 return;
             }
             if let Some(app) = move_app.upgrade() {
+                let blocked = app.update(cx, |app, cx| app.modal_input_active(cx));
+                if blocked {
+                    window.release_pointer();
+                    move_capture.set(None);
+                    return;
+                }
                 app.update(cx, |app, cx| {
                     app.set_zoom_from_x(f32::from(event.position.x), cx);
                 });

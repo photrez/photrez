@@ -69,9 +69,8 @@
 //!   transition and the dialog fade-in animation are still unwired. The
 //!   Rename, Resize Canvas and New Document text fields are tab stops with the
 //!   shared focus band, so `Tab` moves real focus and the keystrokes follow it.
-//!   Focus is still not trapped inside the dialog: `Tab` past the last field
-//!   leaves for the shell behind it. The titlebar close,
-//!   Escape for Settings/About, and the About link row are live:
+//!   The modal focus trap keeps `Tab` and `Shift+Tab` inside the panel. The
+//!   titlebar close, Escape for Settings/About, and the About link row are live:
 //!   `chrome::dialog_close_button` runs each dialog's own dismissal, and
 //!   `dismiss_chrome_dialog` owns the managed-focus Escape. A click on the
 //!   backdrop does not dismiss the dialog.
@@ -357,7 +356,6 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
         .bg(color::FIELD)
         .text_size(px(11.5))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();

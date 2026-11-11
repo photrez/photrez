@@ -363,7 +363,6 @@ fn opacity_button(
         .text_color(color::TEXT_DIM);
     if enabled {
         button = button
-            .cursor_pointer()
             .hover(|style| style.text_color(color::TEXT))
             .on_click(
                 cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -406,15 +405,15 @@ fn blend_select(
         .bg(color::FIELD)
         .px(px(GAP_2));
     if enabled {
-        select = select.cursor_pointer().on_click(cx.listener(
-            move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+        select = select.on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let active = BLEND_MODES
                     .iter()
                     .position(|mode| blend_label(mode) == current_label)
                     .unwrap_or(0);
                 app.toggle_select_stay("layer-blend", active, 12, cx);
-            },
-        ));
+            }),
+        );
     }
     let select = select
         // Same split as the status bar: the value is the text that gives way,
@@ -631,13 +630,13 @@ fn lock_button(
         }
     } else {
         let kind = spec.kind;
-        button = button.cursor_pointer().on_click(cx.listener(
-            move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+        button = button.on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 if let Some(core_id) = core_id.clone() {
                     app.toggle_layer_lock(core_id, kind.clone(), cx);
                 }
-            },
-        ));
+            }),
+        );
     }
     tooltip(
         state,
@@ -714,7 +713,7 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
             button = button.opacity(0.3);
         }
         if clickable {
-            button = button.cursor_pointer().on_click(cx.listener(
+            button = button.on_click(cx.listener(
                 move |app: &mut crate::app::App, _: &gpui_kit::ClickEvent, _window, cx| match index
                 {
                     0 => app.add_empty_layer(cx),

@@ -39,6 +39,72 @@ pub(super) fn open_print_dialog(
 }
 
 #[gpui_kit::test]
+#[gpui_kit::test]
+fn print_cancel_with_paper_list_open_starts_closed_on_reopen(cx: &mut gpui_kit::TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        open_print_dialog(&content, window, cx);
+        window.click("print-paper", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("print-paper-1").is_some(),
+            "the paper list opens"
+        );
+        assert!(
+            content.read(cx).state_for_test().read(cx).print_paper_open,
+            "the paper flag must be open before dismiss"
+        );
+        window.click("print-cancel", cx);
+        window.render_frame(cx);
+        open_print_dialog(&content, window, cx);
+        let state = content.read(cx).state_for_test().read(cx);
+        assert!(!state.print_paper_open);
+        assert!(
+            window.try_find("print-paper-1").is_none(),
+            "reopened Print must not show the previous paper list"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn opening_print_dialog_reports_printer_enumeration_failure(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.open_print_dialog_with_printers(
+                Err(crate::services::print::PrintError::UnsupportedPlatform),
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert_eq!(state.active_dialog, Some(crate::state::DialogId::Print));
+            assert!(state.print_error.is_some());
+        }
+        assert!(window.try_find("print-error").is_some());
+        content.update(cx, |app, cx| {
+            app.open_print_dialog_with_printers(Ok(Vec::new()), cx);
+        });
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .print_error
+                .is_none(),
+            "a successful enumeration clears the prior failure"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn print_dialog_controls_paper_orientation_and_copies(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
@@ -121,6 +187,7 @@ fn print_scale_track_writes_the_percentage(cx: &mut gpui_kit::TestAppContext) {
             .get()
             .expect("the Scale track is laid out");
         let x = bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * 0.5);
+        let moved_x = bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * 0.75);
         let y = bounds.origin.y + bounds.size.height / 2.0;
         let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
@@ -131,9 +198,16 @@ fn print_scale_track_writes_the_percentage(cx: &mut gpui_kit::TestAppContext) {
             cx,
         );
         let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: gpui_kit::point(moved_x, y),
+                ..Default::default()
+            }),
+            cx,
+        );
+        let _ = window.dispatch_event(
             gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
                 button: gpui_kit::MouseButton::Left,
-                position: gpui_kit::point(x, y),
+                position: gpui_kit::point(moved_x, y),
                 click_count: 1,
                 ..Default::default()
             }),
@@ -143,8 +217,8 @@ fn print_scale_track_writes_the_percentage(cx: &mut gpui_kit::TestAppContext) {
         let state = content.read(cx).state_for_test();
         let scale = state.read(cx).print_scale_percent;
         assert!(
-            (200..=205).contains(&scale),
-            "halfway is about 205 %, got {scale}"
+            (295..=310).contains(&scale),
+            "a captured move to three quarters into the track is about 303 %, got {scale}"
         );
         assert!(
             !state.read(cx).print_scale_to_fit,

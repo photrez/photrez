@@ -53,6 +53,37 @@ fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+/// A test mount must not reset the process-wide locale: the harness mounts
+/// many apps in parallel, and the locale tests own that global behind the
+/// shared lock.
+#[gpui_kit::test]
+fn mounting_an_app_does_not_reset_the_process_locale(cx: &mut gpui_kit::TestAppContext) {
+    use crate::i18n::{self, Locale};
+
+    struct RestoreLocale;
+    impl Drop for RestoreLocale {
+        fn drop(&mut self) {
+            i18n::set_locale(Locale::En);
+        }
+    }
+
+    let _guard = crate::i18n::TEST_LOCALE_LOCK
+        .lock()
+        .expect("locale lock is not poisoned");
+    i18n::set_locale(Locale::Id);
+    let _restore = RestoreLocale;
+
+    let directory = TestDirectory::new();
+    let settings =
+        crate::services::settings::FileSettings::at(directory.path().join("settings.json"));
+    let (_window, _content) = mount_settings_app(cx, settings, &directory);
+    assert_eq!(
+        i18n::locale(),
+        Locale::Id,
+        "the mount leaves the process locale alone"
+    );
+}
+
 /// The stored `photrez.locale` preference decides the startup locale.
 /// The app resolves it while it is constructed, so the first frame already
 /// renders the translated shell with no interaction.

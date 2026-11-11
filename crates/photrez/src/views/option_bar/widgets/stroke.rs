@@ -44,7 +44,6 @@ pub(super) fn shape_stroke_pill(
         } else {
             FontWeight(500.)
         })
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.toggle_stroke_popover(window, cx);
         }))
@@ -212,7 +211,6 @@ fn stroke_color_button(
         .border_color(color::BORDER)
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 if state.read(cx).shape_stroke {
@@ -285,7 +283,6 @@ fn stroke_width_field(
         .shadow(ui::ring_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 begin_stroke_width(&state, app, window, cx);

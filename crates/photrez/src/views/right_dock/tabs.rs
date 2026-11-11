@@ -147,7 +147,6 @@ fn tab_button(
         .flex_shrink_0()
         .id(id)
         .test_support()
-        .cursor_pointer()
         .on_click(on_click)
         .child(
             h_flex()

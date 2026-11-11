@@ -19,11 +19,15 @@ linker = "rust-lld"
 # manifest to pick the app binary (the measurement binaries are not the dev
 # loop). On a machine whose PATH lacks the gnu linker directory, use
 # `cargo xtask dev` instead - it prepends the directory to the child PATH.
+# Alias names must not collide with built-in commands (`check`, `test`, ...);
+# the workspace tasks live under `cargo xtask` for that reason.
 [alias]
-dev = ["run", "-p", "photrez"]
+dev = ["run", "-p", "photrez", "--features", "hot-reload"]
 # UI iteration profile: same dev settings, app crate at opt-level 1.
-ui = ["run", "--profile", "dev-ui", "-p", "photrez"]
+ui = ["run", "--profile", "dev-ui", "-p", "photrez", "--features", "hot-reload"]
 verify = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+# Environment probe: rustc, cargo, bacon and linker availability.
+doctor = ["xtask", "doctor"]
 # Standard xtask bootstrap: `cargo xtask <args>` runs the workspace task crate.
 xtask = ["run", "--package", "xtask", "--"]
 

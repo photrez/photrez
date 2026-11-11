@@ -32,7 +32,6 @@ pub(super) fn text_stroke_pill(
         } else {
             FontWeight(500.)
         })
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.toggle_text_stroke_popover(window, cx);
         }))
@@ -142,7 +141,6 @@ fn text_stroke_popover(
         })
         .px(px(2.0))
         .when(enabled, |el| el.justify_end())
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_text_stroke(cx);
         }))
@@ -283,7 +281,6 @@ fn text_stroke_stepper(
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(700.))
         .text_color(color::WHITE)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 if app.effective_text_stroke_width(cx) > 0.0 {
@@ -321,7 +318,6 @@ fn text_stroke_width_field(
         .shadow(ui::outline_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             if app.effective_text_stroke_width(cx) > 0.0 {
                 app.begin_text_stroke_width_field(window, cx);
@@ -412,7 +408,6 @@ fn text_stroke_color_row(color_value: [u8; 4], cx: &Context<crate::app::App>) ->
                 .border_color(color::BORDER)
                 .bg(color::FIELD)
                 .px(px(FIELD_PX))
-                .cursor_pointer()
                 .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                     if app.effective_text_stroke_width(cx) > 0.0 {
                         app.open_color_picker(crate::state::ColorTarget::TextStroke, window, cx);
@@ -464,7 +459,6 @@ fn text_stroke_position_segment(
         })
         .text_color(if active { color::WHITE } else { ZINC })
         .when(active, |el| el.bg(color::ACCENT))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 if app.effective_text_stroke_width(cx) > 0.0 {

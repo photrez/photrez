@@ -10,7 +10,7 @@ use crate::display::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
 use crate::state::TabRow;
 
-use super::App;
+use super::{App, CloseIntent};
 
 impl App {
     /// Rebuild the tab strip from the open sessions, in tab order.
@@ -79,6 +79,7 @@ impl App {
         if self.state.read(cx).text_edit.is_some() {
             let _ = self.commit_text_edit(cx);
         }
+        self.cancel_color_picker_for_document_change(cx);
         let camera = self.tab_cameras.remove(doc_id).flatten();
         if let Some(previous) = self.active_document.as_ref() {
             self.tab_cameras
@@ -92,6 +93,7 @@ impl App {
         let retired = self.active_document.replace(super::ActiveDocument {
             doc_id: doc_id.to_string(),
             canvas,
+            canvas_stale: false,
             camera,
         });
         if let Some(retired) = retired {
@@ -152,7 +154,9 @@ impl App {
                     return false;
                 }
             }
-            self.pending_tab_close = Some(doc_id.to_string());
+            self.pending_close = Some(CloseIntent::Tab {
+                doc_id: doc_id.to_string(),
+            });
             self.state.update(cx, |state, _| {
                 state.active_dialog = Some(crate::state::DialogId::DirtyClose);
             });

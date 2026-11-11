@@ -210,6 +210,7 @@ impl App {
             }
             state.selection_drag = None;
         });
+        self.sync_hover_cursor(cx);
         cx.notify();
     }
 }

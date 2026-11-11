@@ -568,7 +568,7 @@ fn menu_triggers_open_measured_popups(cx: &mut TestAppContext) {
 /// Menu commands open the three shell dialogs through the same event path.
 #[gpui_kit::test]
 fn menu_commands_open_the_shell_dialogs(cx: &mut TestAppContext) {
-    let (handle, _content) = open_app(cx);
+    let (handle, content) = open_app(cx);
     cx.update_window(handle.into(), |_, window, cx| {
         let steps = [
             ("menus.file", "menu-new-document", "dialog-new-document"),
@@ -581,6 +581,18 @@ fn menu_commands_open_the_shell_dialogs(cx: &mut TestAppContext) {
             window.click(row, cx);
             window.render_frame(cx);
             assert!(window.find(dialog_id).visible(), "{dialog_id} must mount");
+            if dialog_id == "dialog-new-document" {
+                window.click("new-doc-tab-1", cx);
+                window.render_frame(cx);
+                assert_eq!(
+                    content
+                        .read(cx)
+                        .new_document_form_for_test(cx)
+                        .expect("File > New must create a form session")
+                        .category,
+                    crate::state::NewDocCategory::SocialMedia
+                );
+            }
             assert!(
                 window.try_find("menu-overlay").is_none(),
                 "the menu must close when its command runs"
@@ -1060,6 +1072,90 @@ fn navigator_collapse_and_zoom_drive_the_camera(cx: &mut TestAppContext) {
             window.try_find("navigator-hitbox").is_some(),
             "re-expanding mounts the body again"
         );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn opening_a_modal_during_navigator_zoom_drag_stops_later_camera_updates(cx: &mut TestAppContext) {
+    let paths = StartupTestFiles::new();
+    let source = paths.file("nav-modal-zoom.ptz");
+    let io = Arc::new(StartupFileIo::default());
+    io.insert(&source, startup_archive("doc-nav-modal", 1, 1, false, 0));
+    let (handle, content) = open_app_with(cx, Some((source, io)));
+    cx.update_window(handle.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("navigator-fit", cx);
+        window.render_frame(cx);
+        let bounds = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .nav_zoom_track_bounds
+            .get()
+            .expect("the zoom track has laid-out bounds");
+        let y = bounds.origin.y + bounds.size.height / 2.0;
+        let at = |fraction: f32| {
+            gpui_kit::point(
+                bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * fraction),
+                y,
+            )
+        };
+        let before = content
+            .read(cx)
+            .camera_for_test()
+            .expect("the opened document has a camera")
+            .zoom;
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.60),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let zoom_before_modal = content
+            .read(cx)
+            .camera_for_test()
+            .expect("the zoom track keeps a camera")
+            .zoom;
+        assert_ne!(zoom_before_modal, before, "the press changes zoom");
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::NewDocument)
+        );
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: at(0.25),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let zoom_after_modal = content
+            .read(cx)
+            .camera_for_test()
+            .expect("the zoom track keeps a camera")
+            .zoom;
+        assert_eq!(
+            zoom_after_modal, zoom_before_modal,
+            "a captured zoom move must not change the camera behind a modal"
+        );
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.25),
+                click_count: 1,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
     })
     .unwrap();
 }

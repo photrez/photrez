@@ -126,7 +126,6 @@ pub(super) fn render(
     )
     .id("print-color-header")
     .test_support()
-    .cursor_pointer()
     .on_click(
         cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
             cx.stop_propagation();
@@ -280,7 +279,6 @@ pub(super) fn render(
                 .border_color(color::BORDER)
                 .bg(color::TOPBAR)
                 .px(px(12.0))
-                .cursor_grab()
                 .on_mouse_down(
                     gpui_kit::MouseButton::Left,
                     cx.listener(

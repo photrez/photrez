@@ -523,7 +523,7 @@ impl App {
                 .registry
                 .set_history_label(&doc_id, if cut { "Cut" } else { "Delete Selection" });
         }
-        self.refresh_active_canvas(cx)?;
+        self.refresh_after_edit(cx)?;
         Ok(())
     }
 
@@ -601,7 +601,7 @@ impl App {
                 state.selected_layer = row.id;
             }
         });
-        self.refresh_active_canvas(cx)?;
+        self.refresh_after_edit(cx)?;
         Ok(())
     }
 

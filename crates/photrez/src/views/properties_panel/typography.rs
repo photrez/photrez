@@ -65,7 +65,6 @@ pub(super) fn typography_section(
                 color::FIELD_BORDER
             })
             .bg(color::FIELD)
-            .cursor_pointer()
             .on_click(
                 cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                     let _ = app.set_text_align(target, cx);
@@ -136,7 +135,6 @@ pub(super) fn typography_section(
                                     color::FIELD_BORDER
                                 })
                                 .bg(color::FIELD)
-                                .cursor_pointer()
                                 .on_click(cx.listener(
                                     |app, _: &gpui_kit::ClickEvent, _window, cx| {
                                         let _ = app.toggle_text_italic(cx);
@@ -169,7 +167,6 @@ pub(super) fn typography_section(
                                     color::FIELD_BORDER
                                 })
                                 .bg(color::FIELD)
-                                .cursor_pointer()
                                 .on_click(cx.listener(
                                     |app, _: &gpui_kit::ClickEvent, _window, cx| {
                                         let _ = app.toggle_text_underline(cx);
@@ -246,7 +243,6 @@ pub(super) fn typography_section(
                                 .border(px(1.0))
                                 .border_color(color::FIELD_BORDER)
                                 .bg(crate::palette::hsla(color))
-                                .cursor_pointer()
                                 .on_click(cx.listener(
                                     |app, _: &gpui_kit::ClickEvent, window, cx| {
                                         app.open_color_picker(
@@ -274,7 +270,6 @@ pub(super) fn typography_section(
                                     color::FIELD_BORDER
                                 })
                                 .bg(color::FIELD)
-                                .cursor_pointer()
                                 .on_click(cx.listener(
                                     |app, _: &gpui_kit::ClickEvent, _window, cx| {
                                         app.toggle_text_stroke(cx);

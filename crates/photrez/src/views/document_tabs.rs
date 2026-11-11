@@ -282,7 +282,6 @@ fn tab(
         // The document background is the active branch; inactive tabs sit on
         // the strip colour, which is the topbar fill.
         .when(active, |el| el.bg(color::BG))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let _ = app.activate_document(&click_id, cx);
@@ -359,7 +358,6 @@ fn close_tab_button(doc_id: String, cx: &Context<crate::app::App>) -> impl IntoE
         .items_center()
         .justify_center()
         .rounded(px(CLOSE_RADIUS))
-        .cursor_pointer()
         .hover(|s| s.text_color(color::TEXT))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -419,7 +417,6 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
-        .cursor_pointer()
         .aria_label(t("menus.items.newDocument"))
         .border_l_1()
         .border_color(color::BORDER)
@@ -498,7 +495,6 @@ fn export_button(
         .px(px(EXPORT_PX))
         .text_size(px(EXPORT_TEXT))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .hover(|s| s.bg(color::WHITE_45))
         .on_click(cx.listener(
             |app, _: &gpui_kit::ClickEvent, window, cx: &mut Context<crate::app::App>| {

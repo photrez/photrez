@@ -61,11 +61,6 @@ impl App {
     }
 
     pub(crate) fn open_recent_path(&mut self, raw: &str, cx: &mut Context<Self>) {
-        let path = PathBuf::from(raw);
-        let result = self.open_startup_path(&path, cx);
-        match result {
-            Ok(()) => self.set_status_error(None, cx),
-            Err(error) => self.set_status_error(Some(format!("Open: {error}")), cx),
-        }
+        self.open_path_async(PathBuf::from(raw), cx);
     }
 }

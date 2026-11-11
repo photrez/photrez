@@ -49,6 +49,7 @@ impl Default for AppState {
             open_menu: None,
             context_menu: None,
             active_dialog: None,
+            loading: None,
             new_document: None,
             autosave_status: AutosaveStatus::Idle,
             autosave_error: None,

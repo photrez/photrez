@@ -108,7 +108,6 @@ fn new_doc_preset_card(
                 a: 0.15,
             }
         })
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
@@ -207,10 +206,7 @@ fn new_doc_select(
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> Div {
     let toggle_state = state.clone();
-    let mut field = new_doc_field_box(open)
-        .id(id)
-        .test_support()
-        .cursor_pointer();
+    let mut field = new_doc_field_box(open).id(id).test_support();
     if center {
         field = field.justify_center();
     }
@@ -290,7 +286,6 @@ fn new_doc_select(
                     })
                     .text_size(px(11.5))
                     .text_color(if selected { color::ACCENT } else { color::TEXT })
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -361,7 +356,6 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
                 .text_size(px(12.0))
                 .font_weight(FontWeight(500.))
                 .text_color(if active { color::TEXT } else { color::TEXT_DIM })
-                .cursor_pointer()
                 .on_click(
                     cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                         cx.stop_propagation();
@@ -435,7 +429,6 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Name))
             .id("new-doc-name")
             .test_support()
-            .cursor_pointer()
             .aria_label(t("dialogs.newDocument.name").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
@@ -449,7 +442,6 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Width))
             .id("new-doc-width")
             .test_support()
-            .cursor_pointer()
             .aria_label(t("dialogs.newDocument.width").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
@@ -463,7 +455,6 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Height))
             .id("new-doc-height")
             .test_support()
-            .cursor_pointer()
             .aria_label(t("dialogs.newDocument.height").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
@@ -647,7 +638,6 @@ fn new_doc_button(label: &str, primary: bool) -> Div {
         } else {
             color::TEXT
         })
-        .cursor_pointer()
         .child(label.to_string())
 }
 

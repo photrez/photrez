@@ -73,7 +73,6 @@ where
         .bg(color::FIELD)
         .text_size(px(11.5))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .on_click(cx.listener(handler))
         .child(div().child(value))
         .child(
@@ -107,7 +106,6 @@ where
         .flex()
         .items_center()
         .gap(px(8.0))
-        .cursor_pointer()
         .child(
             div()
                 .w(px(14.0))
@@ -176,7 +174,6 @@ where
         .bg(if on { color::ACCENT } else { color::FIELD })
         .text_size(px(11.5))
         .text_color(if on { color::BG } else { color::TEXT })
-        .cursor_pointer()
         .on_click(cx.listener(handler));
     // The page shape leads the label.
     match glyph {
@@ -271,7 +268,6 @@ where
         .bg(color::FIELD)
         .text_size(px(11.5))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .aria_label(label.to_string())
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {

@@ -398,7 +398,7 @@ fn right_group(
         .min_w(px(0.))
         .items_center()
         .child(undo_group(dock_open, window, state, cx))
-        .child(window_controls(window))
+        .child(window_controls(window, cx.weak_entity()))
 }
 
 /// The undo/redo group: a clipped centred row, 2px between buttons, 12px right margin, icon colour.

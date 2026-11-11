@@ -134,7 +134,7 @@ pub(super) fn basic_section(
     };
     let mut reset = reset_button().id("adj-reset").test_support();
     if has_pending {
-        reset = reset.cursor_pointer().opacity(1.0);
+        reset = reset.opacity(1.0);
     }
     let reset = reset
         .on_click(
@@ -406,7 +406,6 @@ pub(super) fn coming_soon_section(
                 .items_center()
                 .justify_between()
                 .px(px(COLLAPSE_PX))
-                .cursor_pointer()
                 .on_click(
                     cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                         app.toggle_adjustment_section(id, cx);

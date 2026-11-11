@@ -508,7 +508,7 @@ impl App {
             .mark_history_dirty(doc_id)
             .map_err(|error| format!("dirty state failed: {error:?}"))?;
         self.project_layers(cx);
-        self.refresh_active_canvas(cx)?;
+        self.refresh_after_edit(cx)?;
         cx.notify();
         Ok(())
     }

@@ -58,7 +58,6 @@ pub(super) fn option_checkbox_action(
         .px(px(FIELD_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
-        .cursor_pointer()
         .hover(|s| s.bg(FIELD_60))
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(if checked {
@@ -350,8 +349,7 @@ pub(super) fn live_select(
         .bg(color::FIELD)
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
-        .font_weight(FontWeight(500.))
-        .cursor_pointer();
+        .font_weight(FontWeight(500.));
     let label = match prefix {
         Some(p) => h_flex()
             .child(div().text_color(ZINC).child(p.to_string()))
@@ -456,7 +454,6 @@ pub(crate) fn floating_options_panel(
                 } else {
                     color::TEXT
                 })
-                .cursor_pointer()
                 .hover(|s| s.bg(FIELD_60))
                 .on_click(
                     cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -542,7 +539,6 @@ pub(super) fn brush_field(
         .shadow(ui::outline_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 app.begin_brush_field(id, window, cx);

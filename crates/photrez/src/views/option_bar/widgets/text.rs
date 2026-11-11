@@ -64,7 +64,6 @@ pub(in super::super) fn font_size_field(
         .shadow(ui::ring_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.begin_text_size_field(window, cx);
         }))
@@ -121,7 +120,6 @@ pub(in super::super) fn text_toggle_action(
         .border_color(color::BORDER)
         .bg(if active { ACCENT_20 } else { FIELD_40 })
         .text_color(if active { color::WHITE } else { ZINC })
-        .cursor_pointer()
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(glyph)
 }
@@ -147,7 +145,6 @@ pub(in super::super) fn text_icon_action(
         .border_1()
         .border_color(color::BORDER)
         .bg(if active { ACCENT_20 } else { FIELD_40 })
-        .cursor_pointer()
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(
             Icon::default()
@@ -193,7 +190,6 @@ pub(in super::super) fn box_mode_control(
         .px(px(PILL_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 app.toggle_select("opt-box-mode", usize::from(area_active), 2, window, cx);
@@ -281,7 +277,6 @@ fn box_mode_row(
             FontWeight(400.)
         })
         .when(active, |el| el.bg(ACCENT_20))
-        .cursor_pointer()
         .hover(|s| s.bg(color::WHITE_10))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -345,7 +340,6 @@ pub(in super::super) fn text_color_swatch(
         .border_color(color::BORDER)
         .bg(crate::palette::hsla(shown))
         .shadow(vec![ring_white_20()])
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.open_color_picker(crate::state::ColorTarget::Text, window, cx);
         }))

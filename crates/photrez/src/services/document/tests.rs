@@ -893,3 +893,50 @@ fn blank_document_is_800x600_opaque_white() {
     assert_eq!((width, height), (800, 600));
     assert_eq!(rgba, vec![255u8; 800 * 600 * 4]);
 }
+
+/// Manual probe for the UI-thread refresh cost on a large single-layer
+/// document. Run with `--ignored --nocapture`.
+#[test]
+#[ignore = "manual large-image refresh probe"]
+fn large_image_refresh_cost_probe() {
+    use std::time::Instant;
+
+    for (width, height) in [(3000u32, 2000u32), (4000, 3000)] {
+        let rgba = vec![255u8; width as usize * height as usize * 4];
+        let start = Instant::now();
+        let loaded = LoadedDocument::imported_image(
+            format!("probe-{width}x{height}"),
+            "probe".to_string(),
+            width,
+            height,
+            rgba.clone(),
+        )
+        .expect("probe document seeds");
+        let seed = start.elapsed();
+
+        let content = loaded.content_snapshot().expect("probe content");
+        let start = Instant::now();
+        let composite = photrez_core::render::compositor::composite_layers_with_font_data(
+            content,
+            &loaded.registry,
+            Some(crate::INTER),
+        )
+        .expect("probe composite");
+        let composite_time = start.elapsed();
+
+        let start = Instant::now();
+        let canvas = crate::display::canvas_bridge::CanvasImage::from_rgba(
+            composite.width,
+            composite.height,
+            composite.pixels,
+        )
+        .expect("probe canvas");
+        let canvas_time = start.elapsed();
+
+        println!(
+            "probe {width}x{height}: seed {seed:?}, composite {composite_time:?}, canvas {canvas_time:?}, tiles {}",
+            canvas.tile_count()
+        );
+        drop(rgba);
+    }
+}

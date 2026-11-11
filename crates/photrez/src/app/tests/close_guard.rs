@@ -110,6 +110,34 @@ fn ctrl_w_clean_document_closes_immediately(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn title_bar_close_prompts_when_document_is_dirty(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, _| {
+            app.mark_active_document_dirty_for_test()
+                .expect("active session accepts an edit");
+        });
+        content.update(cx, |app, cx| {
+            app.close_window_from_title_bar(window, cx);
+            assert!(matches!(
+                app.state_for_test().read(cx).active_dialog,
+                Some(crate::state::DialogId::DirtyClose)
+            ));
+            assert_eq!(
+                app.active_document_id_for_test().as_deref(),
+                Some("bounded-raster-doc")
+            );
+            assert_eq!(
+                app.active_document_save_state_for_test(),
+                Some((1, 0, true))
+            );
+        });
+    })
+    .expect("dirty title-bar close keeps the window open");
+}
+
 /// Save on the prompt writes the source document and then closes the document.
 #[gpui_kit::test]
 fn ctrl_w_save_writes_then_closes(cx: &mut gpui_kit::TestAppContext) {

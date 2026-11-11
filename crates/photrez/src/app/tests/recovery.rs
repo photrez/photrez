@@ -91,6 +91,14 @@ fn startup_recovery_restores_autosaves_as_unsaved_tabs(cx: &mut gpui_kit::TestAp
                 .is_some_and(|id| id == "multi-doc"));
             assert_eq!(app.state_for_test().read(cx).active_dialog, None);
             assert_eq!(app.active_core_layer_count_for_test(), Some(2));
+            assert!(
+                !app.should_close_window(cx),
+                "closing an unsaved recovery must offer the dirty-close prompt"
+            );
+            assert_eq!(
+                app.state_for_test().read(cx).active_dialog,
+                Some(crate::state::DialogId::DirtyClose)
+            );
         });
     })
     .expect("test window remains open");

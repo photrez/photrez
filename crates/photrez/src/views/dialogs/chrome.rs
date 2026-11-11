@@ -160,7 +160,6 @@ fn titlebar_with(
         .border_b_1()
         .border_color(color::DIVIDER)
         .bg(color::TOPBAR)
-        .cursor_grab()
         .child(
             h_flex()
                 .items_center()
@@ -199,7 +198,6 @@ fn close_box() -> Stateful<Div> {
         .justify_center()
         .flex_shrink_0()
         .rounded(px(4.0))
-        .cursor_pointer()
         // No token holds 8 % white; the alpha blends over TOPBAR.
         .hover(|s| s.bg(hsla(0.0, 0.0, 1.0, 0.08)))
         .child(

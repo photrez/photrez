@@ -380,13 +380,13 @@ fn file_menu(
             Some(fill),
         )
         .into_any_element(),
-        None => dialog_row(
+        None => command_row(
+            state,
             &t("menus.items.newDocument"),
             Some("Ctrl+N"),
             "menu-new-document",
-            DialogId::NewDocument,
-            state,
             cx,
+            |app, cx| app.open_new_document(cx),
         ),
     };
     menu_shell(vec![

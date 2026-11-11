@@ -710,3 +710,208 @@ fn paint_still_targets_the_last_layer_after_a_move_deselect(cx: &mut gpui_kit::T
     })
     .expect("test window remains open");
 }
+
+/// A large edit paints a viewport projection and leaves the exact base tiles
+/// stale until a reader asks for them. No full-document composite runs on the
+/// edit path.
+#[gpui_kit::test]
+fn large_documents_paint_a_viewport_projection(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    let before = cx
+        .update_window(window.into(), |_, window, cx| {
+            content.update(cx, |app, cx| {
+                app.create_document(1600, 1600, cx).expect("blank document");
+            });
+            window.render_frame(cx);
+            let before = content.read(cx).full_composites_for_test();
+            content.update(cx, |app, cx| app.add_empty_layer(cx));
+            assert_eq!(
+                content.read(cx).full_composites_for_test(),
+                before,
+                "a large edit does not composite the full document"
+            );
+            assert_eq!(content.read(cx).canvas_stale_for_test(), Some(true));
+            assert_eq!(
+                content.read(cx).projection_rect_for_test(),
+                None,
+                "the projection is queued, not composed inline"
+            );
+            before
+        })
+        .expect("test window remains open");
+
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            before,
+            "the projection still avoids a full-document composite"
+        );
+        let rect = content
+            .read(cx)
+            .projection_rect_for_test()
+            .expect("the viewport projection lands");
+        assert!(rect.2 > 0 && rect.3 > 0);
+        let (image_width, image_height) = content
+            .read(cx)
+            .projection_image_size_for_test()
+            .expect("the projection image is present");
+        assert!(
+            image_width < 1600 && image_height < 1600,
+            "the projection runs at display scale, not document scale: {image_width}x{image_height}"
+        );
+        assert_eq!(
+            content.read(cx).projection_pixel_for_test(800, 800),
+            Some([255, 255, 255, 255]),
+            "the projection carries the live white page"
+        );
+        assert_eq!(content.read(cx).canvas_stale_for_test(), Some(true));
+        content
+            .update(cx, |app, cx| app.ensure_canvas_current(cx))
+            .expect("the exact base refresh succeeds");
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            before + 1,
+            "only an exact-base reader pays for the full composite"
+        );
+        assert_eq!(content.read(cx).canvas_stale_for_test(), Some(false));
+        assert_eq!(content.read(cx).projection_rect_for_test(), None);
+    })
+    .expect("test window remains open");
+}
+
+/// Layer metadata edits reuse the projection's source buffers. The history
+/// version moves, but no layer epoch changes, so the window thread copies no
+/// pixels for the next projection.
+#[gpui_kit::test]
+fn metadata_edits_reuse_projection_source_pixels(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(1600, 1600, cx).expect("blank document");
+        });
+        window.render_frame(cx);
+        content.update(cx, |app, cx| app.add_empty_layer(cx));
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+
+    let copies_after_seed = cx
+        .update_window(window.into(), |_, _window, cx| {
+            content.read(cx).projection_pixel_copies_for_test()
+        })
+        .expect("test window remains open");
+    assert!(
+        copies_after_seed > 0,
+        "the first projection seeds the source cache"
+    );
+
+    cx.update_window(window.into(), |_, window, cx| {
+        let (doc_id, layer_id) = {
+            let app = content.read(cx);
+            (
+                app.active_doc_id().expect("active document"),
+                app.active_core_layer_ids_for_test()
+                    .first()
+                    .cloned()
+                    .expect("fixture has a layer"),
+            )
+        };
+        content.update(cx, |app, cx| {
+            app.apply_core_command(
+                &doc_id,
+                photrez_core::protocol::Command::SetOpacity {
+                    id: layer_id,
+                    opacity: 0.5,
+                },
+                true,
+                cx,
+            )
+            .expect("opacity applies");
+        });
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        assert_eq!(
+            content.read(cx).projection_pixel_copies_for_test(),
+            copies_after_seed,
+            "a metadata edit reuses the shared layer buffer"
+        );
+        assert_eq!(
+            content.read(cx).canvas_stale_for_test(),
+            Some(true),
+            "the base stays lazy after the metadata edit"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Layer metadata edits recomposite the layer's own bounds, not the page.
+#[gpui_kit::test]
+fn layer_metadata_edit_updates_only_its_region(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(400, 300, cx).expect("blank document");
+        });
+        set_tool(&content, cx, ToolId::Shape, 1.0);
+        window.render_frame(cx);
+        drag_doc(window, (400, 300), (50.0, 50.0), (100.0, 100.0), cx);
+        window.render_frame(cx);
+        let full_before = content.read(cx).full_composites_for_test();
+        let region_before = content.read(cx).region_refreshes_for_test();
+        content
+            .update(cx, |app, cx| app.set_selected_layer_opacity(0.5, cx))
+            .expect("opacity commits");
+        assert_eq!(
+            content.read(cx).region_refreshes_for_test(),
+            region_before + 1,
+            "the layer edit uses the dirty-region seam"
+        );
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            full_before,
+            "no full document composite is needed"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Lock and rename changes do not alter pixels, so they must not touch the
+/// display canvas at all.
+#[gpui_kit::test]
+fn layer_lock_toggle_does_not_recomposite(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let core_id = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("fixture layer")
+            .1
+            .id;
+        let full_before = content.read(cx).full_composites_for_test();
+        let region_before = content.read(cx).region_refreshes_for_test();
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+        assert_eq!(
+            content.read(cx).full_composites_for_test(),
+            full_before,
+            "a lock change has no pixels to repaint"
+        );
+        assert_eq!(
+            content.read(cx).region_refreshes_for_test(),
+            region_before,
+            "a lock change has no region to repaint"
+        );
+    })
+    .expect("test window remains open");
+}

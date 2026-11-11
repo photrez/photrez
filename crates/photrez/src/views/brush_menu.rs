@@ -175,7 +175,6 @@ pub(crate) fn render(
                     .font_family(ui::FONT_UI)
                     .line_height(relative(1.5))
                     .text_color(if selected { color::ACCENT } else { color::TEXT })
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -208,7 +207,6 @@ pub(crate) fn render(
         .font_family(ui::FONT_UI)
         .line_height(relative(1.5))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             cx.stop_propagation();
             app.brush_menu_reset(cx);

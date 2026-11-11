@@ -209,7 +209,6 @@ pub(super) fn brush_more_dropdown(
             .id("opt-more")
             .test_support()
             .flex_shrink_0()
-            .cursor_pointer()
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 app.toggle_more_menu(window, cx)
             }))

@@ -143,15 +143,27 @@ PSD import and export are not implemented.
 
 ## Build from source
 
-Use the Rust toolchain pinned by `rust-toolchain.toml`.
+Use the Rust toolchain pinned by `rust-toolchain.toml`. Run `cargo xtask doctor` once on a fresh clone to see the toolchain, linker, and `bacon` status.
 
 ```bash
 cargo dev                          # Run the app with the dev profile
 cargo xtask dev                    # Same, with the Windows GNU linker directory on PATH
 cargo ui                           # UI iteration profile, photrez at opt-level 1
+cargo xtask watch                  # Rebuild and restart the app on save (hot reload)
 bacon                              # Save-triggered cargo check -p photrez
 cargo build --release -p photrez   # Release binary at target/release/photrez
 ```
+
+Workspace tasks (only what plain cargo cannot do on its own):
+
+```bash
+cargo xtask dev        # build and run with the GNU linker directory on PATH
+cargo xtask dev-ui     # same, dev-ui profile (app crate at opt-level 1)
+cargo xtask watch      # rebuild and restart on save through bacon
+cargo xtask doctor     # toolchain, bacon and linker probe
+```
+
+A compiled Rust app cannot reload modules in place, so the hot reload loop is rebuild and restart on save: `bacon run` (dev profile) or `bacon run-ui` (UI profile). See `CONTRIBUTING.md` for the full task list and the one-time `cargo install --locked bacon` setup.
 
 Workspace checks:
 

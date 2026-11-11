@@ -378,7 +378,6 @@ fn layer_row(
         .border_color(row_hairline_colour())
         .bg(row_fill(active, selected))
         .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
-        .cursor_pointer()
         .on_click(on_click)
         .on_drag(drag_payload, on_drag)
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
@@ -402,7 +401,6 @@ fn layer_row(
                     .items_center()
                     .justify_center()
                     .flex_shrink_0()
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -511,7 +509,6 @@ fn layer_row(
                     .items_center()
                     .justify_center()
                     .flex_shrink_0()
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -586,7 +583,6 @@ fn move_button(
         );
     let button = match target {
         Some(target) => button
-            .cursor_pointer()
             .hover(|style| style.bg(color::WHITE_10))
             .on_click(
                 cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {

@@ -59,6 +59,294 @@ fn crop_drag_shows_a_preview_and_escape_clears_it(cx: &mut gpui_kit::TestAppCont
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn crop_handle_drag_is_cancelled_by_tool_shortcut(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.set_canvas_tool_action(&SetCanvasTool(ToolId::Crop), cx);
+        });
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+
+        let (w, h, _) = pixels(&content, cx);
+        let doc = (w, h);
+        let (bounds, placement) = page(window, doc);
+        let start = window_point(bounds, placement, doc, 0.1, 0.1);
+        let moved = window_point(bounds, placement, doc, 0.7, 0.7);
+        dispatch(
+            window,
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        dispatch(
+            window,
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: moved,
+                pressed_button: Some(MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        assert!(content.read(cx).crop_rect_for_test(cx).is_some());
+        content.update(cx, |app, _| assert!(app.crop_drag.is_some()));
+
+        window.press("v", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_tool,
+            ToolId::Move
+        );
+        dispatch(
+            window,
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: window_point(bounds, placement, doc, 0.9, 0.8),
+                pressed_button: Some(MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        assert!(
+            content.read(cx).crop_rect_for_test(cx).is_none(),
+            "a crop drag must not restore its frame after the tool changes"
+        );
+
+        dispatch(
+            window,
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, cx| {
+            assert!(app.crop_drag.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn escape_cancels_an_active_crop_handle_drag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.set_canvas_tool_action(&SetCanvasTool(ToolId::Crop), cx);
+        });
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+
+        let (w, h, _) = pixels(&content, cx);
+        let doc = (w, h);
+        let (bounds, placement) = page(window, doc);
+        let start = window_point(bounds, placement, doc, 0.1, 0.1);
+        let moved = window_point(bounds, placement, doc, 0.7, 0.7);
+        dispatch(
+            window,
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        dispatch(
+            window,
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: moved,
+                pressed_button: Some(MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, _| assert!(app.crop_drag.is_some()));
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert!(app.crop_drag.is_none());
+            assert!(app.state_for_test().read(cx).crop_rect.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+
+        dispatch(
+            window,
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, cx| {
+            assert!(app.crop_drag.is_none());
+            assert!(app.state_for_test().read(cx).crop_rect.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn canvas_focus_loss_cancels_an_active_crop_handle_drag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, _| window.activate_window())
+        .expect("test window remains open");
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        assert!(window.is_window_active());
+        content.update(cx, |app, cx| {
+            app.set_canvas_tool_action(&SetCanvasTool(ToolId::Crop), cx);
+        });
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+        assert!(content
+            .read(cx)
+            .canvas_focus_handle
+            .contains_focused(window, cx));
+
+        let (w, h, _) = pixels(&content, cx);
+        let doc = (w, h);
+        let (bounds, placement) = page(window, doc);
+        let start = window_point(bounds, placement, doc, 0.1, 0.1);
+        let moved = window_point(bounds, placement, doc, 0.7, 0.7);
+        dispatch(
+            window,
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        dispatch(
+            window,
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: moved,
+                pressed_button: Some(MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, _| assert!(app.crop_drag.is_some()));
+        assert!(
+            window.captured_hitbox().is_some(),
+            "crop handle drag must hold pointer capture before focus leaves"
+        );
+
+        window.press("tab", cx);
+        window.render_frame(cx);
+        assert!(
+            !content
+                .read(cx)
+                .canvas_focus_handle
+                .contains_focused(window, cx),
+            "Tab must leave the canvas focus path"
+        );
+        content.update(cx, |app, cx| {
+            assert!(
+                app.crop_drag.is_none(),
+                "canvas focus loss must cancel the active gesture"
+            );
+            assert!(app.state_for_test().read(cx).crop_rect.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+        assert!(
+            window.captured_hitbox().is_none(),
+            "canvas focus loss must release the captured pointer"
+        );
+
+        dispatch(
+            window,
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, cx| {
+            assert!(app.crop_drag.is_none());
+            assert!(app.state_for_test().read(cx).crop_rect.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn opening_a_modal_during_crop_handle_drag_cancels_before_pointer_up(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.set_canvas_tool_action(&SetCanvasTool(ToolId::Crop), cx);
+        });
+        window.render_frame(cx);
+        tab_to_canvas(window, cx);
+
+        let (w, h, _) = pixels(&content, cx);
+        let doc = (w, h);
+        let (bounds, placement) = page(window, doc);
+        let start = window_point(bounds, placement, doc, 0.1, 0.1);
+        let moved = window_point(bounds, placement, doc, 0.7, 0.7);
+        dispatch(
+            window,
+            PlatformInput::MouseDown(MouseDownEvent {
+                button: MouseButton::Left,
+                position: start,
+                ..Default::default()
+            }),
+            cx,
+        );
+        dispatch(
+            window,
+            PlatformInput::MouseMove(MouseMoveEvent {
+                position: moved,
+                pressed_button: Some(MouseButton::Left),
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, _| assert!(app.crop_drag.is_some()));
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::NewDocument)
+        );
+
+        dispatch(
+            window,
+            PlatformInput::MouseUp(MouseUpEvent {
+                button: MouseButton::Left,
+                position: moved,
+                ..Default::default()
+            }),
+            cx,
+        );
+        content.update(cx, |app, cx| {
+            assert!(app.crop_drag.is_none());
+            assert!(app.state_for_test().read(cx).crop_rect.is_none());
+            assert!(app.state_for_test().read(cx).crop_history.is_empty());
+        });
+    })
+    .expect("test window remains open");
+}
+
 /// Arming Crop opens the default frame over the whole page, and
 /// leaving the tool drops it.
 #[gpui_kit::test]

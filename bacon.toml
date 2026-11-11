@@ -1,12 +1,33 @@
-# Fast error feedback while the app keeps running: `bacon` checks just the app
-# crate, so a save shows diagnostics in ~6 s (warm) instead of one build
-# (~20 s). Type errors surface here; runtime and UI behaviour still need a build.
+# Save-triggered jobs for the Photrez workspace (https://dystroy.org/bacon/).
 #
-# Run it from a shell whose PATH starts with the MSYS2 MinGW `bin` directory,
-# otherwise a gpui-pre rebuild fails in windres. `cargo xtask dev` sets that
-# PATH for its child already.
+# `bacon` runs the default job on start and re-runs it on save. Press a key to
+# switch jobs. `run` and `run-ui` rebuild the app and restart it on save,
+# which is the hot reload for a native binary (there is no in-process module
+# reload in a compiled Rust app, so rebuild plus restart is the fast loop).
+# Both route through `cargo xtask dev`, so the Windows GNU linker directory
+# lands on the child PATH without a manual step.
+#
+# Run from the repository root: `bacon` for the default check job,
+# `bacon run` for the watch loop, `cargo xtask watch` for the same loop.
 default_job = "check"
 
 [jobs.check]
 command = ["cargo", "check", "-p", "photrez", "--color", "always"]
 need_stdout = false
+
+# Rebuild and restart the app on every save. `background = false` shows the
+# app output live, and `kill_then_restart` restarts it as soon as a save lands
+# so the loop never needs a manual relaunch.
+[jobs.run]
+command = ["cargo", "xtask", "dev"]
+need_stdout = true
+background = false
+on_change_strategy = "kill_then_restart"
+allow_warnings = true
+
+[jobs.run-ui]
+command = ["cargo", "xtask", "dev-ui"]
+need_stdout = true
+background = false
+on_change_strategy = "kill_then_restart"
+allow_warnings = true

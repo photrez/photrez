@@ -47,6 +47,13 @@ pub enum LayerTab {
     History,
 }
 
+/// The open-document loading overlay: an indeterminate wait or real progress.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LoadingState {
+    Indeterminate,
+    Progress(f32),
+}
+
 /// The selection tool's sub-variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum SelectionShape {
@@ -310,6 +317,8 @@ pub struct AppState {
     pub context_menu: Option<(f32, f32)>,
     /// The mounted shell dialog, if any.
     pub active_dialog: Option<DialogId>,
+    /// The open-document loading overlay; `None` at rest.
+    pub loading: Option<LoadingState>,
     /// The New Document dialog's form; `None` until the dialog opens.
     pub new_document: Option<NewDocumentSession>,
     /// Auto-save status shown in the footer (`Saving...` / `Saved` / error).
@@ -618,6 +627,29 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Export and Print keep dropdown flags outside ctive_dialog. Clear them on
+    /// every terminal path so overlay ownership and the next open start closed.
+    pub(crate) fn clear_dialog_transient_selectors(&mut self) {
+        self.export_format_open = false;
+        self.print_paper_open = false;
+        self.print_unit_open = false;
+        self.print_printer_open = false;
+    }
+    /// An overlay owns the pointer, so the canvas must not keep a hover cursor
+    /// after the pointer stops moving.
+    pub fn overlay_owns_canvas(&self) -> bool {
+        self.active_dialog.is_some()
+            || self.open_menu.is_some()
+            || self.open_select.is_some()
+            || self.context_menu.is_some()
+            || self.brush_menu.is_some()
+            || self.color_picker.is_some()
+            || self.selection_flyout_open
+            || self.crop_ratio_open
+            || self.export_format_open
+            || self.loading.is_some()
+    }
+
     /// The handle a track takes so it can be tabbed to and stepped with arrows.
     pub fn slider_focus_for(&self, target: SliderTarget) -> Option<gpui_kit::FocusHandle> {
         self.slider_foci.get(target.index()).cloned()

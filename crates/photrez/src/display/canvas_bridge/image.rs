@@ -1,6 +1,81 @@
 use super::*;
 
 impl CanvasImage {
+    pub(crate) fn set_projection(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        image: Arc<RenderImage>,
+    ) -> Option<Arc<RenderImage>> {
+        self.projection
+            .replace(Projection {
+                rect: TileRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                image,
+            })
+            .map(|projection| projection.image)
+    }
+
+    pub(crate) fn clear_projection(&mut self) -> Option<Arc<RenderImage>> {
+        self.projection.take().map(|projection| projection.image)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn projection_rect_for_test(&self) -> Option<(u32, u32, u32, u32)> {
+        self.projection.as_ref().map(|projection| {
+            (
+                projection.rect.x,
+                projection.rect.y,
+                projection.rect.width,
+                projection.rect.height,
+            )
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn projection_image_size_for_test(&self) -> Option<(u32, u32)> {
+        let projection = self.projection.as_ref()?;
+        let size = projection.image.size(0);
+        Some((size.width.0.max(0) as u32, size.height.0.max(0) as u32))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn projection_pixel_for_test(&self, doc_x: u32, doc_y: u32) -> Option<[u8; 4]> {
+        let projection = self.projection.as_ref()?;
+        let rect = projection.rect;
+        if doc_x < rect.x
+            || doc_y < rect.y
+            || doc_x >= rect.x + rect.width
+            || doc_y >= rect.y + rect.height
+        {
+            return None;
+        }
+        let size = projection.image.size(0);
+        let width = size.width.0.max(0) as u32;
+        let height = size.height.0.max(0) as u32;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let x = ((doc_x - rect.x) as u64 * u64::from(width) / u64::from(rect.width))
+            .min(u64::from(width - 1)) as usize;
+        let y = ((doc_y - rect.y) as u64 * u64::from(height) / u64::from(rect.height))
+            .min(u64::from(height - 1)) as usize;
+        let bytes = projection.image.as_bytes(0)?;
+        let index = (y * width as usize + x) * 4;
+        Some([
+            bytes[index + 2],
+            bytes[index + 1],
+            bytes[index],
+            bytes[index + 3],
+        ])
+    }
+
     /// Document pixel dimensions, used by the canvas pointer mapping.
     pub(crate) fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
@@ -92,6 +167,7 @@ impl CanvasImage {
             tiles,
             patches: Vec::new(),
             preview_patches: Vec::new(),
+            projection: None,
         })
     }
 

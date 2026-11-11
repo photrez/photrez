@@ -56,7 +56,6 @@ pub(super) fn printer_setup(
                     .rounded(px(4.0))
                     .border_1()
                     .border_color(color::FIELD_BORDER)
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -91,7 +90,6 @@ pub(super) fn printer_setup(
                     } else {
                         color::TEXT
                     })
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
@@ -175,7 +173,6 @@ pub(super) fn printer_setup(
                     .bg(color::FIELD)
                     .text_size(px(11.0))
                     .text_color(color::TEXT)
-                    .cursor_pointer()
                     .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                         cx.stop_propagation();
                         app.set_status_error(

@@ -274,6 +274,78 @@ fn file_drop_adds_centered_layers_with_the_cascade_offset(cx: &mut gpui_kit::Tes
 }
 
 #[gpui_kit::test]
+fn mixed_file_drop_uses_the_original_target_camera_for_raster_placement(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, app, _source) = mount_fixture_app(cx, &directory);
+    let project = directory.path().join("dropped.ptz");
+    std::fs::write(&project, super::commands::multi_layer_archive_with(false))
+        .expect("dropped project is written");
+    let image = directory.path().join("dropped.png");
+    std::fs::copy(FIXTURE_PNG, &image).expect("dropped image is copied");
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let position = window.find("canvas-hitbox").bounds().center();
+        let expected_center = app.update(cx, |app, cx| {
+            let file_io = app.file_io.clone().expect("file boundary is open");
+            file_io
+                .approve_path(&project)
+                .expect("dropped project is approved");
+            file_io
+                .approve_path(&image)
+                .expect("dropped image is approved");
+
+            app.set_camera(
+                crate::display::canvas_bridge::Camera::new(11.0, 22.0, 2.0)
+                    .expect("target camera is valid"),
+                cx,
+            );
+            let (width, height) = app
+                .active_document_size()
+                .expect("the original target document is active");
+            crate::app::canvas_doc_coords_free(
+                position,
+                &app.canvas_bounds,
+                (width.max(1.0) as u32, height.max(1.0) as u32),
+                app.active_camera(),
+            )
+            .expect("drop point maps to the target document")
+        });
+        let before = content(&app, cx, FIXTURE_DOC).layers;
+
+        app.update(cx, |app, cx| {
+            app.stage_dropped_paths(vec![project.clone(), image.clone()], position);
+            app.submit_dropped_paths(cx);
+        });
+        window.render_frame(cx);
+
+        assert_eq!(
+            app.read(cx).active_tab_id_for_test().as_deref(),
+            Some("multi-doc")
+        );
+        let after = content(&app, cx, FIXTURE_DOC).layers;
+        assert_eq!(after.len(), before.len() + 1);
+        let imported = after
+            .iter()
+            .find(|layer| layer.name == "dropped.png")
+            .expect("the raster is added to the original target");
+        assert_eq!(
+            imported.transform.x + imported.width / 2.0,
+            expected_center.0,
+            "the opened project must not replace the drop target camera"
+        );
+        assert_eq!(
+            imported.transform.y + imported.height / 2.0,
+            expected_center.1,
+            "the opened project must not replace the drop target camera"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn layer_drag_refuses_a_full_target_document(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();
     let (window, app, _source) = mount_fixture_app(cx, &directory);

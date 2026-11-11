@@ -335,18 +335,23 @@ impl App {
                 let content = loaded
                     .content_snapshot()
                     .ok_or_else(|| "loaded content is missing".to_string())?;
-                photrez_core::render::compositor::composite_layers_with_font_data(
+                photrez_core::render::compositor::composite_layers_in_region_with_font_data(
                     content,
                     &loaded.registry,
                     Some(crate::INTER),
+                    photrez_core::render::compositor::CompositeRegion {
+                        x: px,
+                        y: py,
+                        width: 1,
+                        height: 1,
+                    },
                 )
                 .map_err(|error| error.to_string())?
             };
-            if px >= composite.width || py >= composite.height {
+            if composite.region.width == 0 || composite.region.height == 0 {
                 return Err("the eyedropper is outside the document".to_string());
             }
-            let index = (py as usize * composite.width as usize + px as usize) * 4;
-            let rgba = &composite.pixels[index..index + 4];
+            let rgba = &composite.pixels[0..4];
             let color = [rgba[0], rgba[1], rgba[2], rgba[3]];
             let auto_copy = self.state.read(cx).auto_copy_hex;
             self.state.update(cx, |state, _| state.fg_color = color);
@@ -407,6 +412,6 @@ impl App {
                 .registry
                 .set_history_label(&doc_id, label);
         }
-        self.refresh_active_canvas(cx)
+        self.refresh_after_edit(cx)
     }
 }

@@ -21,6 +21,10 @@ impl App {
     }
 
     pub(crate) fn apply_startup_locale(&mut self) {
+        // Many test apps mount in parallel, and the locale tests serialize the
+        // process-wide locale through `TEST_LOCALE_LOCK`. A test mount must not
+        // reset it; production windows apply their stored preference.
+        #[cfg(not(test))]
         i18n::set_locale(self.startup_locale());
     }
 

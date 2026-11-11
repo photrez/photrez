@@ -108,7 +108,6 @@ fn resize_field(
         .shadow(vec![ui::field_well()])
         .text_size(px(11.0))
         .text_color(color::TEXT)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
@@ -154,7 +153,6 @@ fn resize_field(
                 .shadow(vec![ui::field_well()])
                 .text_size(px(11.5))
                 .text_color(color::TEXT)
-                .cursor_pointer()
                 .aria_label(label.to_string())
                 .on_click(
                     cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
@@ -255,7 +253,6 @@ fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> 
             .text_size(px(11.0))
             .text_color(colours.text)
             .gap(px(4.0))
-            .cursor_pointer()
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
                 app.toggle_resize_aspect_lock(cx);

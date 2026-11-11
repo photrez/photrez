@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use gpui_kit::{AppContext as _, Context, PathPromptOptions};
+use gpui_kit::{AppContext as _, Context, PathPromptOptions, Window};
 
 use super::{
     ensure_ptz_path, App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument,
@@ -40,18 +40,22 @@ impl App {
             .as_ref()
             .map(|document| document.doc_id.clone())
             .ok_or_else(|| ServiceError::Conflict("no active document to save".into()))?;
+        self.save_document(&doc_id)
+    }
+
+    fn save_document(&mut self, doc_id: &str) -> Result<(), ServiceError> {
         let file_io = self
             .file_io
             .clone()
             .ok_or_else(|| ServiceError::Conflict("no file boundary is open".into()))?;
         let path = self
             .sessions
-            .get(&doc_id)
+            .get(doc_id)
             .and_then(|session| session.source_path())
             .map(Path::to_path_buf)
             .ok_or_else(|| ServiceError::Conflict("the document has no save path".into()))?;
         self.sessions
-            .save(&doc_id, file_io.as_ref(), &path, &SaveStream)
+            .save(doc_id, file_io.as_ref(), &path, &SaveStream)
             .map(|_| ())
     }
 
@@ -71,13 +75,22 @@ impl App {
         if !dirty {
             return true;
         }
-        self.close_after_dirty = true;
-        self.pending_tab_close = None;
+        self.pending_close = Some(super::CloseIntent::Window { doc_id });
         self.state.update(cx, |state, _| {
             state.active_dialog = Some(DialogId::DirtyClose);
         });
         cx.notify();
         false
+    }
+
+    pub(crate) fn close_window_from_title_bar(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.should_close_window(cx) {
+            window.remove_window();
+        }
     }
 
     /// File > New: open the New Document dialog and close any
@@ -110,8 +123,7 @@ impl App {
     }
 
     pub(crate) fn close_document_action(&mut self, _: &CloseDocument, cx: &mut Context<Self>) {
-        self.close_after_dirty = false;
-        self.pending_tab_close = None;
+        self.pending_close = None;
         let Some(doc_id) = self
             .active_document
             .as_ref()
@@ -124,6 +136,7 @@ impl App {
             .get(&doc_id)
             .is_some_and(|session| session.is_dirty());
         if dirty {
+            self.pending_close = Some(super::CloseIntent::Document { doc_id });
             self.state.update(cx, |state, _| {
                 state.active_dialog = Some(DialogId::DirtyClose);
             });
@@ -134,10 +147,6 @@ impl App {
     }
 
     fn close_active_document(&mut self, cx: &mut Context<Self>) {
-        if self.close_after_dirty {
-            self.pending_window_close = true;
-        }
-        self.close_after_dirty = false;
         let Some(doc_id) = self
             .active_document
             .as_ref()
@@ -145,13 +154,24 @@ impl App {
         else {
             return;
         };
-        if self.sessions.get(&doc_id).is_some() {
-            let _ = self.sessions.discard(&doc_id);
+        self.close_document_by_id(&doc_id, cx);
+    }
+
+    fn close_document_by_id(&mut self, doc_id: &str, cx: &mut Context<Self>) {
+        if !self
+            .active_document
+            .as_ref()
+            .is_some_and(|document| document.doc_id == doc_id)
+        {
+            self.close_document_tab_unchecked(doc_id, cx);
+            return;
+        }
+        if self.sessions.get(doc_id).is_some() {
+            let _ = self.sessions.discard(doc_id);
         }
         if let Some(retired) = self.active_document.take() {
             self.retired_textures.extend(retired.canvas.into_textures());
         }
-        self.close_after_save = false;
         self.state.update(cx, |state, _| {
             state.active_dialog = None;
             state.status_error = None;
@@ -166,18 +186,19 @@ impl App {
             state.layer_flags.clear();
             state.history.clear();
         });
-        self.document_tabs.retain(|open| open != &doc_id);
-        self.tab_cameras.remove(&doc_id);
+        self.document_tabs.retain(|open| open != doc_id);
+        self.tab_cameras.remove(doc_id);
         self.project_tabs(cx);
         cx.notify();
     }
 
     /// Cancel the dirty-close prompt; the document/tab stays open and dirty.
     pub(crate) fn dirty_close_cancel(&mut self, cx: &mut Context<Self>) {
-        self.close_after_save = false;
-        self.close_after_dirty = false;
-        self.pending_tab_close = None;
-        self.state.update(cx, |state, _| state.active_dialog = None);
+        self.pending_close = None;
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
         cx.notify();
     }
 
@@ -186,34 +207,84 @@ impl App {
         self.finish_pending_close(cx);
     }
 
-    /// Close whatever the dirty prompt was guarding: a tab when one is
-    /// pending, otherwise the window's active document.
     fn finish_pending_close(&mut self, cx: &mut Context<Self>) {
-        if let Some(doc_id) = self.pending_tab_close.take() {
-            self.state.update(cx, |state, _| state.active_dialog = None);
-            self.close_document_tab_unchecked(&doc_id, cx);
-        } else {
-            self.close_active_document(cx);
+        let intent = self.pending_close.take().or_else(|| {
+            self.active_document
+                .as_ref()
+                .map(|document| super::CloseIntent::Document {
+                    doc_id: document.doc_id.clone(),
+                })
+        });
+        if let Some(intent) = intent {
+            self.finish_close_intent(intent, cx);
+        }
+    }
+
+    fn finish_close_intent(&mut self, intent: super::CloseIntent, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
+        match intent {
+            super::CloseIntent::Document { doc_id } => self.close_document_by_id(&doc_id, cx),
+            super::CloseIntent::Tab { doc_id } => {
+                self.close_document_tab_unchecked(&doc_id, cx);
+            }
+            super::CloseIntent::Window { doc_id } => {
+                self.close_document_by_id(&doc_id, cx);
+                self.pending_window_close = true;
+            }
         }
     }
 
     /// Save then close. A failure keeps the document open and dirty.
     pub(crate) fn dirty_close_save(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| state.active_dialog = None);
-        let has_source = self
-            .active_document
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
+        let Some(doc_id) = self
+            .pending_close
             .as_ref()
-            .and_then(|document| self.sessions.get(&document.doc_id))
+            .map(|intent| intent.doc_id().to_owned())
+            .or_else(|| {
+                self.active_document
+                    .as_ref()
+                    .map(|document| document.doc_id.clone())
+            })
+        else {
+            self.set_status_error(Some("Save failed: no document to close".into()), cx);
+            return;
+        };
+        if self.pending_close.is_none() {
+            self.pending_close = Some(super::CloseIntent::Document {
+                doc_id: doc_id.clone(),
+            });
+        }
+        let has_source = self
+            .sessions
+            .get(&doc_id)
             .and_then(|session| session.source_path())
             .is_some();
         if !has_source {
-            self.close_after_save = true;
+            if !self
+                .active_document
+                .as_ref()
+                .is_some_and(|document| document.doc_id == doc_id)
+            {
+                if let Err(error) = self.activate_document(&doc_id, cx) {
+                    self.pending_close = None;
+                    self.set_status_error(Some(format!("Save As failed: {error}")), cx);
+                    return;
+                }
+            }
             self.prompt_save_as(cx);
             return;
         }
-        match self.save_active_document() {
+        match self.save_document(&doc_id) {
             Ok(()) => self.finish_pending_close(cx),
             Err(error) => {
+                self.pending_close = None;
                 let status = format!("Save failed ({}): {error}", error.code());
                 self.set_status_error(Some(status), cx);
             }
@@ -244,22 +315,35 @@ impl App {
     }
 
     fn prompt_save_as(&mut self, cx: &mut Context<Self>) {
+        let Some(doc_id) = self
+            .active_document
+            .as_ref()
+            .map(|document| document.doc_id.clone())
+        else {
+            self.set_status_error(Some("Save As failed: no active document".into()), cx);
+            return;
+        };
         let Some((directory, suggested)) = self.save_as_prompt() else {
             self.set_status_error(Some("Save As failed: no active document".into()), cx);
             return;
         };
+        let close_intent = self
+            .pending_close
+            .clone()
+            .filter(|intent| intent.doc_id() == doc_id);
         let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
         cx.spawn(async move |this, cx| {
             let selected = match receiver.await {
                 Ok(Ok(Some(path))) => path,
                 Ok(Ok(None)) => {
-                    this.update(cx, |app, cx| app.dirty_close_cancel(cx)).ok();
+                    this.update(cx, |app, _| app.clear_close_intent(close_intent.as_ref()))
+                        .ok();
                     return;
                 }
                 Ok(Err(error)) => {
                     let status = format!("Save As failed: {error:?}");
                     this.update(cx, |app, cx| {
-                        app.close_after_save = false;
+                        app.clear_close_intent(close_intent.as_ref());
                         app.set_status_error(Some(status), cx);
                     })
                     .ok();
@@ -268,14 +352,16 @@ impl App {
                 Err(error) => {
                     let status = format!("Save As dialog failed: {error:?}");
                     this.update(cx, |app, cx| {
-                        app.close_after_save = false;
+                        app.clear_close_intent(close_intent.as_ref());
                         app.set_status_error(Some(status), cx);
                     })
                     .ok();
                     return;
                 }
             };
-            let result = this.update(cx, |app, cx| app.save_active_document_to(&selected, cx));
+            let result = this.update(cx, |app, cx| {
+                app.save_document_to(&doc_id, &selected, close_intent.as_ref(), cx)
+            });
             if let Ok(Err(error)) = result {
                 this.update(cx, |app, cx| app.set_status_error(Some(error), cx))
                     .ok();
@@ -292,33 +378,50 @@ impl App {
         ))
     }
 
-    fn save_active_document_to(
+    fn clear_close_intent(&mut self, intent: Option<&super::CloseIntent>) {
+        if intent.is_some_and(|intent| self.pending_close.as_ref() == Some(intent)) {
+            self.pending_close = None;
+        }
+    }
+
+    fn save_document_to(
         &mut self,
+        doc_id: &str,
         path: &Path,
+        close_intent: Option<&super::CloseIntent>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let path = ensure_ptz_path(path)?;
-        let doc_id = self
-            .active_document
-            .as_ref()
-            .map(|document| document.doc_id.clone())
-            .ok_or_else(|| "Save As failed: no active document".to_owned())?;
-        let file_io = self.ensure_file_io()?;
-        file_io
-            .approve_path(&path)
-            .map_err(|error| format!("Save As failed ({}): {error}", error.code()))?;
-        self.sessions
-            .save(&doc_id, file_io.as_ref(), &path, &SaveStream)
-            .map_err(|error| format!("Save As failed ({}): {error}", error.code()))?;
+        let result = (|| {
+            let path = ensure_ptz_path(path)?;
+            let file_io = self.ensure_file_io()?;
+            file_io
+                .approve_path(&path)
+                .map_err(|error| format!("Save As failed ({}): {error}", error.code()))?;
+            self.sessions
+                .save(doc_id, file_io.as_ref(), &path, &SaveStream)
+                .map_err(|error| format!("Save As failed ({}): {error}", error.code()))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.clear_close_intent(close_intent);
+            return Err(error);
+        }
         self.state.update(cx, |state, _| state.status_error = None);
         cx.notify();
-        if self.close_after_save {
-            self.finish_pending_close(cx);
+        if let Some(intent) = close_intent {
+            if self.pending_close.as_ref() == Some(intent) {
+                self.pending_close = None;
+                self.finish_close_intent(intent.clone(), cx);
+            }
         }
         Ok(())
     }
 
     pub(crate) fn open_document_action(&mut self, _: &OpenDocument, cx: &mut Context<Self>) {
+        if self.state.read(cx).loading.is_some() {
+            self.set_status_error(Some("Open: a document is already loading".into()), cx);
+            return;
+        }
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -345,54 +448,8 @@ impl App {
             let Some(path) = selected else {
                 return;
             };
-
-            if path
-                .extension()
-                .and_then(OsStr::to_str)
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("ptz"))
-            {
-                let result = this.update(cx, |app, cx| {
-                    let file_io = app.ensure_file_io()?;
-                    app.open_startup_document(&path, file_io.as_ref(), cx)
-                });
-                if let Ok(Err(error)) = result {
-                    let status = format!("Open failed: {error}");
-                    this.update(cx, |app, cx| app.set_status_error(Some(status), cx))
-                        .ok();
-                }
-                return;
-            }
-
-            let file_io = match this.update(cx, |app, _| app.ensure_file_io()) {
-                Ok(Ok(file_io)) => file_io,
-                Ok(Err(error)) => {
-                    let status = format!("Open failed: {error}");
-                    this.update(cx, |app, cx| app.set_status_error(Some(status), cx))
-                        .ok();
-                    return;
-                }
-                Err(_) => return,
-            };
-            let decode_path = path.clone();
-            let decoded = cx
-                .background_spawn(async move {
-                    image_files::decode_import(file_io.as_ref(), &decode_path)
-                })
-                .await;
-            let result = match decoded {
-                Ok(decoded) => this.update(cx, |app, cx| app.install_import(decoded, &path, cx)),
-                Err(error) => {
-                    let status = format!("Open failed ({}): {error}", error.code());
-                    this.update(cx, |app, cx| app.set_status_error(Some(status), cx))
-                        .ok();
-                    return;
-                }
-            };
-            if let Ok(Err(error)) = result {
-                let status = format!("Open failed: {error}");
-                this.update(cx, |app, cx| app.set_status_error(Some(status), cx))
-                    .ok();
-            }
+            this.update(cx, |app, cx| app.open_path_async(path, cx))
+                .ok();
         })
         .detach();
     }
@@ -404,6 +461,9 @@ impl App {
         path: &Path,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        if self.state.read(cx).loading.is_some() {
+            return Err("Open: a document is already loading".to_owned());
+        }
         if path
             .extension()
             .and_then(OsStr::to_str)
@@ -418,7 +478,7 @@ impl App {
         self.install_import(decoded, path, cx)
     }
 
-    fn install_import(
+    pub(crate) fn install_import(
         &mut self,
         decoded: image_files::DecodedImport,
         path: &Path,
@@ -458,8 +518,19 @@ impl App {
     /// The dialog's Export button: pick a path and encode with the chosen
     /// format/quality.
     pub(crate) fn export_now(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| state.active_dialog = None);
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
         let Some((directory, suggested)) = self.export_prompt(cx) else {
+            self.set_status_error(Some("Export failed: no active document".into()), cx);
+            return;
+        };
+        let Some(doc_id) = self
+            .active_document
+            .as_ref()
+            .map(|document| document.doc_id.clone())
+        else {
             self.set_status_error(Some("Export failed: no active document".into()), cx);
             return;
         };
@@ -482,7 +553,7 @@ impl App {
                     return;
                 }
             };
-            let prepared = this.update(cx, |app, _| app.prepare_export(&selected));
+            let prepared = this.update(cx, |app, _| app.prepare_export(&doc_id, &selected));
             let (width, height, rgba, format) = match prepared {
                 Ok(Ok(prepared)) => prepared,
                 Ok(Err(error)) => {
@@ -550,17 +621,16 @@ impl App {
             .unwrap_or_else(|| "Untitled".to_owned())
     }
 
-    fn prepare_export(&self, path: &Path) -> Result<(u32, u32, Vec<u8>, ImageFormat), String> {
+    fn prepare_export(
+        &self,
+        doc_id: &str,
+        path: &Path,
+    ) -> Result<(u32, u32, Vec<u8>, ImageFormat), String> {
         let format = ImageFormat::from_export_path(path)
             .map_err(|error| format!("Export failed ({}): {error}", error.code()))?;
-        let doc_id = self
-            .active_document
-            .as_ref()
-            .map(|document| document.doc_id.clone())
-            .ok_or_else(|| "Export failed: no active document".to_owned())?;
         let session = self
             .sessions
-            .get(&doc_id)
+            .get(doc_id)
             .ok_or_else(|| "Export failed: the document session is not open".to_owned())?;
         let loaded = session.loaded_document();
         let content = loaded
@@ -639,11 +709,20 @@ impl App {
             );
             return;
         }
-        let printers = crate::services::print::PrintService::default()
-            .list_printers()
-            .unwrap_or_default();
+        let printers = crate::services::print::PrintService::default().list_printers();
+        self.open_print_dialog_with_printers(printers, cx);
+    }
+
+    pub(crate) fn open_print_dialog_with_printers(
+        &mut self,
+        printers: Result<Vec<String>, PrintError>,
+        cx: &mut Context<Self>,
+    ) {
+        let (printers, print_error) = printer_list_result(printers);
         self.state.update(cx, |state, _| {
+            state.clear_dialog_transient_selectors();
             state.printers = printers;
+            state.print_error = print_error;
             state.print_printer = 0;
             state.active_dialog = Some(DialogId::Print);
         });
@@ -652,11 +731,8 @@ impl App {
 
     /// Re-list the platform printers for the Print dialog's refresh control.
     pub(crate) fn refresh_printers(&mut self, cx: &mut Context<Self>) {
-        let (printers, print_error) =
-            match crate::services::print::PrintService::default().list_printers() {
-                Ok(printers) => (printers, None),
-                Err(error) => (Vec::new(), Some(error.to_string())),
-            };
+        let result = crate::services::print::PrintService::default().list_printers();
+        let (printers, print_error) = printer_list_result(result);
         self.state.update(cx, |state, _| {
             state.printers = printers;
             state.print_error = print_error;
@@ -707,7 +783,10 @@ impl App {
 
     /// The Print dialog's Print button.
     pub(crate) fn print_now(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| state.active_dialog = None);
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
         let (copies, landscape, paper_index, printer) = {
             let state = self.state.read(cx);
             (
@@ -741,7 +820,8 @@ impl App {
         path: &Path,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let (width, height, rgba, format) = self.prepare_export(path)?;
+        let doc_id = self.active_doc_id()?;
+        let (width, height, rgba, format) = self.prepare_export(&doc_id, path)?;
         let quality = self.state.read(cx).export_quality;
         let bytes = image_files::encode_export(width, height, &rgba, format, quality)
             .map_err(|error| format!("Export failed ({}): {error}", error.code()))?;
@@ -768,9 +848,12 @@ impl App {
         Ok(())
     }
 
-    /// Dismiss the active modal (the About dialog's Close button).
+    /// Clear the active dialog ID; each caller owns any session cleanup.
     pub(crate) fn close_active_dialog(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, _| state.active_dialog = None);
+        self.state.update(cx, |state, _| {
+            state.active_dialog = None;
+            state.clear_dialog_transient_selectors();
+        });
         cx.notify();
     }
 
@@ -791,5 +874,12 @@ impl App {
         }
         self.state.update(cx, |state, _| state.status_error = error);
         cx.notify();
+    }
+}
+
+fn printer_list_result(result: Result<Vec<String>, PrintError>) -> (Vec<String>, Option<String>) {
+    match result {
+        Ok(printers) => (printers, None),
+        Err(error) => (Vec::new(), Some(error.to_string())),
     }
 }

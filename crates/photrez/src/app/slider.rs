@@ -68,6 +68,10 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Err(error) = self.ensure_canvas_current(cx) {
+            self.set_status_error(Some(format!("Slider: {error}")), cx);
+            return;
+        }
         self.slider_dragging = true;
         self.set_slider_from_x(target, x, window, cx);
     }
@@ -79,9 +83,25 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.slider_dragging {
-            self.set_slider_from_x(target, x, window, cx);
+        if !self.slider_dragging {
+            return;
         }
+        let blocked_by_overlay = {
+            let state = self.state.read(cx);
+            state.loading.is_some()
+                || match state.active_dialog {
+                    None => false,
+                    Some(crate::state::DialogId::Export) => target != SliderTarget::ExportQuality,
+                    Some(crate::state::DialogId::Print) => target != SliderTarget::PrintScale,
+                    Some(_) => true,
+                }
+        };
+        if blocked_by_overlay {
+            window.release_pointer();
+            self.slider_pointer_up(cx);
+            return;
+        }
+        self.set_slider_from_x(target, x, window, cx);
     }
 
     pub(crate) fn slider_pointer_up(&mut self, cx: &mut Context<Self>) {
@@ -390,8 +410,12 @@ impl App {
         >,
         cx: &mut Context<Self>,
     ) {
-        self.slider_preview_job_active = false;
-        if generation != self.slider_preview_job_generation || !self.slider_dragging {
+        if !finish_slider_preview_job_state(
+            &mut self.slider_preview_job_active,
+            generation,
+            self.slider_preview_job_generation,
+            self.slider_dragging,
+        ) {
             return;
         }
         let next = self.slider_preview_next.take();
@@ -820,5 +844,47 @@ impl App {
                 );
             }
         }
+    }
+}
+
+fn finish_slider_preview_job_state(
+    job_active: &mut bool,
+    completion_generation: u64,
+    current_generation: u64,
+    dragging: bool,
+) -> bool {
+    if completion_generation != current_generation {
+        return false;
+    }
+    *job_active = false;
+    dragging
+}
+
+#[cfg(test)]
+mod tests {
+    use super::finish_slider_preview_job_state;
+
+    #[test]
+    fn stale_slider_preview_completion_keeps_current_job_active() {
+        let mut job_active = true;
+        assert!(!finish_slider_preview_job_state(
+            &mut job_active,
+            1,
+            2,
+            true,
+        ));
+        assert!(job_active);
+    }
+
+    #[test]
+    fn current_slider_preview_completion_releases_job_after_drag_ends() {
+        let mut job_active = true;
+        assert!(!finish_slider_preview_job_state(
+            &mut job_active,
+            2,
+            2,
+            false,
+        ));
+        assert!(!job_active);
     }
 }

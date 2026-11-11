@@ -81,7 +81,6 @@ pub(super) fn export_body(
         .border_1()
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
@@ -154,7 +153,6 @@ pub(super) fn export_body(
                     .when(current, |row| row.bg(hsla(0.0, 0.0, 1.0, 0.04)))
                     .text_size(px(12.0))
                     .text_color(if current { color::ACCENT } else { color::TEXT })
-                    .cursor_pointer()
                     .on_click(
                         cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();

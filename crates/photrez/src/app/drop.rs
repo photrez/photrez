@@ -37,12 +37,9 @@ impl App {
             Ok(doc_id) => {
                 let (projects, images): (Vec<_>, Vec<_>) =
                     paths.into_iter().partition(|path| is_project(path));
-                for path in projects {
-                    if let Err(error) = self.open_path_file(&path, cx) {
-                        errors.push(error);
-                    }
-                }
-                if !images.is_empty() {
+                let image_placement = if images.is_empty() {
+                    None
+                } else {
                     let (doc_w, doc_h) = self.active_document_size().unwrap_or((1.0, 1.0));
                     let doc_size = (doc_w.max(1.0) as u32, doc_h.max(1.0) as u32);
                     let over_canvas = position.and_then(|position| {
@@ -56,10 +53,17 @@ impl App {
                     // Canvas drops center on the cursor (the user aimed there);
                     // drops elsewhere cascade from the layer origin, matching
                     // the layers-panel drop path.
-                    let (base, center) = match over_canvas {
+                    Some(match over_canvas {
                         Some(at) => (at, true),
                         None => ((0.0, 0.0), false),
-                    };
+                    })
+                };
+                for path in projects {
+                    if let Err(error) = self.open_path_file(&path, cx) {
+                        errors.push(error);
+                    }
+                }
+                if let Some((base, center)) = image_placement {
                     if let Err(error) =
                         self.drop_files_as_layers(&images, &doc_id, base, center, cx)
                     {

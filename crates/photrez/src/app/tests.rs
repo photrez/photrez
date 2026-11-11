@@ -102,6 +102,8 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
 
     cx.update(|cx| {
         gpui_kit::init(cx);
+        // A repeating animation must not keep the test harness awake.
+        cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
         load_fonts(cx);
     });
@@ -209,6 +211,8 @@ fn mount_app_sized(
 
     cx.update(|cx| {
         gpui_kit::init(cx);
+        // A repeating animation must not keep the test harness awake.
+        cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
         load_fonts(cx);
     });
@@ -253,6 +257,8 @@ fn mount_app_with_cache_root(
 
     cx.update(|cx| {
         gpui_kit::init(cx);
+        // A repeating animation must not keep the test harness awake.
+        cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
         load_fonts(cx);
     });
@@ -338,6 +344,8 @@ fn mount_app_with_settings(
 
     cx.update(|cx| {
         gpui_kit::init(cx);
+        // A repeating animation must not keep the test harness awake.
+        cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
         load_fonts(cx);
     });
@@ -402,6 +410,8 @@ mod dialogs_locale;
 
 mod documents;
 
+mod open_loading;
+
 mod print;
 
 mod export;
@@ -427,6 +437,10 @@ mod selection;
 mod tools;
 
 mod transform;
+
+mod transform_locks;
+
+mod rotate_hover;
 
 mod history;
 

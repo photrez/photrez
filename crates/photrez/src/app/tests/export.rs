@@ -37,6 +37,165 @@ fn export_dialog_chooses_format_and_quality(cx: &mut gpui_kit::TestAppContext) {
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn export_cancel_with_format_list_open_releases_canvas_overlay(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.export_document_action(&crate::app::ExportDocument, cx);
+        });
+        window.render_frame(cx);
+        window.click("export-format-trigger", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("export-format-jpg").is_some(),
+            "the format list opens"
+        );
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .export_format_open,
+            "the list flag must be open before dismiss"
+        );
+        content.update(cx, |app, cx| app.close_active_dialog(cx));
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test().read(cx);
+        assert_eq!(state.active_dialog, None);
+        assert!(!state.export_format_open);
+        assert!(
+            !state.overlay_owns_canvas(),
+            "canvas hover must not stay blocked after Export cancel"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn export_title_bar_close_with_format_list_open_clears_overlay_owner(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.export_document_action(&crate::app::ExportDocument, cx);
+        });
+        window.render_frame(cx);
+        window.click("export-format-trigger", cx);
+        window.render_frame(cx);
+        window.click("dialog-close", cx);
+        window.render_frame(cx);
+        let state = content.read(cx).state_for_test().read(cx);
+        assert_eq!(state.active_dialog, None);
+        assert!(!state.export_format_open);
+        assert!(!state.overlay_owns_canvas());
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn export_path_selection_stays_bound_to_the_document_active_when_prompt_started(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    use std::sync::Arc;
+
+    let directory = TestDirectory::new();
+    let first_path = directory.path().join("first.png");
+    let second_path = directory.path().join("second.png");
+    let first_png =
+        photrez_core::pixel::export::encode_image(2, 1, &[1, 2, 3, 255, 4, 5, 6, 255], "png", 100)
+            .expect("first test image encodes");
+    let second_png = photrez_core::pixel::export::encode_image(
+        2,
+        1,
+        &[7, 8, 9, 255, 10, 11, 12, 255],
+        "png",
+        100,
+    )
+    .expect("second test image encodes");
+    std::fs::write(&first_path, first_png).expect("first image is written");
+    std::fs::write(&second_path, second_png).expect("second image is written");
+    let file_io = Arc::new(
+        LocalFileIo::new(directory.path(), directory.path().join("approvals.json"))
+            .expect("local file boundary opens"),
+    );
+    let (window, content) = mount_app(cx, None, Some(file_io));
+
+    let (first_doc_id, second_doc_id) = content.update(cx, |app, cx| {
+        let file_io = app.file_io.clone().expect("file boundary is installed");
+        file_io
+            .approve_path(&first_path)
+            .expect("first image path is approved");
+        file_io
+            .approve_path(&second_path)
+            .expect("second image path is approved");
+        app.open_path_file(&first_path, cx)
+            .expect("first document opens");
+        let first_doc_id = app
+            .active_document_id_for_test()
+            .expect("first document becomes active");
+        app.open_path_file(&second_path, cx)
+            .expect("second document opens");
+        let second_doc_id = app
+            .active_document_id_for_test()
+            .expect("second document becomes active");
+        (first_doc_id, second_doc_id)
+    });
+    assert_ne!(first_doc_id, second_doc_id);
+
+    let baseline_path = directory.path().join("first-baseline.png");
+    content.update(cx, |app, cx| {
+        app.activate_document(&first_doc_id, cx)
+            .expect("first tab activates for baseline export");
+        app.export_to_path_for_test(&baseline_path, cx)
+            .expect("baseline export for the initiating document");
+    });
+    let baseline = std::fs::read(&baseline_path).expect("baseline export exists");
+
+    content.update(cx, |app, cx| {
+        app.activate_document(&first_doc_id, cx)
+            .expect("first tab activates before Export");
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.export_document_action(&crate::app::ExportDocument, cx);
+        });
+        window.render_frame(cx);
+        window.click("export-confirm", cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    assert!(cx.did_prompt_for_new_path());
+
+    content.update(cx, |app, cx| {
+        app.activate_document(&second_doc_id, cx)
+            .expect("second tab can activate while the path prompt is pending");
+    });
+
+    let export_path = directory.path().join("first-export.png");
+    cx.simulate_new_path_selection({
+        let export_path = export_path.clone();
+        move |_| Some(export_path)
+    });
+    cx.run_until_parked();
+
+    let exported = std::fs::read(&export_path).expect("export file exists");
+    assert_eq!(
+        exported, baseline,
+        "export must encode the document that was active when the prompt started"
+    );
+    content.update(cx, |app, cx| {
+        assert_eq!(
+            app.active_document_id_for_test().as_deref(),
+            Some(second_doc_id.as_str()),
+            "completing the export must preserve the active tab"
+        );
+    });
+}
+
 /// The Export dialog's behaviour: the format list swaps
 /// PNG/JPEG/WebP, JPEG reveals the quality track, PNG hides it, and a press on
 /// the track writes the quality.
@@ -265,3 +424,4 @@ fn the_export_quality_track_is_reachable_by_tab(cx: &mut gpui_kit::TestAppContex
     })
     .expect("test window remains open");
 }
+

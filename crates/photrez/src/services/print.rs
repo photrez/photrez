@@ -83,8 +83,8 @@ impl PrintService {
             return Err(PrintError::Cancelled);
         }
 
-        self.rate_limiter.check()?;
         validation::validate_request(request)?;
+        self.rate_limiter.check()?;
 
         #[cfg(windows)]
         {
@@ -141,6 +141,31 @@ mod tests {
 
         let result = PrintService::default().print_rgba(&request, &cancellation);
         assert!(matches!(result, Err(PrintError::Cancelled)));
+    }
+
+    #[test]
+    fn repeated_oversized_request_keeps_resource_limit_error() {
+        let settings = PrintSettings::default();
+        let request = PrintRequest {
+            pixels: &[],
+            width: 9_000,
+            height: 8_000,
+            settings: &settings,
+            document_name: "test",
+            output_path: None,
+        };
+        let service = PrintService::default();
+        let cancellation = PrintCancellation::default();
+
+        let first = service
+            .print_rgba(&request, &cancellation)
+            .expect_err("the supported document size is above the print buffer limit");
+        let second = service
+            .print_rgba(&request, &cancellation)
+            .expect_err("an invalid request must not be hidden by the cooldown");
+
+        assert_eq!(first.code(), "E_RESOURCE_LIMIT");
+        assert_eq!(second.code(), first.code());
     }
 
     #[cfg(not(windows))]

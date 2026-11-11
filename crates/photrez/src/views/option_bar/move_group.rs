@@ -111,7 +111,6 @@ pub(super) fn square_icon_button(
         .border_1()
         .border_color(color::BORDER)
         .bg(FIELD_40)
-        .cursor_pointer()
         .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(
@@ -149,7 +148,6 @@ pub(super) fn reset_button(locked: bool, cx: &Context<crate::app::App>) -> impl 
         button = button.opacity(0.3);
     } else {
         button = button
-            .cursor_pointer()
             .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                 reset_transform_clicked(app, cx)

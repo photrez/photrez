@@ -435,7 +435,6 @@ fn navigator(
         .test_support()
         .p(px(4.0))
         .rounded(px(3.0))
-        .cursor_pointer()
         .hover(|style| style.bg(color::WHITE_5))
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.fit_to_screen(cx);
@@ -471,7 +470,6 @@ fn navigator(
                 .test_support()
                 .items_center()
                 .gap(px(6.0))
-                .cursor_pointer()
                 .on_click(
                     cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                         state_for_collapse
@@ -640,14 +638,12 @@ fn navigator(
     let (minus, plus) = if has_document {
         (
             minus
-                .cursor_pointer()
                 .hover(|style| style.text_color(color::TEXT))
                 .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                     app.zoom_out(cx);
                 }))
                 .into_any_element(),
-            plus.cursor_pointer()
-                .hover(|style| style.text_color(color::TEXT))
+            plus.hover(|style| style.text_color(color::TEXT))
                 .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                     app.zoom_in(cx);
                 }))

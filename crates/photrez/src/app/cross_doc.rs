@@ -344,7 +344,7 @@ impl App {
             .is_some_and(|document| document.doc_id == doc_id);
         if active {
             self.project_layers_with_selection(added_layer.as_deref(), cx);
-            self.refresh_active_canvas(cx)?;
+            self.refresh_after_edit(cx)?;
         } else {
             self.project_tabs(cx);
         }

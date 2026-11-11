@@ -52,6 +52,10 @@ impl App {
         display_scale: f64,
         cx: &mut Context<Self>,
     ) -> bool {
+        if let Err(error) = self.ensure_canvas_current(cx) {
+            self.set_status_error(Some(format!("Brush: {error}")), cx);
+            return false;
+        }
         let target = match self.active_brush_target(display_scale, cx) {
             Ok(target) => target,
             Err(error) => {
@@ -193,7 +197,7 @@ impl App {
                 let display = if single_layer {
                     self.display_after_brush(&doc_id, &after, cx)
                 } else {
-                    self.refresh_active_canvas(cx)
+                    self.refresh_after_edit(cx)
                 };
                 match display {
                     Ok(()) => {
@@ -207,7 +211,7 @@ impl App {
                         eprintln!(
                             "photrez: brush display patch failed: {patch_error}; falling back to full refresh"
                         );
-                        match self.refresh_active_canvas(cx) {
+                        match self.refresh_after_edit(cx) {
                             Ok(()) => {
                                 self.set_status_error(None, cx);
                                 #[cfg(feature = "input-measurement")]
@@ -247,7 +251,7 @@ impl App {
         } else {
             #[cfg(feature = "input-measurement")]
             self.measurement.refused_commit();
-            let _ = self.refresh_active_canvas(cx);
+            let _ = self.refresh_after_edit(cx);
             self.set_status_error(Some("Brush: the stroke commit was refused".into()), cx);
         }
         if committed_ok {

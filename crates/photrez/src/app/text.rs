@@ -25,6 +25,9 @@ impl App {
         data: TextData,
         cx: &mut Context<Self>,
     ) {
+        if let Err(error) = self.ensure_canvas_current(cx) {
+            self.set_status_error(Some(format!("Text: {error}")), cx);
+        }
         self.start_text_edit(layer_id, doc_x, doc_y, data, true, cx);
     }
 

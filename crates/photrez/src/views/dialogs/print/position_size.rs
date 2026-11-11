@@ -41,7 +41,6 @@ pub(super) fn position_size(
         .w_full()
         .items_center()
         .justify_between()
-        .cursor_pointer()
         .on_click(
             cx.listener(move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
@@ -108,7 +107,6 @@ pub(super) fn position_size(
                         } else {
                             color::TEXT
                         })
-                        .cursor_pointer()
                         .on_click(cx.listener(
                             move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                                 cx.stop_propagation();
@@ -207,7 +205,6 @@ pub(super) fn position_size(
                         } else {
                             color::TEXT
                         })
-                        .cursor_pointer()
                         .on_click(cx.listener(
                             move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
                                 cx.stop_propagation();

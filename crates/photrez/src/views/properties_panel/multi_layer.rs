@@ -240,7 +240,6 @@ fn multi_icon_button(
         .border(px(1.0))
         .border_color(color::DIVIDER)
         .bg(color::FIELD)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let result = action(app, cx);
@@ -281,7 +280,6 @@ fn multi_text_button(
         .font_family(ui::FONT_UI)
         .font_weight(FontWeight(500.))
         .text_color(color::TEXT_DIM)
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let result = action(app, cx);

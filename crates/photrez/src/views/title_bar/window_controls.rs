@@ -2,7 +2,7 @@ use gpui_kit::base::h_flex;
 use gpui_kit::base::StyledExt;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Decorations, Window, WindowControlArea};
+use gpui_kit::{div, px, Decorations, WeakEntity, Window, WindowControlArea};
 
 use crate::icons;
 use crate::tokens::{color, title};
@@ -37,7 +37,10 @@ use crate::tokens::{color, title};
 /// platform: `on_hit_test_window_control` is empty in `gpui-pre-macos` and
 /// `gpui-pre-linux/x11` / `gpui-pre-linux/wayland`, which use explicit calls.
 /// Registration does not paint, preserving Windows pixels.
-pub(super) fn window_controls(window: &mut Window) -> impl IntoElement {
+pub(super) fn window_controls(
+    window: &mut Window,
+    close_app: WeakEntity<crate::app::App>,
+) -> impl IntoElement {
     let cell = h_flex()
         .id("window-controls")
         .flex_shrink_0()
@@ -68,7 +71,7 @@ pub(super) fn window_controls(window: &mut Window) -> impl IntoElement {
         title::ICON_12,
         WindowControlArea::Max,
     ))
-    .child(close_button())
+    .child(close_button(close_app))
 }
 
 /// Issue a window-management action imperatively.
@@ -116,7 +119,7 @@ fn window_button(
 
 /// The close button: the same 46px x 44px centred box, but its hover fill is
 /// red at 85% and its hover text is plain white.
-fn close_button() -> impl IntoElement {
+fn close_button(close_app: WeakEntity<crate::app::App>) -> impl IntoElement {
     div()
         .id("close-window")
         .h_flex()
@@ -129,8 +132,12 @@ fn close_button() -> impl IntoElement {
         .when(cfg!(target_os = "windows"), |this| {
             this.window_control_area(WindowControlArea::Close)
         })
-        .when(cfg!(target_os = "linux"), |this| {
-            this.on_click(|_, window, _| run_window_action(WindowControlArea::Close, window))
+        .when(cfg!(target_os = "linux"), move |this| {
+            this.on_click(move |_, window, cx| {
+                close_app
+                    .update(cx, |app, cx| app.close_window_from_title_bar(window, cx))
+                    .unwrap_or_else(|_| window.remove_window());
+            })
         })
         .child(
             Icon::default()

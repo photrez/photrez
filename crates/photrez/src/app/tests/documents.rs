@@ -82,6 +82,101 @@ fn switching_tabs_restores_the_per_document_camera(cx: &mut gpui_kit::TestAppCon
 }
 
 #[gpui_kit::test]
+fn reloading_active_document_discards_its_pending_projection(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            app.active_document
+                .as_mut()
+                .expect("fixture document is active")
+                .canvas_stale = true;
+            app.maybe_schedule_viewport_projection(cx);
+            assert!(app.projection_key.is_some(), "projection was scheduled");
+
+            let file_io = app.file_io.clone().expect("file boundary is open");
+            app.open_startup_document_for_test(&source, file_io.as_ref(), cx)
+                .expect("clean active document reloads");
+            assert_eq!(
+                app.active_document_id_for_test().as_deref(),
+                Some("bounded-raster-doc")
+            );
+            assert!(
+                app.projection_key.is_none(),
+                "reload invalidates the old key"
+            );
+            assert!(
+                app.projection_cache.is_none(),
+                "reload discards the old source cache"
+            );
+        });
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        assert_eq!(
+            content.read(cx).projection_rect_for_test(),
+            None,
+            "the old completion must not cover the reloaded canvas"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn pending_projection_is_accepted_after_switching_back_to_its_document(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let generation = content.update(cx, |app, cx| {
+            app.active_document
+                .as_mut()
+                .expect("fixture document is active")
+                .canvas_stale = true;
+            app.maybe_schedule_viewport_projection(cx);
+            assert!(app.projection_key.is_some(), "projection was scheduled");
+            let generation = app.projection_generation;
+
+            open_second_document(app, cx, &directory);
+            assert_eq!(
+                app.active_document_id_for_test().as_deref(),
+                Some("multi-doc")
+            );
+            app.activate_document("bounded-raster-doc", cx)
+                .expect("the original document activates");
+
+            generation
+        });
+        window.render_frame(cx);
+        content.update(cx, |app, _| {
+            assert_eq!(
+                app.projection_generation, generation,
+                "switching away and back keeps the matching projection current"
+            );
+        });
+    })
+    .expect("test window remains open");
+
+    cx.run_until_parked();
+
+    cx.update_window(window.into(), |_, _window, cx| {
+        assert_eq!(
+            content.read(cx).projection_rect_for_test(),
+            Some((0, 0, 2, 1)),
+            "the pending result still belongs to the active document"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
 fn closing_a_clean_tab_activates_the_neighbour_and_dirty_tabs_prompt(
     cx: &mut gpui_kit::TestAppContext,
 ) {

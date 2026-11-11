@@ -244,6 +244,9 @@ impl App {
         let (loaded, canvas) = Self::prepare_startup_document(&path, file_io)?;
         self.install_document(loaded, canvas, None, cx)
             .map_err(|error| format!("cannot open the recovered document: {error}"))?;
+        self.sessions
+            .mark_dirty(entry.doc_id())
+            .map_err(|error| format!("cannot mark the recovered document unsaved: {error}"))?;
         store
             .clear_one(entry.doc_id())
             .map(|_| ())

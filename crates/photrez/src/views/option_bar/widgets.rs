@@ -196,7 +196,6 @@ pub(super) fn tolerance_preset(
         } else {
             FontWeight(500.)
         })
-        .cursor_pointer()
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)));
 
     if active {
@@ -237,7 +236,6 @@ pub(super) fn tolerance_num_field(
         .shadow(ui::outline_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.begin_fill_tolerance_field(window, cx);
         }))
@@ -381,7 +379,6 @@ pub(super) fn reverse_button(cx: &gpui_kit::Context<crate::app::App>) -> impl In
     div()
         .id("opt-reverse")
         .test_support()
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_tool_flag(ToolFlag::GradientReverse, cx);
         }))
@@ -427,7 +424,6 @@ pub(super) fn fill_toggle(enabled: bool, cx: &Context<crate::app::App>) -> impl 
             FontWeight(500.)
         })
         .text_color(if enabled { color::WHITE } else { ZINC })
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_shape_fill(cx);
         }))
@@ -448,7 +444,6 @@ pub(super) fn fill_swatch(color_value: [u8; 4], cx: &Context<crate::app::App>) -
         .border_color(color::BORDER)
         .bg(crate::palette::hsla(color_value))
         .shadow(vec![ring_white_20()])
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.open_color_picker(crate::state::ColorTarget::ShapeFill, window, cx);
         }))
@@ -475,7 +470,6 @@ pub(super) fn shape_arrow_toggle(enabled: bool, cx: &Context<crate::app::App>) -
             FontWeight(500.)
         })
         .text_color(if enabled { color::WHITE } else { ZINC })
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_tool_flag(crate::app::tool_settings::ToolFlag::ShapeArrowHead, cx);
         }))
@@ -509,7 +503,6 @@ pub(super) fn radius_field(
         .shadow(ui::ring_cue(active))
         .bg(color::FIELD)
         .px(px(FIELD_PX))
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.begin_shape_radius_field(window, cx);
         }))
@@ -639,7 +632,6 @@ pub(super) fn numeric_field(
         .bg(color::FIELD)
         .px(px(FIELD_PX))
         .overflow_hidden()
-        .cursor_pointer()
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {
                 open(app, id, window, cx);
@@ -756,7 +748,6 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(700.))
         .text_color(color::WHITE)
-        .cursor_pointer()
         .shadow(vec![
             BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
         ])
@@ -789,7 +780,6 @@ pub(super) fn cancel_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Int
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
-        .cursor_pointer()
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.cancel_crop(cx);
         }))

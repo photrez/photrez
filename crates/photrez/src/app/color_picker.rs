@@ -16,6 +16,22 @@ use crate::state::{ColorPickerSession, ColorTarget, PickerArea};
 use super::App;
 
 impl App {
+    pub(crate) fn release_color_picker_pointer(&mut self, window: &mut Window) {
+        let Some((_, hitbox)) = self.color_picker_capture.take() else {
+            return;
+        };
+        if window.captured_hitbox() == Some(hitbox) {
+            window.release_pointer();
+        }
+    }
+
+    pub(crate) fn cancel_color_picker_for_document_change(&mut self, cx: &mut Context<Self>) {
+        let session = self.state.update(cx, |state, _| state.color_picker.take());
+        if let Some(session) = session {
+            self.apply_color(session.target, session.original, cx);
+        }
+    }
+
     pub(crate) fn current_color(&self, target: ColorTarget, cx: &Context<Self>) -> [u8; 4] {
         let state = self.state.read(cx);
         match target {
@@ -40,6 +56,7 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.release_color_picker_pointer(window);
         let original = self.current_color(target, cx);
         self.state.update(cx, |state, _| {
             state.color_picker = Some(ColorPickerSession {
@@ -61,6 +78,7 @@ impl App {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.release_color_picker_pointer(window);
         let Some(session) = self.state.read(cx).color_picker.clone() else {
             window.focus(&self.canvas_focus_handle, cx);
             return;
@@ -166,6 +184,7 @@ impl App {
         };
         match parse_hex(&session.hex) {
             Some(color) => {
+                self.release_color_picker_pointer(window);
                 self.state.update(cx, |state, _| state.color_picker = None);
                 self.apply_color(session.target, color, cx);
                 window.focus(&self.canvas_focus_handle, cx);

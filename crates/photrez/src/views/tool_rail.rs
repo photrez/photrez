@@ -308,12 +308,9 @@ fn tool_button(
         .rounded(px(dim::TOOL_BTN_RADIUS))
         .on_hover(on_hover);
     if enabled {
-        button = button
-            .cursor_pointer()
-            .on_click(on_click)
-            .when(tool.has_variants, |el| {
-                el.on_mouse_down(MouseButton::Right, on_right_click)
-            });
+        button = button.on_click(on_click).when(tool.has_variants, |el| {
+            el.on_mouse_down(MouseButton::Right, on_right_click)
+        });
     }
     button
         .when(active, |el| el.bg(color::WHITE_5).text_color(color::TEXT))
@@ -495,12 +492,10 @@ fn background_swatch(fill: Hsla, enabled: bool, cx: &Context<crate::app::App>) -
         .bg(fill)
         .shadow_md();
     if enabled {
-        swatch = swatch.cursor_pointer().on_click(cx.listener(
-            |app, _: &gpui_kit::ClickEvent, window, cx| {
-                cx.stop_propagation();
-                app.open_color_picker(crate::state::ColorTarget::Background, window, cx);
-            },
-        ));
+        swatch = swatch.on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+            cx.stop_propagation();
+            app.open_color_picker(crate::state::ColorTarget::Background, window, cx);
+        }));
     }
     swatch
 }
@@ -540,12 +535,10 @@ fn foreground_swatch(fill: Hsla, enabled: bool, cx: &Context<crate::app::App>) -
             app.set_tooltip(hovered.then(|| "rail-tooltip-fg".to_string()), cx);
         }));
     if enabled {
-        swatch = swatch.cursor_pointer().on_click(cx.listener(
-            |app, _: &gpui_kit::ClickEvent, window, cx| {
-                cx.stop_propagation();
-                app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);
-            },
-        ));
+        swatch = swatch.on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+            cx.stop_propagation();
+            app.open_color_picker(crate::state::ColorTarget::Foreground, window, cx);
+        }));
     }
     swatch
 }
@@ -582,12 +575,10 @@ fn swap_button(enabled: bool, cx: &Context<crate::app::App>) -> impl IntoElement
         .group_hover("swatch", |s| s.opacity(1.))
         .hover(|s| s.text_color(color::TEXT));
     if enabled {
-        button = button.cursor_pointer().on_click(cx.listener(
-            |app, _: &gpui_kit::ClickEvent, _, cx| {
-                cx.stop_propagation();
-                app.swap_colors(cx);
-            },
-        ));
+        button = button.on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _, cx| {
+            cx.stop_propagation();
+            app.swap_colors(cx);
+        }));
     }
     button.child(
         // This micro-button's rotate icon uses the default stroke width

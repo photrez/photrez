@@ -54,6 +54,7 @@ fn pure_hue(h: f32) -> gpui_kit::Hsla {
 pub(crate) fn render(
     state: &Entity<AppState>,
     focus: &FocusHandle,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let Some(session) = state.read(cx).color_picker.clone() else {
@@ -70,11 +71,15 @@ pub(crate) fn render(
                 app.color_picker_key(event, window, cx);
             }),
         )
-        .child(panel(&session, cx))
+        .child(panel(&session, capture, cx))
         .into_any_element()
 }
 
-fn panel(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn panel(
+    session: &ColorPickerSession,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     let title = match session.target {
         crate::state::ColorTarget::Foreground => t("tools.foregroundColor"),
         crate::state::ColorTarget::Background => t("tools.backgroundColor"),
@@ -93,7 +98,7 @@ fn panel(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl In
         .overflow_hidden()
         .shadow_lg()
         .child(header(title, cx))
-        .child(body(session, cx));
+        .child(body(session, capture, cx));
 
     div()
         .id("color-picker")
@@ -133,7 +138,6 @@ fn header(title: String, cx: &Context<crate::app::App>) -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .rounded(px(4.0))
-                .cursor_pointer()
                 .text_size(px(12.0))
                 .text_color(color::ICON)
                 .hover(|s| s.bg(color::WHITE_5).text_color(color::TEXT))
@@ -145,18 +149,26 @@ fn header(title: String, cx: &Context<crate::app::App>) -> impl IntoElement {
         )
 }
 
-fn body(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn body(
+    session: &ColorPickerSession,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     h_flex()
         .px(px(20.0))
         .py(px(16.0))
         .gap(px(16.0))
         .items_start()
-        .child(sv_box(session, cx))
-        .child(hue_strip(session, cx))
+        .child(sv_box(session, Rc::clone(&capture), cx))
+        .child(hue_strip(session, capture, cx))
         .child(column(session, cx))
 }
 
-fn sv_box(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn sv_box(
+    session: &ColorPickerSession,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     let hsv = session.hsv;
     let indicator_x = hsv.s * SV - 6.0;
     let indicator_y = (1.0 - hsv.v) * SV - 6.0;
@@ -213,11 +225,15 @@ fn sv_box(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl I
             visual,
             cx.entity().downgrade(),
             Some(PickerArea::Sv),
-            Rc::new(Cell::new(None)),
+            capture,
         ))
 }
 
-fn hue_strip(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl IntoElement {
+fn hue_strip(
+    session: &ColorPickerSession,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
     let hsv = session.hsv;
     let stop_hues = [0.0, 60.0, 120.0, 180.0, 240.0, 300.0, 360.0];
     let mut visual = div()
@@ -259,7 +275,7 @@ fn hue_strip(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> imp
             visual,
             cx.entity().downgrade(),
             Some(PickerArea::Hue),
-            Rc::new(Cell::new(None)),
+            capture,
         ))
 }
 
@@ -491,7 +507,6 @@ fn action_button(
         .items_center()
         .justify_center()
         .rounded(px(4.0))
-        .cursor_pointer()
         .text_size(px(11.5));
     button = if primary {
         button.bg(color::ACCENT).text_color(color::BG)
@@ -525,7 +540,7 @@ struct PickerHitbox {
     visual: AnyElement,
     app: WeakEntity<crate::app::App>,
     area: Option<PickerArea>,
-    capture: Rc<Cell<Option<HitboxId>>>,
+    capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
 }
 
 impl PickerHitbox {
@@ -533,7 +548,7 @@ impl PickerHitbox {
         visual: impl IntoElement,
         app: WeakEntity<crate::app::App>,
         area: Option<PickerArea>,
-        capture: Rc<Cell<Option<HitboxId>>>,
+        capture: Rc<Cell<Option<(PickerArea, HitboxId)>>>,
     ) -> Self {
         Self {
             visual: visual.into_any_element(),
@@ -628,13 +643,13 @@ impl Element for PickerHitbox {
                 return;
             }
             if let Some(current) = window.captured_hitbox() {
-                if down_capture.get() != Some(current) {
+                if down_capture.get() != Some((area, current)) {
                     return;
                 }
                 window.release_pointer();
             }
             window.capture_pointer(down_hitbox.id);
-            down_capture.set(Some(down_hitbox.id));
+            down_capture.set(Some((area, down_hitbox.id)));
             let (x, y) = normalized(down_hitbox.bounds, event.position);
             if let Some(app) = down_app.upgrade() {
                 app.update(cx, |app, cx| {
@@ -647,12 +662,16 @@ impl Element for PickerHitbox {
         let move_capture = Rc::clone(&self.capture);
         let move_hitbox = hitbox.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
-            if phase != DispatchPhase::Bubble || !owns_capture(window, &move_capture) {
+            if phase != DispatchPhase::Bubble || !owns_capture(window, &move_capture, area) {
                 return;
             }
             let (x, y) = normalized(move_hitbox.bounds, event.position);
             if let Some(app) = move_app.upgrade() {
                 app.update(cx, |app, cx| {
+                    if app.modal_input_active(cx) {
+                        app.release_color_picker_pointer(window);
+                        return;
+                    }
                     app.pick_color_at(area, x, y, cx);
                 });
             }
@@ -660,7 +679,7 @@ impl Element for PickerHitbox {
 
         let up_capture = Rc::clone(&self.capture);
         window.on_mouse_event(move |_: &MouseUpEvent, phase, window, _cx| {
-            if phase != DispatchPhase::Bubble || !owns_capture(window, &up_capture) {
+            if phase != DispatchPhase::Bubble || !owns_capture(window, &up_capture, area) {
                 return;
             }
             up_capture.set(None);
@@ -679,11 +698,15 @@ fn normalized(bounds: Bounds<Pixels>, position: gpui_kit::Point<Pixels>) -> (f32
     (x, y)
 }
 
-fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {
-    let Some(captured) = capture.get() else {
+fn owns_capture(
+    window: &Window,
+    capture: &Rc<Cell<Option<(PickerArea, HitboxId)>>>,
+    area: PickerArea,
+) -> bool {
+    let Some((owner, captured)) = capture.get() else {
         return false;
     };
-    window.captured_hitbox() == Some(captured)
+    owner == area && window.captured_hitbox() == Some(captured)
 }
 
 #[cfg(test)]

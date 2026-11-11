@@ -312,7 +312,6 @@ fn history_row(
         .px(px(PAD_X))
         .py(px(ROW_PY))
         .when(step == Step::Current, |el| el.bg(WHITE_12))
-        .cursor_pointer()
         .on_click(on_click)
         .child(
             Icon::default()

@@ -573,7 +573,6 @@ fn history_button(open: bool, cx: &Context<crate::app::App>) -> impl IntoElement
         .test_support()
         .gap(px(BTN_GAP))
         .py(px(HIT_PY))
-        .cursor_pointer()
         .text_color(ink)
         .hover(move |s| s.text_color(hover_ink))
         .on_click(cx.listener(

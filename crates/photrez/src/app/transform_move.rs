@@ -884,7 +884,7 @@ impl App {
             Ok(()) => self.set_status_error(None, cx),
             Err(error) => {
                 self.set_status_error(Some(format!("Transform: {error}")), cx);
-                let _ = self.refresh_active_canvas(cx);
+                let _ = self.refresh_after_edit(cx);
             }
         }
         cx.notify();
@@ -927,7 +927,7 @@ impl App {
         self.invalidate_transform_preview();
         self.state.update(cx, |state, _| state.hud = None);
         if self.group_transform_drag.take().is_some() {
-            let _ = self.refresh_active_canvas(cx);
+            let _ = self.refresh_after_edit(cx);
             cx.notify();
             return true;
         }
@@ -935,7 +935,7 @@ impl App {
             return false;
         }
         self.snap_guides.clear();
-        let _ = self.refresh_active_canvas(cx);
+        let _ = self.refresh_after_edit(cx);
         cx.notify();
         true
     }

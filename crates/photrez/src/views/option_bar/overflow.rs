@@ -55,7 +55,6 @@ pub(super) fn more_dropdown_overflow(
             .id("opt-more")
             .test_support()
             .flex_shrink_0()
-            .cursor_pointer()
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 app.toggle_more_menu(window, cx)
             }))
@@ -138,12 +137,9 @@ pub(super) fn overflow_icon_button(
                 .text_color(ZINC),
         );
     if enabled {
-        button = button
-            .cursor_pointer()
-            .hover(|s| s.text_color(color::WHITE))
-            .on_click(
-                cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)),
-            );
+        button = button.hover(|s| s.text_color(color::WHITE)).on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)),
+        );
     }
     button
 }
@@ -180,7 +176,6 @@ pub(super) fn overflow_action_button(
             .border_1()
             .border_color(color::BORDER)
             .bg(color::FIELD)
-            .cursor_pointer()
             .hover(|s| s.bg(FIELD_80))
             .on_click(
                 cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)),
@@ -222,7 +217,6 @@ pub(super) fn hard100_button(id: &'static str, cx: &Context<crate::app::App>) ->
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
-        .cursor_pointer()
         .hover(|s| s.bg(color::FIELD).text_color(color::WHITE))
         .child("Hard 100") // i18n-exempt: fixed control label, not in catalog
         .on_click(

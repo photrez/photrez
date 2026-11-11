@@ -195,6 +195,7 @@ impl App {
     ) -> Result<bool, String> {
         // A shortcut mid-gesture drops the in-flight stroke; it never commits it.
         self.cancel_canvas_gesture(cx);
+        self.ensure_canvas_current(cx)?;
         let doc_id = self.active_doc_id()?;
         let command = if undo { Command::Undo } else { Command::Redo };
         let (cursor_before, result) = {
@@ -238,7 +239,7 @@ impl App {
         self.project_layers(cx);
         let handoffs = result.pixel_patches.unwrap_or_default();
         if handoffs.is_empty() {
-            self.refresh_active_canvas(cx)?;
+            self.refresh_after_edit(cx)?;
         } else {
             // One handoff per restored layer: a destructive crop restores the
             // whole stack in a single step.
@@ -257,7 +258,7 @@ impl App {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if !self.can_patch_single_layer(doc_id) {
-            return self.refresh_active_canvas(cx);
+            return self.refresh_after_edit(cx);
         }
         let patched = (|| -> Result<Vec<Arc<RenderImage>>, String> {
             let active = self
@@ -294,7 +295,7 @@ impl App {
                 eprintln!(
                     "photrez: history tile patch failed: {error}; falling back to full refresh"
                 );
-                self.refresh_active_canvas(cx)
+                self.refresh_after_edit(cx)
             }
         }
     }

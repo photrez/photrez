@@ -518,6 +518,91 @@ fn slider_moves_coalesce_to_one_composite_per_frame(cx: &mut gpui_kit::TestAppCo
     .expect("test window remains open");
 }
 
+#[gpui_kit::test]
+fn opening_a_modal_during_slider_drag_stops_later_pointer_updates(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+
+        let bounds = slider_bounds(&content, cx, 0);
+        let y = bounds.origin.y + bounds.size.height / 2.0;
+        let at = |fraction: f32| {
+            gpui_kit::point(
+                bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * fraction),
+                y,
+            )
+        };
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.60),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let _ = window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        let value_before_modal = content
+            .read(cx)
+            .state_for_test()
+            .read(cx)
+            .adjustment_brightness;
+        assert!(
+            value_before_modal > 0.0,
+            "the press starts a real slider drag"
+        );
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_dialog,
+            Some(crate::state::DialogId::NewDocument),
+            "the global shortcut opens a modal while the pointer is captured"
+        );
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: at(0.25),
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+        let _ = window.simulate_next_frame(cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .adjustment_brightness,
+            value_before_modal,
+            "a captured slider move must not change the document behind a modal"
+        );
+
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                button: gpui_kit::MouseButton::Left,
+                position: at(0.25),
+                click_count: 1,
+                ..Default::default()
+            }),
+            cx,
+        );
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+}
+
 /// With no document open the panel shows the centered "No image open" state
 /// instead of the Selected Layer box, the Basic sliders and the coming-soon
 /// cards — the same no-document branch the Properties panel already mounts.

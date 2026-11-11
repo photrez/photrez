@@ -125,7 +125,6 @@ pub fn live_num_field(
         .test_support()
         .flex_1()
         .min_w(px(0.0))
-        .cursor_pointer()
         .shadow(super::ring_cue(editing.is_some()))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, window, cx| {

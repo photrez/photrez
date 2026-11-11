@@ -12,13 +12,15 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Development Setup
 
-Install the Rust toolchain specified by [`rust-toolchain.toml`](rust-toolchain.toml), then use the workspace commands below from the repository root.
+Install the Rust toolchain specified by [`rust-toolchain.toml`](rust-toolchain.toml), then use the workspace commands below from the repository root. Run `cargo xtask doctor` once on a fresh clone: it prints the `rustc` and `cargo` versions, the linker directory, and whether `bacon` is on `PATH`, and writes nothing.
 
 ```bash
 cargo build
-cargo dev       # Run the app with the dev profile
-cargo ui        # UI iteration profile
-bacon           # Save-triggered cargo check -p photrez
+cargo dev             # Run the app with the dev profile
+cargo ui              # UI iteration profile
+cargo xtask dev       # Same as cargo dev, with the GNU linker directory on PATH
+cargo xtask watch     # Rebuild and restart the app on save (hot reload loop)
+bacon                 # Save-triggered cargo check -p photrez
 ```
 
 Standard Cargo is the default build tool. Any Cargo build works here as long
@@ -28,6 +30,69 @@ particular Cargo binary. If your machine's `PATH` lacks that directory, use
 internal machines may run a Cargo build with shared dependencies for faster
 rebuilds and disk self-cleaning; it is run as an isolated binary with
 auto-update disabled and the same PATH scaffold. Contributors do not need it.
+
+### Workspace tasks
+
+`cargo xtask` is the task crate for this workspace. It needs only `cargo`,
+`rustc`, and the repository itself, so it works on a fresh clone with no
+extra install. It holds only the tasks plain cargo cannot do on its own:
+running the app with the linker directory on `PATH`, watching rebuilds
+through `bacon`, probing the environment, and bumping the version. Check,
+clippy, fmt, test and doc stay plain cargo commands below.
+
+```bash
+cargo xtask dev       # build and run, linker directory on child PATH
+cargo xtask dev-ui    # same, dev-ui profile (app crate at opt-level 1)
+cargo xtask watch     # rebuild and restart on save through bacon
+cargo xtask doctor    # toolchain, bacon and linker probe
+cargo xtask set-version <semver>  # single-source the app version
+```
+
+The matching aliases in `.cargo/config.toml` are `cargo dev`, `cargo ui`,
+`cargo verify` (clippy with warnings denied) and `cargo doctor`. Extra
+arguments after `dev` and `dev-ui` are forwarded to the app after `--`.
+
+### Hot reload (rebuild and restart on save)
+
+Two loops are available for the dev build, both native and both built with
+the `hot-reload` feature on the `photrez` crate (debug builds only, never
+release). Plain `cargo dev` and `cargo ui` also pass that feature.
+
+1. **Rebuild and restart (bacon).** The `bacon.toml` jobs rebuild and
+   restart the app on save. State is lost on each restart, but no extra
+   tool is needed beyond `bacon`.
+
+```bash
+bacon run       # rebuild and restart the app on save (dev profile)
+bacon run-ui    # same, dev-ui profile
+cargo xtask watch
+```
+
+2. **In-process patch (dx).** `gpui-fast` can hot-patch Rust code in the
+   running process through Subsecond, so edits to `render` code apply
+   without losing app state. The app must be launched through the Dioxus
+   CLI dev server:
+
+```bash
+cargo xtask hot                          # keep state on render edits
+cargo xtask hot --profile dev-ui         # UI iteration profile
+dx serve --hot-patch --features hot-reload --package photrez --bin photrez --windows --skip-assets
+```
+
+The `cargo xtask hot` form sets the linker directory on the child PATH, so
+`windres` finds its `gcc`. The raw `dx` form is shown for reference and
+needs that PATH set by hand. Install `dx` once with `cargo install
+dioxus-cli`. Edits to layout or data structures (for example a new field on
+a struct) still need a full restart, and custom `Element` phases are not
+patched yet. When `dx` is not running, the app logs a warning and carries
+on normally.
+
+Both `run` jobs set `background = false` and `on_change_strategy =
+"kill_then_restart"`, so the app restarts as soon as a save lands. While
+`bacon` runs, plain `cargo check`, `cargo test` and `cargo clippy` stay the
+source of truth for correctness. Install `bacon` once with `cargo install
+--locked bacon`. Plain `bacon` with no argument runs the default `check`
+job.
 
 Before opening a pull request, run the workspace gates:
 

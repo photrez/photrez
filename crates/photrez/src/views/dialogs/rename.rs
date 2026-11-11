@@ -63,7 +63,6 @@ pub(super) fn rename_body(
                         .border_color(color::BORDER)
                         .text_size(px(11.5))
                         .text_color(color::TEXT_DIM)
-                        .cursor_pointer()
                         .on_click(
                             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                                 cx.stop_propagation();
@@ -85,7 +84,6 @@ pub(super) fn rename_body(
                         .bg(color::ACCENT)
                         .text_size(px(11.5))
                         .text_color(color::BG)
-                        .cursor_pointer()
                         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
                             cx.stop_propagation();
                             let result = app.commit_rename_layer(cx);
