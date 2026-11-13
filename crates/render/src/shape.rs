@@ -555,8 +555,10 @@ mod tests {
             let mut max_delta = 0u8;
             for (actual, expected) in result
                 .pixels
-                .chunks_exact(4)
-                .zip(golden.as_raw().chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(golden.as_raw().as_chunks::<4>().0.iter())
             {
                 max_delta = max_delta.max(actual[3].abs_diff(expected[3]));
                 for channel in 0..3 {
@@ -608,8 +610,10 @@ mod tests {
         // other channel is within one unit.
         for (index, (actual, expected)) in stroked
             .pixels
-            .chunks_exact(4)
-            .zip(RECT_STROKE_GOLDEN.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(RECT_STROKE_GOLDEN.as_chunks::<4>().0.iter())
             .enumerate()
         {
             let tolerance = if matches!(index, 0 | 5 | 30 | 35) {
@@ -632,8 +636,10 @@ mod tests {
         // alpha units between the captured ellipse path and tiny-skia.
         for (index, (actual, expected)) in ellipse
             .pixels
-            .chunks_exact(4)
-            .zip(ELLIPSE_FILL_GOLDEN.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(ELLIPSE_FILL_GOLDEN.as_chunks::<4>().0.iter())
             .enumerate()
         {
             let tolerance = if matches!(index, 5 | 6 | 9 | 10) {
@@ -654,8 +660,8 @@ mod tests {
     fn filled_rect_is_opaque_red() {
         let shape = rasterize_shape(&params(ShapeKind::Rect, 4.0, 4.0)).expect("rect rasterizes");
         assert_eq!((shape.width, shape.height), (4, 4));
-        for pixel in shape.pixels.chunks_exact(4) {
-            assert_eq!(pixel, [255, 0, 0, 255]);
+        for pixel in shape.pixels.as_chunks::<4>().0.iter() {
+            assert_eq!(*pixel, [255, 0, 0, 255]);
         }
     }
 

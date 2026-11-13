@@ -708,8 +708,10 @@ fn multilayer_document_matches_pinned_font_golden() {
     let mut max_delta = 0u8;
     for (actual, expected) in result
         .pixels
-        .chunks_exact(4)
-        .zip(golden.as_raw().chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(golden.as_raw().as_chunks::<4>().0.iter())
     {
         max_delta = max_delta.max(actual[3].abs_diff(expected[3]));
         for channel in 0..3 {

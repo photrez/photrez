@@ -161,7 +161,7 @@ fn layer_pixels(depth: usize, width: u32, height: u32, base: Base, content: Cont
         .unwrap_or(0);
     let mut rgba = vec![0u8; bytes];
     if content == Content::Plain {
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0.iter_mut() {
             pixel.copy_from_slice(&base.pixel());
         }
         return rgba;
@@ -373,8 +373,10 @@ mod tests {
         for depth in 0..3 {
             let pixels = layer_pixels(depth, 8, 4, Base::Opaque, Content::Plain);
             assert!(pixels
-                .chunks_exact(4)
-                .all(|pixel| pixel == [255, 255, 255, 255]));
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [255, 255, 255, 255]));
         }
     }
 
@@ -392,7 +394,9 @@ mod tests {
         assert_ne!(middle, top);
         let distinct = |pixels: &[u8]| -> std::collections::HashSet<[u8; 4]> {
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
                 .collect()
         };
@@ -408,7 +412,11 @@ mod tests {
             );
         }
         // The bottom layer is the opaque backdrop every composite rests on.
-        assert!(bottom.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(bottom
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255));
         // The ramp is what makes the fixture hash content-sensitive.
         assert_eq!(&bottom[0..4], &[0, 0, 255, 255]);
         assert_eq!(&bottom[(511 * 4)..512 * 4], &[255, 0, 128, 255]);

@@ -20,7 +20,7 @@ pub fn batch_transform_points(
 ) -> Vec<f64> {
     let mut out = Vec::with_capacity(points.len());
     // SAFETY: points len even; process in chunks of 2
-    for chunk in points.chunks_exact(2) {
+    for chunk in points.as_chunks::<2>().0.iter() {
         let x = chunk[0];
         let y = chunk[1];
         out.push(a * x + c * y + tx);
@@ -33,11 +33,11 @@ pub fn batch_transform_points(
 // Coarse-grained: all points + all rects in one call.
 pub fn batch_hit_test(points: Vec<f64>, rects: Vec<f64>) -> Vec<u8> {
     let mut out = Vec::with_capacity(points.len() / 2);
-    for chunk in points.chunks_exact(2) {
+    for chunk in points.as_chunks::<2>().0.iter() {
         let x = chunk[0];
         let y = chunk[1];
         let mut hit = 0u8;
-        for r in rects.chunks_exact(4) {
+        for r in rects.as_chunks::<4>().0.iter() {
             let rx = r[0];
             let ry = r[1];
             let rw = r[2];
@@ -56,14 +56,14 @@ pub fn batch_hit_test(points: Vec<f64>, rects: Vec<f64>) -> Vec<u8> {
 /// points [x,y,...], targets [x,y,...] (snap lines). Returns snapped `Vec<f64>`.
 pub fn batch_snap_points(points: Vec<f64>, targets: Vec<f64>, threshold: f64) -> Vec<f64> {
     let mut out = Vec::with_capacity(points.len());
-    for chunk in points.chunks_exact(2) {
+    for chunk in points.as_chunks::<2>().0.iter() {
         let mut x = chunk[0];
         let mut y = chunk[1];
         let mut best_dx = threshold + 1.0;
         let mut best_dy = threshold + 1.0;
         let mut snap_x = x;
         let mut snap_y = y;
-        for t in targets.chunks_exact(2) {
+        for t in targets.as_chunks::<2>().0.iter() {
             let tx = t[0];
             let ty = t[1];
             let dx = (x - tx).abs();

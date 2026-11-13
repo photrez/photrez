@@ -699,7 +699,9 @@ fn text_layers_render_through_the_production_loader() {
     let (width, height, rgba) = loaded.canonical_rgba();
     assert_eq!((width, height), (30, 30));
     let ink = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] < 100 && pixel[1] < 100 && pixel[2] < 100)
         .count();
     assert!(ink > 0, "text rasterization produced no ink");
@@ -801,7 +803,9 @@ fn text_layers_render_with_the_bundled_inter_face() {
     let ink = loaded
         .canonical_rgba()
         .2
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[0] < 100 && pixel[1] < 100 && pixel[2] < 100)
         .count();
     assert!(ink > 0, "the bundled Inter face produced no ink");

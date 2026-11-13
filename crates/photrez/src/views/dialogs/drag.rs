@@ -2,6 +2,8 @@
 //! within the window frame. Positions are kept for the process lifetime only,
 //! matching the session-level feel of desktop editing applications.
 
+#![allow(clippy::missing_const_for_thread_local)] // Clippy 1.98 still flags const { ... } thread_local initializers
+
 use std::cell::RefCell;
 
 use gpui_kit::{point, Point, Size};

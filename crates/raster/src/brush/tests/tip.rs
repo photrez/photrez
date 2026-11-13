@@ -34,7 +34,7 @@ fn identity_resize_is_copy() {
     let src_straight = vec![10u8, 20, 30, 255, 40, 50, 60, 128];
     // contract: callers feed PREMULTIPLIED bytes
     let mut pm = src_straight.clone();
-    for px in pm.chunks_exact_mut(4) {
+    for px in pm.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         for slot in px.iter_mut().take(3) {
             *slot = (((*slot as u32) * a + 127) / 255) as u8;

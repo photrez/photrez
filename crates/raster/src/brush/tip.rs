@@ -299,7 +299,7 @@ pub fn bilinear_resize_premul(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) ->
 /// Premultiplied -> straight conversion, in place. Crate-visible so the
 /// brush-tip tests can check the resampler's round-trip contract.
 pub(crate) fn premul_to_straight_in_place(buf: &mut [u8]) {
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         let a = px[3];
         if a == 0 {
             px[0] = 0;
@@ -324,7 +324,7 @@ pub fn build_brush_tip(spec: &TipSpec) -> BrushTip {
     // Resampling runs in PREMULTIPLIED space: convert straight->pm before
     // resampling, resample pm bilinearly, then emit straight (round-half unpremul).
     let mut pm_src = rgba_data_size.clone();
-    for px in pm_src.chunks_exact_mut(4) {
+    for px in pm_src.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         for slot in px.iter_mut().take(3) {
             *slot = (((*slot as u32) * a + 127) / 255) as u8;

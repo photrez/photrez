@@ -1,6 +1,5 @@
 // Golden comparisons: layer order, opacity and visibility against source-over, every
 // blend mode, integer translations and flips, and transformed layers within rounding.
-use super::super::*;
 use super::*;
 use crate::test_input::MapInput;
 use photrez_document::content::{BlendMode, PtzDocumentContent};

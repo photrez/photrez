@@ -133,7 +133,9 @@ mod tests {
         assert_ne!(middle, top);
         let distinct = |pixels: &[u8]| -> std::collections::HashSet<[u8; 4]> {
             pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
                 .collect()
         };
@@ -146,7 +148,11 @@ mod tests {
                 "{label} layer has no transparent pixel to composite through"
             );
         }
-        assert!(bottom.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(bottom
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255));
         assert_eq!(&bottom[0..4], &[0, 0, 255, 255]);
         assert_eq!(&bottom[(511 * 4)..512 * 4], &[255, 0, 128, 255]);
     }

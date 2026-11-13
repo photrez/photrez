@@ -103,9 +103,7 @@ use photrez_core::protocol::LockKind;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    div, px, AppContext, Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window,
-};
+use gpui_kit::{div, px, Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window};
 
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.

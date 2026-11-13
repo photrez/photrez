@@ -98,8 +98,18 @@ fn has_variance(buffer: &[u8]) -> bool {
         return false;
     }
     let first = &buffer[0..4];
-    buffer.chunks_exact(4).take(64).any(|pixel| pixel != first)
-        && buffer.chunks_exact(4).skip(64).any(|pixel| pixel != first)
+    buffer
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .take(64)
+        .any(|pixel| pixel.as_slice() != first)
+        && buffer
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .skip(64)
+            .any(|pixel| pixel.as_slice() != first)
 }
 
 /// Capture the composited window into a `width * height` top-down BGRA buffer.
@@ -169,8 +179,10 @@ pub fn adapter_string() -> String {
 /// Two equal-size BGRA captures -> (changed pixel count, changed fraction).
 pub fn changed_pixels(before: &[u8], after: &[u8]) -> (usize, f64) {
     let changed = before
-        .chunks_exact(4)
-        .zip(after.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(after.as_chunks::<4>().0.iter())
         .filter(|(a, b)| a[0] != b[0] || a[1] != b[1] || a[2] != b[2])
         .count();
     let pixels = before.len() / 4;

@@ -216,7 +216,7 @@ impl InputState {
         stroke.engine.update(x, y);
         let produced = stroke.engine.dabs().to_vec();
         let alpha = stroke.dab_alpha;
-        for pair in produced.chunks_exact(2) {
+        for pair in produced.as_chunks::<2>().0.iter() {
             stroke.dabs.push(RasterDab {
                 x: pair[0],
                 y: pair[1],
@@ -510,7 +510,7 @@ pub(crate) fn scaled_preview_patches(
 /// result feeds `RasterTip` unchanged.
 fn resize_tip_premultiplied(tip: &BrushTip, edge: u32) -> Vec<u8> {
     let mut premultiplied = tip.rgba_data_size.clone();
-    for pixel in premultiplied.chunks_exact_mut(4) {
+    for pixel in premultiplied.as_chunks_mut::<4>().0.iter_mut() {
         let alpha = pixel[3] as u32;
         for channel in pixel.iter_mut().take(3) {
             *channel = ((*channel as u32 * alpha + 127) / 255) as u8;

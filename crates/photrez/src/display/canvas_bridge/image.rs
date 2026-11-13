@@ -140,7 +140,7 @@ impl CanvasImage {
             return Err(FrameError::LengthMismatch { expected, got });
         }
         // RGBA -> BGRA, once, at the seam.
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0.iter_mut() {
             pixel.swap(0, 2);
         }
         let mut rects = tile_rects_with_size(width, height, tile_size);
@@ -373,7 +373,7 @@ impl CanvasImage {
         self.validate_region(x, y, width, height, rgba.len())?;
         // RGBA -> BGRA, once, at the seam.
         let mut bgra = Vec::with_capacity(rgba.len());
-        for pixel in rgba.chunks_exact(4) {
+        for pixel in rgba.as_chunks::<4>().0.iter() {
             bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
         let image = render_image(width, height, bgra.clone())?;
@@ -438,7 +438,7 @@ impl CanvasImage {
         }
         // RGBA -> BGRA, once, at the seam.
         let mut bgra = Vec::with_capacity(rgba.len());
-        for pixel in rgba.chunks_exact(4) {
+        for pixel in rgba.as_chunks::<4>().0.iter() {
             bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
         let image = render_image(image_width, image_height, bgra)?;
@@ -467,7 +467,7 @@ impl CanvasImage {
     ) -> Result<Vec<Arc<RenderImage>>, FrameError> {
         self.validate_region(x, y, width, height, rgba.len())?;
         let mut bgra = Vec::with_capacity(rgba.len());
-        for pixel in rgba.chunks_exact(4) {
+        for pixel in rgba.as_chunks::<4>().0.iter() {
             bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
         let image = render_image(width, height, bgra)?;
