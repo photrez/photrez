@@ -748,29 +748,31 @@ impl App {
     /// failure is recorded, so the row says it has no list instead of claiming
     /// the chosen paper is missing.
     pub(crate) fn refresh_print_papers(&mut self, cx: &mut Context<Self>) {
-        let printer = self
-            .state
-            .read(cx)
-            .printers
-            .get(self.state.read(cx).print_printer)
-            .cloned();
         #[cfg(windows)]
-        let (papers, reason) = match printer {
-            Some(printer) => {
-                match crate::services::print::PrintService::default().paper_sizes(&printer) {
-                    Ok(sizes) => (
-                        Some(
-                            sizes
-                                .into_iter()
-                                .map(|size| (size.name, size.width_mm, size.height_mm))
-                                .collect(),
+        let (papers, reason) = {
+            let printer = self
+                .state
+                .read(cx)
+                .printers
+                .get(self.state.read(cx).print_printer)
+                .cloned();
+            match printer {
+                Some(printer) => {
+                    match crate::services::print::PrintService::default().paper_sizes(&printer) {
+                        Ok(sizes) => (
+                            Some(
+                                sizes
+                                    .into_iter()
+                                    .map(|size| (size.name, size.width_mm, size.height_mm))
+                                    .collect(),
+                            ),
+                            None,
                         ),
-                        None,
-                    ),
-                    Err(error) => (None, Some(error.to_string())),
+                        Err(error) => (None, Some(error.to_string())),
+                    }
                 }
+                None => (None, None),
             }
-            None => (None, None),
         };
         #[cfg(not(windows))]
         let (papers, reason) = (None, None);
