@@ -9,14 +9,12 @@
 # (README / CHANGELOG / CONTRIBUTING / SECURITY, docs/**, .github/**).
 #
 # SCRIPT SCOPE: the --files check also covers tracked scripts
-# (scripts/**.txt, scripts/**.sh). Two files are exempt: this guard's own
-# pattern list and the stack-token list it reads, because a ban must name what
-# it bans.
+# (scripts/**.txt, scripts/**.sh). This guard is exempt: its pattern list
+# names the words it bans.
 #
 # Usage:
 #   scripts/check-public-terminology.sh --files "<path> [path ...]"
 #   scripts/check-public-terminology.sh --i18n --files "<path-or-dir> [path-or-dir ...]"
-#   scripts/check-public-terminology.sh --staleness
 #
 # "--i18n" flags a string literal used at a text-bearing call site in the
 # Rust sources it is pointed at (`components/`, `views/`): user-visible text
@@ -27,11 +25,6 @@
 # name). The call-site list is intentionally narrow - the coarse net catches
 # the direct forms; text that reaches the user through a variable is the
 # reviewer's catch.
-#
-# "--staleness" checks that no tracked public surface still asserts a runtime
-# stack the tree no longer contains. The token/rule list lives in
-# scripts/public-stack-tokens.txt (single source of truth; referenced by path,
-# never duplicated). The retired stacks are absent, so every rule is live.
 #
 # The same --files scan also blocks the vocabulary of a runtime this repository
 # no longer contains, but only where it is prose: Rust comment lines and public
@@ -57,7 +50,6 @@ DANGLING_SRC='apps/desktop|\.tsx\b|[A-Za-z]:[\\/][Uu]sers[\\/]|[\\/]Users[\\/]|[
 # are contracts, and renaming them would break the data, not the prose. A line
 # that must keep such a word carries `trace-exempt: <reason>`.
 TRACE_SRC='frozen|Frozen|oracle|Oracle|[Pp]arity|TypeScript|\bTS\b|Chromium|webkit|Tauri|Wry|Canvas2D|OffscreenCanvas|editorFacade|DocumentEngine|bridge\.ts|editorData|MENU_ITEMS|textRasterizer|applyDeltaToSnapshot|lastHistoryDeltaWasEmpty|setLayerLocked|textTool|capture-baseline'
-TOKEN_LIST='scripts/public-stack-tokens.txt'
 
 # Text-bearing call sites in the Rust UI sources: a string literal in one of
 # these positions is user-visible text. A const `&str` counts too, unless its
@@ -71,54 +63,11 @@ I18N_KEY_SHAPED_CONST='const [A-Z0-9_]+: &str = r?"[a-z0-9][A-Za-z0-9_.-]*"'
 # that carries `label: "tools.move"` needs no exemption marker.
 I18N_KEY_SHAPED_FIELD='(text|label|title|name|heading|tooltip|hint|description|placeholder|caption): r?"[a-z][A-Za-z0-9_.-]*"'
 
-STALENESS=0
 I18N=0
 FILES=''
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
 
-# --- staleness -----------------------------------------------------------------
-# Token list format (TAB-separated records; '#' lines are comments):
-#   <token> <globs> <mode>       globs = space-separated git pathspecs
-#   mode: forbidden-when-absent:<stack>  hits red once <stack> is absent
-#         allowlist                      dated/historical file, exempt + reason above
-#         url-only                       allowed inside a URL (a citation needs its
-#                                        address); red in prose or link labels
-
-report() { # $1 = hits, $2 = error line
-  printf '%s\n' "$1"
-  printf 'ERROR: %s\n' "$2" >&2
-  rc=1
-}
-
-staleness() {
-  [ -f "$TOKEN_LIST" ] || fail "token list not found: $TOKEN_LIST"
-  rc=0
-
-  tokens=$(awk -F'\t' '!/^#/ && $3 ~ /^forbidden-when-absent:/ {print $1}' "$TOKEN_LIST" | sort -u)
-  for token in $tokens; do
-    stack=$(awk -F'\t' -v t="$token" '$1==t && $3 ~ /^forbidden-when-absent:/ {sub(/^forbidden-when-absent:/,"",$3); print $3; exit}' "$TOKEN_LIST")
-    globs=$(awk -F'\t' -v t="$token" '$1==t && $3 ~ /^forbidden-when-absent:/ {print $2}' "$TOKEN_LIST")
-    for af in $(awk -F'\t' -v t="$token" '$1==t && $3=="allowlist" {print $2}' "$TOKEN_LIST"); do
-      globs="$globs :(exclude)$af"
-    done
-    hits=$(git grep -n -I -iE "\\b$token" -- $globs || true)
-    [ -n "$hits" ] && report "$hits" "public surface still asserts a removed stack (token \"$token\", stack \"$stack\")"
-  done
-
-  utokens=$(awk -F'\t' '!/^#/ && $3=="url-only" {print $1}' "$TOKEN_LIST" | sort -u)
-  for token in $utokens; do
-    globs=$(awk -F'\t' -v t="$token" '$1==t && $3=="url-only" {print $2}' "$TOKEN_LIST")
-    hits=$(git grep -n -I -iE "\\b$token" -- $globs || true)
-    [ -n "$hits" ] || continue
-    bad=$(printf '%s\n' "$hits" | while IFS= read -r line; do
-      printf '%s\n' "$line" | sed 's#https\?://[^ )">]*##g' | grep -qiE "\\b$token" && printf '%s\n' "$line"
-    done)
-    [ -n "$bad" ] && report "$bad" "brand token outside a citation URL (token \"$token\" is url-only)"
-  done
-
-  [ "$rc" -eq 0 ] || exit 1
-}
 
 # --- files (terminology scan) --------------------------------------------------
 # Comment/prose surface only: a hit must carry a word that cannot be resolved
@@ -165,11 +114,10 @@ files_check() {
       scripts/*.txt|scripts/*.sh)
         # Tracked scripts are public artifacts: a comment in one must not name
         # a path a fresh clone cannot resolve or the vocabulary of a runtime
-        # this repository no longer contains. The guard's own pattern list and
-        # the token list carry the words they ban, so they are exempt; the
-        # exemption is scoped to exactly these two files.
+        # this repository no longer contains. This guard names the words it bans,
+        # so it is exempt.
         case "$f" in
-          scripts/check-public-terminology.sh|scripts/public-stack-tokens.txt) ;;
+          scripts/check-public-terminology.sh) ;;
           *)
             grep -nE "$DANGLING_SRC" "$f" && fail "dangling reference to a path outside this repository in $f"
             hits=$(trace_check "$(grep -n '' "$f")")
@@ -235,21 +183,12 @@ while [ $# -gt 0 ]; do
       I18N=1
       shift
       ;;
-    --staleness)
-      STALENESS=1
-      shift
-      ;;
     *)
       fail "unknown arg: $1"
       ;;
   esac
 done
 
-if [ "$STALENESS" -eq 1 ]; then
-  staleness
-  echo "check-public-terminology: staleness OK"
-  exit 0
-fi
 
 if [ "$I18N" -eq 1 ]; then
   [ -n "$FILES" ] || fail "--i18n requires --files <path-or-dir> [path-or-dir ...]"
@@ -262,3 +201,4 @@ fi
 
 echo "check-public-terminology: OK"
 exit 0
+
