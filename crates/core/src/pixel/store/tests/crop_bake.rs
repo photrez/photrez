@@ -57,7 +57,7 @@ fn seeded_store_with(alpha: u8) -> PixelStoreRegistry {
         }))
         .expect("mark background");
     let mut pixels = vec![0u8; 8 * 8 * 4];
-    for chunk in pixels.chunks_exact_mut(4) {
+    for chunk in pixels.as_chunks_mut::<4>().0.iter_mut() {
         chunk[0] = 9;
         chunk[1] = 9;
         chunk[2] = 9;

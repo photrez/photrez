@@ -266,7 +266,9 @@ pub(crate) fn rasterize_text(
             // stroke keeps the half of the line that falls outside the glyph.
             let fill_mask = (stroke.align == TextStrokeAlign::Inside).then(|| {
                 pixels
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|pixel| pixel[3])
                     .collect::<Vec<u8>>()
             });
@@ -459,7 +461,7 @@ fn stroke_buffer(
         None,
     );
     let coverage = mask.data();
-    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let alpha = u32::from(coverage[index * 4 + 3]);
         if alpha == 0 {
             continue;
@@ -636,8 +638,10 @@ mod tests {
             let mut max_delta = 0u8;
             for (actual, expected) in result
                 .pixels
-                .chunks_exact(4)
-                .zip(golden.as_raw().chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(golden.as_raw().as_chunks::<4>().0.iter())
             {
                 max_delta = max_delta.max(actual[3].abs_diff(expected[3]));
                 for channel in 0..3 {

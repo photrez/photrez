@@ -298,7 +298,7 @@ fn paint_bucket_click_fills_with_the_foreground_color(cx: &mut gpui_kit::TestApp
         let (_, _, after) = pixels(&content, cx);
         assert_ne!(after, before);
         assert!(
-            after.chunks_exact(4).any(|p| p == [0, 255, 0, 255]),
+            after.as_chunks::<4>().0.contains(&[0, 255, 0, 255]),
             "the fill must write the foreground colour"
         );
     })

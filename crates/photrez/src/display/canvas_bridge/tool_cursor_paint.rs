@@ -25,7 +25,7 @@ fn decode_tool_rgba(index: usize) -> Vec<u8> {
             rgba[dst + 3] = bits[i + 3];
         }
     }
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0.iter_mut() {
         pixel.swap(0, 2);
     }
     rgba

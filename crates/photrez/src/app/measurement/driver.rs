@@ -868,6 +868,7 @@ impl Runner {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)] // one drag receipt; a struct would only rename it
     async fn wait_drag_frame(
         &self,
         collector: &mut FrameTimingCollector,

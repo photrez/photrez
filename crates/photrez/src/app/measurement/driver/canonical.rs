@@ -34,8 +34,10 @@ pub(super) fn pixel_diff(
     let mut changed_pixels = 0usize;
     for (index, (left, right)) in before
         .pixels
-        .chunks_exact(4)
-        .zip(after.pixels.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(after.pixels.as_chunks::<4>().0.iter())
         .enumerate()
     {
         if left != right {
@@ -121,8 +123,10 @@ pub(super) fn find_ink_target(state: &CanonicalState) -> Result<(u32, u32), Stri
     }
     let index = state
         .pixels
-        .chunks_exact(4)
-        .position(|pixel| pixel != state.foreground)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .position(|pixel| *pixel != state.foreground)
         .ok_or_else(|| "fixture has no pixel that differs from the Brush foreground".to_owned())?;
     Ok((
         (index % state.width as usize) as u32,

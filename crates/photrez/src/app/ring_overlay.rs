@@ -511,7 +511,7 @@ mod tests {
         let size = ring.bitmap_size().expect("sized") as usize;
         let mut strongest = 0u8;
         let mut soft = false;
-        for pixel in pixels.chunks_exact(4) {
+        for pixel in pixels.as_chunks::<4>().0.iter() {
             strongest = strongest.max(pixel[3]);
             if pixel[3] > 0 && pixel[3] < 200 {
                 soft = true;

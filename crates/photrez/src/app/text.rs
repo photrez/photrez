@@ -305,7 +305,7 @@ impl App {
                 if ox >= 0.0 && oy >= 0.0 {
                     if let Ok(base) = active.canvas.read_region_rgba(ox as u32, oy as u32, w, h) {
                         let mut blended = base.clone();
-                        for (index, pixel) in rgba.chunks_exact(4).enumerate() {
+                        for (index, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
                             let alpha = pixel[3] as u32;
                             let offset = index * 4;
                             for channel in 0..3 {

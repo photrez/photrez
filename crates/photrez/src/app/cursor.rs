@@ -4,6 +4,8 @@
 //! backends do not expose custom cursor images. The hover and press geometry
 //! share one adaptive band, and leaving a hover releases the custom cursor at
 //! once.
+
+#![allow(clippy::missing_const_for_thread_local)] // Clippy 1.98 still flags const { ... } thread_local initializers
 #![allow(unsafe_code)] // SAFETY: Win32 cursor resource creation and SetCursor only; the resource buffer is static and aligned.
 
 #[cfg(test)]
@@ -519,7 +521,7 @@ mod tests {
     #[test]
     fn cursor_resources_are_sixteen_32px_alpha_bitmaps() {
         assert_eq!(RESOURCE.len(), 68288);
-        for record in RESOURCE.chunks_exact(4268) {
+        for record in RESOURCE.as_chunks::<4268>().0.iter() {
             assert_eq!(u16::from_le_bytes([record[0], record[1]]), 16);
             assert_eq!(u16::from_le_bytes([record[2], record[3]]), 16);
             let dib = &record[4..];
@@ -538,7 +540,9 @@ mod tests {
     fn tool_cursor_resources_are_three_32px_icons() {
         assert_eq!(TOOL_RESOURCE.len(), 12_804);
         let hotspots = [(4, 28), (24, 16), (9, 11)];
-        for (record, (hotspot_x, hotspot_y)) in TOOL_RESOURCE.chunks_exact(4268).zip(hotspots) {
+        for (record, (hotspot_x, hotspot_y)) in
+            TOOL_RESOURCE.as_chunks::<4268>().0.iter().zip(hotspots)
+        {
             assert_eq!(u16::from_le_bytes([record[0], record[1]]), hotspot_x);
             assert_eq!(u16::from_le_bytes([record[2], record[3]]), hotspot_y);
             let dib = &record[4..];

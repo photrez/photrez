@@ -142,7 +142,7 @@ pub(crate) fn image_from_rgba(
         });
     }
     let mut bgra = rgba;
-    for pixel in bgra.chunks_exact_mut(4) {
+    for pixel in bgra.as_chunks_mut::<4>().0.iter_mut() {
         pixel.swap(0, 2);
     }
     render_image(width, height, bgra)

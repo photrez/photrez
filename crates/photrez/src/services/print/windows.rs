@@ -45,7 +45,7 @@ pub(super) fn print_rgba(
     };
 
     let mut bgra = Vec::with_capacity(request.pixels.len());
-    for (index, rgba) in request.pixels.chunks_exact(4).enumerate() {
+    for (index, rgba) in request.pixels.as_chunks::<4>().0.iter().enumerate() {
         if index & 0x0fff == 0 && cancellation.is_cancelled() {
             return Err(PrintError::Cancelled);
         }
