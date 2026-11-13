@@ -204,7 +204,7 @@ const TEXT_30: Hsla = Hsla {
 // ── Copy ────────────────────────────────────────────────────────────────────
 
 /// The catalog key for the single-item hint: `t("history.editsAppearHere")`
-/// renders `"Edits appear here"` in `en` (`assets/i18n/en.json`).
+/// renders `"Edits appear here"` in `en` (`locales/en.json`).
 /// The panel asks for that key through [`t`]; the const holds the key, and
 /// every call site wraps it with [`t`].
 const HINT_TEXT_KEY: &str = "history.editsAppearHere";

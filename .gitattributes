@@ -6,7 +6,7 @@
 # them at all.
 crates/format/tests/fixtures/*.json text eol=lf
 crates/photrez/tests/fixtures/*.json text eol=lf
-crates/photrez/assets/i18n/*.json text eol=lf
+crates/photrez/locales/*.json text eol=lf
 
 *.png binary
 *.jpg binary
@@ -16,3 +16,4 @@ crates/photrez/assets/i18n/*.json text eol=lf
 *.ttf binary
 *.ptz binary
 *.rgba binary
+

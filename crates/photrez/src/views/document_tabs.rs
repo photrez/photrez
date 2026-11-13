@@ -43,7 +43,7 @@
 //!   hovers paint nothing: both are no-ops here and are
 //!   recorded as such below rather than invented.
 //! * **`Export…` is the resolved translation**, not the `"Export"` fallback
-//!   in the catalogue key: `assets/i18n/en.json:51` is `"Export…"` (one
+//!   in the catalogue key: `locales/en.json` is `"Export…"` (one
 //!   U+2026), which is what the baseline paints.
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
@@ -165,7 +165,7 @@ const EXPORT_TEXT: f32 = 12.5;
 const EXPORT_ICON: f32 = 14.0;
 
 /// The export label's *resolved* string, not the key's
-/// fallback: `assets/i18n/en.json:51` is `"Export…"`.
+/// fallback: `locales/en.json` is `"Export…"`.
 const EXPORT_LABEL_KEY: &str = "menus.items.export";
 
 /// The 38px strip: one centred row that is never squeezed, a 1px bottom

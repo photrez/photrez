@@ -1,7 +1,8 @@
+use super::catalog_snapshot::load;
 use super::*;
 
-/// The catalog copies the 0.1.0 release shipped, one directory per locale.
-// They live under tests/fixtures/i18n, beside the other test fixtures.
+/// The 0.1.0 release shipped one catalog per locale. The reference copies
+/// live under tests/fixtures/i18n, beside the other test fixtures.
 fn reference_path(code: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/i18n")
@@ -33,6 +34,27 @@ fn leaf_paths(
     }
 }
 
+/// Reference fixtures keep `{{name}}` placeholders; rust-i18n YAML uses `%{name}`.
+fn rust_i18n_placeholder_form(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(open) = rest.find("{{") {
+        out.push_str(&rest[..open]);
+        let after_open = &rest[open + 2..];
+        let Some(close) = after_open.find("}}") else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let name = after_open[..close].trim();
+        out.push_str("%{");
+        out.push_str(name);
+        out.push('}');
+        rest = &after_open[close + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
     let text = std::fs::read_to_string(reference_path(code))
         .expect("the reference catalog is in the tree");
@@ -48,11 +70,21 @@ fn reference_leaves(code: &str) -> std::collections::BTreeMap<String, String> {
 /// align strings only through inline defaults, kept the text tool's
 /// commit/newline leaves under a `tools.text` object where the native catalog
 /// needs a `tools.text` label, and one dead menu string in the fixture is not
-/// wanted here. Each of those is a named row below, so a new divergence still
-/// fails the test instead of being absorbed by a re-copy.
+/// wanted here. The native catalog also carries the keys the release never
+/// had, such as the crop guide rows. Each of those is a named row below, so a
+/// new divergence still fails the test instead of being absorbed by a re-copy.
 #[test]
 fn catalog_matches_reference_plus_named_deltas() {
     const NATIVE_ONLY: &[&str] = &[
+        // The native catalog carries the keys the release never had: the crop
+        // guide and angle rows, and the loading overlay hint.
+        "common.loadingHint",
+        "crop.angle",
+        "crop.guidesDiagonal",
+        "crop.guidesGolden",
+        "crop.guidesGrid",
+        "crop.guidesNone",
+        "crop.guidesThirds",
         // The release hardcoded both of these in the inspector instead of
         // putting them in its catalog. The native Paper Size row reads them,
         // because it answers what the driver reported rather than asserting the
@@ -88,14 +120,8 @@ fn catalog_matches_reference_plus_named_deltas() {
         "Studio gambar desktop native. Ramping. Luring. Di bawah 80 MB.",
     )];
 
-    for (locale, text) in CATALOGS {
-        let native: std::collections::BTreeMap<String, String> = {
-            let value: serde_json::Value =
-                serde_json::from_str(text).expect("the embedded catalog parses");
-            let mut out = std::collections::BTreeMap::new();
-            leaf_paths(&value, "", &mut out);
-            out
-        };
+    for locale in [Locale::En, Locale::Id, Locale::Bjn] {
+        let native = load(locale).entries;
         let reference = reference_leaves(locale.code());
         let native_only: Vec<_> = native
             .keys()
@@ -154,7 +180,7 @@ fn catalog_matches_reference_plus_named_deltas() {
             }
             assert_eq!(
                 native.get(key).map(String::as_str),
-                Some(value.as_str()),
+                Some(rust_i18n_placeholder_form(value).as_str()),
                 "{}: shared key {key} diverges from the reference text",
                 locale.code()
             );
@@ -224,15 +250,15 @@ fn literal_lookup_keys(text: &str) -> Vec<String> {
         while j < bytes.len() && matches!(bytes[j], b' ' | b'\r' | b'\n' | b'\t') {
             j += 1;
         }
-        if bytes.get(j) == Some(&b'"') {
-            if let Some(end) = text[j + 1..].find('"') {
-                let key = text[j + 1..j + 1 + end].to_owned();
-                if is_plural {
-                    keys.push(format!("{key}_one"));
-                    keys.push(format!("{key}_other"));
-                } else {
-                    keys.push(key);
-                }
+        if bytes.get(j) == Some(&b'"')
+            && let Some(end) = text[j + 1..].find('"')
+        {
+            let key = text[j + 1..j + 1 + end].to_owned();
+            if is_plural {
+                keys.push(format!("{key}_one"));
+                keys.push(format!("{key}_other"));
+            } else {
+                keys.push(key);
             }
         }
         i = j;
@@ -277,25 +303,18 @@ fn source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
-fn load(locale: Locale) -> Catalog {
-    let (_, text) = CATALOGS
-        .iter()
-        .find(|(candidate, _)| *candidate == locale)
-        .expect("every locale ships a catalog");
-    Catalog::from_json(text).expect("the embedded catalog parses")
-}
 
 /// `{{name}}` tokens as they appear in a value, in order.
 fn tokens(value: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = value;
-    while let Some(open) = rest.find("{{") {
+    while let Some(open) = rest.find("%{") {
         let after_open = &rest[open + 2..];
-        let Some(close) = after_open.find("}}") else {
+        let Some(close) = after_open.find('}') else {
             break;
         };
         found.push(after_open[..close].trim().to_owned());
-        rest = &after_open[close + 2..];
+        rest = &after_open[close + 1..];
     }
     found
 }
@@ -308,8 +327,9 @@ fn token_set(value: &str) -> Vec<String> {
     set
 }
 
-/// Every key in one locale exists in the other: a missing translation
-/// renders as its key in the UI, which no capture can paper over.
+/// Every key in one locale exists in the other. A missing translation renders
+/// as the English text, which reads as a finished translation, so only the
+/// catalog itself can show the hole.
 #[test]
 fn locale_key_sets_match() {
     let en = load(Locale::En);
@@ -333,40 +353,35 @@ fn locale_key_sets_match() {
     }
 }
 
-/// Loading IS the leaf check: [`flatten`] rejects empty and non-string
-/// leaves, so this passing means neither catalog has any.
+/// An empty translation renders as an empty label, which no capture shows as
+/// a translation bug.
 #[test]
-fn no_empty_or_nonstring_leaves() {
+fn no_translation_is_empty() {
     for locale in [Locale::En, Locale::Id, Locale::Bjn] {
-        load(locale);
+        let empty: Vec<_> = load(locale)
+            .entries
+            .iter()
+            .filter(|(_, value)| value.trim().is_empty())
+            .map(|(key, _)| key.clone())
+            .collect();
+        assert!(
+            empty.is_empty(),
+            "{} has empty values: {empty:?}",
+            locale.code()
+        );
     }
 }
 
-/// The strictness is real, one case per rejection kind.
-#[test]
-fn leaf_rejections_are_enforced() {
-    assert!(
-        matches!(Catalog::from_json("{\"a\": \"\"}"), Err(LoadError::EmptyLeaf(key)) if key == "a")
-    );
-    assert!(
-        matches!(Catalog::from_json("{\"a\": 1}"), Err(LoadError::NonStringLeaf(key)) if key == "a")
-    );
-    assert!(matches!(Catalog::from_json("{"), Err(LoadError::Json(_))));
-    assert!(matches!(
-        Catalog::from_json("[\"a\"]"),
-        Err(LoadError::NonStringLeaf(_))
-    ));
-}
+/// Loading IS the leaf check: [`flatten`] rejects empty and non-string
+/// leaves, so this passing means neither catalog has any.
 
-/// The leaf census the catalogs were pinned at; a wholesale loss (a
-/// botched copy, a truncated file) fails here even though the key-set
-/// comparison alone would still hold.
+
 #[test]
 fn leaf_counts_are_pinned() {
     for locale in [Locale::En, Locale::Id, Locale::Bjn] {
         assert_eq!(
             load(locale).entries.len(),
-            466,
+            473,
             "{} leaf count",
             locale.code()
         );
@@ -375,7 +390,7 @@ fn leaf_counts_are_pinned() {
 
 /// The placeholder inventory is the engine's whole workload, and every
 /// key must name the same tokens in both locales: a translation that
-/// drops `{{count}}` renders a plural silently wrong.
+/// drops `%{count}` renders a plural silently wrong.
 #[test]
 fn placeholder_sets_match_across_locales() {
     let en = load(Locale::En);
@@ -409,36 +424,11 @@ fn placeholder_sets_match_across_locales() {
 
 #[test]
 fn interpolation_renders_placeholders() {
-    assert_eq!(
-        render("{{count}} layers", &[("count", "3")]).as_deref(),
-        Ok("3 layers")
-    );
-    assert_eq!(render("no tokens", &[]).as_deref(), Ok("no tokens"));
-    assert_eq!(
-        render("{{a}} then {{b}}", &[("a", "1"), ("b", "2")]).as_deref(),
-        Ok("1 then 2")
-    );
-    assert_eq!(
-        render("{{ spaced }}", &[("spaced", "x")]).as_deref(),
-        Ok("x")
-    );
+    let template = "%{count} layers";
+    let out = rust_i18n::replace_patterns(template, &["count"], &["3".to_string()]);
+    assert_eq!(out, "3 layers");
 }
 
-#[test]
-fn interpolation_rejects_mismatches() {
-    assert_eq!(
-        render("Hello {{name}}", &[]),
-        Err(RenderError::UnknownPlaceholder("name".to_owned()))
-    );
-    assert_eq!(
-        render("Hello", &[("name", "Ada")]),
-        Err(RenderError::UnusedArg("name".to_owned()))
-    );
-    assert_eq!(
-        render("Hi {{name", &[("name", "Ada")]),
-        Err(RenderError::Malformed("Hi {{name".to_owned()))
-    );
-}
 
 /// The one locale-switching test: locale-dependent lookup assertions
 /// live here or in [`plural_selection_is_real`], both serialised on
@@ -498,15 +488,15 @@ fn plural_selection_is_real() {
     let many = t_plural("status.layers", 2);
     assert_eq!(
         one,
-        en.entries["status.layers_one"].replace("{{count}}", "1")
+        en.entries["status.layers_one"].replace("%{count}", "1")
     );
     assert_eq!(
         many,
-        en.entries["status.layers_other"].replace("{{count}}", "2")
+        en.entries["status.layers_other"].replace("%{count}", "2")
     );
     assert_eq!(
         t_plural("status.layers", 0),
-        en.entries["status.layers_other"].replace("{{count}}", "0")
+        en.entries["status.layers_other"].replace("%{count}", "0")
     );
     assert_ne!(
         one, many,
@@ -518,11 +508,11 @@ fn plural_selection_is_real() {
     let many = t_plural("status.layers", 2);
     assert_eq!(
         one,
-        id.entries["status.layers_one"].replace("{{count}}", "1")
+        id.entries["status.layers_one"].replace("%{count}", "1")
     );
     assert_eq!(
         many,
-        id.entries["status.layers_other"].replace("{{count}}", "2")
+        id.entries["status.layers_other"].replace("%{count}", "2")
     );
     assert_ne!(
         one, many,
@@ -538,7 +528,7 @@ fn plural_selection_is_real() {
 #[test]
 fn lookup_failures_degrade_to_the_key() {
     assert_eq!(t("no.such.key"), "no.such.key");
-    // `status.layers_other` names {{count}} in both locales
+    // `status.layers_other` names %{count} in both locales
     assert_eq!(t_args("status.layers_other", &[]), "status.layers_other");
     assert_eq!(t_args("no.such.key", &[("count", "1")]), "no.such.key");
 }
@@ -619,28 +609,6 @@ fn locale_round_trip_through_settings() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Collect every character a parsed catalog carries: object keys, string
-/// values, array items.
-fn collect_catalog_chars(value: &serde_json::Value, out: &mut std::collections::BTreeSet<char>) {
-    match value {
-        serde_json::Value::String(s) => {
-            out.extend(s.chars());
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                collect_catalog_chars(item, out);
-            }
-        }
-        serde_json::Value::Object(map) => {
-            for (key, item) in map {
-                out.extend(key.chars());
-                collect_catalog_chars(item, out);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Code points the embedded catalogs use that `inter-latin.ttf` does not
 /// carry. They render through the toolkit's per-glyph fallback stack -
 /// `gpui_pre::TextSystem` defaults to `.ZedMono, .ZedSans, Helvetica,
@@ -666,16 +634,15 @@ const FALLBACK_RENDERED: &[char] = &[
 #[test]
 #[ignore = "font gate; run explicitly"]
 fn indonesian_glyph_coverage() {
-    let id_json = CATALOGS
-        .iter()
-        .find(|(locale, _)| *locale == Locale::Id)
-        .map(|(_, json)| *json)
-        .expect("the id catalog is embedded");
-
-    let value: serde_json::Value =
-        serde_json::from_str(id_json).expect("the embedded id catalog parses");
+    let id = load(Locale::Id);
     let mut corpus = std::collections::BTreeSet::new();
-    collect_catalog_chars(&value, &mut corpus);
+    for text in id.entries.values() {
+        for ch in text.chars() {
+            if !ch.is_ascii() {
+                corpus.insert(ch);
+            }
+        }
+    }
     corpus.retain(|c| !c.is_ascii());
     assert!(
         !corpus.is_empty(),
