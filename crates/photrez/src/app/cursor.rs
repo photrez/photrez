@@ -373,16 +373,15 @@ mod imp {
 
     pub(super) fn set_photrez_pointer_active(active: bool) {
         let was = PHOTREZ_POINTER.with(|state| state.replace(active));
-        if active == was {
-            return;
-        }
-        #[cfg(not(test))]
-        {
-            use objc2_app_kit::NSCursor;
-            if active {
-                NSCursor::hide();
-            } else {
-                NSCursor::unhide();
+        if active != was {
+            #[cfg(not(test))]
+            {
+                use objc2_app_kit::NSCursor;
+                if active {
+                    NSCursor::hide();
+                } else {
+                    NSCursor::unhide();
+                }
             }
         }
     }
