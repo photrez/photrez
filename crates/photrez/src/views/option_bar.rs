@@ -16,7 +16,7 @@
 // `match` arm, and `brush_params` carries its own test.
 // lean-ctx: dead_code lint re-enabled; every fn below is called.
 
-use gpui_kit::base::{h_flex, StyledExt};
+use gpui_kit::base::{StyledExt, h_flex};
 use gpui_kit::component::Icon;
 // `h_flex` is both the free fn and the `StyledExt` trait method (`.h_flex()`);
 // both live in `gpui_kit::base` (re-export of the `gpui_base` crate). Import
@@ -24,8 +24,8 @@ use gpui_kit::component::Icon;
 // resolve.
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    checkerboard, div, hsla, linear_color_stop, linear_gradient, px, BoxShadow, Div, FontWeight,
-    Hsla, Stateful, TestSupportExt,
+    BoxShadow, Div, FontWeight, Hsla, Stateful, TestSupportExt, checkerboard, div, hsla,
+    linear_color_stop, linear_gradient, px,
 };
 
 use crate::components::ui;

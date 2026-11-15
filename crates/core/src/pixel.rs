@@ -30,12 +30,12 @@ pub use document_store::DocumentPixelStore;
 #[cfg(not(feature = "legacy-host"))]
 pub(crate) use document_store::DocumentPixelStore;
 pub use history::{HistoryDepth, HistoryTip, PayloadKind};
+pub use store::CommitPhases;
+pub use store::PixelStoreRegistry;
 #[cfg(feature = "legacy-host")]
 pub use store::registry;
 #[cfg(all(not(feature = "legacy-host"), test))]
 pub(crate) use store::registry;
-pub use store::CommitPhases;
-pub use store::PixelStoreRegistry;
 
 #[cfg(test)]
 mod tests;

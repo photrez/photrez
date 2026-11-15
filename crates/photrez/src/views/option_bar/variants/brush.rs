@@ -202,17 +202,9 @@ pub(super) fn brush_more_dropdown(
             .filter(|field| field.id == id)
             .map(|field| field.buffer.clone())
     };
-    // The press may land on the icon inside the button, so the clickable id
-    // sits on the wrapper and the visual button is its child.
-    let trigger =
-        div()
-            .id("opt-more")
-            .test_support()
-            .flex_shrink_0()
-            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-                app.toggle_more_menu(window, cx)
-            }))
-            .child(more_dropdown_button());
+    let trigger = more_dropdown_button(cx).on_click(
+        cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
+    );
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
         let mut panel = div()

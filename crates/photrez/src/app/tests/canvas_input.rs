@@ -4,8 +4,8 @@ use crate::input_policy::PendingGesture;
 use crate::state::{SelectionShape, ToolId};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
-    point, px, Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    PlatformInput, Point,
+    Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput,
+    Point, point, px,
 };
 use photrez_core::document::content::LayerType;
 

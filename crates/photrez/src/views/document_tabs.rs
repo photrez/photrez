@@ -88,7 +88,7 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, FontWeight, Point, TestSupportExt, Window};
+use gpui_kit::{FontWeight, Point, TestSupportExt, Window, div, px};
 
 use crate::components::ui;
 use crate::i18n::t;

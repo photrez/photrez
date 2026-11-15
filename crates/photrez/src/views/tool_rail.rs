@@ -28,7 +28,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Context, Entity, Hsla, MouseButton, TestSupportExt};
+use gpui_kit::{BoxShadow, Context, Entity, Hsla, MouseButton, TestSupportExt, div, hsla, px};
 
 use crate::icons;
 use crate::state::{AppState, SelectionShape, ToolId};

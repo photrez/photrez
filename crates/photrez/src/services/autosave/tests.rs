@@ -248,9 +248,11 @@ fn dirty_loaded_fixture_autosaves_canonically_without_changing_session_state() {
     let (files, sessions, source_path) = dirty_fixture(&directory);
     let store = AutosaveStore::new(directory.path());
     let session = sessions.get("bounded-raster-doc").unwrap();
-    assert!(store
-        .autosave("bounded-raster-doc", session, &files, &SaveStream, 1234)
-        .expect("dirty document autosaves"));
+    assert!(
+        store
+            .autosave("bounded-raster-doc", session, &files, &SaveStream, 1234)
+            .expect("dirty document autosaves")
+    );
 
     let entries = store.list().expect("manifest lists saved document");
     assert_eq!(entries.len(), 1);
@@ -298,9 +300,11 @@ fn autosave_rejects_document_id_mismatch_and_does_not_write_manifest_on_save_fai
         "E_VALIDATION"
     );
     assert!(!other_store.manifest_path().exists());
-    assert!(!other_store
-        .archive_path("bounded-raster-doc")
-        .unwrap()
-        .exists());
+    assert!(
+        !other_store
+            .archive_path("bounded-raster-doc")
+            .unwrap()
+            .exists()
+    );
     assert!(session.is_dirty());
 }

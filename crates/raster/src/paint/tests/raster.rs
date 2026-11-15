@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tests for the paint reference rasterizer's digest and patch shape.
 
-use crate::paint::raster::{raster_shadow, RasterDab, RasterTip};
+use crate::paint::raster::{RasterDab, RasterTip, raster_shadow};
 
 struct TipBuf {
     data: Vec<u8>,

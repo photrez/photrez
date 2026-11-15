@@ -39,7 +39,7 @@ pub(super) fn validate_request(request: &PrintRequest<'_>) -> Result<(), PrintEr
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_request, MAX_PRINT_BUFFER_BYTES};
+    use super::{MAX_PRINT_BUFFER_BYTES, validate_request};
     use crate::services::print::{PrintError, PrintRequest, PrintSettings};
 
     fn request<'a>(

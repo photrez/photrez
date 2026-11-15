@@ -76,8 +76,8 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, hsla, px, relative, Bounds, Context, Div, Entity, FontWeight, MouseButton, Pixels,
-    TestSupportExt,
+    Bounds, Context, Div, Entity, FontWeight, MouseButton, Pixels, TestSupportExt, div, hsla, px,
+    relative,
 };
 use std::cell::Cell;
 use std::rc::Rc;

@@ -227,12 +227,14 @@ fn layer_reprojection_preserves_explicit_deselection_and_allows_reselection(
             });
             app.project_layers_with_selection(None, cx);
         });
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .selected_layers
-            .is_empty());
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .selected_layers
+                .is_empty()
+        );
 
         content.update(cx, |app, cx| {
             app.project_layers_with_selection(Some(&first_core_id), cx);
@@ -501,6 +503,12 @@ fn hovering_the_crop_frame_paints_the_direction_resize_cursors(cx: &mut gpui_kit
             );
             window.render_frame(cx);
         };
+        let zoom = content
+            .read(cx)
+            .effective_camera()
+            .map(|camera| camera.zoom)
+            .unwrap_or(1.0);
+        let rotate_band_y = 30.0 - 80.0 / zoom;
 
         for (doc, expected, note) in [
             (
@@ -547,6 +555,11 @@ fn hovering_the_crop_frame_paints_the_direction_resize_cursors(cx: &mut gpui_kit
                 (100.0, 75.0),
                 crate::input_policy::CursorPolicy::SystemDefault,
                 "frame interior",
+            ),
+            (
+                (100.0, rotate_band_y),
+                crate::input_policy::CursorPolicy::Rotate,
+                "rotate band",
             ),
         ] {
             hover(window, cx, doc);
@@ -705,12 +718,14 @@ fn canvas_context_menu_escape_does_not_cancel_underlying_move_drag(
             cx,
         );
         window.render_frame(cx);
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .context_menu
-            .is_some());
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .context_menu
+                .is_some()
+        );
         content.update(cx, |app, _| {
             assert!(app.transform_drag_for_test().is_some());
         });
@@ -718,12 +733,14 @@ fn canvas_context_menu_escape_does_not_cancel_underlying_move_drag(
 
         window.press("escape", cx);
         window.render_frame(cx);
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .context_menu
-            .is_none());
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .context_menu
+                .is_none()
+        );
         content.update(cx, |app, cx| {
             assert!(app.transform_drag_for_test().is_some());
             assert_eq!(

@@ -1,6 +1,24 @@
 use super::*;
 
 impl CanvasImage {
+    pub(crate) fn set_crop_preview(&mut self, image: Arc<RenderImage>) -> Option<Arc<RenderImage>> {
+        self.crop_preview.replace(image)
+    }
+
+    pub(crate) fn has_crop_preview(&self) -> bool {
+        self.crop_preview.is_some()
+    }
+
+    pub(crate) fn clear_crop_preview(&mut self) -> Option<Arc<RenderImage>> {
+        self.crop_preview.take()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn crop_preview_size_for_test(&self) -> Option<(u32, u32)> {
+        let size = self.crop_preview.as_ref()?.size(0);
+        Some((size.width.0.max(0) as u32, size.height.0.max(0) as u32))
+    }
+
     pub(crate) fn set_projection(
         &mut self,
         x: u32,
@@ -168,6 +186,7 @@ impl CanvasImage {
             patches: Vec::new(),
             preview_patches: Vec::new(),
             projection: None,
+            crop_preview: None,
         })
     }
 
@@ -555,6 +574,7 @@ impl CanvasImage {
             self.tiles.into_iter().map(|tile| tile.image).collect();
         textures.extend(self.patches.into_iter().map(|patch| patch.image));
         textures.extend(self.preview_patches.into_iter().map(|patch| patch.image));
+        textures.extend(self.crop_preview);
         textures
     }
 }

@@ -1,28 +1,34 @@
 use super::*;
+use gpui_kit::component::Sizable;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 
 /// The overflow button: a 24px square with a 3px corner radius.
-pub(super) fn more_dropdown_button() -> impl IntoElement {
-    div()
-        .id("opt-more")
-        .h_flex()
-        .size(px(BTN))
-        .flex_shrink_0()
-        .items_center()
-        .justify_center()
+pub(super) fn more_dropdown_button(cx: &Context<crate::app::App>) -> Button {
+    Button::new("opt-more")
+        .xsmall()
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(color::FIELD)
+                .foreground(ZINC)
+                .hover(color::FIELD)
+                .active(color::FIELD),
+        )
+        .w(px(BTN))
+        .h(px(BTN))
         .rounded(px(RADIUS_SM))
         .border_1()
         .border_color(color::BORDER)
         .bg(color::FIELD)
-        // The only hover change here is the glyph brightening to white. The border
-        // stays grey for the same reason as the fields above.
-        .hover(|s| s.text_color(color::WHITE))
         .text_color(ZINC)
         .child(
-            Icon::default()
-                .data(icons::MORE)
+            div()
                 .size(px(ICON_LG))
-                .text_color(ZINC),
+                .text_color(ZINC)
+                .hover(|style| style.text_color(color::WHITE))
+                .child(Icon::default().data(icons::MORE).size(px(ICON_LG))),
         )
+        .accessibility_label(t("tools.options.moreOptions"))
+        .tooltip(t("tools.options.moreOptions"))
 }
 
 /// The field background at 30% opacity: the tint of the overflow group
@@ -50,15 +56,9 @@ pub(super) fn more_dropdown_overflow(
     cx: &Context<crate::app::App>,
     panel_body: impl IntoElement,
 ) -> Div {
-    let trigger =
-        div()
-            .id("opt-more")
-            .test_support()
-            .flex_shrink_0()
-            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-                app.toggle_more_menu(window, cx)
-            }))
-            .child(more_dropdown_button());
+    let trigger = more_dropdown_button(cx).on_click(
+        cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
+    );
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
         let panel = div()
@@ -78,7 +78,7 @@ pub(super) fn more_dropdown_overflow(
             .p(px(PILL_PX))
             .occlude()
             .shadow(vec![
-                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.)),
             ])
             .child(panel_body);
         wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(

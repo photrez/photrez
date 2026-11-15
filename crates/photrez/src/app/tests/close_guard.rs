@@ -8,7 +8,7 @@ use super::*;
 #[gpui_kit::test]
 fn ctrl_w_cancel_keeps_the_document_dirty(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::test::TestWindowExt as _;
-    use gpui_kit::{px, Point};
+    use gpui_kit::{Point, px};
 
     let directory = TestDirectory::new();
     let (window, content, source) = mount_fixture_app(cx, &directory);
@@ -236,9 +236,10 @@ fn ctrl_w_save_on_imported_document_prompts_save_as_then_closes(cx: &mut gpui_ki
 
     cx.update_window(window.into(), |_, window, cx| {
         content.update(cx, |app, _| {
-            assert!(app
-                .active_document_id_for_test()
-                .is_some_and(|id| id.starts_with("import-")));
+            assert!(
+                app.active_document_id_for_test()
+                    .is_some_and(|id| id.starts_with("import-"))
+            );
             app.mark_active_document_dirty_for_test()
                 .expect("active session accepts an edit");
         });

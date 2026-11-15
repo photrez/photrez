@@ -163,9 +163,9 @@ impl ArchiveBudget {
 #[cfg(test)]
 mod tests {
     use super::{
-        decoded_rgba_bytes, validate_layer_id, ArchiveBudget, MAX_ARCHIVE_ENTRY_BYTES,
-        MAX_DOCUMENT_DECODED_RGBA_BYTES, MAX_DOCUMENT_JSON_BYTES, MAX_LAYER_COUNT,
-        MAX_LAYER_DIMENSION, MAX_STRUCTURAL_ENTRIES,
+        ArchiveBudget, MAX_ARCHIVE_ENTRY_BYTES, MAX_DOCUMENT_DECODED_RGBA_BYTES,
+        MAX_DOCUMENT_JSON_BYTES, MAX_LAYER_COUNT, MAX_LAYER_DIMENSION, MAX_STRUCTURAL_ENTRIES,
+        decoded_rgba_bytes, validate_layer_id,
     };
     use crate::services::error::ServiceError;
 
@@ -216,9 +216,11 @@ mod tests {
     fn archive_budget_checks_document_bytes_and_decoded_bytes() {
         assert_eq!(MAX_DOCUMENT_JSON_BYTES, 1_048_576);
         let mut budget = ArchiveBudget::new();
-        assert!(budget
-            .reserve_document_json(MAX_DOCUMENT_JSON_BYTES)
-            .is_ok());
+        assert!(
+            budget
+                .reserve_document_json(MAX_DOCUMENT_JSON_BYTES)
+                .is_ok()
+        );
         assert_eq!(budget.entry_count(), 1);
         assert_eq!(budget.total_encoded_bytes(), MAX_DOCUMENT_JSON_BYTES);
 

@@ -1,12 +1,12 @@
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    checkerboard, div, hsla, linear_color_stop, linear_gradient, px, relative, Background,
-    BoxShadow, Div, Hsla,
+    Background, BoxShadow, Div, Hsla, checkerboard, div, hsla, linear_color_stop, linear_gradient,
+    px, relative,
 };
 
 use crate::tokens::color;
 
-use super::{SliderKind, ICON_SM};
+use super::{ICON_SM, SliderKind};
 
 /// The track fill and thumb for a slider, painted per [`SliderKind`].
 ///
@@ -113,7 +113,7 @@ pub fn slider(percent: f32, value: Option<f32>, kind: SliderKind, accent: bool) 
                     .rounded_full()
                     .bg(fill)
                     .shadow(vec![
-                        BoxShadow::new(px(0.), px(0.), glow).blur_radius(px(8.))
+                        BoxShadow::new(px(0.), px(0.), glow).blur_radius(px(8.)),
                     ]),
             );
             // The neutral centre tick — a 1px white bar at 45%, centred. The

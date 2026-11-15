@@ -185,12 +185,10 @@ pub(super) fn export_body(
                     .border_1()
                     .border_color(color::BORDER)
                     .bg(color::PANEL)
-                    .shadow(vec![BoxShadow::new(
-                        px(0.0),
-                        px(8.0),
-                        hsla(0.0, 0.0, 0.0, 0.5),
-                    )
-                    .blur_radius(px(20.0))])
+                    .shadow(vec![
+                        BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.5))
+                            .blur_radius(px(20.0)),
+                    ])
                     .child(list),
             )),
         );

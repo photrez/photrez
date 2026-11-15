@@ -263,11 +263,7 @@ fn radial_gradient_coord(
     let pdy = py - ay;
     let dist = (pdx * pdx + pdy * pdy).sqrt();
     let radius = len_sq.sqrt();
-    if radius > 0.0 {
-        dist / radius
-    } else {
-        0.0
-    }
+    if radius > 0.0 { dist / radius } else { 0.0 }
 }
 
 /// Pure gradient fill. `stops` are (offset, r, g, b, a), sorted by offset here.

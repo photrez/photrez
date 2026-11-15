@@ -7,7 +7,7 @@
 //! a future edit that changes sampling semantics fails here rather than in a
 //! screenshot.
 
-use crate::paint::raster::{raster_shadow, RasterDab, RasterTip};
+use crate::paint::raster::{RasterDab, RasterTip, raster_shadow};
 
 fn mul_div_255(c: u64, a: u64) -> u8 {
     ((c * a + 127) / 255) as u8

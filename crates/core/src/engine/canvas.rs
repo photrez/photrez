@@ -13,6 +13,9 @@
 // snapshot). Document size is restored on undo/redo by the apply() walker, which
 // swaps `doc_size` from the entry's captured pre/post values.
 use super::*;
+use crate::document::content::{BlendMode, LayerType};
+
+const MAX_CROP_OUTPUT: f64 = 16_384.0;
 
 /// Build an E_INVALID-style ProtocolError (mirrors the other arms' reject shape).
 fn e_invalid(msg: &str) -> ProtocolError {
@@ -144,6 +147,13 @@ impl DocumentCore {
                 "applyCrop target size requires both targetWidth and targetHeight",
             ));
         }
+        if target_width.is_some_and(|value| !value.is_finite())
+            || target_height.is_some_and(|value| !value.is_finite())
+        {
+            return Err(e_invalid(
+                "applyCrop requires finite targetWidth and targetHeight",
+            ));
+        }
         // Silent no-op on non-positive crop rect (the first guard).
         if width <= 0.0 || height <= 0.0 {
             return Ok(Vec::new());
@@ -156,6 +166,11 @@ impl DocumentCore {
         if final_w <= 0.0 || final_h <= 0.0 {
             return Ok(Vec::new());
         }
+        if final_w > MAX_CROP_OUTPUT || final_h > MAX_CROP_OUTPUT {
+            return Err(e_invalid(
+                "applyCrop output dimensions must not exceed 16384 pixels",
+            ));
+        }
         let crop_center_x = x + width / 2.0;
         let crop_center_y = y + height / 2.0;
         let rad = (-rot * std::f64::consts::PI) / 180.0;
@@ -164,34 +179,33 @@ impl DocumentCore {
         let export_scale_x = final_w / width;
         let export_scale_y = final_h / height;
 
-        // Fill bakes a document-sized background, so capture the Background's
-        // ORIGINAL placement (the sampling transform) before the crop rewrites
-        // it, plus the colour to bake under it.
-        let background_fill = fill_background.and_then(|color| {
-            let layer = self
-                .layers
+        // Existing Background content is sampled after the crop transform. If
+        // no Background exists, the fill creates one at the end of layer order.
+        let existing_background_id = fill_background.and_then(|_| {
+            self.layers
                 .0
                 .iter()
-                .find(|l| l.is_background == Some(true))?;
-            let (width, height) = (layer.width?, layer.height?);
-            Some(crate::engine::crop_bake::FillBakePlan {
-                layer_id: layer.id.clone(),
-                placement: crate::engine::crop_bake::CropLayerPlacement {
-                    x: layer.x,
-                    y: layer.y,
-                    scale_x: layer.scale_x,
-                    scale_y: layer.scale_y,
-                    rotation: layer.rotation,
-                    flip_h: layer.flip_h.unwrap_or(false),
-                    flip_v: layer.flip_v.unwrap_or(false),
-                },
-                width: width as u32,
-                height: height as u32,
-                color,
-            })
+                .find(|l| l.is_background == Some(true))
+                .map(|l| l.id.clone())
         });
+        let new_background_id = if fill_background.is_some() && existing_background_id.is_none() {
+            let prefix = format!("crop-fill-background-{}", self.next_resource);
+            let mut candidate = prefix.clone();
+            let mut suffix = 1;
+            while self.layers.position_by_id(&candidate).is_some() {
+                candidate = format!("{prefix}-{suffix}");
+                suffix += 1;
+            }
+            Some(candidate)
+        } else {
+            None
+        };
+        let background_id = existing_background_id.or_else(|| new_background_id.clone());
 
-        let affected: Vec<String> = self.layers.0.iter().map(|l| l.id.clone()).collect();
+        let mut affected: Vec<String> = self.layers.0.iter().map(|l| l.id.clone()).collect();
+        if let Some(id) = &new_background_id {
+            affected.push(id.clone());
+        }
         let _e = self.begin_forward("Crop Canvas", &affected);
         let mut i = 0;
         while i < self.layers.0.len() {
@@ -243,6 +257,73 @@ impl DocumentCore {
             sh.doc.height = final_h;
         }
         self.set_engine_selection(None);
+        if let Some(id) = &new_background_id {
+            let resource_id = self.next_resource;
+            self.next_resource += 1;
+            self.layers = self.layers.pushed(LayerMeta {
+                id: id.clone(),
+                name: "Background".to_string(),
+                visible: true,
+                opacity: 1.0,
+                resource_id,
+                x: 0.0,
+                y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                dirty_rect: Some(Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                }),
+                layer_type: Some(LayerType::Raster),
+                blend_mode: Some(BlendMode::Normal),
+                locked: Some(false),
+                lock_transparency: None,
+                lock_position: Some(true),
+                lock_rotation: Some(true),
+                is_background: Some(true),
+                has_adjustments: Some(false),
+                width: Some(final_w),
+                height: Some(final_h),
+                flip_h: Some(false),
+                flip_v: Some(false),
+                shape_params: None,
+                text_data: None,
+                basic_adjustment: None,
+            });
+        }
+        // The fill plan samples the post-crop Background before metadata resets
+        // its placement to the document origin.
+        let background_fill = match (fill_background, background_id.as_ref()) {
+            (Some(color), Some(layer_id)) => self
+                .layers
+                .0
+                .iter()
+                .find(|l| &l.id == layer_id)
+                .and_then(|layer| {
+                    let (width, height) = (layer.width?, layer.height?);
+                    let create_background = new_background_id.as_deref() == Some(layer_id.as_str());
+                    Some(crate::engine::crop_bake::FillBakePlan {
+                        layer_id: layer_id.clone(),
+                        create_background,
+                        placement: crate::engine::crop_bake::CropLayerPlacement {
+                            x: layer.x,
+                            y: layer.y,
+                            scale_x: layer.scale_x,
+                            scale_y: layer.scale_y,
+                            rotation: layer.rotation,
+                            flip_h: layer.flip_h.unwrap_or(false),
+                            flip_v: layer.flip_v.unwrap_or(false),
+                        },
+                        width: if create_background { 0 } else { width as u32 },
+                        height: if create_background { 0 } else { height as u32 },
+                        color,
+                    })
+                }),
+            _ => None,
+        };
         if let Some(fill) = &background_fill {
             // The baked Background is document-sized and axis aligned; its
             // pixels are replaced by the store, so the metadata must describe

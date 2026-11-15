@@ -5,7 +5,7 @@
 use gpui_kit::Context;
 use photrez_core::document::content::LayerType;
 
-use crate::app::transform_geometry::{document_to_layer_local, layer_corners, Point};
+use crate::app::transform_geometry::{Point, document_to_layer_local, layer_corners};
 
 use super::App;
 

@@ -152,12 +152,14 @@ fn right_click_with_the_move_tool_keeps_the_canvas_menu(cx: &mut gpui_kit::TestA
         window.render_frame(cx);
 
         assert!(content.read(cx).brush_menu_for_test(cx).is_none());
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .context_menu
-            .is_some());
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .context_menu
+                .is_some()
+        );
     })
     .expect("test window remains open");
 }

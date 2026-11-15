@@ -45,3 +45,10 @@ pub fn rasterize_shape_preview(
         .ok()
         .map(|bitmap| (bitmap.width, bitmap.height, bitmap.pixels))
 }
+
+/// Return the pixel dimensions of a shape bitmap without allocating its pixels.
+pub fn shape_raster_dimensions(
+    params: &photrez_document::layer_params::ShapeParams,
+) -> Option<(u32, u32)> {
+    shape::shape_bitmap_dimensions(params).ok()
+}

@@ -14,7 +14,7 @@ use super::canvas_input::{drag_doc, mount_archive_app, pixels, set_tool};
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{px, Point};
+use gpui_kit::{Point, px};
 
 const OPENING_FG: [u8; 4] = [225, 90, 23, 255];
 const OPENING_BG: [u8; 4] = [255, 255, 255, 255];

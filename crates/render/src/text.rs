@@ -74,12 +74,12 @@ fn cached_font_system(
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
-    if let (Some(bytes), Some(hash)) = (font_data, hash) {
-        if guard.1 != Some(hash) {
-            *guard = (FontSystem::new(), None);
-            guard.0.db_mut().load_font_data(bytes.to_vec());
-            guard.1 = Some(hash);
-        }
+    if let (Some(bytes), Some(hash)) = (font_data, hash)
+        && guard.1 != Some(hash)
+    {
+        *guard = (FontSystem::new(), None);
+        guard.0.db_mut().load_font_data(bytes.to_vec());
+        guard.1 = Some(hash);
     }
     guard
 }

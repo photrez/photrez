@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use gpui_kit::{point, Point, Size};
+use gpui_kit::{Point, Size, point};
 
 use crate::state::DialogId;
 

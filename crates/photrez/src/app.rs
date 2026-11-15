@@ -24,7 +24,7 @@ use gpui_kit::{
 use photrez_core::document::content::LayerType;
 
 use crate::display::canvas_bridge::{
-    thumbnail_image, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine, TransformFrame,
+    Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine, TransformFrame, thumbnail_image,
 };
 use crate::services;
 use crate::services::document::LoadedDocument;
@@ -84,8 +84,8 @@ mod viewport;
 pub(crate) use commands::PRINT_PAPERS;
 pub(crate) use history::{RedoDocument, UndoDocument};
 pub(crate) use layers::{
-    blend_label, DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
-    SelectAllLayersAction, StampVisibleAction, BLEND_MODES,
+    BLEND_MODES, DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
+    SelectAllLayersAction, StampVisibleAction, blend_label,
 };
 pub(crate) use selection::{
     CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
@@ -357,6 +357,12 @@ pub struct App {
     projection_cache: Option<std::sync::Arc<canvas_refresh::ProjectionCache>>,
     projection_key: Option<canvas_refresh::ProjectionKey>,
     projection_generation: u64,
+    crop_preview_displayed_key: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_running: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_failed: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_cache_generation: u64,
+    #[cfg(test)]
+    crop_preview_test_gate: Option<futures::channel::oneshot::Receiver<()>>,
     /// Identifies the live loading overlay so stale progress watchers stop.
     loading_generation: u64,
     /// The print boundary. Production uses the native print service; tests
@@ -406,6 +412,7 @@ pub struct App {
     pan: Option<viewport::PanDrag>,
     /// An option-bar slider drag is in flight.
     slider_dragging: bool,
+    crop_straighten_document_id: Option<String>,
     #[cfg(feature = "input-measurement")]
     measurement: measurement::InputMeasurement,
     /// A non-brush pointer drag waiting for pointer-up.
@@ -666,6 +673,7 @@ impl Render for App {
         }
         self.window_scale = window.scale_factor();
         self.maybe_schedule_viewport_projection(cx);
+        self.maybe_schedule_crop_preview(cx);
         if self.state.read(cx).overlay_owns_canvas() {
             crate::app::cursor::set_rotate(false, 0);
             crate::app::cursor::set_brush_hidden(false);

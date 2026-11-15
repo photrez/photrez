@@ -7,7 +7,7 @@ use crate::state::GradientBadge;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, BoxShadow, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{BoxShadow, FontWeight, Hsla, TestSupportExt, div, px};
 
 const CARD_BG: Hsla = Hsla {
     h: 0.6667,

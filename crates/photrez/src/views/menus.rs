@@ -92,7 +92,7 @@
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, Entity, Hsla, TestSupportExt};
+use gpui_kit::{Div, Entity, Hsla, TestSupportExt, div, px};
 
 use crate::components::ui;
 use crate::i18n::t;

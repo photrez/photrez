@@ -48,8 +48,8 @@ fn seed_ptz_replaces_existing() {
 use super::commands::env;
 use crate::document::content::{BasicAdjustment, BlendMode, LayerType, PtzLayer, Transform2D};
 use crate::document::layer::LayerMeta;
-use crate::engine::history::EntryPayload;
 use crate::engine::DocumentCore;
+use crate::engine::history::EntryPayload;
 
 fn mk_layer(id: &str, name: &str, rid: u32) -> LayerMeta {
     LayerMeta {

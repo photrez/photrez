@@ -263,8 +263,7 @@ fn reorder_rejects_out_of_range_target_index_with_e_invalid() {
     );
 }
 
-// Pure-reorder undo/redo delta shape pins moved to document/tests/reorder_history.rs
-// (keeps this module under the 1000-line guard).
+// Pure-reorder undo/redo delta shape pins moved to document/tests/reorder_history.rs.
 
 #[test]
 fn set_background_flag_sets_flag_and_locks_position_rotation() {

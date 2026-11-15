@@ -18,7 +18,9 @@ pub(crate) fn cmd_set_version(args: &[String]) -> i32 {
         return 2;
     };
     if !semver_valid(new_version) {
-        eprintln!("xtask: invalid version format `{new_version}` (expected MAJOR.MINOR.PATCH[-stage.N][+build])");
+        eprintln!(
+            "xtask: invalid version format `{new_version}` (expected MAJOR.MINOR.PATCH[-stage.N][+build])"
+        );
         return 1;
     }
 
@@ -235,10 +237,10 @@ fn semver_valid(version: &str) -> bool {
         Some((core, build)) => (core, Some(build)),
         None => (version, None),
     };
-    if let Some(build) = build {
-        if build.is_empty() || !build.chars().all(|c| c.is_ascii_alphanumeric() || c == '.') {
-            return false;
-        }
+    if let Some(build) = build
+        && (build.is_empty() || !build.chars().all(|c| c.is_ascii_alphanumeric() || c == '.'))
+    {
+        return false;
     }
     let (release, pre) = match core.split_once('-') {
         Some((release, pre)) => (release, Some(pre)),
@@ -256,17 +258,16 @@ fn semver_valid(version: &str) -> bool {
     {
         return false;
     }
-    if let Some(pre) = pre {
-        if pre.is_empty()
+    if let Some(pre) = pre
+        && (pre.is_empty()
             || !pre.split('.').all(|part| {
                 !part.is_empty()
                     && part
                         .chars()
                         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-            })
-        {
-            return false;
-        }
+            }))
+    {
+        return false;
     }
     true
 }

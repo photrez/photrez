@@ -10,9 +10,9 @@ use photrez_core::render::compositor::{
     CompositeError, CompositeRegion, CompositedRegionRgba, CompositedRgba,
 };
 
+use super::App;
 use super::slider::PreviewInput;
 use super::transform_move::{GroupMember, LayerBounds};
-use super::App;
 
 enum TransformPreviewComposite {
     Region(CompositedRegionRgba),

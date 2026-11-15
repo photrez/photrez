@@ -154,7 +154,7 @@ fn stroke_popover(
         .p(px(PILL_PX))
         .occlude()
         .shadow(vec![
-            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.)),
         ])
         .child(
             h_flex()

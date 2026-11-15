@@ -193,9 +193,88 @@ impl App {
                 }
             }
         }
-        if let Some(crop) = state.crop_rect {
+        if state.active_tool == crate::state::ToolId::Crop
+            && state.crop_rect.is_some()
+            && self.canvas_cursor_policy(cx) == crate::input_policy::CursorPolicy::Rotate
+            && self.pan.is_none()
+            && !self.space_pressed
+            && !crate::app::cursor::native_rotate_available()
+            && !state.overlay_owns_canvas()
+        {
+            if let (Some(position), Some(doc_size), Some(rect)) = (
+                self.hover_pos,
+                self.active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions()),
+                state.crop_rect,
+            ) {
+                if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords_free(
+                    position,
+                    &self.canvas_bounds,
+                    doc_size,
+                    self.active_camera(),
+                ) {
+                    let center = crate::app::transform_geometry::Point {
+                        x: rect[0] + rect[2] / 2.0,
+                        y: rect[1] + rect[3] / 2.0,
+                    };
+                    let angle = crate::app::transform_geometry::angle_about(
+                        center,
+                        crate::app::transform_geometry::Point { x, y },
+                    ) + 45.0;
+                    overlay.rotate_cursor =
+                        Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                            position: [f32::from(position.x), f32::from(position.y)],
+                            angle: angle as f32,
+                        });
+                }
+            }
+        }
+        let modern_crop_creation = self.pending_gesture.as_ref().filter(|gesture| {
+            gesture.tool == crate::state::ToolId::Crop
+                && gesture.crop_modern_create
+                && gesture.crop_modern_drag_started
+        });
+        if let (Some([x, y, width, height]), Some(bounds), Some(doc_size)) = (
+            modern_crop_creation.and_then(|gesture| gesture.crop_modern_preview),
+            self.canvas_bounds.get(),
+            self.active_document
+                .as_ref()
+                .map(|document| document.canvas.dimensions()),
+        ) {
+            if let Some((page_x, page_y, page_w, page_h)) =
+                crate::display::canvas_bridge::camera_placement(
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                    doc_size.0 as f32,
+                    doc_size.1 as f32,
+                    self.active_camera(),
+                )
+            {
+                let origin_x = f64::from(f32::from(bounds.origin.x) + page_x);
+                let origin_y = f64::from(f32::from(bounds.origin.y) + page_y);
+                overlay.crop_create_preview = Some((
+                    origin_x + x * f64::from(page_w) / f64::from(doc_size.0),
+                    origin_y + y * f64::from(page_h) / f64::from(doc_size.1),
+                    width * f64::from(page_w) / f64::from(doc_size.0),
+                    height * f64::from(page_h) / f64::from(doc_size.1),
+                ));
+            }
+        }
+        if modern_crop_creation.is_none()
+            && let Some(crop) = state.crop_rect
+        {
             overlay.crop = Some((crop[0], crop[1], crop[2], crop[3]));
         }
+        overlay.crop_rotation =
+            if state.crop_interaction == crate::crop_geometry::CropInteraction::Classic {
+                state.crop_rotation
+            } else {
+                0.0
+            };
+        overlay.crop_delete_pixels = state.crop_delete_pixels;
+        overlay.crop_guides = state.crop_guides;
+        overlay.crop_preview_active = self.crop_preview_active_for_overlay(cx);
         overlay.guides = self.snap_guides.clone();
         if let Some(pending) = self
             .pending_gesture

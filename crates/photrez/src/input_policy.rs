@@ -11,8 +11,8 @@ pub mod brush;
 use std::rc::Rc;
 
 use photrez_core::raster::brush::engine::BrushStrokeEngine;
-use photrez_core::raster::brush::tip::{bilinear_resize_premul, BrushTip};
-use photrez_core::raster::paint::raster::{raster_shadow, RasterDab, RasterTip};
+use photrez_core::raster::brush::tip::{BrushTip, bilinear_resize_premul};
+use photrez_core::raster::paint::raster::{RasterDab, RasterTip, raster_shadow};
 
 use crate::state::ToolId;
 
@@ -89,6 +89,15 @@ pub struct PendingGesture {
     pub tool: ToolId,
     pub start: (f64, f64),
     pub last: (f64, f64),
+    pub start_screen: (f64, f64),
+    pub last_screen: (f64, f64),
+    pub crop_start: Option<crate::crop_geometry::CropSnapshot>,
+    pub crop_pasteboard: bool,
+    pub crop_replacement_started: bool,
+    pub crop_modern_create: bool,
+    pub crop_modern_drag_started: bool,
+    pub crop_modern_preview: Option<[f64; 4]>,
+    pub(crate) crop_snap_targets: Option<crate::crop_geometry::CropSnapTargets>,
     /// Shift constrains a pixel selection to a square.
     pub shift: bool,
     /// Alt grows a pixel selection from its centre instead of its corner.

@@ -25,7 +25,7 @@ use super::canvas_input::{drag_doc, mount_archive_app, page, set_tool, window_po
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{px, MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput, Point};
+use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput, Point, px};
 
 /// The two-layer project is two document pixels wide and one tall.
 const DOCUMENT: (u32, u32) = (2, 1);

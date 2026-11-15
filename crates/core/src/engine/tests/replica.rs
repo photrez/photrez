@@ -551,7 +551,7 @@ fn seed_ptz_pushes_order_to_engine() {
     // order. seed_ptz up-projects the pushed vector in PUSH ORDER, so the
     // native engine order follows the canonical order, and the shadow mirrors it.
     let mut e = seeded_engine(); // engine [L1, L2, L3]
-                                 // The canonical document reorders to [L2, L1, L3] and re-pushes.
+    // The canonical document reorders to [L2, L1, L3] and re-pushes.
     let mut doc = doc_3();
     doc.layers = vec![canon_layer(2), canon_layer(1), canon_layer(3)];
     e.seed_ptz(doc);

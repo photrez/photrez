@@ -1,7 +1,7 @@
 use super::canvas_input::{mount_archive_app, select_layer};
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{px, MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
+use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput, px};
 
 pub(super) fn layers_len(content: &Entity<App>, cx: &mut gpui_kit::App) -> usize {
     content.read(cx).active_core_layer_count_for_test().unwrap()

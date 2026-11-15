@@ -100,8 +100,9 @@ pub(crate) fn discard_outside_document(
 #[derive(Clone, Debug)]
 pub(crate) struct FillBakePlan {
     pub layer_id: String,
-    /// Placement of the Background BEFORE the crop reset it; the bake samples
-    /// the original content through this transform.
+    /// The crop creates a new Background when the document has none.
+    pub create_background: bool,
+    /// Post-crop placement used to sample the Background before its bitmap is reset.
     pub placement: CropLayerPlacement,
     pub width: u32,
     pub height: u32,
@@ -181,7 +182,16 @@ pub(crate) fn composite_layer_over_fill(
                 let local_y = -rx * sin + ry * cos;
                 let u = local_x / sx + w / 2.0;
                 let v = local_y / sy + h / 2.0;
-                let src = sample_bilinear(source, sw, sh, u, v);
+                // A sample outside the source is not part of the background:
+                // it stays transparent, so the fill colour shows there. The
+                // crop can reach past the page edge, and that area belongs to
+                // the fill, not to the edge of the background.
+                let inside = u >= 0.0 && u <= sw as f64 && v >= 0.0 && v <= sh as f64;
+                let src = if inside {
+                    sample_bilinear(source, sw, sh, u, v)
+                } else {
+                    [0, 0, 0, 0]
+                };
                 if src[3] > 0 {
                     let sa = f64::from(src[3]) / 255.0;
                     let inv = 1.0 - sa;

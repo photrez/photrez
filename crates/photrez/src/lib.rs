@@ -20,6 +20,7 @@
 pub mod app;
 pub mod components;
 pub(crate) mod crop_aspect;
+pub(crate) mod crop_geometry;
 pub mod display;
 pub mod i18n;
 pub mod icons;

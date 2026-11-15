@@ -370,6 +370,12 @@ impl App {
             projection_cache: None,
             projection_key: None,
             projection_generation: 0,
+            crop_preview_displayed_key: None,
+            crop_preview_running: None,
+            crop_preview_failed: None,
+            crop_preview_cache_generation: 0,
+            #[cfg(test)]
+            crop_preview_test_gate: None,
             loading_generation: 0,
             print_backend: Arc::new(PrintService::default()),
             pending_window_close: false,
@@ -392,6 +398,7 @@ impl App {
             pointer_alt: false,
             pan: None,
             slider_dragging: false,
+            crop_straighten_document_id: None,
             #[cfg(feature = "input-measurement")]
             measurement: measurement::InputMeasurement::default(),
             pending_gesture: None,
@@ -411,7 +418,17 @@ impl App {
         app.measurement.share_bounds(Rc::clone(&app.canvas_bounds));
         let focus_out = cx.on_focus_out(&app.canvas_focus_handle, window, |this, _, window, cx| {
             this.release_canvas_pointer(window);
-            this.cancel_canvas_gesture(cx);
+            let crop_gesture = this.state.read(cx).active_tool == ToolId::Crop
+                && (this.crop_drag.is_some()
+                    || this
+                        .pending_gesture
+                        .as_ref()
+                        .is_some_and(|gesture| gesture.tool == ToolId::Crop));
+            if crop_gesture {
+                this.cancel_crop_gesture(cx);
+            } else {
+                this.cancel_canvas_gesture(cx);
+            }
             this.release_navigation(cx);
         });
         app._window_watch.push(focus_out);

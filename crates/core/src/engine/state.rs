@@ -249,10 +249,9 @@ impl DocumentCore {
         if self.cursor > 0 {
             let post_sync = self.layers.clone();
             if let EntryPayload::External { after, .. } = &mut self.entries[self.cursor - 1].payload
+                && after.is_none()
             {
-                if after.is_none() {
-                    *after = Some(post_sync);
-                }
+                *after = Some(post_sync);
             }
         }
 

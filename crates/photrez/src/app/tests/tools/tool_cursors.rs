@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::app::cursor::{
-    take_tool_cursor_request_for_test, TOOL_BUCKET, TOOL_CROP, TOOL_EYEDROPPER,
+    TOOL_BUCKET, TOOL_CROP, TOOL_EYEDROPPER, take_tool_cursor_request_for_test,
 };
 
 fn hover_doc(

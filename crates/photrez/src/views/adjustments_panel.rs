@@ -86,7 +86,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{Div, FontWeight, Hsla, TestSupportExt, div, px, relative};
 
 /// InspectorDock's width: 272px.
 #[expect(

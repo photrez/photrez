@@ -97,6 +97,7 @@ fn catalog_matches_reference_plus_named_deltas() {
         "dialogs.recovery.description",
         "dialogs.recovery.restore",
         "dialogs.recovery.title",
+        "locale.name",
         // The release spelled these three through an inline default call; here
         // they are real entries so the label resolves without a fallback.
         "properties.alignCenter",
@@ -190,12 +191,14 @@ fn catalog_matches_reference_plus_named_deltas() {
 
 /// A lookup the catalog cannot answer renders its key on screen, and no
 /// capture shows that is intentional. Every literal key the views ask for must
-/// resolve in both embedded catalogs.
+/// resolve in every embedded catalog.
 #[test]
 fn every_literal_lookup_resolves() {
-    let en = load(Locale::En);
-    let id = load(Locale::Id);
-    let bjn = load(Locale::Bjn);
+    let catalogs: Vec<_> = crate::i18n::locales()
+        .iter()
+        .copied()
+        .map(|locale| (locale, load(locale)))
+        .collect();
     let mut unresolved = Vec::new();
     for path in source_files(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -205,12 +208,13 @@ fn every_literal_lookup_resolves() {
         let text = std::fs::read_to_string(&path).expect("a source file reads");
         let production = text.split("#[cfg(test)]").next().unwrap_or_default();
         for key in literal_lookup_keys(production) {
-            for (code, catalog) in [("en", &en), ("id", &id), ("bjn", &bjn)] {
+            for (locale, catalog) in &catalogs {
                 if !catalog.entries.contains_key(&key) {
                     unresolved.push(format!(
-                        "{}:{}: {key} missing from {code}",
+                        "{}:{}: {key} missing from {}",
                         path.display(),
-                        line_of(production, &key)
+                        line_of(production, &key),
+                        locale.code()
                     ));
                 }
             }
@@ -303,7 +307,6 @@ fn source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
-
 /// `{{name}}` tokens as they appear in a value, in order.
 fn tokens(value: &str) -> Vec<String> {
     let mut found = Vec::new();
@@ -327,15 +330,18 @@ fn token_set(value: &str) -> Vec<String> {
     set
 }
 
-/// Every key in one locale exists in the other. A missing translation renders
+/// Every key in one locale exists in each other locale. A missing translation renders
 /// as the English text, which reads as a finished translation, so only the
 /// catalog itself can show the hole.
 #[test]
 fn locale_key_sets_match() {
     let en = load(Locale::En);
-    let id = load(Locale::Id);
-    let bjn = load(Locale::Bjn);
-    for (name, catalog) in [("id", &id), ("bjn", &bjn)] {
+    for locale in crate::i18n::locales()
+        .iter()
+        .copied()
+        .filter(|locale| *locale != Locale::En)
+    {
+        let catalog = load(locale);
         let missing_in: Vec<_> = en
             .entries
             .keys()
@@ -348,7 +354,42 @@ fn locale_key_sets_match() {
             .collect();
         assert!(
             missing_in.is_empty() && extra_in.is_empty(),
-            "{name} is missing {missing_in:?}; {name} has extra {extra_in:?}"
+            "{} is missing {missing_in:?}; {} has extra {extra_in:?}",
+            locale.code(),
+            locale.code()
+        );
+    }
+}
+
+/// The Settings list and the shipped catalogs must name the same locales: a
+/// catalog without a list entry is unreachable, and a list entry without a
+/// catalog renders the locale's own key.
+#[test]
+fn the_settings_list_names_every_catalog() {
+    let mut catalog: Vec<String> = crate::_rust_i18n_backend()
+        .available_locales()
+        .iter()
+        .map(|locale| locale.to_string())
+        .collect();
+    catalog.sort();
+    let mut listed: Vec<String> = crate::i18n::locales()
+        .iter()
+        .map(|locale| locale.code().to_owned())
+        .collect();
+    listed.sort();
+    assert_eq!(catalog, listed);
+    for locale in crate::i18n::locales() {
+        let name = load(*locale).entries["locale.name"].clone();
+        assert!(
+            !name.trim().is_empty(),
+            "{} has no locale name",
+            locale.code()
+        );
+        assert_eq!(
+            locale.name(),
+            name,
+            "{} uses its catalog name",
+            locale.code()
         );
     }
 }
@@ -357,7 +398,7 @@ fn locale_key_sets_match() {
 /// a translation bug.
 #[test]
 fn no_translation_is_empty() {
-    for locale in [Locale::En, Locale::Id, Locale::Bjn] {
+    for locale in crate::i18n::locales().iter().copied() {
         let empty: Vec<_> = load(locale)
             .entries
             .iter()
@@ -375,13 +416,12 @@ fn no_translation_is_empty() {
 /// Loading IS the leaf check: [`flatten`] rejects empty and non-string
 /// leaves, so this passing means neither catalog has any.
 
-
 #[test]
 fn leaf_counts_are_pinned() {
-    for locale in [Locale::En, Locale::Id, Locale::Bjn] {
+    for locale in crate::i18n::locales().iter().copied() {
         assert_eq!(
             load(locale).entries.len(),
-            473,
+            474,
             "{} leaf count",
             locale.code()
         );
@@ -389,12 +429,17 @@ fn leaf_counts_are_pinned() {
 }
 
 /// The placeholder inventory is the engine's whole workload, and every
-/// key must name the same tokens in both locales: a translation that
+/// key must name the same tokens in every locale: a translation that
 /// drops `%{count}` renders a plural silently wrong.
 #[test]
 fn placeholder_sets_match_across_locales() {
     let en = load(Locale::En);
-    let others = [load(Locale::Id), load(Locale::Bjn)];
+    let others: Vec<_> = crate::i18n::locales()
+        .iter()
+        .copied()
+        .filter(|locale| *locale != Locale::En)
+        .map(load)
+        .collect();
     let all: std::collections::BTreeSet<String> = en
         .entries
         .values()
@@ -428,7 +473,6 @@ fn interpolation_renders_placeholders() {
     let out = rust_i18n::replace_patterns(template, &["count"], &["3".to_string()]);
     assert_eq!(out, "3 layers");
 }
-
 
 /// The one locale-switching test: locale-dependent lookup assertions
 /// live here or in [`plural_selection_is_real`], both serialised on
@@ -543,6 +587,16 @@ fn locale_normalisation_degrades_to_english() {
     assert_eq!(Locale::normalize("en-US"), Locale::En);
     assert_eq!(Locale::normalize("fr-FR"), Locale::En);
     assert_eq!(Locale::normalize(""), Locale::En);
+    for locale in crate::i18n::locales() {
+        assert_eq!(Locale::normalize(locale.code()), *locale);
+    }
+}
+
+#[test]
+fn windows_locale_tag_drops_the_terminator() {
+    let mut buffer: Vec<u16> = "id-ID".encode_utf16().collect();
+    buffer.push(0);
+    assert_eq!(decode_windows_locale_tag(&buffer), "id-ID");
 }
 
 #[test]

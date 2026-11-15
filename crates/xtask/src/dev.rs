@@ -1,36 +1,21 @@
 //! The interactive dev loop: `cargo xtask dev`.
 //!
-//! `cargo run -p photrez` is the product entry point, but the windows-gnu link
-//! chain has one environment requirement a Cargo manifest cannot express: the
-//! linker's DLL directory must be on `PATH`.
+//! The windows-gnu link chain needs the MinGW directory on `PATH`: the linker
+//! and `windres` (the gpui-pre build script) load MinGW runtime DLLs from it.
+//! Without it the loader aborts with `STATUS_DLL_NOT_FOUND` (0xC0000135),
+//! which collect2 reports as `ld returned 53 exit status`.
 //!
-//! Measured on the development machine (reproduction and fix both rerun with a
-//! real link, not a cached no-op): the chain is rustc -> `gcc.exe` (pinned
-//! absolute in the user's cargo config) -> collect2 -> `ld.exe`, and gcc
-//! selects that ld through its exec prefix at
-//! `<mingw64>/x86_64-w64-mingw32/bin/ld.exe`. That ld imports `libintl-8.dll`,
-//! `zlib1.dll` and `libzstd.dll`, which live in `<mingw64>\bin` and nowhere
-//! adjacent to it; with that directory absent from `PATH` the loader aborts
-//! with `STATUS_DLL_NOT_FOUND` (0xC0000135) and collect2 surfaces the low byte
-//! as `ld returned 53 exit status`. The gpui-pre manifest build script has the
-//! same shape one level up: `windres` (pinned absolute via the `RC`
-//! environment) shells out to a bare `gcc` for preprocessing. Prepending the
-//! directory fixes both, after which a full build links cleanly on an
-//! otherwise stripped `PATH`. The GNU toolchain is sufficient; no MSVC
-//! component is involved anywhere in the chain.
-//!
-//! This command prepends the directory to the CHILD process `PATH` only; the
-//! caller's environment is never modified.
+//! The directory goes on the CHILD process `PATH` only; the caller's
+//! environment is untouched. The MSVC toolchain needs no MinGW directory, so
+//! nothing is prepended there.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Candidate linker directories, in the order they are tried. A missing
-/// linker is the most common way a fresh clone refuses to build, so the
-/// search stays portable instead of trusting one machine's drive letter.
-/// `%USERPROFILE%` expands to the real profile directory (the scoop install
-/// is user-specific).
+/// Candidate linker directories, in the order they are tried. The search
+/// stays portable instead of trusting one machine's drive letter.
+/// `%USERPROFILE%` expands to the real profile directory.
 const MINGW_BIN_CANDIDATES: &[&str] = &[
     r"C:\msys64\mingw64\bin",
     r"C:\Program Files\Git\mingw64\bin",
@@ -38,11 +23,7 @@ const MINGW_BIN_CANDIDATES: &[&str] = &[
 ];
 
 /// Directory holding `gcc.exe` for the gnu link chain, or `None` when no
-/// known MSYS2/MSYS2-clone installation exists on this machine.
-pub(crate) fn mingw_bin_candidates() -> &'static [&'static str] {
-    MINGW_BIN_CANDIDATES
-}
-
+/// known MSYS2 installation exists on the system.
 pub(crate) fn find_mingw_bin() -> Option<PathBuf> {
     for candidate in MINGW_BIN_CANDIDATES {
         let dir = PathBuf::from(expand_user_profile(candidate));
@@ -51,6 +32,27 @@ pub(crate) fn find_mingw_bin() -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// The active toolchain's host triple, for example
+/// `x86_64-pc-windows-gnu` or `x86_64-pc-windows-msvc`.
+pub(crate) fn toolchain_host() -> Option<String> {
+    let output = Command::new("rustc")
+        .arg("--print")
+        .arg("host-tuple")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let host = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!host.is_empty()).then_some(host)
+}
+
+/// True when the active toolchain is the Windows GNU one, which is the only
+/// chain that needs the MinGW directory on `PATH`.
+fn needs_mingw_on_path() -> bool {
+    toolchain_host().is_some_and(|host| host.ends_with("-windows-gnu"))
 }
 
 /// Replace a `%USERPROFILE%` prefix with the real profile directory. Paths
@@ -69,6 +71,44 @@ fn expand_user_profile(path: &str) -> String {
     }
 }
 
+/// Print the MinGW directory the windows-gnu toolchain needs, in the POSIX
+/// form a Git Bash shell expects. Other toolchains print nothing.
+pub fn print_mingw_dir() -> i32 {
+    if !needs_mingw_on_path() {
+        return 0;
+    }
+    match find_mingw_bin() {
+        Some(mingw) => {
+            println!("{}", posix_path(&mingw));
+            0
+        }
+        None => {
+            eprintln!(
+                "xtask mingw-dir: no MinGW directory found. Tried: {}. \
+                 Install MSYS2, then: pacman -S mingw-w64-x86_64-gcc",
+                MINGW_BIN_CANDIDATES.join(", ")
+            );
+            0
+        }
+    }
+}
+
+/// Convert a Windows path to the POSIX form a Git Bash shell expects, for
+/// example `C:\msys64\mingw64\bin` to `/c/msys64/mingw64/bin`.
+fn posix_path(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let mut chars = text.chars();
+    let drive = chars.next();
+    let separator = chars.next();
+    match (drive, separator) {
+        (Some(drive), Some(':')) if drive.is_ascii_alphabetic() => {
+            let drive = drive.to_ascii_lowercase();
+            format!("/{drive}{}", chars.as_str())
+        }
+        _ => text,
+    }
+}
+
 /// Build and run the app with the linker directory on the child `PATH`.
 /// Extra arguments are forwarded to the application binary after `--`.
 pub fn run(args: &[String]) -> i32 {
@@ -82,42 +122,40 @@ pub fn run_ui(args: &[String]) -> i32 {
 }
 
 fn run_inner(args: &[String], profile: Option<&str>) -> i32 {
-    let Some(mingw) = find_mingw_bin() else {
-        eprintln!(
-            "xtask dev: no gnu linker directory found. Tried: {}. \
-             Install MSYS2, then: pacman -S mingw-w64-x86_64-gcc",
-            MINGW_BIN_CANDIDATES.join(", ")
-        );
-        return 1;
-    };
-    println!("xtask dev: linker directory {}", mingw.display());
-
     let mut cmd = Command::new("cargo");
     cmd.arg("run");
     if let Some(profile) = profile {
         cmd.args(["--profile", profile]);
     }
-    cmd.args([
-        "-p",
-        "photrez",
-        "--features",
-        "hot-reload",
-        "--bin",
-        "photrez",
-    ]);
+    cmd.args(["-p", "photrez", "--bin", "photrez"]);
     if !args.is_empty() {
         cmd.arg("--").args(args);
     }
-    let child_path = match std::env::var_os("PATH") {
-        Some(existing) => {
-            let mut prepended = OsString::from(&mingw);
-            prepended.push(";");
-            prepended.push(existing);
-            prepended
-        }
-        None => OsString::from(&mingw),
-    };
-    cmd.env("PATH", child_path);
+
+    // Only the windows-gnu chain needs the MinGW directory on PATH. A
+    // contributor on the MSVC toolchain must not be blocked by a missing
+    // MSYS2 install, so the directory is added only when it is required.
+    if needs_mingw_on_path() {
+        let Some(mingw) = find_mingw_bin() else {
+            eprintln!(
+                "xtask dev: the active toolchain is windows-gnu, but no MinGW directory \
+                 was found. Tried: {}. Install MSYS2, then: pacman -S mingw-w64-x86_64-gcc",
+                MINGW_BIN_CANDIDATES.join(", ")
+            );
+            return 1;
+        };
+        println!("xtask dev: linker directory {}", mingw.display());
+        let child_path = match std::env::var_os("PATH") {
+            Some(existing) => {
+                let mut prepended = OsString::from(&mingw);
+                prepended.push(";");
+                prepended.push(existing);
+                prepended
+            }
+            None => OsString::from(&mingw),
+        };
+        cmd.env("PATH", child_path);
+    }
 
     match cmd.status() {
         Ok(status) => status.code().unwrap_or(1),
@@ -125,5 +163,24 @@ fn run_inner(args: &[String], profile: Option<&str>) -> i32 {
             eprintln!("xtask dev: failed to start cargo: {e}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::posix_path;
+    use std::path::Path;
+
+    #[test]
+    fn a_windows_path_becomes_a_posix_path_entry() {
+        assert_eq!(
+            posix_path(Path::new(r"C:\msys64\mingw64\bin")),
+            "/c/msys64/mingw64/bin"
+        );
+    }
+
+    #[test]
+    fn a_path_without_a_drive_letter_passes_through() {
+        assert_eq!(posix_path(Path::new("/usr/local/bin")), "/usr/local/bin");
     }
 }

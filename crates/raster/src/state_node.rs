@@ -27,7 +27,7 @@ use std::sync::{Arc, Weak};
 // (`to_packed` / `to_row_major`) — production code keeps zero dependency on
 // that test helper.
 #[cfg(test)]
-use crate::reference::{assert_byte_eq, PackedView, PixelReader};
+use crate::reference::{PackedView, PixelReader, assert_byte_eq};
 
 /// Canonical tile edge in pixels. Tile-grid sites in this package, in core and
 /// in the app repeat this value, so a change must update them all.

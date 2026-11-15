@@ -243,13 +243,9 @@ impl DocumentPixelStore {
             // cropped Background over it", baked into the Background layer.
             let doc_w = plan.doc_width.max(0.0) as u32;
             let doc_h = plan.doc_height.max(0.0) as u32;
-            let before = self
-                .layer_state(&fill.layer_id)
-                .map(|ls| ls.current_state().clone());
-            let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
-            if let (Some(before), Some(source)) = (before, source) {
+            if fill.create_background {
                 let bytes = crate::engine::crop_bake::composite_layer_over_fill(
-                    &source,
+                    &[],
                     fill.width,
                     fill.height,
                     &fill.placement,
@@ -257,20 +253,37 @@ impl DocumentPixelStore {
                     doc_h,
                     fill.color,
                 );
-                self.state_nodes.remove(&fill.layer_id);
-                if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
-                    layer.width = doc_w;
-                    layer.height = doc_h;
-                    layer.pixels = bytes;
-                    layer.bump_epoch();
-                }
-                if let Some(ls) = self.layer_state(&fill.layer_id) {
-                    let after = ls.current_state().clone();
-                    deltas.push(PixelDelta {
-                        layer_id: fill.layer_id.clone(),
-                        before,
-                        after,
-                    });
+                self.init_layer(&fill.layer_id, doc_w, doc_h, bytes);
+            } else {
+                let before = self
+                    .layer_state(&fill.layer_id)
+                    .map(|ls| ls.current_state().clone());
+                let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
+                if let (Some(before), Some(source)) = (before, source) {
+                    let bytes = crate::engine::crop_bake::composite_layer_over_fill(
+                        &source,
+                        fill.width,
+                        fill.height,
+                        &fill.placement,
+                        doc_w,
+                        doc_h,
+                        fill.color,
+                    );
+                    self.state_nodes.remove(&fill.layer_id);
+                    if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
+                        layer.width = doc_w;
+                        layer.height = doc_h;
+                        layer.pixels = bytes;
+                        layer.bump_epoch();
+                    }
+                    if let Some(ls) = self.layer_state(&fill.layer_id) {
+                        let after = ls.current_state().clone();
+                        deltas.push(PixelDelta {
+                            layer_id: fill.layer_id.clone(),
+                            before,
+                            after,
+                        });
+                    }
                 }
             }
         }
@@ -345,10 +358,10 @@ impl DocumentPixelStore {
                 }
                 None => 0,
             };
-            if self.layer_state(layer_id).is_some() {
-                if let Some(ls) = self.state_nodes.get_mut(layer_id) {
-                    ls.set_current(node.clone());
-                }
+            if self.layer_state(layer_id).is_some()
+                && let Some(ls) = self.state_nodes.get_mut(layer_id)
+            {
+                ls.set_current(node.clone());
             }
             return epoch;
         }

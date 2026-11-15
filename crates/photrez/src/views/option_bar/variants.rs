@@ -303,23 +303,19 @@ fn selection_items(
             .map(|field| field.buffer.clone())
     };
     let focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
-    let field = |id: &'static str,
-                 label: &'static str,
-                 width: f32,
-                 value: f64,
-                 suffix: &'static str,
-                 cx: &Context<crate::app::App>| {
-        selection_field(
-            id,
-            label,
-            width,
-            selection_field_value(value),
-            suffix,
-            editing(id),
-            focus(id),
-            cx,
-        )
-    };
+    let field =
+        |id: &'static str, label: &'static str, width: f32, value: f64, suffix: &'static str| {
+            selection_field(
+                id,
+                label,
+                width,
+                selection_field_value(value),
+                suffix,
+                editing(id),
+                focus(id),
+                cx,
+            )
+        };
     row.child(tool_pill(
         icons::with_stroke(
             if elliptical {
@@ -369,8 +365,8 @@ fn selection_items(
     })
     .when_some(committed.as_ref(), |el, selection| {
         el.child(field_pair(
-            field("sel-x", "X", FIELD_W_XY, selection.x, "px", cx),
-            field("sel-y", "Y", FIELD_W_XY, selection.y, "px", cx),
+            field("sel-x", "X", FIELD_W_XY, selection.x, "px"),
+            field("sel-y", "Y", FIELD_W_XY, selection.y, "px"),
         ))
     })
     .when(committed.is_none(), |el| {
@@ -385,8 +381,8 @@ fn selection_items(
     })
     .when_some(committed.as_ref(), |el, selection| {
         el.child(field_pair(
-            field("sel-w", "W", FIELD_W_XY, selection.width, "px", cx),
-            field("sel-h", "H", FIELD_W_XY, selection.height, "px", cx),
+            field("sel-w", "W", FIELD_W_XY, selection.width, "px"),
+            field("sel-h", "H", FIELD_W_XY, selection.height, "px"),
         ))
     })
     .when(committed.is_none(), |el| {
@@ -400,14 +396,7 @@ fn selection_items(
         el.child(caps_label(&t("properties.rotation")))
     })
     .when_some(committed.as_ref(), |el, selection| {
-        el.child(field(
-            "sel-r",
-            "R",
-            FIELD_W_R,
-            selection.angle,
-            "\u{b0}",
-            cx,
-        ))
+        el.child(field("sel-r", "R", FIELD_W_R, selection.angle, "\u{b0}"))
     })
     .when(committed.is_none(), |el| {
         el.child(dimmed(editable_field(

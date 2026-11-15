@@ -3,22 +3,22 @@ mod ffi;
 use super::geometry::{fit_dimensions, printable_rect};
 use super::{PaperSize, PrintCancellation, PrintError, PrintRequest};
 use ffi::{
-    AbortDoc, ClosePrinter, CreateDCW, DocumentPropertiesW, EndDoc, EndPage, GetDefaultPrinterW,
-    OpenPrinterW, StartDocW, StartPage, DEVMODEW, DMORIENT_LANDSCAPE, DMORIENT_PORTRAIT,
-    DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH,
-    DM_PAPER_INDEX_USER, DOCINFOW,
+    AbortDoc, ClosePrinter, CreateDCW, DEVMODEW, DM_IN_BUFFER, DM_ORIENTATION, DM_OUT_BUFFER,
+    DM_PAPER_INDEX_USER, DM_PAPERLENGTH, DM_PAPERSIZE, DM_PAPERWIDTH, DMORIENT_LANDSCAPE,
+    DMORIENT_PORTRAIT, DOCINFOW, DocumentPropertiesW, EndDoc, EndPage, GetDefaultPrinterW,
+    OpenPrinterW, StartDocW, StartPage,
 };
 use std::ffi::c_void;
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Graphics::Gdi::{
-    DeleteDC, GetDeviceCaps, SetBrushOrgEx, SetStretchBltMode, StretchDIBits, BITMAPINFO,
-    BITMAPINFOHEADER, LOGPIXELSX, LOGPIXELSY, PHYSICALOFFSETX, PHYSICALOFFSETY,
+    BITMAPINFO, BITMAPINFOHEADER, DeleteDC, GetDeviceCaps, LOGPIXELSX, LOGPIXELSY, PHYSICALOFFSETX,
+    PHYSICALOFFSETY, SetBrushOrgEx, SetStretchBltMode, StretchDIBits,
 };
 use windows_sys::Win32::Graphics::Printing::{
     EnumPrintersW, PRINTER_ENUM_CONNECTIONS, PRINTER_ENUM_LOCAL, PRINTER_INFO_4W,
 };
 use windows_sys::Win32::Storage::Xps::{
-    DeviceCapabilitiesW, DC_PAPERNAMES, DC_PAPERS, DC_PAPERSIZE,
+    DC_PAPERNAMES, DC_PAPERS, DC_PAPERSIZE, DeviceCapabilitiesW,
 };
 
 const MAX_DEVMODE_BYTES: usize = 16 * 1024 * 1024;

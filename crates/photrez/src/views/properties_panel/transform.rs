@@ -256,7 +256,7 @@ pub(super) fn section(
                             .iter()
                             .zip(ACTION_HANDLERS)
                             .map(|(&(svg, key), (id, action))| {
-                                wired_action_button(svg, id, &t(key), cx, *action)
+                                wired_action_button(svg, id, t(key), cx, *action)
                             }),
                     ),
                 )

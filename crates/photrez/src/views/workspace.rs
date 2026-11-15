@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Bounds, Context, Entity, Pixels, TestSupportExt, Window};
+use gpui_kit::{Bounds, Context, Entity, Pixels, TestSupportExt, Window, div, px};
 
 /// Title bar height: 46px.
 const TITLEBAR_H: f32 = 46.0;

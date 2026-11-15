@@ -77,7 +77,7 @@ fn startup_preparation_loads_bounded_fixture_into_canvas() {
 #[gpui_kit::test]
 fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::TestAppContext) {
     use gpui_kit::base::Root;
-    use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
+    use gpui_kit::{AppContext, Bounds, Point, WindowBounds, WindowOptions, px, size};
     use std::ffi::OsString;
 
     let directory = TestDirectory::new();
@@ -101,7 +101,7 @@ fn open_argument_composes_local_approval_loader_and_canvas(cx: &mut gpui_kit::Te
     );
 
     cx.update(|cx| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         // A repeating animation must not keep the test harness awake.
         cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
@@ -207,10 +207,10 @@ fn mount_app_sized(
     width: f32,
 ) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
     use gpui_kit::base::Root;
-    use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
+    use gpui_kit::{AppContext, Bounds, Point, WindowBounds, WindowOptions, px, size};
 
     cx.update(|cx| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         // A repeating animation must not keep the test harness awake.
         cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
@@ -253,10 +253,10 @@ fn mount_app_with_cache_root(
     cache_root: PathBuf,
 ) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
     use gpui_kit::base::Root;
-    use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
+    use gpui_kit::{AppContext, Bounds, Point, WindowBounds, WindowOptions, px, size};
 
     cx.update(|cx| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         // A repeating animation must not keep the test harness awake.
         cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());
@@ -340,10 +340,10 @@ fn mount_app_with_settings(
     file_io: Option<Arc<dyn FileIo>>,
 ) -> (gpui_kit::WindowHandle<gpui_kit::base::Root>, Entity<App>) {
     use gpui_kit::base::Root;
-    use gpui_kit::{px, size, AppContext, Bounds, Point, WindowBounds, WindowOptions};
+    use gpui_kit::{AppContext, Bounds, Point, WindowBounds, WindowOptions, px, size};
 
     cx.update(|cx| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         // A repeating animation must not keep the test harness awake.
         cx.set_reduce_motion(true);
         crate::views::title_bar::init(&cx.svg_renderer());

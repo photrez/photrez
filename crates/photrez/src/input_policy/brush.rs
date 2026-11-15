@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use photrez_core::raster::brush::engine::BrushStrokeEngine;
-use photrez_core::raster::brush::tip::{build_brush_tip_data, BrushTip, TipSpec};
+use photrez_core::raster::brush::tip::{BrushTip, TipSpec, build_brush_tip_data};
 use photrez_core::raster::paint::raster::RasterDab;
 
 use super::{BrushStroke, BrushTarget};

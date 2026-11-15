@@ -6,8 +6,8 @@ use gpui_kit::Context;
 use photrez_core::document::content::Transform2D;
 use photrez_core::protocol::{Command, TransformPatch};
 
-use super::transform_move::LayerBounds;
 use super::App;
+use super::transform_move::LayerBounds;
 
 impl App {
     /// Align the selected layers to the canvas (Properties multi-selection).
@@ -97,9 +97,9 @@ impl App {
         }
         members.sort_by(|a, b| {
             if horizontal {
-                a.2 .0.total_cmp(&b.2 .0)
+                a.2.0.total_cmp(&b.2.0)
             } else {
-                a.2 .1.total_cmp(&b.2 .1)
+                a.2.1.total_cmp(&b.2.1)
             }
         });
         let first = members[0].2;

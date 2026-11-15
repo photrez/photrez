@@ -24,7 +24,7 @@ use crate::state::{HudInfo, HudMode};
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{BoxShadow, Div, FontWeight, Hsla, TestSupportExt, div, hsla, px};
 
 /// `#18181B` — the HUD fill (a raw neutral, not an editor token).
 const HUD_BG: Hsla = Hsla {
@@ -105,12 +105,9 @@ pub(crate) fn render(hud: HudInfo, origin: (f32, f32)) -> impl IntoElement {
         .border(px(1.0))
         .border_color(HUD_BORDER)
         .bg(HUD_BG)
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(4.0),
-            hsla(0.0, 0.0, 0.0, 0.4),
-        )
-        .blur_radius(px(12.0))])
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(4.0), hsla(0.0, 0.0, 0.0, 0.4)).blur_radius(px(12.0)),
+        ])
         .px(px(10.0))
         .py(px(PAD_Y))
         .text_size(px(11.0))

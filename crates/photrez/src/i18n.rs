@@ -6,6 +6,7 @@
 //! swaps the active locale; [`initial_locale`] is the startup detection order.
 
 use crate::services::settings::SettingsStore;
+use std::sync::LazyLock;
 
 /// The settings key the chosen locale persists under. It is the same key the
 /// 0.1.0 release wrote.
@@ -15,36 +16,63 @@ const ENV_LOCALE: &str = "PHOTREZ_LOCALE";
 
 // ── locale ───────────────────────────────────────────────────────────────────
 
-/// The locales this build ships. Unknown tags degrade to `En` through
-/// [`Locale::normalize`] - the catalog lookup must always have an arm.
+/// A locale shipped by this build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Locale {
     En,
     Id,
     Bjn,
+    Catalog(&'static str),
 }
 
 impl Locale {
-    /// The language tag used as the catalog subdirectory name and the value
+    /// The language tag used as the catalog file name and the value
     /// persisted in the settings file.
     pub fn code(self) -> &'static str {
         match self {
             Locale::En => "en",
             Locale::Id => "id",
             Locale::Bjn => "bjn",
+            Locale::Catalog(code) => code,
         }
     }
 
-    /// The language part of a tag, lowercased: `"id-ID"`, `"id_ID.UTF-8"`
-    /// and `"ID"` all name [`Locale::Id`]. Anything else is `En` - the
-    /// fallback when no catalog matches.
-    pub fn normalize(tag: &str) -> Self {
-        let language = tag.split(['-', '_', '.']).next().unwrap_or_default();
-        match language.to_ascii_lowercase().as_str() {
-            "id" => Locale::Id,
-            "bjn" => Locale::Bjn,
-            _ => Locale::En,
+    /// Returns this locale's name from its catalog.
+    pub fn name(self) -> String {
+        t_in(self, "locale.name")
+    }
+
+    fn from_code(code: &'static str) -> Self {
+        match code {
+            "en" => Self::En,
+            "id" => Self::Id,
+            "bjn" => Self::Bjn,
+            code => Self::Catalog(code),
         }
+    }
+
+    /// Matches an exact catalog tag or its most specific parent. Unknown tags
+    /// use English. POSIX separators and codesets are accepted.
+    pub fn normalize(tag: &str) -> Self {
+        let tag = tag
+            .trim()
+            .split(['.', '@'])
+            .next()
+            .unwrap_or_default()
+            .replace('_', "-");
+        locales()
+            .iter()
+            .filter(|locale| {
+                let code = locale.code().replace('_', "-");
+                tag.eq_ignore_ascii_case(&code)
+                    || tag.get(..code.len()).is_some_and(|prefix| {
+                        prefix.eq_ignore_ascii_case(&code)
+                            && tag.as_bytes().get(code.len()) == Some(&b'-')
+                    })
+            })
+            .max_by_key(|locale| locale.code().len())
+            .copied()
+            .unwrap_or(Locale::En)
     }
 }
 
@@ -52,6 +80,26 @@ impl Locale {
 /// mounted shell tests that switch it through the Settings dialog.
 #[cfg(test)]
 pub(crate) static TEST_LOCALE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+static LOCALES: LazyLock<Vec<Locale>> = LazyLock::new(|| {
+    let app_catalogs = crate::_rust_i18n_backend().available_locales();
+    let mut locales: Vec<_> = rust_i18n::available_locales!()
+        .into_iter()
+        .filter(|code| app_catalogs.contains(code))
+        // Owned codes are supplied by extension backends, not embedded catalogs.
+        .filter_map(|code| match code {
+            std::borrow::Cow::Borrowed(code) => Some(Locale::from_code(code)),
+            std::borrow::Cow::Owned(_) => None,
+        })
+        .collect();
+    locales.sort_by_key(|locale| (locale.code() != "en", locale.code().to_owned()));
+    locales
+});
+
+/// Returns this build's catalogs, with English first and the rest sorted by code.
+pub fn locales() -> &'static [Locale] {
+    &LOCALES
+}
 
 /// The active locale.
 pub fn locale() -> Locale {
@@ -220,7 +268,14 @@ fn os_language_tag() -> String {
     if written <= 0 {
         return String::new();
     }
-    String::from_utf16_lossy(&buffer[..written as usize])
+    decode_windows_locale_tag(&buffer[..written as usize])
+}
+
+#[cfg(any(windows, test))]
+fn decode_windows_locale_tag(buffer: &[u16]) -> String {
+    String::from_utf16_lossy(buffer)
+        .trim_end_matches('\0')
+        .to_owned()
 }
 
 #[cfg(test)]

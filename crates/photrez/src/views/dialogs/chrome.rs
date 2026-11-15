@@ -2,7 +2,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, hsla, px, BoxShadow, Div, FocusHandle, FontWeight, Hsla, Stateful, TestSupportExt,
+    BoxShadow, Div, FocusHandle, FontWeight, Hsla, Stateful, TestSupportExt, div, hsla, px,
 };
 
 use super::drag;
@@ -13,7 +13,7 @@ use crate::views::title_bar;
 
 use super::{
     ACTIONS_H, BAR_PX, BODY_PX, BODY_PY, BRAND, BTN_H, BTN_MIN_W, BTN_R, BTN_TEXT, CLOSE_BOX,
-    CLOSE_ICON, FOOTER_FILL, GAP_2, SHELL_R, TITLEBAR_H, TITLE_TEXT,
+    CLOSE_ICON, FOOTER_FILL, GAP_2, SHELL_R, TITLE_TEXT, TITLEBAR_H,
 };
 /// The dialog shell: a rounded 1px-edged PANEL box with a 36px TOPBAR
 /// titlebar, a body, and a translucent TOPBAR footer.
@@ -59,12 +59,9 @@ pub(super) fn dialog_shell_auto_actions(
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .overflow_hidden()
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(12.0),
-            hsla(0.0, 0.0, 0.0, 0.45),
-        )
-        .blur_radius(px(32.0))])
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.45)).blur_radius(px(32.0)),
+        ])
         .child(titlebar_with(title, close, cx_title))
         .child(div().w_full().px(px(BODY_PX)).py(px(BODY_PY)).child(body))
         .child(actions(buttons))
@@ -101,12 +98,9 @@ pub(super) fn dialog_shell_with_actions_live(
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .overflow_hidden()
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(12.0),
-            hsla(0.0, 0.0, 0.0, 0.45),
-        )
-        .blur_radius(px(32.0))])
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.45)).blur_radius(px(32.0)),
+        ])
         .child(titlebar_with(title, close, cx_title))
         .child(
             div()

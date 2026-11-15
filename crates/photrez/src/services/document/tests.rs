@@ -6,14 +6,14 @@ use photrez_core::document::content::{
     ShapeParams, ShapeStroke, TextData, Transform2D,
 };
 use photrez_core::pixel::PixelStoreRegistry;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use zip::write::SimpleFileOptions;
 
 use crate::services::error::ServiceError;
 use crate::services::file_io::{FileIo, SaveTarget};
 use crate::services::ptz_limits::MAX_STRUCTURAL_ENTRIES;
 
-use super::{load_document_candidate, LoadedDocument};
+use super::{LoadedDocument, load_document_candidate};
 
 mod save;
 
@@ -615,10 +615,12 @@ fn multiple_raster_layers_composite_in_content_order() {
             .len(),
         2
     );
-    assert!(loaded
-        .registry
-        .get_layer(&loaded.document_id, "layer-bottom")
-        .is_some());
+    assert!(
+        loaded
+            .registry
+            .get_layer(&loaded.document_id, "layer-bottom")
+            .is_some()
+    );
 }
 
 #[test]
