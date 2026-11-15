@@ -2,9 +2,9 @@
 //! restore the entries, leave them in the store for another day, or delete them.
 
 use super::*;
-use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
-use gpui_kit::component::Sizable;
 use gpui_kit::StatefulInteractiveElement;
+use gpui_kit::component::Sizable;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 
 pub(super) fn recovery_body(
     state: &Entity<AppState>,

@@ -1,10 +1,10 @@
 #![allow(unsafe_code)] // SAFETY: this module isolates NtCreateFile and handle-information FFI behind owned handles.
 
 use super::ServiceError;
-use std::ffi::{c_void, OsStr, OsString};
+use std::ffi::{OsStr, OsString, c_void};
 use std::fs::File;
 use std::io;
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{MaybeUninit, size_of};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Component, Path, Prefix};

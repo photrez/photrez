@@ -199,13 +199,10 @@ impl App {
                 self.export_document_action(&crate::app::ExportDocument, cx);
             }
         }
-        if id == "settings-language" {
-            let locale = match index {
-                1 => crate::i18n::Locale::Id,
-                2 => crate::i18n::Locale::Bjn,
-                _ => crate::i18n::Locale::En,
-            };
-            self.choose_settings_language(locale, cx);
+        if id == "settings-language"
+            && let Some(locale) = crate::i18n::locales().get(index)
+        {
+            self.choose_settings_language(*locale, cx);
         }
         if id == "export-format" {
             let format = [

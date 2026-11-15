@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::{AppContext as _, Context, PathPromptOptions, Window};
 
 use super::{
-    ensure_ptz_path, App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument,
-    PrintDocument, SaveDocument, SaveDocumentAs, ToggleSidePanelsAction,
+    App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument, PrintDocument,
+    SaveDocument, SaveDocumentAs, ToggleSidePanelsAction, ensure_ptz_path,
 };
 use crate::display::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
@@ -178,8 +178,8 @@ impl App {
             state.has_document = false;
             state.document_id = None;
             state.document_name = "Baseline".to_owned(); // i18n-exempt: demo content
-                                                         // Nothing is on screen once the last document closes, so the
-                                                         // panels must not keep projecting its layers or history.
+            // Nothing is on screen once the last document closes, so the
+            // panels must not keep projecting its layers or history.
             state.layers.clear();
             state.selected_layers.clear();
             state.paint_target_core_id = None;

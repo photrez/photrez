@@ -52,10 +52,12 @@ fn text_click_opens_an_editor_and_typing_commits_to_the_layer(cx: &mut gpui_kit:
             Some("hi"),
             "the typed text is committed to the layer"
         );
-        assert!(content
-            .read(cx)
-            .active_document_save_state_for_test()
-            .is_some_and(|(_, _, dirty)| dirty));
+        assert!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .is_some_and(|(_, _, dirty)| dirty)
+        );
     })
     .expect("test window remains open");
 }

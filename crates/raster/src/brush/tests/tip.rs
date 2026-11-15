@@ -3,9 +3,8 @@
 //! and the offline golden check against the captured reference tip rasters.
 
 use crate::brush::tip::{
-    bilinear_resize_premul, build_brush_tip, get_brush_cursor_radius_scale,
-    get_brush_profile_support_norm, premul_to_straight_in_place, TipSpec,
-    BRUSH_CURSOR_ALPHA_CONTOUR,
+    BRUSH_CURSOR_ALPHA_CONTOUR, TipSpec, bilinear_resize_premul, build_brush_tip,
+    get_brush_cursor_radius_scale, get_brush_profile_support_norm, premul_to_straight_in_place,
 };
 
 #[test]
@@ -172,7 +171,13 @@ fn golden_interior_and_rim_tolerance() {
     //   premultiplied rimMax = 65 LSB | straight rimMax = 32 LSB (unpremul-amplified view).
     println!(
         "C1 golden[px={}]: PM interiorMax={} rimMax={} rimDB={} | STRAIGHT interiorMax={} rimMax={} | alphaMax={} | legacyRimDelta(report-only): pm=65 straight=32",
-        tip_w * tip_h, pm_interior_max, pm_rim_max, pm_rim_db, straight_interior_max, straight_rim_max, alpha_max
+        tip_w * tip_h,
+        pm_interior_max,
+        pm_rim_max,
+        pm_rim_db,
+        straight_interior_max,
+        straight_rim_max,
+        alpha_max
     );
     assert!(
         pm_interior_max <= 1,

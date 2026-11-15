@@ -1,7 +1,7 @@
 //! Metric roll-ups for the input-latency report: the stroke geometry and the
 //! percentile summaries each aggregate publishes.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(super) fn stroke_geometry(
     stroke: usize,

@@ -78,7 +78,7 @@ use crate::tokens::color;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, FontWeight, TestSupportExt};
+use gpui_kit::{Div, FontWeight, TestSupportExt, div, px, relative};
 
 /// The inspector dock's width at the wide breakpoint: 272 px.
 ///
@@ -405,11 +405,11 @@ fn canvas_property_button(
     icon: &'static [u8],
     cx: &Context<crate::app::App>,
     action: impl Fn(
-            &mut crate::app::App,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) -> Result<(), String>
-        + 'static,
+        &mut crate::app::App,
+        &mut gpui_kit::Window,
+        &mut Context<crate::app::App>,
+    ) -> Result<(), String>
+    + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
@@ -490,11 +490,11 @@ pub(super) fn canvas_action_button(
     tone: ActionTone,
     cx: &Context<crate::app::App>,
     action: impl Fn(
-            &mut crate::app::App,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) -> Result<(), String>
-        + 'static,
+        &mut crate::app::App,
+        &mut gpui_kit::Window,
+        &mut Context<crate::app::App>,
+    ) -> Result<(), String>
+    + 'static,
 ) -> impl IntoElement {
     let (fill, hover, text, icon_text) = tone.colours();
     h_flex()
@@ -672,7 +672,7 @@ fn status_hint(id: &'static str, message: String) -> impl IntoElement {
 fn wired_action_button(
     icon: &'static [u8],
     id: &'static str,
-    label: &str,
+    label: String,
     cx: &Context<crate::app::App>,
     action: ActionHandler,
 ) -> impl IntoElement {

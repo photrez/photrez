@@ -364,11 +364,7 @@ fn apply_ordered_delta_to_ids(ids: &[String], changes: &[LayerChange]) -> Vec<St
         })
         .collect();
     let adopts = !restated.is_empty() && set.iter().all(|i| restated.iter().any(|r| r == i));
-    if adopts {
-        restated
-    } else {
-        set
-    }
+    if adopts { restated } else { set }
 }
 
 fn record_external(engine: &mut DocumentCore, label: &str, affected: &[&str], token: &str) {

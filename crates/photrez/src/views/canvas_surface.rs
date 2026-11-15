@@ -154,7 +154,12 @@ impl Element for CanvasPointerSurface {
                     app.update(cx, |app, cx| {
                         app.canvas_hover_end(cx);
                     });
-                    cx.set_pointer_hidden(false);
+                    // macOS hides through NSCursor in the app's cursor module;
+                    // Windows uses its native hidden mode. Only the Linux and
+                    // FreeBSD backends use the toolkit's persistent flag.
+                    if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                        cx.set_pointer_hidden(false);
+                    }
                 }
                 return;
             }
@@ -163,7 +168,9 @@ impl Element for CanvasPointerSurface {
                     app.canvas_hover(event, &hover_bounds, hover_doc, cx);
                     app.system_pointer_hidden_for_gpui()
                 });
-                cx.set_pointer_hidden(hidden);
+                if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                    cx.set_pointer_hidden(hidden);
+                }
             }
         });
 

@@ -81,7 +81,7 @@ fn font_families_from_entries(
 
 #[cfg(test)]
 mod tests {
-    use super::{font_entry, font_families_from_entries, group_font_faces, FontService};
+    use super::{FontService, font_entry, font_families_from_entries, group_font_faces};
 
     #[test]
     fn groups_families_and_styles_in_sorted_deduplicated_order() {
@@ -123,9 +123,11 @@ mod tests {
     fn system_enumeration_has_no_machine_specific_count_assumption() {
         match FontService::list_system_fonts() {
             Ok(fonts) => {
-                assert!(fonts
-                    .windows(2)
-                    .all(|pair| pair[0].family() < pair[1].family()));
+                assert!(
+                    fonts
+                        .windows(2)
+                        .all(|pair| pair[0].family() < pair[1].family())
+                );
                 assert!(fonts.iter().all(|font| !font.family().is_empty()));
             }
             Err(error) => assert_eq!(error.code(), "E_INTERNAL"),

@@ -200,7 +200,7 @@ pub(super) fn tolerance_preset(
 
     if active {
         chip.shadow(vec![
-            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
+            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.)),
         ])
     } else {
         chip
@@ -749,7 +749,7 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
         .font_weight(FontWeight(700.))
         .text_color(color::WHITE)
         .shadow(vec![
-            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
+            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.)),
         ])
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             let result = app.apply_crop(cx);

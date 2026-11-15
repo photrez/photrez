@@ -324,7 +324,7 @@ fn crc32_chunks(chunks: &[&[u8]]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{adler32, build_ptz, crc32_chunks, encode_png_rows, layer_pixels, Base, Content};
+    use super::{Base, Content, adler32, build_ptz, crc32_chunks, encode_png_rows, layer_pixels};
 
     #[test]
     fn crc_and_adler_match_known_vectors() {
@@ -372,11 +372,13 @@ mod tests {
     fn plain_fixture_layers_are_uniform() {
         for depth in 0..3 {
             let pixels = layer_pixels(depth, 8, 4, Base::Opaque, Content::Plain);
-            assert!(pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|pixel| *pixel == [255, 255, 255, 255]));
+            assert!(
+                pixels
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [255, 255, 255, 255])
+            );
         }
     }
 
@@ -412,11 +414,13 @@ mod tests {
             );
         }
         // The bottom layer is the opaque backdrop every composite rests on.
-        assert!(bottom
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .all(|pixel| pixel[3] == 255));
+        assert!(
+            bottom
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         // The ramp is what makes the fixture hash content-sensitive.
         assert_eq!(&bottom[0..4], &[0, 0, 255, 255]);
         assert_eq!(&bottom[(511 * 4)..512 * 4], &[255, 0, 128, 255]);

@@ -86,7 +86,7 @@ use gpui_kit::component::Icon;
 use gpui_kit::base::StyledExt;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, img, px, Entity, FontWeight, ImageSource, RenderImage, SvgRenderer, TestSupportExt, Window,
+    Entity, FontWeight, ImageSource, RenderImage, SvgRenderer, TestSupportExt, Window, div, img, px,
 };
 
 use crate::components::ui;

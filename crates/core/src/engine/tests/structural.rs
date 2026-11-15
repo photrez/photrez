@@ -74,9 +74,11 @@ fn duplicate_layer_clones_above_source_and_mints_resource() {
     // The source keeps its original resource id.
     assert_eq!(layer_by(&e, "A").resource_id, 10);
     // No removes; every layer is upserted in final order.
-    assert!(changes
-        .iter()
-        .all(|c| matches!(c, LayerChange::Upsert { .. })));
+    assert!(
+        changes
+            .iter()
+            .all(|c| matches!(c, LayerChange::Upsert { .. }))
+    );
     assert_eq!(changes.len(), 2);
 }
 
@@ -717,7 +719,7 @@ fn rasterized_layers_drop_their_payload_in_the_snapshot() {
 /// `MissingPixels`.
 #[test]
 fn rasterized_layers_composite_from_the_store() {
-    use crate::render::compositor::{composite_layers, CompositeError};
+    use crate::render::compositor::{CompositeError, composite_layers};
 
     let registry = rasterize_check_registry();
     let content = registry

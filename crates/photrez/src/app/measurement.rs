@@ -239,13 +239,14 @@ mod tests {
     use crate::state::ToolId;
     use gpui_kit::test::TestWindowExt as _;
     use gpui_kit::{
-        point, px, size, AppContext, Bounds, Entity, MouseButton, MouseDownEvent, MouseUpEvent,
-        Pixels, PlatformInput, Point, Subscription, WindowBounds, WindowHandle, WindowOptions,
+        AppContext, Bounds, Entity, MouseButton, MouseDownEvent, MouseUpEvent, Pixels,
+        PlatformInput, Point, Subscription, WindowBounds, WindowHandle, WindowOptions, point, px,
+        size,
     };
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/bounded-raster.ptz");
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -288,7 +289,7 @@ mod tests {
         file_io.approve_path(&source).expect("approve fixture");
 
         cx.update(|cx| {
-            gpui_kit::init(cx);
+            crate::init_gpui_host(cx, None);
             crate::views::title_bar::init(&cx.svg_renderer());
             crate::app::load_fonts(cx);
         });
@@ -489,10 +490,11 @@ mod tests {
 
         assert_eq!(pixels(&content, cx).2, before);
         assert_eq!(history_version(&content, cx), history_before);
-        assert!(cx
-            .read_entity(&content, |app, _| app.input_measurement_snapshot())
-            .receipt
-            .is_none());
+        assert!(
+            cx.read_entity(&content, |app, _| app.input_measurement_snapshot())
+                .receipt
+                .is_none()
+        );
         assert!(receipts.borrow().is_empty());
     }
 
@@ -515,10 +517,11 @@ mod tests {
 
         assert_eq!(pixels(&content, cx).2, before);
         assert_eq!(history_version(&content, cx), history_before);
-        assert!(cx
-            .read_entity(&content, |app, _| app.input_measurement_snapshot())
-            .receipt
-            .is_none());
+        assert!(
+            cx.read_entity(&content, |app, _| app.input_measurement_snapshot())
+                .receipt
+                .is_none()
+        );
         assert!(receipts.borrow().is_empty());
     }
 

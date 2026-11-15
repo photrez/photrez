@@ -5,33 +5,272 @@
 //! one history entry). Apply then refits the viewport and returns to Move.
 
 use gpui_kit::Context;
+use photrez_core::document::content::LayerType;
 use photrez_core::protocol::Command;
 
+pub(crate) use crate::crop_geometry::CropHandle;
+use crate::crop_geometry::CropSnapshot;
+use crate::state::AppState;
 use crate::state::ToolId;
 
 use super::App;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CropHandle {
-    Nw,
-    N,
-    Ne,
-    E,
-    Se,
-    S,
-    Sw,
-    W,
+#[derive(Clone, Debug)]
+pub(crate) struct CropDrag {
+    pub handle: Option<CropHandle>,
+    pub rotate: bool,
+    pub start_snapshot: CropSnapshot,
+    pub start_doc: (f64, f64),
+    pub start_screen: (f64, f64),
+    pub interaction: crate::crop_geometry::CropInteraction,
+    pub snap_targets: Option<std::rc::Rc<crate::crop_geometry::CropSnapTargets>>,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CropDrag {
-    pub handle: Option<CropHandle>,
-    pub start_rect: [f64; 4],
-    pub start_doc: (f64, f64),
+pub(crate) struct CropDragInput {
+    pub doc: (f64, f64),
+    pub screen: (f64, f64),
+    pub mode: crate::crop_aspect::CropMode,
+    pub ratio: Option<f64>,
+    pub zoom: f64,
+    pub doc_size: (f64, f64),
+    pub shift: bool,
+    pub alt: bool,
 }
 
-/// Screen-space tolerance for grabbing a crop edge or corner.
-const HANDLE_TOLERANCE_PX: f64 = 8.0;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CropPointerTarget {
+    Resize(CropHandle),
+    Move,
+    Rotate,
+}
+
+pub(crate) fn crop_snapshot(state: &AppState) -> Option<CropSnapshot> {
+    Some(CropSnapshot {
+        frame: state.crop_rect?,
+        offset: state.crop_offset,
+        rotation: state.crop_rotation,
+    })
+}
+
+pub(crate) fn restore_crop_snapshot(state: &mut AppState, snapshot: CropSnapshot) {
+    state.crop_rect = Some(snapshot.frame);
+    state.crop_offset = snapshot.offset;
+    state.crop_rotation = snapshot.rotation;
+}
+
+pub(crate) fn push_crop_history(state: &mut AppState) {
+    if let Some(snapshot) = crop_snapshot(state) {
+        state.crop_history.push(snapshot);
+        state.crop_redo.clear();
+    }
+}
+
+pub(crate) fn crop_resize_ratio(state: &AppState) -> Option<f64> {
+    (state.crop_interaction == crate::crop_geometry::CropInteraction::Modern
+        || state.crop_mode == crate::crop_aspect::CropMode::Ratio)
+        .then(|| {
+            crate::crop_geometry::locked_ratio(
+                state.crop_mode,
+                state.crop_aspect,
+                state.crop_size_target,
+            )
+        })
+        .flatten()
+}
+
+pub(crate) fn crop_snap_targets(app: &App) -> Option<crate::crop_geometry::CropSnapTargets> {
+    let document = app.active_document.as_ref()?;
+    let content = app
+        .sessions
+        .get(&document.doc_id)?
+        .loaded_document()
+        .content_snapshot()?;
+    let layer_bounds = content
+        .layers
+        .iter()
+        .filter(|layer| layer.visible)
+        .filter_map(|layer| {
+            let (width, height) = if layer.layer_type == LayerType::Shape {
+                let params = layer.shape_params.as_ref()?;
+                let (width, height) = photrez_core::render::shape_raster_dimensions(params)?;
+                (f64::from(width), f64::from(height))
+            } else {
+                crate::app::transform_geometry::layer_frame_size(layer)
+            };
+            Some(crate::app::transform_geometry::layer_aabb(
+                &layer.transform,
+                width,
+                height,
+            ))
+        });
+    Some(crate::crop_geometry::crop_snap_targets(
+        content.width,
+        content.height,
+        layer_bounds,
+    ))
+}
+
+pub(crate) fn crop_drag_update(drag: &CropDrag, input: CropDragInput) -> CropSnapshot {
+    let CropDragInput {
+        doc,
+        screen,
+        mode,
+        ratio,
+        zoom,
+        doc_size,
+        shift,
+        alt,
+    } = input;
+    let start = drag.start_snapshot;
+    let zoom = zoom.max(0.01);
+    if drag.rotate {
+        let center = (
+            start.frame[0] + start.frame[2] / 2.0,
+            start.frame[1] + start.frame[3] / 2.0,
+        );
+        let angle = |point: (f64, f64)| {
+            (point.1 - center.1).atan2(point.0 - center.0) * 180.0 / std::f64::consts::PI
+        };
+        let rotation = crop_rotation_after_drag(
+            start.rotation + angle(doc) - angle(drag.start_doc),
+            drag.interaction,
+            shift,
+        );
+        return CropSnapshot {
+            frame: start.frame,
+            offset: start.offset,
+            rotation,
+        };
+    }
+    match drag.interaction {
+        crate::crop_geometry::CropInteraction::Modern => {
+            if let Some(handle) = drag.handle {
+                let (frame, compensation) = crate::crop_geometry::modern_resize(
+                    start.frame,
+                    handle,
+                    (doc.0 - drag.start_doc.0, doc.1 - drag.start_doc.1),
+                    crate::crop_geometry::CropResizeOptions {
+                        mode,
+                        ratio,
+                        shift,
+                        alt,
+                    },
+                    crate::crop_geometry::MODERN_MIN_CROP_SCREEN_SIZE / zoom,
+                );
+                let offset = crate::crop_geometry::inverse_rotate_delta(
+                    (compensation.0 * zoom, compensation.1 * zoom),
+                    start.rotation,
+                );
+                CropSnapshot {
+                    frame,
+                    offset: (start.offset.0 + offset.0, start.offset.1 + offset.1),
+                    rotation: start.rotation,
+                }
+            } else {
+                let offset = crate::crop_geometry::inverse_rotate_delta(
+                    (
+                        screen.0 - drag.start_screen.0,
+                        screen.1 - drag.start_screen.1,
+                    ),
+                    start.rotation,
+                );
+                CropSnapshot {
+                    frame: start.frame,
+                    offset: (start.offset.0 + offset.0, start.offset.1 + offset.1),
+                    rotation: start.rotation,
+                }
+            }
+        }
+        crate::crop_geometry::CropInteraction::Classic => {
+            let frame = if let Some(handle) = drag.handle {
+                let delta = crate::crop_geometry::inverse_rotate_delta(
+                    (doc.0 - drag.start_doc.0, doc.1 - drag.start_doc.1),
+                    start.rotation,
+                );
+                let mut frame = crate::crop_geometry::classic_resize(
+                    start.frame,
+                    handle,
+                    delta,
+                    crate::crop_geometry::CropResizeOptions {
+                        mode,
+                        ratio,
+                        shift,
+                        alt,
+                    },
+                );
+                if start.rotation != 0.0 && !alt {
+                    let old_center = (
+                        start.frame[0] + start.frame[2] / 2.0,
+                        start.frame[1] + start.frame[3] / 2.0,
+                    );
+                    let old_anchor = crop_handle_anchor(handle, start.frame[2], start.frame[3]);
+                    let new_anchor = crop_handle_anchor(handle, frame[2], frame[3]);
+                    let shift = crate::crop_geometry::inverse_rotate_delta(
+                        (old_anchor.0 - new_anchor.0, old_anchor.1 - new_anchor.1),
+                        -start.rotation,
+                    );
+                    frame[0] = old_center.0 + shift.0 - frame[2] / 2.0;
+                    frame[1] = old_center.1 + shift.1 - frame[3] / 2.0;
+                }
+                frame
+            } else {
+                App::crop_drag_rect(drag, doc, doc_size.0, doc_size.1)
+            };
+            CropSnapshot {
+                frame,
+                offset: start.offset,
+                rotation: start.rotation,
+            }
+        }
+    }
+}
+
+fn crop_snap_rotation(rotation: f64) -> f64 {
+    ((rotation / 15.0) + 0.5).floor() * 15.0
+}
+
+pub(crate) fn crop_rotation_after_drag(
+    rotation: f64,
+    interaction: crate::crop_geometry::CropInteraction,
+    shift: bool,
+) -> f64 {
+    match interaction {
+        crate::crop_geometry::CropInteraction::Modern => {
+            let rotation = crate::app::transform_geometry::normalize_rotation(rotation);
+            if shift {
+                crop_snap_rotation(rotation)
+            } else {
+                rotation
+            }
+        }
+        crate::crop_geometry::CropInteraction::Classic => {
+            let rotation = if shift {
+                crop_snap_rotation(rotation)
+            } else {
+                rotation
+            };
+            crate::app::transform_geometry::normalize_rotation(rotation)
+        }
+    }
+}
+
+fn crop_handle_anchor(handle: CropHandle, width: f64, height: f64) -> (f64, f64) {
+    match handle {
+        CropHandle::Nw => (width / 2.0, height / 2.0),
+        CropHandle::Ne => (-width / 2.0, height / 2.0),
+        CropHandle::Se => (-width / 2.0, -height / 2.0),
+        CropHandle::Sw => (width / 2.0, -height / 2.0),
+        CropHandle::N => (0.0, height / 2.0),
+        CropHandle::S => (0.0, -height / 2.0),
+        CropHandle::E => (-width / 2.0, 0.0),
+        CropHandle::W => (width / 2.0, 0.0),
+    }
+}
+
+const HANDLE_HIT_PX: f64 = 28.0;
+const ROTATE_BAND_PX: f64 = 100.0;
+const ROTATE_CORNER_EXTRA_PX: f64 = 2.0;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
@@ -65,6 +304,97 @@ nudge_action!(NudgeCropUpLarge, nudge_crop_up_large, 0.0, -10.0);
 nudge_action!(NudgeCropDownLarge, nudge_crop_down_large, 0.0, 10.0);
 
 impl App {
+    pub(crate) fn create_modern_crop_from_drag(
+        &mut self,
+        start: (f64, f64),
+        end: (f64, f64),
+        shift: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let (viewport_w, viewport_h) = self
+            .viewport_size()
+            .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+        let camera = self
+            .effective_camera()
+            .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+        let (mode, aspect, size_target, rotation) = {
+            let state = self.state.read(cx);
+            (
+                state.crop_mode,
+                state.crop_aspect,
+                state.crop_size_target,
+                state.crop_rotation,
+            )
+        };
+        let snapshot =
+            crate::crop_geometry::modern_crop_create(crate::crop_geometry::ModernCropCreateInput {
+                start,
+                end,
+                viewport: (f64::from(viewport_w), f64::from(viewport_h)),
+                camera: crate::crop_geometry::CropViewport {
+                    pan_x: f64::from(camera.x),
+                    pan_y: f64::from(camera.y),
+                    zoom: f64::from(camera.zoom),
+                },
+                mode,
+                aspect,
+                size_target,
+                shift,
+                rotation,
+            });
+        self.state.update(cx, |state, _| {
+            restore_crop_snapshot(state, snapshot);
+            state.crop_hidden_preview = None;
+        });
+        cx.notify();
+        Ok(())
+    }
+
+    pub(crate) fn create_default_modern_crop(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let (viewport_w, viewport_h) = self
+            .viewport_size()
+            .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+        let (doc_w, doc_h) = self.active_document_size()?;
+        let camera = self
+            .effective_camera()
+            .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+        let camera = crate::display::canvas_bridge::Camera::centred_at(
+            viewport_w,
+            viewport_h,
+            doc_w as f32,
+            doc_h as f32,
+            camera.zoom,
+        )
+        .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+        let aspect = {
+            let state = self.state.read(cx);
+            match state.crop_mode {
+                crate::crop_aspect::CropMode::Free => None,
+                crate::crop_aspect::CropMode::Ratio => state.crop_aspect,
+                crate::crop_aspect::CropMode::Size => state.crop_size_target,
+            }
+        };
+        let frame = crate::crop_geometry::default_modern_crop_frame(
+            (f64::from(viewport_w), f64::from(viewport_h)),
+            (doc_w, doc_h),
+            f64::from(camera.zoom),
+            (f64::from(camera.x), f64::from(camera.y)),
+            aspect,
+        );
+        self.set_camera(camera, cx);
+        self.state.update(cx, |state, _| {
+            state.crop_rect = Some(frame);
+            state.crop_hidden_preview = None;
+            state.crop_offset = (0.0, 0.0);
+            state.crop_rotation = 0.0;
+        });
+        cx.notify();
+        Ok(())
+    }
+
     /// Crop bar `Delete`: discard cropped-away pixels on Apply.
     pub(crate) fn toggle_crop_delete(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, _| {
@@ -79,6 +409,85 @@ impl App {
             state.crop_fill_background = !state.crop_fill_background;
         });
         cx.notify();
+    }
+
+    pub(crate) fn set_crop_interaction(
+        &mut self,
+        interaction: crate::crop_geometry::CropInteraction,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.update(cx, |state, _| {
+            state.crop_interaction = interaction;
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn set_crop_rotation(&mut self, rotation: f64, cx: &mut Context<Self>) {
+        if !rotation.is_finite() {
+            return;
+        }
+        let changed = self.state.update(cx, |state, _| {
+            if state.crop_rotation == rotation {
+                return false;
+            }
+            if state.crop_rect.is_some() {
+                push_crop_history(state);
+            } else {
+                state.crop_redo.clear();
+            }
+            state.crop_rotation = rotation;
+            true
+        });
+        if changed {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn nudge_crop_rotation(&mut self, delta: f64, cx: &mut Context<Self>) {
+        let current = self.state.read(cx).crop_rotation;
+        if !current.is_finite() || !delta.is_finite() {
+            return;
+        }
+        let rotation = ((current + delta).clamp(-45.0, 45.0) * 10.0).round() / 10.0;
+        self.set_crop_rotation(rotation, cx);
+    }
+
+    pub(crate) fn rotate_crop_by(&mut self, delta: f64, cx: &mut Context<Self>) {
+        if !delta.is_finite() || delta == 0.0 {
+            return;
+        }
+        let changed = self.state.update(cx, |state, _| {
+            let rotation = state.crop_rotation + delta;
+            if !rotation.is_finite() {
+                return false;
+            }
+
+            let frame = state.crop_rect;
+            let next_frame = match (state.crop_interaction, frame) {
+                (crate::crop_geometry::CropInteraction::Classic, Some([x, y, w, h])) => {
+                    let center_x = x + w / 2.0;
+                    let center_y = y + h / 2.0;
+                    let rotated = [center_x - h / 2.0, center_y - w / 2.0, h, w];
+                    if !rotated.iter().all(|value| value.is_finite()) {
+                        return false;
+                    }
+                    Some(rotated)
+                }
+                (_, frame) => frame,
+            };
+
+            if frame.is_some() {
+                push_crop_history(state);
+            } else {
+                state.crop_redo.clear();
+            }
+            state.crop_rect = next_frame;
+            state.crop_rotation = rotation;
+            true
+        });
+        if changed {
+            cx.notify();
+        }
     }
 
     pub(crate) fn apply_crop_action(&mut self, _: &ApplyCropAction, cx: &mut Context<Self>) {
@@ -98,17 +507,56 @@ impl App {
         if tool != ToolId::Crop {
             return Err("the crop tool is not active".to_string());
         }
-        let rect = self
-            .state
-            .read(cx)
-            .crop_rect
-            .ok_or_else(|| "there is no crop rectangle".to_string())?;
-        let (doc_w, doc_h) = self.active_document_size()?;
-        let x = rect[0].round().clamp(0., (doc_w - 1.).max(0.));
-        let y = rect[1].round().clamp(0., (doc_h - 1.).max(0.));
-        let width = rect[2].round().max(1.).min(doc_w - x);
-        let height = rect[3].round().max(1.).min(doc_h - y);
-        if width < 1. || height < 1. {
+        if self.pending_gesture.as_ref().is_some_and(|pending| {
+            pending.crop_modern_create
+                && (pending.crop_modern_drag_started || pending.crop_start.is_none())
+        }) {
+            return Ok(());
+        }
+        let (rect, interaction, offset, rotation, mode, size_target) = {
+            let state = self.state.read(cx);
+            (
+                state
+                    .crop_rect
+                    .ok_or_else(|| "there is no crop rectangle".to_string())?,
+                state.crop_interaction,
+                state.crop_offset,
+                state.crop_rotation,
+                state.crop_mode,
+                state.crop_size_target,
+            )
+        };
+        let target = if mode == crate::crop_aspect::CropMode::Size {
+            let (width, height) =
+                size_target.ok_or_else(|| "the crop Size target is missing".to_string())?;
+            Some((f64::from(width), f64::from(height)))
+        } else {
+            None
+        };
+        let rect = match interaction {
+            crate::crop_geometry::CropInteraction::Modern => {
+                let camera = self
+                    .effective_camera()
+                    .ok_or_else(|| "the crop viewport is unavailable".to_string())?;
+                crate::crop_geometry::crop_apply_region(
+                    interaction,
+                    rect,
+                    offset,
+                    crate::crop_geometry::CropViewport {
+                        pan_x: f64::from(camera.x),
+                        pan_y: f64::from(camera.y),
+                        zoom: f64::from(camera.zoom),
+                    },
+                )
+            }
+            crate::crop_geometry::CropInteraction::Classic => rect,
+        };
+        if !rect.iter().all(|value| value.is_finite()) {
+            return Err("the crop rectangle must contain finite values".to_string());
+        }
+        let width = rect[2].round().max(1.0);
+        let height = rect[3].round().max(1.0);
+        if width < 1.0 || height < 1.0 {
             return Err("the crop rectangle is empty".to_string());
         }
         let doc_id = self.active_doc_id()?;
@@ -123,6 +571,21 @@ impl App {
                 },
             )
         };
+        let request = crate::crop_geometry::CropRequest {
+            x: rect[0].round(),
+            y: rect[1].round(),
+            width,
+            height,
+            rotation: Some(match interaction {
+                crate::crop_geometry::CropInteraction::Modern => {
+                    crate::crop_geometry::modern_apply_rotation(rotation)
+                }
+                crate::crop_geometry::CropInteraction::Classic => rotation,
+            }),
+            target,
+            delete_pixels,
+            fill_background,
+        };
         #[cfg(test)]
         self.state.update(cx, |state, _| {
             state.last_crop_flags = Some((delete_pixels, fill_background));
@@ -130,23 +593,27 @@ impl App {
         self.apply_core_command(
             &doc_id,
             Command::ApplyCrop {
-                x,
-                y,
-                width,
-                height,
-                rotation: None,
-                target_width: None,
-                target_height: None,
-                delete_cropped_pixels: delete_pixels,
-                fill_background,
+                x: request.x,
+                y: request.y,
+                width: request.width,
+                height: request.height,
+                rotation: request.rotation,
+                target_width: request.target.map(|(width, _)| width),
+                target_height: request.target.map(|(_, height)| height),
+                delete_cropped_pixels: request.delete_pixels,
+                fill_background: request.fill_background,
             },
             true,
             cx,
         )?;
+        self.crop_straighten_document_id = None;
         self.state.update(cx, |state, _| {
             state.crop_rect = None;
+            state.crop_hidden_preview = None;
             state.crop_history.clear();
             state.crop_redo.clear();
+            state.crop_offset = (0.0, 0.0);
+            state.crop_rotation = 0.0;
             state.selection_drag = None;
             state.active_tool = ToolId::Move;
         });
@@ -160,10 +627,14 @@ impl App {
 
     /// Crop-tool Cancel: discard the frame and its step history.
     pub(crate) fn cancel_crop(&mut self, cx: &mut Context<Self>) {
+        self.crop_straighten_document_id = None;
         self.state.update(cx, |state, _| {
             state.crop_rect = None;
+            state.crop_hidden_preview = None;
             state.crop_history.clear();
             state.crop_redo.clear();
+            state.crop_offset = (0.0, 0.0);
+            state.crop_rotation = 0.0;
             state.selection_drag = None;
         });
         cx.notify();
@@ -175,10 +646,10 @@ impl App {
             let Some(previous) = state.crop_history.pop() else {
                 return false;
             };
-            if let Some(current) = state.crop_rect {
+            if let Some(current) = crop_snapshot(state) {
                 state.crop_redo.push(current);
             }
-            state.crop_rect = Some(previous);
+            restore_crop_snapshot(state, previous);
             true
         });
         if updated {
@@ -192,10 +663,10 @@ impl App {
             let Some(next) = state.crop_redo.pop() else {
                 return false;
             };
-            if let Some(current) = state.crop_rect {
+            if let Some(current) = crop_snapshot(state) {
                 state.crop_history.push(current);
             }
-            state.crop_rect = Some(next);
+            restore_crop_snapshot(state, next);
             true
         });
         if updated {
@@ -204,34 +675,27 @@ impl App {
         updated
     }
 
-    /// Which crop handle (or the frame interior) the point hits. `zoom` maps
-    /// the screen tolerance into document units.
+    /// Which crop handle (or the frame interior) the point hits.
     pub(crate) fn crop_handle_at(
         doc: (f64, f64),
         rect: [f64; 4],
         zoom: f64,
     ) -> Option<(CropHandle, bool)> {
-        let tolerance = HANDLE_TOLERANCE_PX / zoom.max(0.01);
+        let half_hit = HANDLE_HIT_PX / (2.0 * zoom.max(0.01));
         let [x, y, w, h] = rect;
-        let near_left = (doc.0 - x).abs() <= tolerance;
-        let near_right = (doc.0 - (x + w)).abs() <= tolerance;
-        let near_top = (doc.1 - y).abs() <= tolerance;
-        let near_bottom = (doc.1 - (y + h)).abs() <= tolerance;
-        let within_x = doc.0 >= x - tolerance && doc.0 <= x + w + tolerance;
-        let within_y = doc.1 >= y - tolerance && doc.1 <= y + h + tolerance;
-        let handle = match (near_left, near_right, near_top, near_bottom) {
-            (true, _, true, _) if within_x && within_y => Some(CropHandle::Nw),
-            (_, true, true, _) if within_x && within_y => Some(CropHandle::Ne),
-            (true, _, _, true) if within_x && within_y => Some(CropHandle::Sw),
-            (_, true, _, true) if within_x && within_y => Some(CropHandle::Se),
-            (true, false, false, false) if within_y => Some(CropHandle::W),
-            (false, true, false, false) if within_y => Some(CropHandle::E),
-            (false, false, true, false) if within_x => Some(CropHandle::N),
-            (false, false, false, true) if within_x => Some(CropHandle::S),
-            _ => None,
-        };
-        if let Some(handle) = handle {
-            return Some((handle, false));
+        for (handle, cx, cy) in [
+            (CropHandle::Nw, x, y),
+            (CropHandle::N, x + w / 2.0, y),
+            (CropHandle::Ne, x + w, y),
+            (CropHandle::E, x + w, y + h / 2.0),
+            (CropHandle::Se, x + w, y + h),
+            (CropHandle::S, x + w / 2.0, y + h),
+            (CropHandle::Sw, x, y + h),
+            (CropHandle::W, x, y + h / 2.0),
+        ] {
+            if (doc.0 - cx).abs() <= half_hit && (doc.1 - cy).abs() <= half_hit {
+                return Some((handle, false));
+            }
         }
         if doc.0 > x && doc.0 < x + w && doc.1 > y && doc.1 < y + h {
             return Some((CropHandle::Nw, true));
@@ -239,21 +703,78 @@ impl App {
         None
     }
 
-    /// Apply a live crop move/resize. Returns the clamped rectangle.
+    pub(crate) fn crop_pointer_target_at(
+        doc: (f64, f64),
+        rect: [f64; 4],
+        zoom: f64,
+        interaction: crate::crop_geometry::CropInteraction,
+        rotation: f64,
+    ) -> Option<CropPointerTarget> {
+        let local = if interaction == crate::crop_geometry::CropInteraction::Classic {
+            let center = (rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0);
+            let delta = crate::crop_geometry::inverse_rotate_delta(
+                (doc.0 - center.0, doc.1 - center.1),
+                rotation,
+            );
+            (center.0 + delta.0, center.1 + delta.1)
+        } else {
+            doc
+        };
+        if let Some((handle, interior)) = Self::crop_handle_at(local, rect, zoom) {
+            return Some(if interior {
+                CropPointerTarget::Move
+            } else {
+                CropPointerTarget::Resize(handle)
+            });
+        }
+        Self::crop_rotate_band_contains(local, rect, zoom, interaction)
+            .then_some(CropPointerTarget::Rotate)
+    }
+
+    fn crop_rotate_band_contains(
+        doc: (f64, f64),
+        rect: [f64; 4],
+        zoom: f64,
+        interaction: crate::crop_geometry::CropInteraction,
+    ) -> bool {
+        let [x, y, w, h] = rect;
+        let scale = zoom.max(0.01);
+        let (pad, radius) = match interaction {
+            crate::crop_geometry::CropInteraction::Modern => (ROTATE_BAND_PX / scale, 0.0),
+            crate::crop_geometry::CropInteraction::Classic => (
+                (ROTATE_BAND_PX + ROTATE_CORNER_EXTRA_PX) / scale,
+                ROTATE_CORNER_EXTRA_PX / scale,
+            ),
+        };
+        let left = x - pad;
+        let top = y - pad;
+        let right = x + w + pad;
+        let bottom = y + h + pad;
+        let in_outer_bounds = doc.0 >= left && doc.0 <= right && doc.1 >= top && doc.1 <= bottom;
+        if !in_outer_bounds || (doc.0 >= x && doc.0 <= x + w && doc.1 >= y && doc.1 <= y + h) {
+            return false;
+        }
+        if radius == 0.0 {
+            return true;
+        }
+        let nearest_x = doc.0.clamp(left + radius, right - radius);
+        let nearest_y = doc.1.clamp(top + radius, bottom - radius);
+        (doc.0 - nearest_x).powi(2) + (doc.1 - nearest_y).powi(2) <= radius.powi(2)
+    }
+
+    /// Classic moves may extend beyond the document; resize handles stay clamped.
     pub(crate) fn crop_drag_rect(
-        drag: CropDrag,
+        drag: &CropDrag,
         doc: (f64, f64),
         doc_w: f64,
         doc_h: f64,
     ) -> [f64; 4] {
-        let [sx, sy, sw, sh] = drag.start_rect;
+        let [sx, sy, sw, sh] = drag.start_snapshot.frame;
         let Some(handle) = drag.handle else {
             // No handle grabbed: the whole rect follows the pointer move.
             let dx = doc.0 - drag.start_doc.0;
             let dy = doc.1 - drag.start_doc.1;
-            let x = (sx + dx).clamp(0.0, (doc_w - sw).max(0.0));
-            let y = (sy + dy).clamp(0.0, (doc_h - sh).max(0.0));
-            return [x, y, sw, sh];
+            return [sx + dx, sy + dy, sw, sh];
         };
         let mut left = sx;
         let mut top = sy;
@@ -309,8 +830,7 @@ impl App {
             rect[3],
         ];
         self.state.update(cx, |state, _| {
-            state.crop_history.push(rect);
-            state.crop_redo.clear();
+            push_crop_history(state);
             state.crop_rect = Some(next);
         });
         cx.notify();
@@ -352,10 +872,8 @@ impl App {
             state.crop_ratio_open = false;
             push_recent(&mut state.recent_crop_ratios, aspect);
             if let Some(rect) = fitted {
-                if let Some(previous) = state.crop_rect.replace(rect) {
-                    state.crop_history.push(previous);
-                }
-                state.crop_redo.clear();
+                push_crop_history(state);
+                state.crop_rect = Some(rect);
             }
         });
         cx.notify();
@@ -380,10 +898,8 @@ impl App {
             state.crop_size_h = format_unit(target.1, unit);
             state.crop_ratio_open = false;
             if let Some(rect) = fitted {
-                if let Some(previous) = state.crop_rect.replace(rect) {
-                    state.crop_history.push(previous);
-                }
-                state.crop_redo.clear();
+                push_crop_history(state);
+                state.crop_rect = Some(rect);
             }
         });
         cx.notify();
@@ -459,10 +975,8 @@ impl App {
                 state.crop_size_h = text.trim().to_string();
             }
             if let Some(rect) = fitted {
-                if let Some(previous) = state.crop_rect.replace(rect) {
-                    state.crop_history.push(previous);
-                }
-                state.crop_redo.clear();
+                push_crop_history(state);
+                state.crop_rect = Some(rect);
             }
         });
         cx.notify();
@@ -487,10 +1001,8 @@ impl App {
             state.crop_size_w = h_text;
             state.crop_size_h = w_text;
             if let Some(rect) = fitted {
-                if let Some(previous) = state.crop_rect.replace(rect) {
-                    state.crop_history.push(previous);
-                }
-                state.crop_redo.clear();
+                push_crop_history(state);
+                state.crop_rect = Some(rect);
             }
         });
         cx.notify();
@@ -502,10 +1014,13 @@ impl App {
     pub(crate) fn crop_begin_edit(&mut self, field: usize, custom: bool, cx: &mut Context<Self>) {
         // The edit buffer starts empty, so the first typed digit replaces the
         // shown value rather than appending to it.
-        let _ = (field, custom);
         self.state.update(cx, |state, _| {
             state.crop_edit = Some(String::new());
-            state.crop_edit_custom = custom;
+            state.crop_edit_field = if custom {
+                crate::crop_geometry::CropField::Custom
+            } else {
+                crate::crop_geometry::CropField::Size
+            };
             state.crop_size_field = field.min(1);
         });
         cx.notify();
@@ -521,7 +1036,10 @@ impl App {
         let key = event.keystroke.key.as_str();
         let (unit, custom) = {
             let state = self.state.read(cx);
-            (state.crop_size_unit, state.crop_edit_custom)
+            (
+                state.crop_size_unit,
+                state.crop_edit_field == crate::crop_geometry::CropField::Custom,
+            )
         };
         let Some(mut buffer) = self.state.read(cx).crop_edit.clone() else {
             return false;
@@ -613,7 +1131,7 @@ impl App {
                     .map(|(w, _)| w.to_string())
                     .unwrap_or_else(|| "1".to_string()),
             );
-            state.crop_edit_custom = true;
+            state.crop_edit_field = crate::crop_geometry::CropField::Custom;
             state.crop_size_field = 0;
         });
         cx.notify();

@@ -9,7 +9,7 @@ use crate::raster::state_node::StateNode;
 use crate::raster::tile::TilePatch;
 use crate::wire::command::CommandResult;
 use crate::wire::history::Origin;
-use crate::wire::projection::{state_node_touched_patches, ProtocolError, RenderDelta};
+use crate::wire::projection::{ProtocolError, RenderDelta, state_node_touched_patches};
 use std::sync::Arc;
 
 mod payload;
@@ -341,8 +341,8 @@ impl DocumentCore {
         let dv = self.version + 1;
         self.version = dv;
         self.pending_external = None; // barrier cleared on success only
-                                      // Cursor-commit does not swap the LayerSet (barrier-gated; the host executes
-                                      // the external mutation out-of-band), so this reconcile is defensive/no-op today.
+        // Cursor-commit does not swap the LayerSet (barrier-gated; the host executes
+        // the external mutation out-of-band), so this reconcile is defensive/no-op today.
         self.reconcile_replica();
         Ok(CommandResult {
             document_version: dv,

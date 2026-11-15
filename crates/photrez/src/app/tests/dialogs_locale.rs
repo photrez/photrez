@@ -6,6 +6,14 @@ use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{MouseButton, MouseDownEvent, MouseUpEvent, PlatformInput};
 
+fn language_option(locale: crate::i18n::Locale) -> String {
+    let index = crate::i18n::locales()
+        .iter()
+        .position(|candidate| *candidate == locale)
+        .expect("locale is available");
+    format!("settings-language-option-{index}")
+}
+
 #[gpui_kit::test]
 fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
     use crate::i18n::{self, Locale};
@@ -22,6 +30,7 @@ fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
         .expect("locale lock is not poisoned");
     i18n::set_locale(Locale::En);
     let _restore = RestoreLocale;
+    let id_option = language_option(Locale::Id);
 
     let directory = TestDirectory::new();
     let settings =
@@ -36,7 +45,7 @@ fn settings_dialog_switches_the_locale(cx: &mut gpui_kit::TestAppContext) {
         window.render_frame(cx);
         window.click("settings-language", cx);
         window.render_frame(cx);
-        window.click("settings-language-option-1", cx);
+        window.click(id_option.clone(), cx);
         window.render_frame(cx);
         assert_eq!(
             settings.read(crate::i18n::LOCALE_KEY).as_deref(),
@@ -146,6 +155,8 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
         .expect("locale lock is not poisoned");
     i18n::set_locale(Locale::En);
     let _restore = RestoreLocale;
+    let en_option = language_option(Locale::En);
+    let id_option = language_option(Locale::Id);
 
     let directory = TestDirectory::new();
     let settings =
@@ -183,8 +194,11 @@ fn language_switch_latency(cx: &mut gpui_kit::TestAppContext) {
         };
         let mut samples = Vec::new();
         for i in 0..9 {
-            let target_index = usize::from(i % 2 == 0);
-            let id = format!("settings-language-option-{target_index}");
+            let id = if i % 2 == 0 {
+                id_option.clone()
+            } else {
+                en_option.clone()
+            };
             open_list(&content, cx);
             window.render_frame(cx);
             let start = std::time::Instant::now();
@@ -228,6 +242,7 @@ fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestA
         .expect("locale lock is not poisoned");
     i18n::set_locale(Locale::En);
     let _restore = RestoreLocale;
+    let id_option = language_option(Locale::Id);
 
     let directory = TestDirectory::new();
     let (window, content, _source) = mount_fixture_app(cx, &directory);
@@ -250,7 +265,7 @@ fn settings_dialog_opens_from_the_menu_and_ok_closes_it(cx: &mut gpui_kit::TestA
             content.read(cx).state_for_test().read(cx).open_select == Some("settings-language"),
             "the language dropdown opens"
         );
-        window.click("settings-language-option-1", cx);
+        window.click(id_option.clone(), cx);
         window.render_frame(cx);
         assert_eq!(i18n::locale(), Locale::Id, "the floating option lands");
         assert!(
@@ -471,12 +486,14 @@ fn resize_titlebar_close_cancels_the_pending_session(cx: &mut gpui_kit::TestAppC
         window.render_frame(cx);
         window.click("menu-resize-canvas", cx);
         window.render_frame(cx);
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .resize_canvas
-            .is_some());
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .resize_canvas
+                .is_some()
+        );
         window.click("dialog-close", cx);
         window.render_frame(cx);
         let state = content.read(cx).state_for_test().read(cx);

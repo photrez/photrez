@@ -95,7 +95,7 @@ pub(super) fn run() {
     }
 
     gpui_kit::application().run(move |cx: &mut App| {
-        gpui_kit::init(cx);
+        photrez::init_gpui_host(cx, None);
         let _ = set_trace_enabled(true);
 
         let initial = match clone_rgba(&base).and_then(|rgba| {

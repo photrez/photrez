@@ -17,8 +17,8 @@
 //! colour the picker opened on instead of the live one, which prints 9/9/9 here and
 //! leaves the mounted hue drag showing the colour the picker started from.
 
-use super::{channel_readouts, Readout};
-use crate::palette::{hsv_to_rgb, rgb_to_hsv, to_hex, Hsv};
+use super::{Readout, channel_readouts};
+use crate::palette::{Hsv, hsv_to_rgb, rgb_to_hsv, to_hex};
 use crate::state::{ColorPickerSession, ColorTarget};
 
 /// The channel column exactly as the picker renders it for a live colour. The

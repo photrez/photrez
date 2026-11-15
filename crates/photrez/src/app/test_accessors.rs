@@ -17,6 +17,14 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn crop_preview_size_for_test(&self) -> Option<(u32, u32)> {
+        self.active_document
+            .as_ref()?
+            .canvas
+            .crop_preview_size_for_test()
+    }
+
+    #[cfg(test)]
     pub(crate) fn active_document_pixel_lengths_for_test(&self) -> Option<(usize, usize)> {
         let doc_id = self.active_document.as_ref()?.doc_id.as_str();
         let session = self.sessions.get(doc_id)?;

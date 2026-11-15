@@ -109,7 +109,7 @@ use crate::tokens::color;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{Div, FontWeight, Hsla, TestSupportExt, div, px};
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 

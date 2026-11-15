@@ -260,12 +260,9 @@ pub(super) fn render(
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .overflow_hidden()
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(12.0),
-            hsla(0.0, 0.0, 0.0, 0.45),
-        )
-        .blur_radius(px(32.0))])
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.45)).blur_radius(px(32.0)),
+        ])
         .child(
             h_flex()
                 .id("dialog-drag-handle")

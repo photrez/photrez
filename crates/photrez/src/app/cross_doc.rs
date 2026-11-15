@@ -12,10 +12,10 @@ use std::path::PathBuf;
 
 use gpui_kit::Context;
 use photrez_core::document::content::{LayerType, PtzLayer, Transform2D};
-use photrez_core::protocol::{Command, CommandEnvelope, CONTRACT_VERSION};
+use photrez_core::protocol::{CONTRACT_VERSION, Command, CommandEnvelope};
 
-use super::canvas_input::next_layer_id;
 use super::App;
+use super::canvas_input::next_layer_id;
 use crate::state::{NewDocBackground, ToastSeverity};
 
 /// The document's layer ceiling.

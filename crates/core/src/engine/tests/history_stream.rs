@@ -90,11 +90,12 @@ fn cursor_walks_back_and_forward_with_native_payload() {
     let r2 = eng.apply(env(Command::Redo)).unwrap();
     assert_eq!(r2.status, None);
     assert_eq!(eng.history_query().cursor, 1);
-    assert!(r2
-        .delta
-        .changes
-        .iter()
-        .any(|c| matches!(c, LayerChange::Upsert { .. })));
+    assert!(
+        r2.delta
+            .changes
+            .iter()
+            .any(|c| matches!(c, LayerChange::Upsert { .. }))
+    );
 }
 
 #[test]
@@ -260,8 +261,8 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
     }))
     .unwrap(); // seq 2
     eng.apply(env(Command::Undo)).unwrap(); // cursor=1 (B dropped from redo intent)
-                                            // record_external truncates the redo region (removes seq 2) and appends the
-                                            // next monotonic seq at index 1 -> entries[1].seq == 3 (a GAP).
+    // record_external truncates the redo region (removes seq 2) and appends the
+    // next monotonic seq at index 1 -> entries[1].seq == 3 (a GAP).
     eng.apply(env(Command::RecordExternalTransition {
         label: "legacy op".into(),
         affected_layer_ids: vec![],
@@ -290,7 +291,7 @@ fn history_cursor_commit_succeeds_on_non_dense_gapped_stream() {
     assert_eq!(c.document_version, eng.version());
     assert_eq!(eng.history_query().cursor, 1); // undo from cursor 2 -> cursor 1
     assert!(eng.pending_external.is_none()); // wedge cleared
-                                             // A following command is no longer rejected with E_EXTERNAL_PENDING.
+    // A following command is no longer rejected with E_EXTERNAL_PENDING.
     eng.apply(env(Command::AddLayer {
         id: "C-id".to_string(),
         name: "C".into(),

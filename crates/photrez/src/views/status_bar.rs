@@ -62,7 +62,7 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, font, px, Hsla, StyledText, TestSupportExt, TextRun};
+use gpui_kit::{Hsla, StyledText, TestSupportExt, TextRun, div, font, px};
 
 use crate::components::ui;
 use crate::i18n::t;

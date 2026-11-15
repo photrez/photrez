@@ -43,9 +43,9 @@ impl PtzDocument {
                 "version".to_string(),
                 serde_json::Value::Number(serde_json::Number::from(PTZ_VERSION)),
             );
-            if let Some(serde_json::Value::Array(ref mut layers)) = map.get_mut("layers") {
+            if let Some(serde_json::Value::Array(layers)) = map.get_mut("layers") {
                 for layer in layers.iter_mut() {
-                    if let serde_json::Value::Object(ref mut layer_map) = layer {
+                    if let serde_json::Value::Object(layer_map) = layer {
                         layer_map.insert("imageBitmap".to_string(), serde_json::Value::Null);
                         layer_map.insert("baseImageBitmap".to_string(), serde_json::Value::Null);
                     }

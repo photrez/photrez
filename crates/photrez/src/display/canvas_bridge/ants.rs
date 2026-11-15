@@ -1,6 +1,6 @@
 //! The animated selection marquee: complementary black and white dashes.
 
-use gpui_kit::AnyElement;
+use gpui_kit::{AnimationExt, AnyElement};
 
 use super::*;
 

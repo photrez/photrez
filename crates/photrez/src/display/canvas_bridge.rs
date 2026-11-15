@@ -48,11 +48,12 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    canvas, fill, hsla, outline, point, px, size, BorderStyle, Bounds, Corners, PathBuilder,
-    Pixels, Point, RenderImage,
+    BorderStyle, Bounds, Corners, PathBuilder, Pixels, Point, RenderImage, canvas, fill, hsla,
+    outline, point, px, size,
 };
 
 use crate::tokens::color;
+use ants::{animated_canvas, painted_ants, painted_ants_ellipse};
 pub use camera::*;
 pub(crate) use navigator::*;
 use painted::*;
@@ -175,6 +176,7 @@ pub struct CanvasImage {
     patches: Vec<Patch>,
     preview_patches: Vec<PreviewPatch>,
     pub(crate) projection: Option<Projection>,
+    crop_preview: Option<Arc<RenderImage>>,
 }
 
 #[derive(Clone)]
@@ -183,6 +185,7 @@ pub(crate) struct Projection {
     pub(crate) image: Arc<RenderImage>,
 }
 
+mod ants;
 mod camera;
 mod image;
 mod navigator;
@@ -384,10 +387,17 @@ fn canvas_element_inner(
                 .map(|patch| (patch.rect, Arc::clone(&patch.image))),
         )
         .collect();
+    let crop_preview = overlay
+        .crop_preview_active
+        .then(|| canvas_image.crop_preview.clone())
+        .flatten();
     let doc_w = canvas_image.width as f32;
     let doc_h = canvas_image.height as f32;
     let bounds_sink = bounds_sink.clone();
-    canvas(
+    let animate_ants = overlay.selection.is_some();
+    let ants_phase = Rc::new(Cell::new(0.0_f32));
+    let paint_phase = Rc::clone(&ants_phase);
+    let element = canvas(
         move |bounds, _window, _cx| {
             if let Some(sink) = &bounds_sink {
                 sink.set(Some(bounds));
@@ -415,8 +425,13 @@ fn canvas_element_inner(
                 let viewport_w: f32 = bounds.size.width.into();
                 let viewport_h: f32 = bounds.size.height.into();
                 if let Some(image) = checker.borrow_mut().image_for(viewport_w, viewport_h) {
+                    let destination = if crop_preview.is_some() {
+                        bounds
+                    } else {
+                        page_bounds
+                    };
                     let _ = window.paint_image(
-                        page_bounds,
+                        destination,
                         bounds,
                         Corners::default(),
                         image,
@@ -426,27 +441,40 @@ fn canvas_element_inner(
                 }
             }
             let mut reported_error = false;
-            for (rect, image) in &images {
-                let Some((left, top, tile_w, tile_h)) =
-                    tile_destination(page_x, page_y, w, h, doc_w, doc_h, *rect, scale)
-                else {
-                    continue;
-                };
-                let tile_bounds = Bounds {
-                    origin: point(px(left), px(top)),
-                    size: size(px(tile_w), px(tile_h)),
-                };
+            if let Some(image) = &crop_preview {
                 if let Err(error) = window.paint_image(
                     bounds,
-                    tile_bounds,
+                    bounds,
                     Corners::default(),
                     Arc::clone(image),
                     0,
                     false,
                 ) {
-                    if !reported_error {
-                        eprintln!("photrez: canvas image paint failed: {error:#}");
-                        reported_error = true;
+                    eprintln!("photrez: crop preview paint failed: {error:#}");
+                }
+            } else {
+                for (rect, image) in &images {
+                    let Some((left, top, tile_w, tile_h)) =
+                        tile_destination(page_x, page_y, w, h, doc_w, doc_h, *rect, scale)
+                    else {
+                        continue;
+                    };
+                    let tile_bounds = Bounds {
+                        origin: point(px(left), px(top)),
+                        size: size(px(tile_w), px(tile_h)),
+                    };
+                    if let Err(error) = window.paint_image(
+                        bounds,
+                        tile_bounds,
+                        Corners::default(),
+                        Arc::clone(image),
+                        0,
+                        false,
+                    ) {
+                        if !reported_error {
+                            eprintln!("photrez: canvas image paint failed: {error:#}");
+                            reported_error = true;
+                        }
                     }
                 }
             }
@@ -454,23 +482,16 @@ fn canvas_element_inner(
                 origin: point(px(page_x), px(page_y)),
                 size: size(px(w), px(h)),
             };
-            painted_artboard_chrome(window, page_bounds);
+            if crop_preview.is_none() {
+                painted_artboard_chrome(window, page_bounds);
+            }
             if let Some(selection) = overlay.selection {
-                // Selection marching ants: a 1.5 px accent dash
-                // under a 1 px white dash offset by one period, so the marquee
-                // stays visible on both light and dark content. Each layer is
-                // one tessellated polyline — one path per layer, not per edge.
+                // Selection marching ants: black and white complementary
+                // 4/4 dashes, animated on the shared 500 ms clock. One phase
+                // read per paint keeps both layers aligned.
+                let phase = paint_phase.get() * 8.0;
                 let ants = |window: &mut gpui_kit::Window, ring: &[(f32, f32)]| {
-                    painted_dashed_polyline(window, ring, 1.5, 4.0, 4.0, 0.0, color::ACCENT);
-                    painted_dashed_polyline(
-                        window,
-                        ring,
-                        1.0,
-                        4.0,
-                        4.0,
-                        4.0,
-                        hsla(0., 0., 1., 0.9),
-                    );
+                    painted_ants(window, ring, 1.0, phase);
                 };
                 if selection.angle.abs() < 1e-6 {
                     let rect = (selection.x, selection.y, selection.w, selection.h);
@@ -482,27 +503,13 @@ fn canvas_element_inner(
                                 f32::from(bounds.origin.x) + f32::from(bounds.size.width) / 2.0,
                                 f32::from(bounds.origin.y) + f32::from(bounds.size.height) / 2.0,
                             );
-                            painted_dashed_ellipse(
-                                window,
-                                center,
-                                f32::from(bounds.size.width) / 2.0,
-                                f32::from(bounds.size.height) / 2.0,
-                                1.5,
-                                4.0,
-                                4.0,
-                                0.0,
-                                color::ACCENT,
-                            );
-                            painted_dashed_ellipse(
+                            painted_ants_ellipse(
                                 window,
                                 center,
                                 f32::from(bounds.size.width) / 2.0,
                                 f32::from(bounds.size.height) / 2.0,
                                 1.0,
-                                4.0,
-                                4.0,
-                                4.0,
-                                hsla(0., 0., 1., 0.9),
+                                phase,
                             );
                         } else {
                             let left = f32::from(bounds.origin.x);
@@ -629,30 +636,101 @@ fn canvas_element_inner(
                     sprite.angle,
                 );
             }
-            for (vertical, position) in &overlay.guides {
-                let guide_color = hsla(0.09, 0.9, 0.55, 0.9);
-                if *vertical {
-                    if let Some(origin) =
-                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, [*position, 0.0])
+            if overlay.crop_create_preview.is_some() {
+                let mut guide_mask = window.content_mask();
+                guide_mask.bounds = bounds;
+                window.with_content_mask(Some(guide_mask), |window| {
+                    let guide_color = hsla(color::BRAND.h, color::BRAND.s, color::BRAND.l, 0.9);
+                    for (vertical, position) in &overlay.guides {
+                        let points = if *vertical {
+                            [
+                                doc_point_to_window(
+                                    page_x,
+                                    page_y,
+                                    w,
+                                    h,
+                                    doc_w,
+                                    doc_h,
+                                    [*position, -10_000.0],
+                                ),
+                                doc_point_to_window(
+                                    page_x,
+                                    page_y,
+                                    w,
+                                    h,
+                                    doc_w,
+                                    doc_h,
+                                    [*position, 10_000.0],
+                                ),
+                            ]
+                        } else {
+                            [
+                                doc_point_to_window(
+                                    page_x,
+                                    page_y,
+                                    w,
+                                    h,
+                                    doc_w,
+                                    doc_h,
+                                    [-10_000.0, *position],
+                                ),
+                                doc_point_to_window(
+                                    page_x,
+                                    page_y,
+                                    w,
+                                    h,
+                                    doc_w,
+                                    doc_h,
+                                    [10_000.0, *position],
+                                ),
+                            ]
+                        };
+                        let [Some(from), Some(to)] = points else {
+                            continue;
+                        };
+                        painted_dashed_line(
+                            window,
+                            (f32::from(from.x), f32::from(from.y)),
+                            (f32::from(to.x), f32::from(to.y)),
+                            1.5,
+                            4.0,
+                            2.0,
+                            guide_color,
+                        );
+                    }
+                });
+            } else {
+                for (vertical, position) in &overlay.guides {
+                    let guide_color = hsla(0.09, 0.9, 0.55, 0.9);
+                    if *vertical {
+                        if let Some(origin) = doc_point_to_window(
+                            page_x,
+                            page_y,
+                            w,
+                            h,
+                            doc_w,
+                            doc_h,
+                            [*position, 0.0],
+                        ) {
+                            window.paint_quad(fill(
+                                Bounds {
+                                    origin,
+                                    size: size(px(1.), px(h)),
+                                },
+                                guide_color,
+                            ));
+                        }
+                    } else if let Some(origin) =
+                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, [0.0, *position])
                     {
                         window.paint_quad(fill(
                             Bounds {
                                 origin,
-                                size: size(px(1.), px(h)),
+                                size: size(px(w), px(1.)),
                             },
                             guide_color,
                         ));
                     }
-                } else if let Some(origin) =
-                    doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, [0.0, *position])
-                {
-                    window.paint_quad(fill(
-                        Bounds {
-                            origin,
-                            size: size(px(w), px(1.)),
-                        },
-                        guide_color,
-                    ));
                 }
             }
             if let Some(highlight) = overlay.hover_highlight {
@@ -897,64 +975,120 @@ fn canvas_element_inner(
             }
             if let Some(crop) = overlay.crop {
                 if let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, crop) {
-                    let mask = hsla(0., 0., 0., 0.55);
-                    let top = Bounds {
-                        origin: page_bounds.origin,
-                        size: size(page_bounds.size.width, rect.origin.y - page_bounds.origin.y),
+                    let mask = if overlay.crop_delete_pixels {
+                        gpui_kit::rgb(0x161618).alpha(0.98)
+                    } else {
+                        gpui_kit::rgb(0x000000).alpha(0.5)
                     };
-                    let bottom = Bounds {
-                        origin: point(page_bounds.origin.x, rect.origin.y + rect.size.height),
-                        size: size(
-                            page_bounds.size.width,
-                            page_bounds.origin.y + page_bounds.size.height
-                                - (rect.origin.y + rect.size.height),
-                        ),
-                    };
-                    let left = Bounds {
-                        origin: point(page_bounds.origin.x, rect.origin.y),
-                        size: size(rect.origin.x - page_bounds.origin.x, rect.size.height),
-                    };
-                    let right = Bounds {
-                        origin: point(rect.origin.x + rect.size.width, rect.origin.y),
-                        size: size(
-                            page_bounds.origin.x + page_bounds.size.width
-                                - (rect.origin.x + rect.size.width),
-                            rect.size.height,
-                        ),
-                    };
-                    for band in [top, bottom, left, right] {
-                        let visible = band.intersect(&page_bounds);
-                        if visible.size.width > px(0.) && visible.size.height > px(0.) {
-                            window.paint_quad(fill(visible, mask));
+                    let rotation = overlay.crop_rotation;
+                    let corners_doc = crate::app::transform_geometry::rotated_rect_corners(
+                        crop.0, crop.1, crop.2, crop.3, rotation,
+                    );
+                    let corners_screen: Vec<_> = corners_doc
+                        .iter()
+                        .filter_map(|corner| {
+                            doc_point_to_window(
+                                page_x,
+                                page_y,
+                                w,
+                                h,
+                                doc_w,
+                                doc_h,
+                                [corner.x, corner.y],
+                            )
+                        })
+                        .collect();
+                    if corners_screen.len() == 4 {
+                        let viewport = [
+                            bounds.origin,
+                            point(bounds.origin.x + bounds.size.width, bounds.origin.y),
+                            bounds.bottom_right(),
+                            point(bounds.origin.x, bounds.origin.y + bounds.size.height),
+                        ];
+                        let hole = [
+                            corners_screen[0],
+                            corners_screen[3],
+                            corners_screen[2],
+                            corners_screen[1],
+                        ];
+                        let mut shield = PathBuilder::fill();
+                        shield.add_polygon(&viewport, true);
+                        shield.add_polygon(&hole, true);
+                        if let Ok(path) = shield.build() {
+                            let mut shield_mask = window.content_mask();
+                            shield_mask.bounds = bounds;
+                            window.with_content_mask(Some(shield_mask), |window| {
+                                window.paint_layer(bounds, |window| window.paint_path(path, mask));
+                            });
                         }
                     }
-                    // The crop overlay: a dark outer hairline, a white
-                    // inner one, white thirds at half opacity, and eight
-                    // 8 px white handles with a dark rim.
-                    window.paint_quad(outline(rect, hsla(0., 0., 0., 0.55), BorderStyle::Solid));
-                    let inner = Bounds {
-                        origin: point(rect.origin.x + px(1.), rect.origin.y + px(1.)),
-                        size: size(rect.size.width - px(2.), rect.size.height - px(2.)),
+                    if rotation == 0.0 {
+                        window.paint_quad(outline(
+                            rect,
+                            hsla(0., 0., 0., 0.55),
+                            BorderStyle::Solid,
+                        ));
+                        let inner = Bounds {
+                            origin: point(rect.origin.x + px(1.), rect.origin.y + px(1.)),
+                            size: size(rect.size.width - px(2.), rect.size.height - px(2.)),
+                        };
+                        window.paint_quad(outline(
+                            inner,
+                            hsla(0., 0., 1., 0.9),
+                            BorderStyle::Solid,
+                        ));
+                    } else if corners_screen.len() == 4 {
+                        for (width, color) in
+                            [(2.0, hsla(0., 0., 0., 0.55)), (1.0, hsla(0., 0., 1., 0.9))]
+                        {
+                            let mut frame = PathBuilder::stroke(px(width));
+                            frame.add_polygon(&corners_screen, true);
+                            if let Ok(path) = frame.build() {
+                                window.paint_path(path, color);
+                            }
+                        }
+                    }
+                    let screen_center = point(
+                        rect.origin.x + rect.size.width / 2.0,
+                        rect.origin.y + rect.size.height / 2.0,
+                    );
+                    let rotate_screen = |position: Point<Pixels>| {
+                        if rotation == 0.0 {
+                            return position;
+                        }
+                        let rotated = crate::app::transform_geometry::rotate_point(
+                            crate::app::transform_geometry::Point {
+                                x: f64::from(position.x),
+                                y: f64::from(position.y),
+                            },
+                            crate::app::transform_geometry::Point {
+                                x: f64::from(screen_center.x),
+                                y: f64::from(screen_center.y),
+                            },
+                            rotation,
+                        );
+                        point(px(rotated.x as f32), px(rotated.y as f32))
                     };
-                    window.paint_quad(outline(inner, hsla(0., 0., 1., 0.9), BorderStyle::Solid));
-                    let guide = hsla(0., 0., 1., 0.5);
-                    for step in [1. / 3., 2. / 3.] {
-                        let x = rect.origin.x + rect.size.width * step;
-                        let y = rect.origin.y + rect.size.height * step;
-                        window.paint_quad(fill(
-                            Bounds {
-                                origin: point(x, rect.origin.y),
-                                size: size(px(1.), rect.size.height),
-                            },
-                            guide,
-                        ));
-                        window.paint_quad(fill(
-                            Bounds {
-                                origin: point(rect.origin.x, y),
-                                size: size(rect.size.width, px(1.)),
-                            },
-                            guide,
-                        ));
+                    let segments = crate::crop_geometry::crop_guide_segments(
+                        f64::from(f32::from(rect.size.width)),
+                        f64::from(f32::from(rect.size.height)),
+                        overlay.crop_guides,
+                    );
+                    if !segments.is_empty() {
+                        let mut path = PathBuilder::stroke(px(1.0));
+                        for (start, end) in segments {
+                            path.move_to(rotate_screen(point(
+                                rect.origin.x + px(start[0] as f32),
+                                rect.origin.y + px(start[1] as f32),
+                            )));
+                            path.line_to(rotate_screen(point(
+                                rect.origin.x + px(end[0] as f32),
+                                rect.origin.y + px(end[1] as f32),
+                            )));
+                        }
+                        if let Ok(path) = path.build() {
+                            window.paint_path(path, color::WHITE_30);
+                        }
                     }
                     let handle_edge = 8.0f32;
                     let center_x = rect.origin.x + rect.size.width / 2.;
@@ -966,18 +1100,64 @@ fn canvas_element_inner(
                             if column == 1 && row == 1 {
                                 continue;
                             }
-                            let bounds = Bounds {
-                                origin: point(*x - px(handle_edge / 2.), *y - px(handle_edge / 2.)),
-                                size: size(px(handle_edge), px(handle_edge)),
-                            };
-                            window.paint_quad(fill(bounds, hsla(0., 0., 1., 0.9)));
-                            window.paint_quad(outline(
-                                bounds,
-                                hsla(0., 0., 0., 0.35),
-                                BorderStyle::Solid,
-                            ));
+                            let center = point(*x, *y);
+                            if rotation == 0.0 {
+                                let bounds = Bounds {
+                                    origin: point(
+                                        center.x - px(handle_edge / 2.),
+                                        center.y - px(handle_edge / 2.),
+                                    ),
+                                    size: size(px(handle_edge), px(handle_edge)),
+                                };
+                                window.paint_quad(fill(bounds, hsla(0., 0., 1., 0.9)));
+                                window.paint_quad(outline(
+                                    bounds,
+                                    hsla(0., 0., 0., 0.35),
+                                    BorderStyle::Solid,
+                                ));
+                            } else {
+                                let half = px(handle_edge / 2.);
+                                let square = [
+                                    point(center.x - half, center.y - half),
+                                    point(center.x + half, center.y - half),
+                                    point(center.x + half, center.y + half),
+                                    point(center.x - half, center.y + half),
+                                ]
+                                .map(rotate_screen);
+                                let mut fill_path = PathBuilder::fill();
+                                fill_path.add_polygon(&square, true);
+                                if let Ok(path) = fill_path.build() {
+                                    window.paint_path(path, hsla(0., 0., 1., 0.9));
+                                }
+                                let mut stroke = PathBuilder::stroke(px(1.0));
+                                stroke.add_polygon(&square, true);
+                                if let Ok(path) = stroke.build() {
+                                    window.paint_path(path, hsla(0., 0., 0., 0.35));
+                                }
+                            }
                         }
                     }
+                }
+            }
+            if let Some((x, y, width, height)) = overlay.crop_create_preview {
+                let [left, top, right, bottom] =
+                    [x, y, x + width, y + height].map(|coordinate| coordinate as f32);
+                if [left, top, right, bottom]
+                    .iter()
+                    .all(|coordinate| coordinate.is_finite())
+                {
+                    let mut preview_mask = window.content_mask();
+                    preview_mask.bounds = bounds;
+                    window.with_content_mask(Some(preview_mask), |window| {
+                        for (from, to) in [
+                            ((left, top), (right, top)),
+                            ((right, top), (right, bottom)),
+                            ((right, bottom), (left, bottom)),
+                            ((left, bottom), (left, top)),
+                        ] {
+                            painted_dashed_line(window, from, to, 1.5, 4.0, 2.0, color::ACCENT);
+                        }
+                    });
                 }
             }
         },
@@ -985,7 +1165,8 @@ fn canvas_element_inner(
     .flex_1()
     .min_h(px(0.0))
     .w_full()
-    .bg(color::CANVAS)
+    .bg(color::CANVAS);
+    animated_canvas(element, ants_phase, animate_ants)
 }
 
 #[cfg(test)]

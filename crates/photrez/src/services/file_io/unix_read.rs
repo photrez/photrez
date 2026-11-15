@@ -52,8 +52,8 @@ mod supported {
     use std::os::unix::ffi::OsStrExt;
     use std::path::{Component, Path};
 
-    use super::abi::{ELOOP, ENOTDIR, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK};
     use super::ServiceError;
+    use super::abi::{ELOOP, ENOTDIR, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK};
     use std::fs::File;
 
     const DIRECTORY_FLAGS: i32 = O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW;

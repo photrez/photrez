@@ -80,11 +80,11 @@
 //! * Icon edges carry LCD subpixel colour GPUI cannot reproduce: it tints an
 //!   alpha mask, and the font-smoothing hint covers type only, not SVG.
 
-use gpui_kit::base::{h_flex, v_flex, FocusTrapElement};
+use gpui_kit::base::{FocusTrapElement, h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, hsla, px, relative, AnimationExt, BoxShadow, Div, Entity, FontWeight, Hsla, TestSupportExt,
+    AnimationExt, BoxShadow, Div, Entity, FontWeight, Hsla, TestSupportExt, div, hsla, px, relative,
 };
 
 use super::title_bar;
@@ -328,19 +328,15 @@ pub fn render() -> impl IntoElement {
 /// language dropdown. The list expands inline because a popup deferred inside
 /// a dialog overlay never receives hits (measured during the units work).
 fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app::App>) -> Div {
-    use crate::i18n::{self, Locale};
+    use crate::i18n;
     let current = i18n::locale();
     let open = state.read(cx).open_select == Some("settings-language");
-    let current_index = match current {
-        Locale::Id => 1,
-        Locale::Bjn => 2,
-        _ => 0,
-    };
-    let current_label = match current {
-        Locale::Id => "Bahasa Indonesia",
-        Locale::Bjn => "Bahasa Banjar",
-        _ => "English",
-    };
+    let locales = i18n::locales();
+    let current_index = locales
+        .iter()
+        .position(|candidate| *candidate == current)
+        .unwrap_or_default();
+    let current_label = current.name();
     let trigger = h_flex()
         .id("settings-language")
         .test_support()
@@ -359,7 +355,7 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 cx.stop_propagation();
-                app.toggle_select_stay("settings-language", current_index, 3, cx);
+                app.toggle_select_stay("settings-language", current_index, locales.len(), cx);
             }),
         )
         .child(
@@ -383,11 +379,7 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
         // The panel floats over the dialog instead of expanding inline: it
         // paints late (deferred), above the dialog's own chrome, and takes
         // its clicks itself.
-        let options = [
-            "English".to_string(),
-            "Bahasa Indonesia".to_string(),
-            "Bahasa Banjar".to_string(),
-        ];
+        let options: Vec<String> = locales.iter().map(|locale| locale.name()).collect();
         wrapper = wrapper.child(gpui_kit::deferred(
             crate::views::option_bar::controls::floating_options_panel(
                 "settings-language",
@@ -830,7 +822,7 @@ mod tests;
 use about::about_body;
 #[cfg(test)]
 use about::{
-    about_version, ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE, ABOUT_SPEC_LABELS, ABOUT_SPEC_VALUES,
+    ABOUT_LINK_GITHUB, ABOUT_LINK_WEBSITE, ABOUT_SPEC_LABELS, ABOUT_SPEC_VALUES, about_version,
 };
 use chrome::{
     dialog_action_button, dialog_close_button, dialog_shell, dialog_shell_live,

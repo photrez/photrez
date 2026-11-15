@@ -26,16 +26,16 @@
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    px, size, AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle,
-    WindowOptions,
+    AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle, WindowOptions,
+    px, size,
 };
 use std::collections::HashMap;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+use zip::write::SimpleFileOptions;
 
 use crate::app::App;
 use crate::services::error::ServiceError;
@@ -62,7 +62,7 @@ fn open_app_sized(
     height: f32,
 ) -> (WindowHandle<Root>, Entity<App>) {
     cx.update(|cx| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         views::title_bar::init(&cx.svg_renderer());
         crate::app::load_fonts(cx);
     });
@@ -929,9 +929,10 @@ fn startup_open_keeps_active_bundle_until_candidate_is_presentable(cx: &mut Test
 
             let approvals = io.approvals.load(Ordering::Relaxed);
             let reads = io.reads.load(Ordering::Relaxed);
-            assert!(app
-                .open_startup_document_for_test(&missing, io.as_ref(), cx)
-                .is_err());
+            assert!(
+                app.open_startup_document_for_test(&missing, io.as_ref(), cx)
+                    .is_err()
+            );
             assert_eq!(io.approvals.load(Ordering::Relaxed), approvals);
             assert_eq!(io.reads.load(Ordering::Relaxed), reads);
             assert_eq!(app.active_document_id_for_test().as_deref(), Some("doc-a"));

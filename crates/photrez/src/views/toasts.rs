@@ -203,7 +203,7 @@
 
 use gpui_kit::base::v_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, AnyElement, BoxShadow, Div, Hsla, TestSupportExt};
+use gpui_kit::{AnyElement, BoxShadow, Div, Hsla, TestSupportExt, div, px};
 
 use crate::components::ui;
 use crate::shot;

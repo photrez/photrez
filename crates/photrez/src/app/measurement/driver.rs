@@ -9,11 +9,11 @@ use gpui_kit::profiler::journal::{
 };
 use gpui_kit::profiler::{FrameEvent, FrameTimingCollector};
 use gpui_kit::{
-    px, size, AnyWindowHandle, App as GpuiApp, AppContext, Bounds, KeyDownEvent, Keystroke,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, WindowBounds,
-    WindowId, WindowOptions,
+    AnyWindowHandle, App as GpuiApp, AppContext, Bounds, KeyDownEvent, Keystroke, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, WindowBounds, WindowId,
+    WindowOptions, px, size,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::app::App;
 use crate::services::file_io::{FileIo, LocalFileIo};
@@ -32,7 +32,7 @@ mod sandbox;
 #[cfg(test)]
 mod tests;
 
-use args::{parse_args, Case, Config, USAGE};
+use args::{Case, Config, USAGE, parse_args};
 use canonical::{
     digest64, find_ink_target, inspect_canonical, nearby_pixel, pixel_diff, point_for_pixel,
     validate_committed_state, validate_snapshot,
@@ -152,7 +152,7 @@ pub fn run() {
         };
 
     gpui_kit::application().run(move |cx: &mut GpuiApp| {
-        gpui_kit::init(cx);
+        crate::init_gpui_host(cx, None);
         crate::views::title_bar::init(&cx.svg_renderer());
         crate::app::load_fonts(cx);
         let _ = gpui_kit::profiler::set_trace_enabled(true);

@@ -117,12 +117,11 @@ impl DocumentCore {
                             .0
                             .iter()
                             .position(|l| l.is_background == Some(true))
+                            && bg_pos != self.layers.0.len() - 1
                         {
-                            if bg_pos != self.layers.0.len() - 1 {
-                                let bg = self.layers.get(bg_pos).expect("bg present").clone();
-                                let without = self.layers.removed(bg_pos);
-                                self.layers = without.insert_at(bg.clone(), without.0.len());
-                            }
+                            let bg = self.layers.get(bg_pos).expect("bg present").clone();
+                            let without = self.layers.removed(bg_pos);
+                            self.layers = without.insert_at(bg.clone(), without.0.len());
                         }
                         self.finish_forward(_e);
                         // Emit every layer as an Upsert in engine order so the host

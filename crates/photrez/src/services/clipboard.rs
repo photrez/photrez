@@ -30,7 +30,7 @@ pub fn set_auto_copy_hex_enabled(settings: &dyn SettingsStore, enabled: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{auto_copy_hex_enabled, set_auto_copy_hex_enabled, Clipboard, GpuiClipboard};
+    use super::{Clipboard, GpuiClipboard, auto_copy_hex_enabled, set_auto_copy_hex_enabled};
     use crate::services::settings::{FileSettings, SettingsStore};
     use gpui_kit::{ClipboardItem, TestAppContext};
     use std::path::PathBuf;

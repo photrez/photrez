@@ -100,7 +100,7 @@
 
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Context, Div, Entity, FontWeight, Hsla};
+use gpui_kit::{BoxShadow, Context, Div, Entity, FontWeight, Hsla, div, hsla, px};
 
 use crate::components::ui;
 use crate::i18n::t;

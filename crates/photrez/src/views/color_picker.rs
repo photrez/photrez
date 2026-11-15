@@ -17,14 +17,14 @@ use std::rc::Rc;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, px, AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, Entity,
-    FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId,
-    IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    TestSupportExt, WeakEntity, Window,
+    AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, Entity, FocusHandle,
+    GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, TestSupportExt, WeakEntity,
+    Window, div, px,
 };
 
 use crate::i18n::t;
-use crate::palette::{hsla, hsv_to_rgb, Hsv};
+use crate::palette::{Hsv, hsla, hsv_to_rgb};
 use crate::state::{AppState, ColorPickerSession, PickerArea};
 use crate::tokens::color;
 
@@ -207,12 +207,10 @@ fn sv_box(
                 .rounded_full()
                 .border_1()
                 .border_color(white())
-                .shadow(vec![gpui_kit::BoxShadow::new(
-                    px(0.0),
-                    px(0.0),
-                    black().opacity(0.5),
-                )
-                .spread_radius(px(1.0))]),
+                .shadow(vec![
+                    gpui_kit::BoxShadow::new(px(0.0), px(0.0), black().opacity(0.5))
+                        .spread_radius(px(1.0)),
+                ]),
         );
 
     div()

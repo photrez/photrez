@@ -505,9 +505,19 @@ pub struct AppState {
     pub nav_zoom_capture: std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
+    /// A Classic crop frame hidden on the pasteboard for later restoration.
+    pub crop_hidden_preview: Option<crate::crop_geometry::CropSnapshot>,
     /// Mini undo/redo for the crop frame.
-    pub crop_history: Vec<[f64; 4]>,
-    pub crop_redo: Vec<[f64; 4]>,
+    pub crop_history: Vec<crate::crop_geometry::CropSnapshot>,
+    pub crop_redo: Vec<crate::crop_geometry::CropSnapshot>,
+    /// Modern moves the image under a fixed frame; Classic moves the frame.
+    pub crop_interaction: crate::crop_geometry::CropInteraction,
+    /// The Modern image offset in logical screen pixels.
+    pub crop_offset: (f64, f64),
+    /// Rotation in degrees for the crop preview.
+    pub crop_rotation: f64,
+    /// The active crop composition guide.
+    pub crop_guides: crate::crop_geometry::CropGuides,
     /// Crop bar mode (`cropMode`): the frame follows the drag, a ratio, or a
     /// physical size target.
     pub crop_mode: crate::crop_aspect::CropMode,
@@ -525,8 +535,7 @@ pub struct AppState {
     pub crop_size_field: usize,
     /// The field buffer while a Size/Custom value is being typed.
     pub crop_edit: Option<String>,
-    /// `true` while the buffer belongs to the Custom W:H pair, not the Size pair.
-    pub crop_edit_custom: bool,
+    pub crop_edit_field: crate::crop_geometry::CropField,
     /// The ratio dropdown panel.
     pub crop_ratio_open: bool,
     /// The Size unit list panel.
@@ -568,6 +577,9 @@ pub struct AppState {
     pub dialog_trap_focus: Option<gpui_kit::FocusHandle>,
     /// Laid-out bounds of the Paint Bucket tolerance slider (pointer mapping).
     pub tolerance_slider_bounds:
+        std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// Laid-out bounds of the Crop bar's straighten track, for pointer mapping.
+    pub crop_straighten_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// Laid-out bounds of the Properties panel's opacity track (pointer mapping).
     pub opacity_slider_bounds:

@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use photrez_core::pixel::export::{
-    decode_image_into, encode_image, image_dimensions, DecodedImageMeta,
+    DecodedImageMeta, decode_image_into, encode_image, image_dimensions,
 };
 
 use crate::services::error::ServiceError;
@@ -200,7 +200,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::services::file_io::LocalFileIo;
-    use crate::services::image_files::{decode_import, encode_export, write_export, ImageFormat};
+    use crate::services::image_files::{ImageFormat, decode_import, encode_export, write_export};
     use crate::services::ptz_limits::MAX_LAYER_DIMENSION;
 
     static NEXT_DIR: AtomicU64 = AtomicU64::new(0);

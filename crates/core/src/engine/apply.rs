@@ -35,13 +35,13 @@ impl DocumentCore {
                 ),
             });
         }
-        if let Some(expected) = envelope.expected_version {
-            if expected != self.version {
-                return Err(ProtocolError {
-                    code: "E_VERSION_MISMATCH".to_string(),
-                    message: format!("expected version {} got {}", expected, self.version),
-                });
-            }
+        if let Some(expected) = envelope.expected_version
+            && expected != self.version
+        {
+            return Err(ProtocolError {
+                code: "E_VERSION_MISMATCH".to_string(),
+                message: format!("expected version {} got {}", expected, self.version),
+            });
         }
         // External-pending barrier (history-stream invariant): a host handoff is
         // outstanding — no new command may enter until the cursor commit lands.
@@ -277,11 +277,11 @@ impl DocumentCore {
                             if pre_doc != *doc_size_before {
                                 delta_dims = *doc_size_before;
                             }
-                            if let Some(d) = doc_size_before {
-                                if let Some(sh) = &mut self.replica {
-                                    sh.doc.width = d.0;
-                                    sh.doc.height = d.1;
-                                }
+                            if let Some(d) = doc_size_before
+                                && let Some(sh) = &mut self.replica
+                            {
+                                sh.doc.width = d.0;
+                                sh.doc.height = d.1;
                             }
                             // Pixel half of a destructive arm (crop with baking):
                             // replay the entry's `before` states so one undo step
@@ -392,11 +392,11 @@ impl DocumentCore {
                             if pre_doc != *doc_size_after {
                                 delta_dims = *doc_size_after;
                             }
-                            if let Some(d) = doc_size_after {
-                                if let Some(sh) = &mut self.replica {
-                                    sh.doc.width = d.0;
-                                    sh.doc.height = d.1;
-                                }
+                            if let Some(d) = doc_size_after
+                                && let Some(sh) = &mut self.replica
+                            {
+                                sh.doc.width = d.0;
+                                sh.doc.height = d.1;
                             }
                             // See the undo arm: destructive arms carry their pixel
                             // half in the entry, so redo replays the `after` states.

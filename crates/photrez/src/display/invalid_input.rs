@@ -1,7 +1,7 @@
 //! Invalid-input contracts: zero dimensions, non-finite transforms, oversize
 //! canvases - each one a defined refusal, none a panic.
 
-use super::canvas_bridge::{fit_placement, CanvasImage, FrameError, MAX_CANVAS_DIM};
+use super::canvas_bridge::{CanvasImage, FrameError, MAX_CANVAS_DIM, fit_placement};
 
 #[test]
 fn zero_dimension_is_refused() {

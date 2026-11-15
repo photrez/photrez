@@ -484,18 +484,22 @@ mod tests {
             .expect("save completes");
         registry.mark_dirty("bounded-raster-doc").unwrap();
 
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         registry
             .cancel("bounded-raster-doc")
             .expect("cancel keeps session open");
         let session = registry.get("bounded-raster-doc").unwrap();
         assert!(session.is_dirty());
         assert!(!session.is_closed());
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         assert!(registry.get("bounded-raster-doc").is_some());
     }
 
@@ -557,9 +561,11 @@ mod tests {
         registry
             .open(replacement, "Fixture", Some(source_path))
             .expect("replacement session opens");
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         assert!(!registry.get("bounded-raster-doc").unwrap().is_closed());
     }
 }

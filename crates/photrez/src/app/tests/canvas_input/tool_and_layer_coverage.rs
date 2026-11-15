@@ -437,10 +437,12 @@ fn merge_down_composites_pixels_and_undoes(cx: &mut gpui_kit::TestAppContext) {
         let ids = content.read(cx).active_core_layer_ids_for_test();
         assert_eq!(ids, vec!["top", "bottom"], "undo restores the pair");
         assert!(content.read(cx).core_layer_pixels_for_test("top").is_some());
-        assert!(content
-            .read(cx)
-            .core_layer_pixels_for_test("bottom")
-            .is_some());
+        assert!(
+            content
+                .read(cx)
+                .core_layer_pixels_for_test("bottom")
+                .is_some()
+        );
 
         content.update(cx, |app, cx| {
             app.step_history(false, cx).expect("redo succeeds");

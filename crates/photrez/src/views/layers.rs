@@ -90,7 +90,7 @@
 //!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
 //!   does not derive it from adjustment values itself.
 
-use crate::app::{blend_label, BLEND_MODES};
+use crate::app::{BLEND_MODES, blend_label};
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
@@ -103,7 +103,7 @@ use photrez_core::protocol::LockKind;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window};
+use gpui_kit::{Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window, div, px};
 
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.
@@ -934,9 +934,11 @@ mod tests {
             ..flags()
         }));
         assert!(background.iter().all(|toggle| toggle.disabled));
-        assert!(background
-            .iter()
-            .all(|toggle| toggle.text == t("layers.renameToUnlock")));
+        assert!(
+            background
+                .iter()
+                .all(|toggle| toggle.text == t("layers.renameToUnlock"))
+        );
 
         let absent = lock_toggles(None);
         assert!(absent.iter().all(|toggle| toggle.disabled));

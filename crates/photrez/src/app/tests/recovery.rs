@@ -85,10 +85,11 @@ fn startup_recovery_restores_autosaves_as_unsaved_tabs(cx: &mut gpui_kit::TestAp
 
             app.restore_autosaves_from(&cache, cx);
             assert_eq!(app.open_tab_ids_for_test(), vec!["multi-doc"]);
-            assert!(app
-                .active_document_id_for_test()
-                .as_deref()
-                .is_some_and(|id| id == "multi-doc"));
+            assert!(
+                app.active_document_id_for_test()
+                    .as_deref()
+                    .is_some_and(|id| id == "multi-doc")
+            );
             assert_eq!(app.state_for_test().read(cx).active_dialog, None);
             assert_eq!(app.active_core_layer_count_for_test(), Some(2));
             assert!(

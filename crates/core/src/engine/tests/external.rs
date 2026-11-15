@@ -24,8 +24,8 @@
 use super::commands::env;
 use crate::document::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
 use crate::document::layer::{LayerChange, LayerMeta};
-use crate::engine::layer_set::LayerSet;
 use crate::engine::DocumentCore;
+use crate::engine::layer_set::LayerSet;
 use crate::wire::command::*;
 
 fn canon_layer(id: &str) -> PtzLayer {

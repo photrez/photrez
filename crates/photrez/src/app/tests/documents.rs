@@ -322,11 +322,13 @@ fn new_document_dialog_creates_a_dirty_tab_with_the_chosen_preset(
             Some(1),
             "the app's new document is one Background layer"
         );
-        assert!(content
-            .read(cx)
-            .active_document_id_for_test()
-            .as_deref()
-            .is_some_and(|id| id.starts_with("native-doc-")));
+        assert!(
+            content
+                .read(cx)
+                .active_document_id_for_test()
+                .as_deref()
+                .is_some_and(|id| id.starts_with("native-doc-"))
+        );
     })
     .expect("test window remains open");
 }

@@ -40,7 +40,7 @@
 use super::*;
 use crate::views::color_picker::channel_readouts;
 use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{px, Point};
+use gpui_kit::{Point, px};
 
 /// The six numbers the open picker prints, in display order.
 fn printed_channels(content: &Entity<App>, cx: &gpui_kit::App) -> Vec<String> {

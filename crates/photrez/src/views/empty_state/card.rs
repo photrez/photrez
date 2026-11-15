@@ -1,7 +1,7 @@
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{BoxShadow, Div, FontWeight, Hsla, TestSupportExt, div, hsla, px};
 
 use crate::components::ui;
 use crate::i18n::t;
@@ -13,10 +13,10 @@ use super::{
     ACTIONS_GAP, ACTIONS_H, ACTIONS_PAD_Y, BUTTON_GAP, BUTTON_H, BUTTON_ICON, BUTTON_TEXT,
     BUTTON_W, CARD_H, CARD_R, CARD_W, DESC_LINE_H, DESC_MT, DESC_TEXT, FOOTER_H, FOOTER_PAD_Y,
     HEADER_GAP, HEADER_H, HEADER_ICON, HEADER_ICON_BOX, HEADER_ICON_OFFSET, HEADER_PAD_Y,
-    HEADER_ROW_H, HEADING_LINE_H, HEADING_TEXT, KBD_PAD_X, KBD_PAD_Y, PAD_X, PRESETS, PRESETS_H,
-    PRESETS_HEADING_MB, PRESETS_PAD_Y, PRESET_ROW_GAP, PROMPT_TEXT, R3, R4, TAG_LINE_H, TAG_TEXT,
-    TILE_GAP, TILE_H, TILE_ICON, TILE_ICON_BOX, TILE_LABEL_LINE_H, TILE_LABEL_TEXT, TILE_PAD,
-    TILE_W, TITLE_LINE_H, TITLE_TEXT,
+    HEADER_ROW_H, HEADING_LINE_H, HEADING_TEXT, KBD_PAD_X, KBD_PAD_Y, PAD_X, PRESET_ROW_GAP,
+    PRESETS, PRESETS_H, PRESETS_HEADING_MB, PRESETS_PAD_Y, PROMPT_TEXT, R3, R4, TAG_LINE_H,
+    TAG_TEXT, TILE_GAP, TILE_H, TILE_ICON, TILE_ICON_BOX, TILE_LABEL_LINE_H, TILE_LABEL_TEXT,
+    TILE_PAD, TILE_W, TITLE_LINE_H, TITLE_TEXT,
 };
 /// The `<section>` itself: 520x352, 6px corners, a 1px [`color::BORDER`] edge
 /// and a [`color::PANEL`] fill, over `0 12px 32px rgba(0,0,0,0.8)`.

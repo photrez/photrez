@@ -37,11 +37,13 @@ pub enum SliderTarget {
     PrintScale,
     /// The Properties panel's opacity track, 0..=100 % of the layer.
     LayerOpacity,
+    /// The Crop bar's straighten track, -45..=45 degrees.
+    CropStraighten,
 }
 
 impl SliderTarget {
     /// How many tracks exist, so the focus table can be built once and checked.
-    pub const COUNT: usize = 11;
+    pub const COUNT: usize = 12;
 
     /// The track's slot in `AppState::slider_foci`. Spelled out rather than
     /// derived from the enum order, so adding a variant cannot silently point a
@@ -59,6 +61,7 @@ impl SliderTarget {
             SliderTarget::AdjustmentSaturation => 8,
             SliderTarget::PrintScale => 9,
             SliderTarget::LayerOpacity => 10,
+            SliderTarget::CropStraighten => 11,
         }
     }
 }

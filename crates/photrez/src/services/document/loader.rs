@@ -6,8 +6,8 @@ use std::str;
 use photrez_core::document::content::{
     BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D,
 };
-use photrez_core::pixel::export::{decode_png_into, png_dimensions};
 use photrez_core::pixel::PixelStoreRegistry;
+use photrez_core::pixel::export::{decode_png_into, png_dimensions};
 use photrez_core::ptz::PtzDocument;
 use zip::ZipArchive;
 

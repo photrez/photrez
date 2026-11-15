@@ -8,11 +8,11 @@
 
 use gpui_kit::Context;
 use photrez_core::document::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer};
-use photrez_core::protocol::{Command, CommandEnvelope, LockKind, CONTRACT_VERSION};
-use photrez_core::render::compositor::{composite_layers_with_font_data, CompositedRgba};
+use photrez_core::protocol::{CONTRACT_VERSION, Command, CommandEnvelope, LockKind};
+use photrez_core::render::compositor::{CompositedRgba, composite_layers_with_font_data};
 
-use super::canvas_input::next_layer_id;
 use super::App;
+use super::canvas_input::next_layer_id;
 
 #[derive(Clone, PartialEq, Debug, Default, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]

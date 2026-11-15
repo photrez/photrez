@@ -20,12 +20,12 @@ mod imp {
     use windows_sys::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
     #[cfg(not(test))]
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, DefWindowProcW, GetAncestor, GetCursorPos, SetWindowLongPtrW,
-        WindowFromPoint, GA_ROOT, GWLP_WNDPROC,
+        CallWindowProcW, DefWindowProcW, GA_ROOT, GWLP_WNDPROC, GetAncestor, GetCursorPos,
+        SetWindowLongPtrW, WindowFromPoint,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateIconFromResourceEx, LoadCursorW, SetCursor, HCURSOR, HTCLIENT, IDC_ARROW,
-        LR_DEFAULTCOLOR, LR_DEFAULTSIZE, WM_SETCURSOR,
+        CreateIconFromResourceEx, HCURSOR, HTCLIENT, IDC_ARROW, LR_DEFAULTCOLOR, LR_DEFAULTSIZE,
+        LoadCursorW, SetCursor, WM_SETCURSOR,
     };
 
     /// RT_CURSOR resources: one record per 22.5-degree direction. Each record is

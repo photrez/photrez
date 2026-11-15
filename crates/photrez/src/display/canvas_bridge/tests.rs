@@ -60,9 +60,11 @@ fn scaled_preview_patch_is_display_only_until_discarded() {
     assert_eq!(retired.len(), 1);
     assert!(image.preview_patches.is_empty());
     assert!(image.commit_patches().is_ok());
-    assert!(image
-        .update_region(0, 0, 1, 1, &solid(1, 1, [0, 0, 0, 255]))
-        .is_ok());
+    assert!(
+        image
+            .update_region(0, 0, 1, 1, &solid(1, 1, [0, 0, 0, 255]))
+            .is_ok()
+    );
 }
 
 #[test]

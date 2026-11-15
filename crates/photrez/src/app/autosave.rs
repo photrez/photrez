@@ -96,14 +96,16 @@ impl App {
             .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
         let _ = AutosaveStore::new(&cache_root).cleanup_stale(now_ms);
-        let task = cx.spawn(async move |weak, cx| loop {
-            cx.background_executor().timer(AUTOSAVE_INTERVAL).await;
-            let root: PathBuf = cache_root.clone();
-            if weak
-                .update(cx, |app, cx| app.autosave_now(&root, cx))
-                .is_err()
-            {
-                break;
+        let task = cx.spawn(async move |weak, cx| {
+            loop {
+                cx.background_executor().timer(AUTOSAVE_INTERVAL).await;
+                let root: PathBuf = cache_root.clone();
+                if weak
+                    .update(cx, |app, cx| app.autosave_now(&root, cx))
+                    .is_err()
+                {
+                    break;
+                }
             }
         });
         self.autosave_task = Some(task);

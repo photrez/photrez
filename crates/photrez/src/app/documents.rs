@@ -118,20 +118,26 @@ impl App {
     /// frame or undo stack never crosses documents.
     pub(crate) fn reset_transient_for_active_document(&mut self, cx: &mut Context<Self>) {
         self.crop_drag = None;
+        self.crop_straighten_document_id = None;
         self.selection_edit_mode = false;
         let Some((width, height)) = self
             .active_document
             .as_ref()
             .map(|document| document.canvas.dimensions())
         else {
+            self.state
+                .update(cx, |state, _| state.crop_hidden_preview = None);
             return;
         };
         let crop_active = self.state.read(cx).active_tool == crate::state::ToolId::Crop;
         self.state.update(cx, |state, _| {
             state.crop_rect =
                 crop_active.then_some([0.0, 0.0, f64::from(width), f64::from(height)]);
+            state.crop_hidden_preview = None;
             state.crop_history.clear();
             state.crop_redo.clear();
+            state.crop_offset = (0.0, 0.0);
+            state.crop_rotation = 0.0;
             state.selection_drag = None;
             state.hud = None;
         });

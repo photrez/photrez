@@ -197,19 +197,27 @@ pub(crate) const NAV_BOX_H: f32 = 88.;
 const NAV_H: f32 = 185.;
 const NAV_HEADER_H: f32 = 38.;
 
-/// Transient canvas chrome painted over the page: the committed/live pixel
-/// selection and the crop frame. Coordinates are document space; the paint
-/// pass maps them through the same page placement as the tiles.
+/// Crop geometry uses document space; its shield is clipped to the viewport.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CanvasOverlay {
     /// The committed or live pixel selection, painted as
     /// double-stroke marching ants (the ellipse shape draws a dashed ellipse).
     pub selection: Option<SelectionOverlay>,
-    /// The rotate-cursor sprite following the pointer during selection
+    /// The rotate-cursor sprite following the pointer during Crop or Selection
     /// rotation.
     pub rotate_cursor: Option<RotateCursorOverlay>,
     /// Crop frame `(x, y, width, height)`.
     pub crop: Option<(f64, f64, f64, f64)>,
+    /// Modern drag-create outline in absolute window coordinates.
+    pub crop_create_preview: Option<(f64, f64, f64, f64)>,
+    /// Classic Crop frame rotation; Modern keeps its frame axis-aligned.
+    pub crop_rotation: f64,
+    /// Fill style for the area outside the crop frame.
+    pub crop_delete_pixels: bool,
+    /// Composition guides drawn inside the crop frame.
+    pub crop_guides: crate::crop_geometry::CropGuides,
+    /// A viewport-sized derived image replaces the untransformed page while active.
+    pub crop_preview_active: bool,
     /// Move-tool transform frame: four visual corners and eight handle points
     /// in document space.
     pub transform: Option<TransformFrame>,
