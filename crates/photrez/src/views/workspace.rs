@@ -29,6 +29,10 @@ const RAIL_W: f32 = 52.0;
 const DOCK_W: f32 = 533.0;
 /// Right dock width at the wide breakpoint: 272+1+260 widens to 300+298.
 const DOCK_W_WIDE: f32 = 598.0;
+/// The stacked dock's width: one 272px column.
+const STACKED_W: f32 = 272.0;
+/// The stacked dock at the wide breakpoint: 300px.
+const STACKED_W_WIDE: f32 = 300.0;
 /// Document tabs height: 38px.
 const TABBAR_H: f32 = 38.0;
 /// Option bar height: 38px.
@@ -141,7 +145,18 @@ pub(crate) fn render(
     // The shell is responsive at the same breakpoints as the captured layout:
     // a viewport 1536 layout px or wider widens both dock columns.
     let wide_layout = window.viewport_size().width >= px(1536.0);
-    let dock_w = if wide_layout { DOCK_W_WIDE } else { DOCK_W };
+    let stacked = state.read(cx).right_dock_layout == crate::state::RightDockLayout::Stacked;
+    let dock_w = if stacked {
+        if wide_layout {
+            STACKED_W_WIDE
+        } else {
+            STACKED_W
+        }
+    } else if wide_layout {
+        DOCK_W_WIDE
+    } else {
+        DOCK_W
+    };
     let (active_tool, selected_layer_name) = {
         let s = state.read(cx);
         (
@@ -373,9 +388,21 @@ pub(crate) fn render(
             ))
         })
         .when_some(context_menu, |el, position| {
+            let (vw, vh) = (
+                f32::from(window.viewport_size().width),
+                f32::from(window.viewport_size().height),
+            );
+            let (x, y) = menus::clamp_popup(
+                position.0,
+                position.1,
+                context_menus::CTX_W,
+                menus::CANVAS_MENU_H,
+                vw,
+                vh,
+            );
             el.child(menus::render_context(
                 state,
-                position,
+                (x, y),
                 has_pixel_selection,
                 has_copyable_selection,
                 has_selection_clipboard,
@@ -383,6 +410,17 @@ pub(crate) fn render(
             ))
         })
         .when_some(layer_context_menu, |el, (x, y, core_id)| {
+            let multi = state.read(cx).selected_layers.len() > 1;
+            let (vw, vh) = (
+                f32::from(window.viewport_size().width),
+                f32::from(window.viewport_size().height),
+            );
+            let h = if multi {
+                menus::LAYER_MENU_MULTI_H
+            } else {
+                menus::LAYER_MENU_SINGLE_H
+            };
+            let (x, y) = menus::clamp_popup(x, y, context_menus::CTX_W, h, vw, vh);
             el.child(menus::render_layer_context(state, (x, y), core_id, cx))
         })
         .when_some(brush_menu, |el, _| {

@@ -6,25 +6,25 @@ use std::rc::Rc;
 
 use crate::views::option_bar::controls::tooltip;
 
-/// 22px — one reorder chevron.
+/// 22px � one reorder chevron.
 const MOVE_BTN: f32 = 22.0;
 
-/// 14px — the glyph inside it.
+/// 14px � the glyph inside it.
 const MOVE_ICON: f32 = 14.0;
 
 /// 4px between the chevrons and on the strip's trailing edge.
 const MOVE_GAP: f32 = 4.0;
 
-/// 24px — the adjustments indicator's box.
+/// 24px � the adjustments indicator's box.
 const ADJUST_BOX: f32 = 24.0;
-/// 14px — the sliders glyph inside it.
+/// 14px � the sliders glyph inside it.
 const ADJUST_ICON: f32 = 14.0;
-/// 4px — the indicator's trailing gap before the lock button.
+/// 4px � the indicator's trailing gap before the lock button.
 const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
-/// 20px square with a 2px corner and a 12px glyph — the drag ghost's icon tile.
+/// 20px square with a 2px corner and a 12px glyph � the drag ghost's icon tile.
 const GHOST_TILE: f32 = 20.0;
 const GHOST_TILE_RADIUS: f32 = 2.0;
 const GHOST_TILE_ICON: f32 = 12.0;
@@ -667,10 +667,10 @@ fn move_button(
     )
 }
 
-/// 24px — the row's eye and lock buttons.
+/// 24px � the row's eye and lock buttons.
 const ROW_BTN: f32 = 24.0;
 
-/// 16px / 14px — the glyphs inside those buttons.
+/// 16px / 14px � the glyphs inside those buttons.
 const ROW_EYE_ICON: f32 = 16.0;
 const ROW_LOCK_ICON: f32 = 14.0;
 
@@ -711,10 +711,8 @@ impl Render for LayerDragGhost {
 }
 
 /// The layer thumbnail's frame: 34x34, 1px border, 3px corners, checker inside.
-///
-/// The canvas bitmap is a *layer preview*, which a static view cannot have —
-/// so this is the empty chrome, exactly as in `properties_panel.rs`.
-fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
+/// Shared by the layers rows and the properties panel's Selected Layer card.
+pub(crate) fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
     // A row without a core layer is the seeded display-only Background, whose
     // document image is the white 800x600 canvas; that is the swatch the
     // capture paints. Anything with pixels keeps the checkerboard frame.

@@ -841,6 +841,28 @@ fn dialog_row(
     ui::menu_row_action(label, shortcut, id, listener).into_any_element()
 }
 
+pub(crate) const CANVAS_MENU_H: f32 = 308.0;
+pub(crate) const LAYER_MENU_SINGLE_H: f32 = 401.0;
+pub(crate) const LAYER_MENU_MULTI_H: f32 = 345.0;
+
+/// Keep a context popup inside the window: shift it left/up when it would
+/// cross a window edge. The popups have no edge logic of their own, so a
+/// right-click near the right or bottom edge opened a menu whose shortcut
+/// column or last rows were clipped away (case C04).
+pub(crate) fn clamp_popup(x: f32, y: f32, w: f32, h: f32, vw: f32, vh: f32) -> (f32, f32) {
+    let x = if x + w > vw {
+        (vw - w).max(0.0)
+    } else {
+        x.max(0.0)
+    };
+    let y = if y + h > vh {
+        (vh - h).max(0.0)
+    } else {
+        y.max(0.0)
+    };
+    (x, y)
+}
+
 /// The canvas context menu: the reachable edit/view/layer commands at the
 /// right-click position. Any command closes both menu surfaces.
 pub fn render_context(
@@ -1262,6 +1284,30 @@ mod tests {
 
     /// The hovered-row fill is a measured pin (`#232323` = 35/255): change the
     /// value and the `menu-*-hover-item` strip comparison reddens.
+    #[test]
+    fn clamp_popup_keeps_menu_inside_window() {
+        // An interior click position is untouched.
+        assert_eq!(
+            clamp_popup(40.0, 60.0, 210.0, 300.0, 1366.0, 816.0),
+            (40.0, 60.0)
+        );
+        // A right-edge click pulls the menu left until the full width fits.
+        assert_eq!(
+            clamp_popup(1255.0, 180.0, 210.0, 401.0, 1366.0, 816.0),
+            (1156.0, 180.0)
+        );
+        // A bottom-edge click pulls the menu up until the full height fits.
+        assert_eq!(
+            clamp_popup(40.0, 700.0, 210.0, 401.0, 1366.0, 816.0),
+            (40.0, 415.0)
+        );
+        // Negative origins are pinned to the corner.
+        assert_eq!(
+            clamp_popup(-20.0, -30.0, 210.0, 401.0, 1366.0, 816.0),
+            (0.0, 0.0)
+        );
+    }
+
     #[test]
     fn hover_row_fill_is_232323() {
         assert_eq!((HOVER_ROW_FILL.l * 255.0).round() as u8, 35);

@@ -1,16 +1,22 @@
 use super::*;
 
 #[test]
-fn static_layer_values_pinned() {
-    // The pins carry the new-document data model as measured from a created
-    // 800x600 document (one full-canvas
-    // "Background" image layer at 0,0 with locked position/rotation) — not
-    // the older "Layer 1 · 100x100" seed.
-    // ASCII escapes must render to the expected characters.
-    assert_eq!(LAYER_NAME, "Background");
-    assert!(LAYER_SUBTITLE.contains('\u{b7}'));
-    assert!(LAYER_SUBTITLE.contains('\u{d7}'));
-    assert_eq!(LAYER_SUBTITLE, "Image layer \u{b7} 800 \u{d7} 600 px");
+fn selected_layer_subtitle_pins_the_shape() {
+    // The live Selected Layer card's subtitle carries the projected layer's
+    // kind and source size; the properties and adjustments panels share this
+    // shape.
+    assert_eq!(
+        selected_layer_subtitle("Image", 800, 600),
+        "Image layer \u{b7} 800 \u{d7} 600 px"
+    );
+    assert_eq!(
+        selected_layer_subtitle("Shape", 1080, 1080),
+        "Shape layer \u{b7} 1080 \u{d7} 1080 px"
+    );
+    assert_eq!(
+        selected_layer_subtitle("Text", 200, 48),
+        "Text layer \u{b7} 200 \u{d7} 48 px"
+    );
 }
 
 #[test]

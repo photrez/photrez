@@ -47,6 +47,15 @@ pub enum LayerTab {
     History,
 }
 
+/// The right dock's arrangement: two columns side by side, or one column
+/// with the inspector above the Layers/History dock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RightDockLayout {
+    #[default]
+    SideBySide,
+    Stacked,
+}
+
 /// The open-document loading overlay: an indeterminate wait or real progress.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadingState {
@@ -277,6 +286,8 @@ pub struct AppState {
     pub inspector_tab: InspectorTab,
     pub layer_tab: LayerTab,
     pub dock_open: bool,
+    /// The right dock's arrangement: side-by-side (default) or stacked.
+    pub right_dock_layout: RightDockLayout,
     pub has_document: bool,
     /// Layer rows shown in the Layers panel, top of the stack first.
     pub layers: Vec<LayerRow>,

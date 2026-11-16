@@ -1012,3 +1012,4 @@ mod tests {
 
 mod rows;
 use rows::layer_list;
+pub(crate) use rows::layer_thumb;

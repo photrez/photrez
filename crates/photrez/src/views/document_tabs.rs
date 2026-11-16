@@ -47,19 +47,12 @@
 //!   U+2026), which is what the baseline paints.
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
-//!   takes no space. The arithmetic agrees with leaving it out: the utility
-//!   cluster measures 117px (1 border + 8 left padding + 92 export +
-//!   16 right padding).
-//! * **The layout toggle was captured, and is removed.** The baseline paints
-//!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
-//!   8 gap + 92 export + 16 right padding), which put its left border at
-//!   exactly x=680, where `shell-full-page.png` has #333333. That control
-//!   switched the right dock between side-by-side and stacked, and tinted the
-//!   glyph with the accent only in the stacked layout. This app ships one
-//!   dock layout, so the control had no handler: a painted control that answers
-//!   no click is removed rather than kept, the same ruling that took the crop
-//!   bar's dead control out. Export keeps its measured x=725..816 place; the
-//!   cluster's left border moves from x=680 to x=716.
+//!   takes no space. The utility cluster holds the layout toggle (28px + 8
+//!   gap) and the export button (92px); it measures 153px as captured.
+//! * **The layout toggle is mounted here**: it flips the right dock between
+//!   the side-by-side pair and the stacked column. It was previously removed
+//!   for lack of a click; `toggle_dock_layout` makes the click do something,
+//!   so the control is kept. The icon tints ACCENT only in the stacked state.
 //! * **Box model**: GPUI/taffy defaults to border-box sizing, so the
 //!   38px strip spends its 1px bottom border inside the 38 and leaves the 37px
 //!   content height `manifest.json` measures for the tab. The tab's width is
@@ -93,7 +86,9 @@ use gpui_kit::{FontWeight, Point, TestSupportExt, Window, div, px};
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
+use crate::state::RightDockLayout;
 use crate::tokens::color;
+use crate::views::option_bar::controls::tooltip;
 
 use gpui_kit::Div;
 
@@ -436,13 +431,12 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 
 /// The utility cluster: centred on one row, 8px left and 16px right padding,
 /// never squeezed, a 1px left border and the full strip height. It holds the
-/// export button.
+/// layout toggle (28px) then the export button (92px), 8px apart.
 ///
 /// The dock-close button is hidden from the
 /// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
-/// absent rather than omitted.
-/// See the module docs for the 117px arithmetic that confirms it, and for why
-/// the layout toggle is not mounted here.
+/// absent rather than omitted. See the module docs for the layout toggle's
+/// place in the cluster.
 fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate::app::App>) -> Div {
     h_flex()
         // Full strip height.
@@ -454,7 +448,59 @@ fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate:
         .pr(px(CLUSTER_PAD_R))
         .border_l_1()
         .border_color(color::BORDER)
+        .child(layout_toggle_button(state, cx))
         .child(export_button(state, cx))
+}
+
+/// The layout toggle: flips the right dock between the side-by-side pair of
+/// panels and the stacked single column. The baseline painted it and this
+/// app once removed it for lack of a click; the toggle now has a handler
+/// (`toggle_dock_layout`) and the icon tints ACCENT in the stacked state,
+/// matching the oracle. 28px, 4px radius, hover fill of white at 4.5%,
+/// the COLUMNS glyph at 16px with a 1.75 stroke.
+fn layout_toggle_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let stacked = state.read(cx).right_dock_layout == RightDockLayout::Stacked;
+    let button = h_flex()
+        .id("tab-dock-layout")
+        .test_support()
+        .w(px(28.0))
+        .h(px(28.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(RADIUS_4))
+        .flex_none()
+        .hover(|s| s.bg(color::WHITE_45))
+        .aria_label(t(if stacked {
+            "panels.switchToSideBySide"
+        } else {
+            "panels.switchToStacked"
+        }))
+        .on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                app.toggle_dock_layout(cx);
+            },
+        ))
+        .child(
+            Icon::default()
+                .data(icons::COLUMNS)
+                .size(px(16.0))
+                .text_color(if stacked { color::ACCENT } else { color::ICON }),
+        );
+    tooltip(
+        state,
+        "tab-dock-layout",
+        t(if stacked {
+            "panels.switchToSideBySide"
+        } else {
+            "panels.switchToStacked"
+        }),
+        None,
+        cx,
+        button,
+    )
 }
 
 /// The export button: 28px tall, never squeezed, centred on one row with 8px

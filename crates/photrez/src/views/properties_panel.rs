@@ -133,11 +133,11 @@ const HDR_ICON: f32 = 15.0;
 /// 12.5px, medium weight — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
-// --- Static "Selected Layer" literals (single-selected-layer branch) ---
-// ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact resting
-// text; change them only with a new measurement.
-pub const LAYER_NAME: &str = "Background"; // i18n-exempt: new-document layer name
-pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
+// --- Selected Layer card: live values ---
+/// The card's live subtitle, pinned by a test in this module's `tests`.
+pub(crate) fn selected_layer_subtitle(kind: &str, width: u32, height: u32) -> String {
+    format!("{kind} layer \u{b7} {width} \u{d7} {height} px")
+}
 
 /// The wired Actions row: (test id, handler) paired with the [ACTIONS] table
 /// order. The handlers are the ones the deleted additive strip used.
@@ -163,6 +163,7 @@ pub fn render(
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (has_document, has_layers, multi) = {
@@ -185,7 +186,7 @@ pub fn render(
     } else {
         let text_selected = state.read(cx).selected_layer_type.as_deref() == Some("text");
         v_flex()
-            .child(selected_layer_section())
+            .child(selected_layer_section(state, layer_thumbs, cx))
             .when(text_selected, |el| el.child(typography_section(state, cx)))
             .child(transform::section(state, transform_readout, cx))
     };
@@ -567,23 +568,33 @@ pub(super) fn section_header(icon: &'static [u8], label: &str) -> Div {
     )
 }
 
-/// The layer thumbnail's frame: 34x34, 1px divider border, 3px corners, checker
-/// inside. The seeded Background layer is this view's only single-layer branch
-/// and its image is the white 800x600 document, so the frame paints that
-/// swatch; checkerboard stays the fallback for a layer without pixels.
-fn layer_thumb() -> Div {
-    div()
-        .w(px(THUMB))
-        .h(px(THUMB))
-        .rounded(px(R3))
-        .border(px(1.0))
-        .border_color(color::DIVIDER)
-        .bg(color::WHITE)
-        .flex_shrink_0()
-}
-
-/// The "Selected Layer" section: header, then the bordered thumb+text box.
-fn selected_layer_section() -> Div {
+/// The "Selected Layer" section: header, then the bordered thumb+text box,
+/// fed from the app's live selection projection.
+fn selected_layer_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (name, type_label, width, height, thumb) = {
+        let s = state.read(cx);
+        let index = s
+            .layers
+            .iter()
+            .position(|row| row.id == s.selected_layer)
+            .unwrap_or(0);
+        let type_label = match s.selected_layer_type.as_deref() {
+            Some("shape") => "Shape",
+            Some("text") => "Text",
+            _ => "Image",
+        };
+        (
+            s.active_layer_name.clone(),
+            type_label,
+            s.active_layer_width,
+            s.active_layer_height,
+            layer_thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+        )
+    };
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -606,7 +617,7 @@ fn selected_layer_section() -> Div {
                 .border_color(color::DIVIDER)
                 .bg(color::FIELD)
                 .p(px(BOX_PAD))
-                .child(layer_thumb())
+                .child(crate::views::layers::layer_thumb(thumb))
                 .child(
                     v_flex()
                         .flex_1()
@@ -619,7 +630,7 @@ fn selected_layer_section() -> Div {
                                 .font_weight(FontWeight(500.))
                                 .line_height(relative(1.1))
                                 .text_color(color::TEXT)
-                                .child(LAYER_NAME.to_string()),
+                                .child(name),
                         )
                         .child(
                             div()
@@ -627,7 +638,7 @@ fn selected_layer_section() -> Div {
                                 .font_family(ui::FONT_UI)
                                 .line_height(relative(1.15))
                                 .text_color(color::TEXT_DIM)
-                                .child(LAYER_SUBTITLE.to_string()),
+                                .child(selected_layer_subtitle(type_label, width, height)),
                         ),
                 ),
         )

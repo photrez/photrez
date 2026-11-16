@@ -9,6 +9,7 @@ impl Default for AppState {
             inspector_tab: InspectorTab::Properties,
             layer_tab: LayerTab::Layers,
             dock_open: true,
+            right_dock_layout: RightDockLayout::SideBySide,
             has_document: true,
             // The new-document data model: the created document has ONE
             // full-canvas **Background** layer (the dialog's Create flow names

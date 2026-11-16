@@ -111,6 +111,19 @@ impl App {
         cx.notify();
     }
 
+    /// The dock-layout toggle in the tab bar's utility cluster: flip the
+    /// right dock between side-by-side and stacked. The value drives
+    /// `right_dock_layout`; the View menu's own toggle stays on Hide/Show.
+    pub(crate) fn toggle_dock_layout(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.right_dock_layout = match state.right_dock_layout {
+                crate::state::RightDockLayout::SideBySide => crate::state::RightDockLayout::Stacked,
+                crate::state::RightDockLayout::Stacked => crate::state::RightDockLayout::SideBySide,
+            };
+        });
+        cx.notify();
+    }
+
     /// The status bar's History trigger: show the dock's History panel.
     /// This opens the dock as well, since a closed dock would show a panel
     /// the user cannot see.
