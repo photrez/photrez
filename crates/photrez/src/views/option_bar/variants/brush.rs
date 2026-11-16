@@ -208,13 +208,7 @@ pub(super) fn brush_more_dropdown(
     let trigger = more_dropdown_button(cx).on_click(
         cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
     );
-    let mut wrapper = div()
-        .relative()
-        .absolute()
-        .right(px(BAR_PX))
-        .top(px((BAR_H - CTRL_H) / 2.0))
-        .flex_shrink_0()
-        .child(trigger);
+    let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
         let mut panel = div()
             .id("opt-more-panel")

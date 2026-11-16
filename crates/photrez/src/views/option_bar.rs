@@ -413,8 +413,6 @@ pub fn render(
 ) -> impl IntoElement {
     set_bar_width(width);
     let active_tool = state.read(cx).active_tool;
-    // Every tool bar now renders its controls through the real chrome; the
-    // additive live strip is gone.
     let (row, more) = fade_in_row(
         state,
         &active_tool,
@@ -422,12 +420,11 @@ pub fn render(
         transform_readout,
         cx,
     );
-    // Every tool bar now renders its controls through the real chrome; the
-    // additive live strip is gone. The overflow trigger mounts as a direct
-    // child of the bar (not the flowing row): pinned to the bar's right
-    // edge, it stays inside the clipped canvas column at every width.
+    // Every tool bar renders its controls through the real chrome; the
+    // additive live strip is gone. The row fills the bar and clips its own
+    // overflow, so the overflow trigger mounts after it and stays at the
+    // bar's right edge, reachable at every width.
     let mut bar = h_flex()
-        .relative()
         .w_full()
         .id("option-bar-root")
         .test_support()
