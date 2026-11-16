@@ -3,7 +3,7 @@ use super::*;
 /// The group shown at >=880 px: divider, align, divider, flip, divider, reset.
 /// A locked selection takes the inert treatment: the groups dim
 /// and the handlers refuse the edit.
-pub(super) fn main_controls(locked: bool, cx: &Context<crate::app::App>) -> impl IntoElement {
+pub(super) fn main_controls(locked: bool, cx: &Context<crate::app::App>) -> Div {
     h_flex()
         .flex_shrink_0()
         .items_center()

@@ -154,12 +154,17 @@ fn move_items(
             editing("num-r"),
             num_focus("num-r"),
             cx,
-        ))
-        .when(show_main_controls(), |el| {
-            el.child(main_controls(locked, cx))
-        });
+        ));
     if show_more_dropdown() {
         *more = Some(move_more_dropdown(state, more_open, locked, cx));
+    } else if show_main_controls() {
+        // The inline Align/Flip/Reset group is pinned to the bar's right
+        // edge rather than left in the flow: at ~1520-1744 px the row's
+        // intrinsic width exceeds the dock-open column and the tail clips
+        // under the dock. Pinned, the cluster stays inside the column at
+        // every width; at wide widths this is the same position the flow
+        // would leave it.
+        *more = Some(main_controls(locked, cx));
     }
     row
 }
