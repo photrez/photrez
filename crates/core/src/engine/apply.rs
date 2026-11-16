@@ -5,6 +5,7 @@
 use super::*;
 use crate::document::content::SelectionState;
 
+mod batch;
 mod create;
 mod metadata;
 mod selection;
@@ -123,6 +124,13 @@ impl DocumentCore {
             | Command::SetBlendMode { .. }
             | Command::SetLayerParams { .. }
             | Command::SetAdjustment { .. }) => self.apply_metadata_arm(cmd)?,
+            cmd @ (Command::GroupTransformLayers { .. }
+            | Command::SetLayersVisible { .. }
+            | Command::SetLayersLocked { .. }
+            | Command::SetLayersOpacity { .. }
+            | Command::SetLayersBlendMode { .. }
+            | Command::DeleteLayers { .. }
+            | Command::DuplicateLayers { .. }) => self.apply_batch_arm(cmd)?,
             cmd @ (Command::SetSelection { .. }
             | Command::ClearSelection
             | Command::SelectAll
@@ -144,6 +152,9 @@ impl DocumentCore {
             }
             Command::Flatten { merged_id } => self.apply_flatten(&merged_id)?,
             Command::RasterizeLayer { id, pixels } => self.apply_rasterize(&id, pixels.as_ref())?,
+            Command::ApplyBasicAdjustment { id, pixels } => {
+                self.apply_adjustment(&id, pixels.as_ref())?
+            }
             // -- Canvas-size command arms (Crop Canvas / Apply Crop / Resize Canvas) --
             // Each delegates to a private helper in document/canvas.rs that
             // performs begin_forward -> mutate doc_size + (optional) layers ->

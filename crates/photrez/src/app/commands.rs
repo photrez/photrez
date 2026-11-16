@@ -271,12 +271,11 @@ impl App {
                 .active_document
                 .as_ref()
                 .is_none_or(|document| document.doc_id != doc_id)
+                && let Err(error) = self.activate_document(&doc_id, cx)
             {
-                if let Err(error) = self.activate_document(&doc_id, cx) {
-                    self.pending_close = None;
-                    self.set_status_error(Some(format!("Save As failed: {error}")), cx);
-                    return;
-                }
+                self.pending_close = None;
+                self.set_status_error(Some(format!("Save As failed: {error}")), cx);
+                return;
             }
             self.prompt_save_as(cx);
             return;
@@ -408,11 +407,11 @@ impl App {
         }
         self.state.update(cx, |state, _| state.status_error = None);
         cx.notify();
-        if let Some(intent) = close_intent {
-            if self.pending_close.as_ref() == Some(intent) {
-                self.pending_close = None;
-                self.finish_close_intent(intent.clone(), cx);
-            }
+        if let Some(intent) = close_intent
+            && self.pending_close.as_ref() == Some(intent)
+        {
+            self.pending_close = None;
+            self.finish_close_intent(intent.clone(), cx);
         }
         Ok(())
     }

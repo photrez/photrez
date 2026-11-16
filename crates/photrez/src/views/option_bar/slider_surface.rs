@@ -165,10 +165,10 @@ impl Element for BarSliderSurface {
                 return;
             }
             if !owns_capture(window, &move_capture) {
-                if clear_lost_capture(window, &move_capture) {
-                    if let Some(app) = move_app.upgrade() {
-                        app.update(_cx, |app, cx| app.slider_pointer_up(cx));
-                    }
+                if clear_lost_capture(window, &move_capture)
+                    && let Some(app) = move_app.upgrade()
+                {
+                    app.update(_cx, |app, cx| app.slider_pointer_up(cx));
                 }
                 return;
             }
@@ -191,10 +191,10 @@ impl Element for BarSliderSurface {
                 return;
             }
             if !owns_capture(window, &up_capture) {
-                if clear_lost_capture(window, &up_capture) {
-                    if let Some(app) = up_app.upgrade() {
-                        app.update(cx, |app, cx| app.slider_pointer_up(cx));
-                    }
+                if clear_lost_capture(window, &up_capture)
+                    && let Some(app) = up_app.upgrade()
+                {
+                    app.update(cx, |app, cx| app.slider_pointer_up(cx));
                 }
                 return;
             }

@@ -82,13 +82,13 @@ pub(super) fn drag_move(
         clamp(session.origin_offset.0 + f32::from(delta.x), limit_x),
         clamp(session.origin_offset.1 + f32::from(delta.y), limit_y),
     );
-    let changed = DIALOG_OFFSETS.with(|offsets| {
+
+    DIALOG_OFFSETS.with(|offsets| {
         let mut offsets = offsets.borrow_mut();
         let changed = offsets[session.slot] != offset;
         offsets[session.slot] = offset;
         changed
-    });
-    changed
+    })
 }
 
 pub(super) fn end_drag() -> bool {

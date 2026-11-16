@@ -71,6 +71,8 @@ pub(crate) fn render(
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     focus_handle: &gpui_kit::FocusHandle,
+    layers_tab_focus: &gpui_kit::FocusHandle,
+    history_tab_focus: &gpui_kit::FocusHandle,
     rename_focus: &gpui_kit::FocusHandle,
     resize_focus: &gpui_kit::FocusHandle,
     new_document_focus: &gpui_kit::FocusHandle,
@@ -101,6 +103,7 @@ pub(crate) fn render(
         selection_shape,
         open_menu,
         context_menu,
+        layer_context_menu,
         brush_menu,
         active_dialog,
         loading,
@@ -123,6 +126,7 @@ pub(crate) fn render(
             s.selection_shape,
             s.open_menu,
             s.context_menu,
+            s.layer_context_menu.clone(),
             s.brush_menu,
             s.active_dialog,
             s.loading,
@@ -328,6 +332,8 @@ pub(crate) fn render(
                                         Rc::clone(&navigator_bounds),
                                         layer_thumbs,
                                         transform_readout,
+                                        layers_tab_focus,
+                                        history_tab_focus,
                                         cx,
                                     )),
                             )
@@ -375,6 +381,9 @@ pub(crate) fn render(
                 has_selection_clipboard,
                 cx,
             ))
+        })
+        .when_some(layer_context_menu, |el, (x, y, core_id)| {
+            el.child(menus::render_layer_context(state, (x, y), core_id, cx))
         })
         .when_some(brush_menu, |el, _| {
             el.child(brush_menu::render(state, window, cx))

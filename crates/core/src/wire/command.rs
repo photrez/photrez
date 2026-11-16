@@ -27,6 +27,16 @@ pub struct TransformPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flip_v: Option<bool>,
 }
+/// One member of a group transform: the layer id and its absolute target
+/// transform. The host mints these from its transform preview and sends them
+/// as one `GroupTransformLayers` command.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransformLayerEntry {
+    pub id: String,
+    pub transform: TransformPatch,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StrokePoint {
@@ -125,20 +135,58 @@ pub enum Command {
     DeleteLayer {
         id: String,
     },
+    // Delete several layers inside ONE history entry. Validation is
+    // all-or-nothing: an empty list, duplicate ids, or an unknown id rejects
+    // with E_INVALID and the engine is unchanged. The delta carries a Remove
+    // per deleted layer in envelope order.
+    DeleteLayers {
+        ids: Vec<String>,
+    },
     TransformLayer {
         id: String,
         transform: TransformPatch,
     },
+    // Apply absolute transforms to several layers inside ONE history entry.
+    // Validation is all-or-nothing: an empty list, duplicate ids in the list,
+    // an unknown id, or a non-finite number rejects before any mutation.
+    // Entries equal to the current transform are skipped; when nothing
+    // changed, no history entry is created. The delta carries an Upsert per
+    // changed layer, in envelope order.
+    GroupTransformLayers {
+        patches: Vec<TransformLayerEntry>,
+    },
     SetOpacity {
         id: String,
+        opacity: f64,
+    },
+    // One opacity for several selected layers inside ONE history entry.
+    // Validation is all-or-nothing, exactly like `GroupTransformLayers`.
+    // Unchanged targets are skipped; when nothing changed no history entry
+    // is created.
+    SetLayersOpacity {
+        ids: Vec<String>,
         opacity: f64,
     },
     SetVisible {
         id: String,
         visible: bool,
     },
+    // One visibility value for several selected layers inside ONE history
+    // entry. Validation is all-or-nothing; unchanged targets are skipped.
+    SetLayersVisible {
+        ids: Vec<String>,
+        visible: bool,
+    },
     SetLocked {
         id: String,
+        kind: LockKind,
+        locked: bool,
+    },
+    // One lock state for one lock kind, across several selected layers,
+    // inside ONE history entry. Validation is all-or-nothing; unchanged
+    // targets are skipped.
+    SetLayersLocked {
+        ids: Vec<String>,
         kind: LockKind,
         locked: bool,
     },
@@ -155,6 +203,12 @@ pub enum Command {
     },
     SetBlendMode {
         id: String,
+        mode: BlendMode,
+    },
+    // One blend mode for several selected layers inside ONE history entry.
+    // Validation is all-or-nothing; unchanged targets are skipped.
+    SetLayersBlendMode {
+        ids: Vec<String>,
         mode: BlendMode,
     },
     // Set the parametric source-of-truth for an existing layer (shape/text):
@@ -190,6 +244,17 @@ pub enum Command {
         id: String,
         new_id: String,
     },
+    // Duplicate several layers inside ONE history entry. Clones are inserted
+    // directly above their sources, processed topmost first; ids and new_ids
+    // are pairwise. Validation is all-or-nothing: the list must be non-empty,
+    // of equal length, with no duplicate/empty ids, no duplicate/empty
+    // new_ids, and every source must exist. Unknown-validation rejects with
+    // E_INVALID and the engine is unchanged. The delta is the full restated
+    // layer set in final engine order, like DuplicateLayer.
+    DuplicateLayers {
+        ids: Vec<String>,
+        new_ids: Vec<String>,
+    },
     // Merge a layer down into the one below it. The merged node inherits the bottom
     // layer's blend mode and name, is locked when either source is locked. Document dims come from the seeded canonical shadow (absent ->
     // E_INVALID). Unknown id or a bottom-most layer is a silent no-op.
@@ -220,6 +285,19 @@ pub enum Command {
     // so a v2 envelope without it still parses (and reproduces the metadata-only
     // historical behaviour).
     RasterizeLayer {
+        id: String,
+        #[serde(default)]
+        pixels: Option<RasterizePixels>,
+    },
+    // Bake a layer's basic adjustment into its raster store. The host asks the
+    // engine through this command when it has a non-destructive brightness/
+    // contrast/saturation riding on a raster layer: one history entry drops the
+    // adjustment metadata AND re-materializes the buffer with the adjustment
+    // applied. `pixels` carries the host-baked buffer when the adjustment is
+    // non-zero; a None-carrying envelope drops the metadata alone (the all-zero
+    // no-op bake). A non-zero adjustment without `pixels` rejects with
+    // E_INVALID and the engine is unchanged.
+    ApplyBasicAdjustment {
         id: String,
         #[serde(default)]
         pixels: Option<RasterizePixels>,

@@ -44,10 +44,6 @@ fn crop_canvas_click_within_restore_tolerance(pending: &PendingGesture) -> bool 
         && (pending.last.1 - pending.start.1).abs() <= 2.0
 }
 
-/// The selected layer's transform record as the properties panel reads it:
-/// (layer id, x, y, scale-x, scale-y, rotation, flip-h, flip-v).
-type ActiveLayerTransform = (String, f64, f64, f64, f64, f64, bool, bool);
-
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
 pub(crate) struct SetCanvasTool(pub ToolId);
@@ -261,7 +257,7 @@ impl App {
                     cx.notify();
                     Ok(())
                 } else {
-                    let ratio = crate::app::crop::crop_resize_ratio(&self.state.read(cx));
+                    let ratio = crate::app::crop::crop_resize_ratio(self.state.read(cx));
                     let frame =
                         crate::crop_geometry::drag_create(pending.start, pending.last, ratio);
                     self.state.update(cx, |state, _| {
@@ -354,6 +350,123 @@ impl App {
         cx.notify();
     }
 
+    /// Reorder one row relative to another, landing it above or below the
+    /// target row, without using the target row's identity. This is what the
+    /// panel drop handler calls after it has resolved the pointer against the
+    /// row's bounds and the Background clamp.
+    pub(crate) fn reorder_layer_with_position(
+        &mut self,
+        from_row: u64,
+        to_row: u64,
+        position: crate::app::cross_doc::InsertPosition,
+        cx: &mut Context<Self>,
+    ) {
+        let (source_index, target_index, is_background_after_target, length) = {
+            let state = self.state.read(cx);
+            let source_index = state.layers.iter().position(|row| row.id == from_row);
+            let target_index = state.layers.iter().position(|row| row.id == to_row);
+            let is_background_after_target =
+                target_index.map(|i| state.layer_flags.get(i).is_some_and(|f| f.is_background));
+            (
+                source_index,
+                target_index,
+                is_background_after_target,
+                state.layers.len(),
+            )
+        };
+        let (Some(source_index), Some(target_index)) = (source_index, target_index) else {
+            cx.notify();
+            return;
+        };
+        let clamped_position = if is_background_after_target == Some(true)
+            && target_index + 1 == length
+            && matches!(position, crate::app::cross_doc::InsertPosition::Below)
+        {
+            crate::app::cross_doc::InsertPosition::Above
+        } else {
+            position
+        };
+        // The math the reference panel applies: decide against the pre-removal
+        // stack, then lean on the core's remove-then-insert contract.
+        let to_index = if source_index < target_index {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => target_index - 1,
+                crate::app::cross_doc::InsertPosition::Below => target_index,
+            }
+        } else if source_index > target_index {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => target_index,
+                crate::app::cross_doc::InsertPosition::Below => (target_index + 1).min(length - 1),
+            }
+        } else {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => source_index,
+                crate::app::cross_doc::InsertPosition::Below => (source_index + 1).min(length - 1),
+            }
+        };
+        if to_index == source_index {
+            cx.notify();
+            return;
+        }
+        self.reorder_layer_to_index(from_row, to_index, cx);
+    }
+
+    /// Same-document reorder landing at an absolute index of the stack. The
+    /// index is post-removal: the core removes the layer, then inserts it at
+    /// `to_index` (clamped to the new length).
+    fn reorder_layer_to_index(&mut self, from_row: u64, to_index: usize, cx: &mut Context<Self>) {
+        let projected = {
+            let state = self.state.read(cx);
+            state
+                .layers
+                .iter()
+                .find(|row| row.id == from_row)
+                .and_then(|row| row.core_id.clone())
+        };
+        let Some(core_id) = projected else {
+            // An unprojected demo row drives no core Reorder; reorder the UI
+            // rows directly with the same above/below index math.
+            self.state.update(cx, |state, _| {
+                if let Some(index) = state.layers.iter().position(|row| row.id == from_row) {
+                    let row = state.layers.remove(index);
+                    let index = to_index.min(state.layers.len());
+                    state.layers.insert(index, row);
+                }
+                state.selected_layer = from_row;
+            });
+            cx.notify();
+            return;
+        };
+        let selected_core = core_id.clone();
+        let result = self.active_doc_id().and_then(|doc_id| {
+            self.apply_core_command(
+                &doc_id,
+                Command::Reorder {
+                    id: core_id,
+                    to: to_index,
+                },
+                true,
+                cx,
+            )
+        });
+        match result {
+            Ok(()) => {
+                self.state.update(cx, |state, _| {
+                    if let Some(row) = state
+                        .layers
+                        .iter()
+                        .find(|row| row.core_id.as_deref() == Some(selected_core.as_str()))
+                    {
+                        state.selected_layer = row.id;
+                    }
+                });
+                self.set_status_error(None, cx);
+            }
+            Err(error) => self.set_status_error(Some(format!("Reorder: {error}")), cx),
+        }
+        cx.notify();
+    }
+
     pub(crate) fn active_doc_id(&self) -> Result<String, String> {
         self.active_document
             .as_ref()
@@ -372,21 +485,6 @@ impl App {
             .content_snapshot()
             .ok_or_else(|| "loaded content is missing".to_string())?;
         Ok((content.width, content.height))
-    }
-
-    fn active_layer_transform(&self, cx: &Context<Self>) -> Result<ActiveLayerTransform, String> {
-        let (_, layer) = self.selected_layer(cx)?;
-        let t = &layer.transform;
-        Ok((
-            layer.id.clone(),
-            t.x,
-            t.y,
-            t.scale_x,
-            t.scale_y,
-            t.rotation,
-            t.flip_h,
-            t.flip_v,
-        ))
     }
 
     /// One live rotation of the committed pixel selection about its centre.
@@ -521,39 +619,34 @@ impl App {
         }
         if self.state.read(cx).active_tool == ToolId::Move
             && self.state.read(cx).show_transform_controls
-        {
-            if let (Some(position), Some((doc_w, doc_h))) = (
+            && let (Some(position), Some((doc_w, doc_h))) = (
                 self.hover_pos,
                 self.active_document
                     .as_ref()
                     .map(|document| document.canvas.dimensions()),
+            )
+            && let Some((x, y)) = canvas_doc_coords_free(
+                position,
+                &self.canvas_bounds,
+                (doc_w, doc_h),
+                self.active_camera(),
+            )
+            && let Ok((_, layer)) = self.selected_layer_for_cursor(cx)
+            && crate::app::transform_geometry::layer_can_transform(&layer)
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+            if let Some(handle) = crate::app::transform_geometry::detect_handle(
+                crate::app::transform_geometry::Point { x, y },
+                &layer.transform,
+                frame_w,
+                frame_h,
+                zoom,
             ) {
-                if let Some((x, y)) = canvas_doc_coords_free(
-                    position,
-                    &self.canvas_bounds,
-                    (doc_w, doc_h),
-                    self.active_camera(),
-                ) {
-                    if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                        if crate::app::transform_geometry::layer_can_transform(&layer) {
-                            let zoom = self
-                                .effective_camera()
-                                .map(|camera| camera.zoom as f64)
-                                .unwrap_or(1.0);
-                            let (frame_w, frame_h) =
-                                crate::app::transform_geometry::layer_frame_size(&layer);
-                            if let Some(handle) = crate::app::transform_geometry::detect_handle(
-                                crate::app::transform_geometry::Point { x, y },
-                                &layer.transform,
-                                frame_w,
-                                frame_h,
-                                zoom,
-                            ) {
-                                return cursor_for_handle(handle);
-                            }
-                        }
-                    }
-                }
+                return cursor_for_handle(handle);
             }
         }
         let selected = self.selected_layer(cx).ok();

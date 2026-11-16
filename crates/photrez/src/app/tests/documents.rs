@@ -437,9 +437,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
     cx.update_window(window.into(), |_, window, cx| {
         content.update(cx, |app, cx| app.open_new_document(cx));
         window.render_frame(cx);
-        window.click("new-doc-preset-1", cx);
-        window.render_frame(cx);
-        window.click("new-doc-preset-1", cx);
+        window.double_click("new-doc-preset-1", cx);
         window.render_frame(cx);
         let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(
@@ -450,7 +448,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
         assert_eq!(
             content.read(cx).active_document_dims_for_test(),
             Some((2480, 3508)),
-            "the second press uses the A4 preset"
+            "the double press uses the A4 preset"
         );
     })
     .expect("test window remains open");

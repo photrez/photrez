@@ -20,6 +20,7 @@ impl App {
         let (
             brush_menu,
             context_menu,
+            layer_menu,
             open_select,
             more_open,
             active_tool,
@@ -30,6 +31,7 @@ impl App {
             (
                 state.brush_menu.is_some(),
                 state.context_menu.is_some(),
+                state.layer_context_menu.is_some(),
                 state.open_select.is_some(),
                 state.more_open,
                 state.active_tool,
@@ -43,6 +45,10 @@ impl App {
         }
         if context_menu {
             self.close_context_menu(cx);
+            return;
+        }
+        if layer_menu {
+            self.close_layer_context_menu(cx);
             return;
         }
         if active_tool == ToolId::Text && text_stroke_popover {

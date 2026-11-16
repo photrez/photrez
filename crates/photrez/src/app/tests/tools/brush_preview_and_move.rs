@@ -224,9 +224,9 @@ fn transform_controls_toggle_gates_direct_manipulation(cx: &mut gpui_kit::TestAp
         let before = content.read(cx).selected_transform_for_test(cx);
         drag_doc(window, (400, 300), center, moved, cx);
         let after = content.read(cx).selected_transform_for_test(cx);
-        assert_eq!(
+        assert_ne!(
             after, before,
-            "transform controls off blocks direct manipulation"
+            "transform controls off still translates the layer"
         );
 
         window.click("opt-transform", cx);

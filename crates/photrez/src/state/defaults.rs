@@ -48,6 +48,7 @@ impl Default for AppState {
             selection_flyout_open: false,
             open_menu: None,
             context_menu: None,
+            layer_context_menu: None,
             active_dialog: None,
             loading: None,
             new_document: None,

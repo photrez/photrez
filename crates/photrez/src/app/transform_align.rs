@@ -1,10 +1,10 @@
 //! Multi-selection layout commands: align to the canvas and distribute along one
-//! axis. Both build a list of edits and commit them through one
-//! `TransformLayer` command per moved layer.
+//! axis. Both build a list of edits and commit them as one
+//! `GroupTransformLayers` command.
 
 use gpui_kit::Context;
 use photrez_core::document::content::Transform2D;
-use photrez_core::protocol::{Command, TransformPatch};
+use photrez_core::protocol::Command;
 
 use super::App;
 use super::transform_move::LayerBounds;
@@ -136,7 +136,7 @@ impl App {
         self.apply_transform_edits(&doc_id, edits, cx)
     }
 
-    fn selected_core_ids(&self, cx: &Context<Self>) -> Vec<String> {
+    pub(crate) fn selected_core_ids(&self, cx: &Context<Self>) -> Vec<String> {
         let state = self.state.read(cx);
         state
             .layers
@@ -152,12 +152,15 @@ impl App {
         edits: Vec<(String, f64, f64, Transform2D)>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        for (id, x, y, start) in edits {
-            self.apply_core_command(
-                doc_id,
-                Command::TransformLayer {
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let patches: Vec<photrez_core::protocol::TransformLayerEntry> = edits
+            .into_iter()
+            .map(
+                |(id, x, y, start)| photrez_core::protocol::TransformLayerEntry {
                     id,
-                    transform: TransformPatch {
+                    transform: photrez_core::protocol::TransformPatch {
                         x,
                         y,
                         scale_x: start.scale_x,
@@ -167,10 +170,8 @@ impl App {
                         flip_v: Some(start.flip_v),
                     },
                 },
-                true,
-                cx,
-            )?;
-        }
-        Ok(())
+            )
+            .collect();
+        self.apply_core_command(doc_id, Command::GroupTransformLayers { patches }, true, cx)
     }
 }

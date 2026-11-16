@@ -142,6 +142,8 @@ pub fn render(
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layers_tab_focus: &gpui_kit::FocusHandle,
+    history_tab_focus: &gpui_kit::FocusHandle,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (inspector_tab, layer_tab) = {
@@ -186,6 +188,8 @@ pub fn render(
                 canvas_bounds,
                 navigator_bounds,
                 layer_thumbs,
+                layers_tab_focus,
+                history_tab_focus,
                 cx,
             )
             .id("layer-dock")
@@ -217,6 +221,7 @@ fn inspector_dock(
             write_inspector_tab,
             state,
             cx,
+            None,
         ))
         .child(
             v_flex()
@@ -291,6 +296,8 @@ fn layer_dock(
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    layers_tab_focus: &gpui_kit::FocusHandle,
+    history_tab_focus: &gpui_kit::FocusHandle,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let active = layer_tab_id(&layer_tab);
@@ -306,6 +313,7 @@ fn layer_dock(
             write_layer_tab,
             state,
             cx,
+            Some(&[layers_tab_focus.clone(), history_tab_focus.clone()]),
         ))
         .child(
             v_flex()

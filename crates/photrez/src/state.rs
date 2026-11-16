@@ -315,6 +315,9 @@ pub struct AppState {
     pub open_menu: Option<MenuId>,
     /// The canvas context menu's window position, if open.
     pub context_menu: Option<(f32, f32)>,
+    /// The Layers row context menu: window position and the core id of the
+    /// clicked row. The menu resolves its items from live state at render.
+    pub layer_context_menu: Option<(f32, f32, String)>,
     /// The mounted shell dialog, if any.
     pub active_dialog: Option<DialogId>,
     /// The open-document loading overlay; `None` at rest.

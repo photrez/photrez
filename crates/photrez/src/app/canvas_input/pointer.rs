@@ -76,10 +76,10 @@ impl App {
         }
         {
             let camera = self.active_camera();
-            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
-                if self.selection_rotate_start(bounds, doc_size, point, cx) {
-                    return;
-                }
+            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera)
+                && self.selection_rotate_start(bounds, doc_size, point, cx)
+            {
+                return;
             }
         }
         if event.button == gpui_kit::MouseButton::Right
@@ -166,7 +166,7 @@ impl App {
                 let state = self.state.read(cx);
                 (
                     state.crop_interaction,
-                    crate::app::crop::crop_snapshot(&state),
+                    crate::app::crop::crop_snapshot(state),
                 )
             };
             if interaction == crate::crop_geometry::CropInteraction::Classic {
@@ -229,99 +229,100 @@ impl App {
         let Some((x, y)) = mapped else {
             return;
         };
-        if event.click_count >= 2 && matches!(tool, ToolId::Move | ToolId::Selection) {
-            if let Some(core_id) = self.layer_hit_at(x, y) {
-                let text_layer = self.active_document.as_ref().and_then(|document| {
-                    self.sessions
-                        .get(&document.doc_id)
-                        .and_then(|session| session.loaded_document().content_snapshot())
-                        .and_then(|content| {
-                            content
-                                .layers
-                                .iter()
-                                .find(|layer| layer.id == core_id)
-                                .filter(|layer| {
-                                    matches!(layer.layer_type, LayerType::Text)
-                                        && layer.text_data.is_some()
-                                })
-                                .cloned()
-                        })
-                });
-                if let Some(layer) = text_layer {
-                    let Some(text_data) = layer.text_data.clone() else {
-                        return;
-                    };
-                    self.move_auto_select_click(x, y, false, cx);
-                    self.select_canvas_tool(ToolId::Text, cx);
-                    self.begin_text_edit_existing(
-                        layer.id,
-                        layer.transform.x,
-                        layer.transform.y,
-                        text_data,
-                        cx,
-                    );
+        if event.click_count >= 2
+            && matches!(tool, ToolId::Move | ToolId::Selection)
+            && let Some(core_id) = self.layer_hit_at(x, y)
+        {
+            let text_layer = self.active_document.as_ref().and_then(|document| {
+                self.sessions
+                    .get(&document.doc_id)
+                    .and_then(|session| session.loaded_document().content_snapshot())
+                    .and_then(|content| {
+                        content
+                            .layers
+                            .iter()
+                            .find(|layer| layer.id == core_id)
+                            .filter(|layer| {
+                                matches!(layer.layer_type, LayerType::Text)
+                                    && layer.text_data.is_some()
+                            })
+                            .cloned()
+                    })
+            });
+            if let Some(layer) = text_layer {
+                let Some(text_data) = layer.text_data.clone() else {
                     return;
-                }
+                };
+                self.move_auto_select_click(x, y, false, cx);
+                self.select_canvas_tool(ToolId::Text, cx);
+                self.begin_text_edit_existing(
+                    layer.id,
+                    layer.transform.x,
+                    layer.transform.y,
+                    text_data,
+                    cx,
+                );
+                return;
             }
         }
-        if tool == ToolId::Crop {
-            if let Some(rect) = self.state.read(cx).crop_rect {
-                let zoom = self
-                    .effective_camera()
-                    .map(|camera| camera.zoom as f64)
-                    .unwrap_or(1.0);
-                let (target, start_snapshot, interaction) = {
-                    let state = self.state.read(cx);
-                    (
-                        App::crop_pointer_target_at(
-                            (x, y),
-                            rect,
-                            zoom,
-                            state.crop_interaction,
-                            state.crop_rotation,
-                        ),
-                        crate::crop_geometry::CropSnapshot {
-                            frame: rect,
-                            offset: state.crop_offset,
-                            rotation: state.crop_rotation,
-                        },
+        if tool == ToolId::Crop
+            && let Some(rect) = self.state.read(cx).crop_rect
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (target, start_snapshot, interaction) = {
+                let state = self.state.read(cx);
+                (
+                    App::crop_pointer_target_at(
+                        (x, y),
+                        rect,
+                        zoom,
                         state.crop_interaction,
-                    )
-                };
-                if event.click_count >= 2
-                    && self.crop_drag.is_none()
-                    && self.pending_gesture.is_none()
-                    && target == Some(crate::app::crop::CropPointerTarget::Move)
+                        state.crop_rotation,
+                    ),
+                    crate::crop_geometry::CropSnapshot {
+                        frame: rect,
+                        offset: state.crop_offset,
+                        rotation: state.crop_rotation,
+                    },
+                    state.crop_interaction,
+                )
+            };
+            if event.click_count >= 2
+                && self.crop_drag.is_none()
+                && self.pending_gesture.is_none()
+                && target == Some(crate::app::crop::CropPointerTarget::Move)
+            {
+                match self.apply_crop(cx) {
+                    Ok(()) => self.set_status_error(None, cx),
+                    Err(error) => self.set_status_error(Some(format!("Crop: {error}")), cx),
+                }
+                return;
+            }
+            if let Some(target) = target {
+                let snap_targets = if interaction == crate::crop_geometry::CropInteraction::Classic
                 {
-                    match self.apply_crop(cx) {
-                        Ok(()) => self.set_status_error(None, cx),
-                        Err(error) => self.set_status_error(Some(format!("Crop: {error}")), cx),
-                    }
-                    return;
-                }
-                if let Some(target) = target {
-                    let snap_targets =
-                        if interaction == crate::crop_geometry::CropInteraction::Classic {
-                            crate::app::crop::crop_snap_targets(self).map(std::rc::Rc::new)
-                        } else {
-                            None
-                        };
-                    self.snap_guides.clear();
-                    self.crop_drag = Some(crate::app::crop::CropDrag {
-                        handle: match target {
-                            crate::app::crop::CropPointerTarget::Resize(handle) => Some(handle),
-                            crate::app::crop::CropPointerTarget::Move
-                            | crate::app::crop::CropPointerTarget::Rotate => None,
-                        },
-                        rotate: target == crate::app::crop::CropPointerTarget::Rotate,
-                        start_snapshot,
-                        start_doc: (x, y),
-                        start_screen: (f64::from(event.position.x), f64::from(event.position.y)),
-                        interaction,
-                        snap_targets,
-                    });
-                    return;
-                }
+                    crate::app::crop::crop_snap_targets(self).map(std::rc::Rc::new)
+                } else {
+                    None
+                };
+                self.snap_guides.clear();
+                self.crop_drag = Some(crate::app::crop::CropDrag {
+                    handle: match target {
+                        crate::app::crop::CropPointerTarget::Resize(handle) => Some(handle),
+                        crate::app::crop::CropPointerTarget::Move
+                        | crate::app::crop::CropPointerTarget::Rotate => None,
+                    },
+                    rotate: target == crate::app::crop::CropPointerTarget::Rotate,
+                    start_snapshot,
+                    start_doc: (x, y),
+                    start_screen: (f64::from(event.position.x), f64::from(event.position.y)),
+                    interaction,
+                    snap_targets,
+                });
+                return;
             }
         }
         match tool {
@@ -351,11 +352,11 @@ impl App {
             ToolId::Eyedropper => self.sample_eyedropper(x, y, cx),
             ToolId::Move => {
                 let zoom = display_scale(bounds, doc_size, camera);
-                if event.modifiers.alt {
-                    if let Err(error) = self.duplicate_selected_layer_id(cx) {
-                        self.set_status_error(Some(format!("Alt-copy: {error}")), cx);
-                        return;
-                    }
+                if event.modifiers.alt
+                    && let Err(error) = self.duplicate_selected_layer_id(cx)
+                {
+                    self.set_status_error(Some(format!("Alt-copy: {error}")), cx);
+                    return;
                 }
                 let modify = event.modifiers.shift || event.modifiers.control;
                 if self.state.read(cx).move_auto_select
@@ -363,9 +364,7 @@ impl App {
                 {
                     return;
                 }
-                if self.state.read(cx).show_transform_controls
-                    && self.begin_transform_drag((x, y), zoom, cx)
-                {
+                if self.begin_transform_drag((x, y), zoom, cx) {
                     return;
                 }
                 // A press that misses every layer starts the layer marquee;
@@ -379,7 +378,7 @@ impl App {
                 let (crop_start, crop_modern_create) = if tool == ToolId::Crop {
                     let state = self.state.read(cx);
                     (
-                        crate::app::crop::crop_snapshot(&state),
+                        crate::app::crop::crop_snapshot(state),
                         state.crop_interaction == crate::crop_geometry::CropInteraction::Modern,
                     )
                 } else {
@@ -498,7 +497,7 @@ impl App {
                 let state = self.state.read(cx);
                 (
                     state.crop_mode,
-                    crate::app::crop::crop_resize_ratio(&state),
+                    crate::app::crop::crop_resize_ratio(state),
                     state.snap_enabled,
                 )
             };
@@ -529,10 +528,7 @@ impl App {
                     mode,
                     ratio,
                     zoom,
-                    doc_size: self
-                        .active_document_size()
-                        .map(|(w, h)| (w, h))
-                        .unwrap_or((1.0, 1.0)),
+                    doc_size: self.active_document_size().unwrap_or((1.0, 1.0)),
                     shift: event.modifiers.shift,
                     alt: event.modifiers.alt,
                 },
@@ -613,10 +609,8 @@ impl App {
                     }
                     pending.crop_modern_drag_started = true;
                 }
-            } else if pending.crop_pasteboard {
-                if !crop_replacement_drag_started(pending) {
-                    return;
-                }
+            } else if pending.crop_pasteboard && !crop_replacement_drag_started(pending) {
+                return;
             }
             if pending.crop_pasteboard
                 && !pending.crop_modern_create
@@ -682,7 +676,7 @@ impl App {
                     pending.start,
                     pending.last,
                     (!pending.crop_pasteboard)
-                        .then(|| crate::app::crop::crop_resize_ratio(&state))
+                        .then(|| crate::app::crop::crop_resize_ratio(state))
                         .flatten(),
                 )
             } else {
@@ -974,7 +968,7 @@ impl App {
         }
         if let Some(drag) = self.crop_drag.take() {
             self.snap_guides.clear();
-            let changed = crate::app::crop::crop_snapshot(&self.state.read(cx))
+            let changed = crate::app::crop::crop_snapshot(self.state.read(cx))
                 .is_some_and(|snapshot| snapshot != drag.start_snapshot);
             if changed {
                 self.state.update(cx, |state, _| {
@@ -1007,8 +1001,8 @@ impl App {
         if let Some(pending) = self.pending_gesture.as_mut() {
             if pending.crop_modern_create {
                 pending.shift = event.modifiers.shift;
-                if pending.crop_modern_drag_started {
-                    if let (Some(start), Some(end)) = (
+                if pending.crop_modern_drag_started
+                    && let (Some(start), Some(end)) = (
                         canvas_doc_coords_free(
                             crop_pointer_screen_point(pending.start_screen),
                             bounds,
@@ -1021,10 +1015,10 @@ impl App {
                             doc_size,
                             camera,
                         ),
-                    ) {
-                        pending.start = start;
-                        pending.last = end;
-                    }
+                    )
+                {
+                    pending.start = start;
+                    pending.last = end;
                 }
             } else {
                 pending.last_screen = (f64::from(event.position.x), f64::from(event.position.y));
@@ -1033,17 +1027,17 @@ impl App {
                 }
             }
         }
-        if let Some((x, y)) = mapped {
-            if self.input.has_active_brush() {
-                let (x, y) = self.brush_axis_point(
-                    event.modifiers.shift,
-                    Some((f32::from(event.position.x), f32::from(event.position.y))),
-                    x,
-                    y,
-                );
-                let (smooth_x, smooth_y) = self.paint_smoother.add(x, y);
-                self.input.update_brush(smooth_x, smooth_y);
-            }
+        if let Some((x, y)) = mapped
+            && self.input.has_active_brush()
+        {
+            let (x, y) = self.brush_axis_point(
+                event.modifiers.shift,
+                Some((f32::from(event.position.x), f32::from(event.position.y))),
+                x,
+                y,
+            );
+            let (smooth_x, smooth_y) = self.paint_smoother.add(x, y);
+            self.input.update_brush(smooth_x, smooth_y);
         }
         if let Some(pending) = self.pending_gesture.take() {
             // A release outside the canvas surface (a toolbar click while the

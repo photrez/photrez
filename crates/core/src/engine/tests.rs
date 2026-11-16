@@ -6,6 +6,7 @@
 
 use super::*;
 
+mod batch;
 mod canvas;
 mod commands;
 mod contract;

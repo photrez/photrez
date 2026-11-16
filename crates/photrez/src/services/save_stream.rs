@@ -401,10 +401,10 @@ fn same_path(left: &Path, right: &Path) -> bool {
 }
 
 fn sync_parent(path: &Path) {
-    if let Some(parent) = path.parent() {
-        if let Ok(directory) = File::open(parent) {
-            let _ = directory.sync_all();
-        }
+    if let Some(parent) = path.parent()
+        && let Ok(directory) = File::open(parent)
+    {
+        let _ = directory.sync_all();
     }
 }
 

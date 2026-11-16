@@ -165,6 +165,45 @@ impl App {
                 Some("Canvas"),
             ),
             KeyBinding::new("escape", canvas_input::CancelCanvasGesture, Some("Canvas")),
+            KeyBinding::new(
+                "arrowleft",
+                layer_tab::LayerDockTabSwitch,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "arrowright",
+                layer_tab::LayerDockTabSwitch,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new("up", layer_nav::LayersPanelMoveUp, Some("LayersPanel")),
+            KeyBinding::new("down", layer_nav::LayersPanelMoveDown, Some("LayersPanel")),
+            KeyBinding::new(
+                "shift-up",
+                layer_nav::LayersPanelExtendUp,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "shift-down",
+                layer_nav::LayersPanelExtendDown,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "enter",
+                layer_nav::LayersPanelToggleVisibility,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "space",
+                layer_nav::LayersPanelToggleLock,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "ctrl-a",
+                layer_nav::LayersPanelSelectAll,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new("home", layer_nav::LayersPanelFirst, Some("LayersPanel")),
+            KeyBinding::new("end", layer_nav::LayersPanelLast, Some("LayersPanel")),
             KeyBinding::new("ctrl-z", history::UndoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-shift-z", history::RedoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-y", history::RedoDocument, Some("Canvas")),
@@ -296,6 +335,8 @@ impl App {
             .map(|_| cx.focus_handle().tab_stop(true))
             .collect();
         let rename_field_focus = cx.focus_handle().tab_stop(true);
+        let layers_tab_focus = cx.focus_handle().tab_stop(true);
+        let history_tab_focus = cx.focus_handle().tab_stop(true);
         let dialog_trap_focus = cx.focus_handle();
         let mut app = Self {
             state: cx.new(|_| {
@@ -312,6 +353,8 @@ impl App {
                 state
             }),
             canvas_focus_handle: cx.focus_handle().tab_stop(true),
+            layers_tab_focus,
+            history_tab_focus,
             rename_focus: cx.focus_handle(),
             resize_focus: cx.focus_handle(),
             new_document_focus: cx.focus_handle(),
@@ -468,6 +511,40 @@ impl App {
         register_global_action::<canvas_input::IncreaseBrushHardness>(
             cx,
             App::increase_brush_hardness_action,
+        );
+        register_global_action::<layer_nav::LayersPanelMoveUp>(
+            cx,
+            App::layers_panel_move_up_action,
+        );
+        register_global_action::<layer_nav::LayersPanelMoveDown>(
+            cx,
+            App::layers_panel_move_down_action,
+        );
+        register_global_action::<layer_nav::LayersPanelExtendUp>(
+            cx,
+            App::layers_panel_extend_up_action,
+        );
+        register_global_action::<layer_nav::LayersPanelExtendDown>(
+            cx,
+            App::layers_panel_extend_down_action,
+        );
+        register_global_action::<layer_nav::LayersPanelToggleVisibility>(
+            cx,
+            App::layers_panel_toggle_visibility_action,
+        );
+        register_global_action::<layer_nav::LayersPanelToggleLock>(
+            cx,
+            App::layers_panel_toggle_lock_action,
+        );
+        register_global_action::<layer_nav::LayersPanelSelectAll>(
+            cx,
+            App::layers_panel_select_all_action,
+        );
+        register_global_action::<layer_nav::LayersPanelFirst>(cx, App::layers_panel_first_action);
+        register_global_action::<layer_nav::LayersPanelLast>(cx, App::layers_panel_last_action);
+        register_global_action::<layer_tab::LayerDockTabSwitch>(
+            cx,
+            App::layer_dock_tab_switch_action,
         );
         register_global_action::<canvas_input::CancelCanvasGesture>(
             cx,

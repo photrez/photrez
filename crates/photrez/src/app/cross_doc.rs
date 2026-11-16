@@ -48,6 +48,18 @@ pub(crate) enum LayerDropTarget {
     NewDocument,
 }
 
+/// Which side of the target row a dropped layer should land on. The Layers
+/// panel tracks the pointer against the row's midline: the top half asks for
+/// `Above`, the bottom half for `Below`. Dropping `Below` the pinned
+/// Background row is clamped to `Above` by the caller, matching the drag-over
+/// clamp in the reference panel; the core engine re-seats the Background at
+/// the bottom of the stack regardless.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InsertPosition {
+    Above,
+    Below,
+}
+
 impl App {
     /// Production entry point: run the drop and surface guard failures the way
     /// the drop path does (error toast), clearing the status bar on success.
@@ -208,12 +220,14 @@ impl App {
         Ok(())
     }
 
-    /// Layers-panel row drop: a same-document drag reorders to that exact row;
-    /// a cross-document drag copies/moves into the active document.
+    /// Layers-panel row drop: a same-document drag reorders to that exact row
+    /// position (`Above`/`Below` of the target's midline), a cross-document drag
+    /// copies/moves into the active document's top of stack.
     pub(crate) fn drop_layer_on_row(
         &mut self,
         payload: &LayerDragPayload,
         to_row: u64,
+        position: InsertPosition,
         alt: bool,
         cx: &mut Context<Self>,
     ) {
@@ -234,12 +248,12 @@ impl App {
                 })
                 .or(Some(payload.row_id));
             if let Some(from_row) = from_row {
-                self.reorder_layer_rows(from_row, to_row, cx);
+                self.reorder_layer_with_position(from_row, to_row, position, cx);
             }
-        } else if let Some(active) = active {
-            if payload.core_id.is_some() {
-                self.apply_layer_drag(payload, LayerDropTarget::Panel { doc_id: active }, alt, cx);
-            }
+        } else if let Some(active) = active
+            && payload.core_id.is_some()
+        {
+            self.apply_layer_drag(payload, LayerDropTarget::Panel { doc_id: active }, alt, cx);
         }
     }
 

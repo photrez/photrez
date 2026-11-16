@@ -454,5 +454,6 @@ mod picker_eyedropper;
 
 mod properties;
 
+mod combined_workflows;
 mod keyboard;
 mod nav_regression;

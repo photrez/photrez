@@ -1,6 +1,8 @@
 use super::*;
 
-use gpui_kit::relative;
+use gpui_kit::{Bounds, Pixels, relative};
+use std::cell::Cell;
+use std::rc::Rc;
 
 use crate::views::option_bar::controls::tooltip;
 
@@ -134,6 +136,7 @@ pub(super) fn layer_list(
         // stub's card: 12px from the glyph to the title, 4px from the
         // title to its supporting line.
         return v_flex()
+            .key_context("LayersPanel")
             .w_full()
             .flex_1()
             .min_h(px(0.0))
@@ -181,6 +184,7 @@ pub(super) fn layer_list(
             );
     }
     v_flex()
+        .key_context("LayersPanel")
         .w_full()
         .flex_1()
         .min_h(px(0.0))
@@ -189,15 +193,17 @@ pub(super) fn layer_list(
         .border_y(px(1.0))
         .border_color(color::BORDER)
         .children(layers.iter().enumerate().map(|(index, layer)| {
+            let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
             layer_row(
                 layer,
                 RowView {
                     flags: flags.get(index).copied(),
-                    active: layer.id == selected,
+                    active: !selected_layers.is_empty() && layer.id == selected,
                     selected: selected_layers.contains(&layer.id),
                     up_target: index.checked_sub(1).map(|up| layers[up].id),
                     down_target: layers.get(index + 1).map(|down| down.id),
                     thumb: thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+                    bounds: Rc::clone(&bounds),
                 },
                 state,
                 cx,
@@ -212,6 +218,9 @@ struct RowView<'a> {
     up_target: Option<u64>,
     down_target: Option<u64>,
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
+    /// The row's window bounds, tracked by an invisible canvas child. The drop
+    /// handler reads it to decide between `Above` and `Below`.
+    bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
 }
 
 /// A 50px row with a 10px child gap and 14px side inset. Its fill and its
@@ -245,6 +254,7 @@ fn layer_row(
         up_target,
         down_target,
         thumb,
+        bounds,
     } = view;
     let id = layer.id;
     let name = layer.name.clone();
@@ -283,11 +293,11 @@ fn layer_row(
             state_for_click.update(cx, |s, _| {
                 if toggle {
                     if let Some(index) = s.selected_layers.iter().position(|row| *row == id) {
-                        if s.selected_layers.len() > 1 {
-                            s.selected_layers.remove(index);
-                        }
-                        if s.selected_layer == id {
-                            s.selected_layer = *s.selected_layers.last().unwrap_or(&id);
+                        s.selected_layers.remove(index);
+                        if s.selected_layer == id
+                            && let Some(&last) = s.selected_layers.last()
+                        {
+                            s.selected_layer = last;
                         }
                     } else {
                         s.selected_layers.push(id);
@@ -335,12 +345,25 @@ fn layer_row(
         })
     };
 
+    let bounds_for_drop = Rc::clone(&bounds);
+    let bounds_for_hint = Rc::clone(&bounds);
     let on_drop = cx.listener(
         move |app,
               payload: &crate::app::cross_doc::LayerDragPayload,
               window,
               cx: &mut Context<crate::app::App>| {
-            app.drop_layer_on_row(payload, id, window.modifiers().alt, cx);
+            let position = bounds_for_drop
+                .get()
+                .map(|row| {
+                    let pointer = window.mouse_position().y - row.origin.y;
+                    if f32::from(pointer) < f32::from(row.size.height) / 2.0 {
+                        crate::app::cross_doc::InsertPosition::Above
+                    } else {
+                        crate::app::cross_doc::InsertPosition::Below
+                    }
+                })
+                .unwrap_or(crate::app::cross_doc::InsertPosition::Above);
+            app.drop_layer_on_row(payload, id, position, window.modifiers().alt, cx);
         },
     );
 
@@ -381,6 +404,35 @@ fn layer_row(
         .on_click(on_click)
         .on_drag(drag_payload, on_drag)
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
+        .drag_over::<crate::app::cross_doc::LayerDragPayload>(
+            move |style, _payload, window, _cx| {
+                let top_half = bounds_for_hint
+                    .get()
+                    .map(|row| {
+                        f32::from(window.mouse_position().y) - f32::from(row.origin.y)
+                            < f32::from(row.size.height) / 2.0
+                    })
+                    .unwrap_or(true);
+                if top_half {
+                    style.border_t_2().border_color(color::ACCENT)
+                } else {
+                    style.border_b_2().border_color(color::ACCENT)
+                }
+            },
+        )
+        .when_some(layer.core_id.clone(), |el, core_id| {
+            let open_layer_menu = cx.listener(
+                move |app,
+                      event: &gpui_kit::MouseDownEvent,
+                      _window,
+                      cx: &mut Context<crate::app::App>| {
+                    cx.stop_propagation();
+                    let at = (f32::from(event.position.x), f32::from(event.position.y));
+                    app.open_layer_context_menu(&core_id, at, cx);
+                },
+            );
+            el.on_mouse_down(gpui_kit::MouseButton::Right, open_layer_menu)
+        })
         .when_some(layer.core_id.clone(), |el, core_id| {
             el.child(tooltip(
                 state,
@@ -537,6 +589,19 @@ fn layer_row(
                     ),
             )
         })
+        // The row carries its own bounds so the drop handler can split the
+        // pointer between `Above` and `Below` the midline. The canvas paints
+        // nothing.
+        .child(
+            gpui_kit::canvas(
+                move |row_bounds, _window, _cx| {
+                    bounds.set(Some(row_bounds));
+                },
+                |_bounds, _state, _window, _cx| {},
+            )
+            .absolute()
+            .inset_0(),
+        )
         // The closed ring: a 1px overlay border on the row's padding box, so
         // its bottom edge sits just above the rule instead of losing to it.
         .when_some(ring_alpha, |el, alpha| {

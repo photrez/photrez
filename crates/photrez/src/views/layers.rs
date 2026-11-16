@@ -247,7 +247,7 @@ pub fn render(
     let active = layers
         .iter()
         .zip(flags.iter())
-        .find(|(row, _)| row.id == selected)
+        .find(|(row, _)| row.id == selected && selected_layers.contains(&row.id))
         .and_then(|(row, flags)| row.core_id.clone().map(|id| (id, *flags)));
     v_flex()
         .w_full()
@@ -286,7 +286,11 @@ pub(crate) fn disabled_row_opacity() -> f32 {
 fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let (blend, opacity, active_document) = {
         let s = state.read(cx);
-        (s.layer_blend.clone(), s.layer_opacity, !s.layers.is_empty())
+        (
+            s.layer_blend.clone(),
+            s.layer_opacity,
+            !s.layers.is_empty() && !s.selected_layers.is_empty(),
+        )
     };
     let mut row = h_flex()
         .w_full()
@@ -659,11 +663,18 @@ fn lock_button(
 ///
 /// [`footer_button_states`] holds the per-button rules.
 fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
-    let (layers, selected, flags) = {
+    let (layers, selected, selected_layers, flags) = {
         let s = state.read(cx);
-        (s.layers.clone(), s.selected_layer, s.layer_flags.clone())
+        (
+            s.layers.clone(),
+            s.selected_layer,
+            s.selected_layers.clone(),
+            s.layer_flags.clone(),
+        )
     };
-    let position = layers.iter().position(|row| row.id == selected);
+    let position = layers
+        .iter()
+        .position(|row| row.id == selected && selected_layers.contains(&row.id));
     let background = position
         .and_then(|index| flags.get(index).copied())
         .is_some_and(|flags| flags.is_background);

@@ -257,13 +257,13 @@ mod imp {
 
     pub(super) fn hide() {
         STATE.with(|state| {
-            if let Some(window) = state.borrow_mut().as_mut() {
-                if window.visible {
-                    unsafe {
-                        ShowWindow(window.hwnd, SW_HIDE);
-                    }
-                    window.visible = false;
+            if let Some(window) = state.borrow_mut().as_mut()
+                && window.visible
+            {
+                unsafe {
+                    ShowWindow(window.hwnd, SW_HIDE);
                 }
+                window.visible = false;
             }
         });
     }

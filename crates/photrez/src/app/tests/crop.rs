@@ -693,7 +693,6 @@ fn classic_crop_move_bypasses_snapping_for_alt_and_disabled_setting(
                     position: end,
                     pressed_button: Some(MouseButton::Left),
                     modifiers,
-                    ..Default::default()
                 }),
                 cx,
             );
@@ -767,7 +766,6 @@ fn classic_crop_snapping_tracks_alt_and_setting_changes_during_drag(
                     position,
                     pressed_button: Some(MouseButton::Left),
                     modifiers,
-                    ..Default::default()
                 }),
                 cx,
             );
@@ -902,7 +900,6 @@ fn classic_crop_resize_bypasses_snapping_for_alt_and_disabled_setting(
                     position: end,
                     pressed_button: Some(MouseButton::Left),
                     modifiers,
-                    ..Default::default()
                 }),
                 cx,
             );
@@ -1460,7 +1457,6 @@ fn modern_crop_creation_bypasses_snapping_for_alt_and_disabled_setting(
                     position: end,
                     pressed_button: Some(MouseButton::Left),
                     modifiers,
-                    ..Default::default()
                 }),
                 cx,
             );
@@ -3768,7 +3764,6 @@ fn crop_rotation_keeps_the_shift_snapped_pointer_move_at_release(
                     shift: true,
                     ..Default::default()
                 },
-                ..Default::default()
             }),
             cx,
         );

@@ -301,26 +301,25 @@ impl App {
         if let Some(active) = self.active_document.as_mut() {
             let retired = active.canvas.discard_preview_patches();
             self.retired_textures.extend(retired);
-            if let Some((w, h, rgba)) = shot {
-                if ox >= 0.0 && oy >= 0.0 {
-                    if let Ok(base) = active.canvas.read_region_rgba(ox as u32, oy as u32, w, h) {
-                        let mut blended = base.clone();
-                        for (index, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
-                            let alpha = pixel[3] as u32;
-                            let offset = index * 4;
-                            for channel in 0..3 {
-                                blended[offset + channel] = ((pixel[channel] as u32 * alpha
-                                    + blended[offset + channel] as u32 * (255 - alpha))
-                                    / 255)
-                                    as u8;
-                            }
-                            blended[offset + 3] = 255;
-                        }
-                        let _ = active
-                            .canvas
-                            .push_scaled_patch(ox as u32, oy as u32, w, h, w, h, &blended);
+            if let Some((w, h, rgba)) = shot
+                && ox >= 0.0
+                && oy >= 0.0
+                && let Ok(base) = active.canvas.read_region_rgba(ox as u32, oy as u32, w, h)
+            {
+                let mut blended = base.clone();
+                for (index, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
+                    let alpha = pixel[3] as u32;
+                    let offset = index * 4;
+                    for channel in 0..3 {
+                        blended[offset + channel] = ((pixel[channel] as u32 * alpha
+                            + blended[offset + channel] as u32 * (255 - alpha))
+                            / 255) as u8;
                     }
+                    blended[offset + 3] = 255;
                 }
+                let _ = active
+                    .canvas
+                    .push_scaled_patch(ox as u32, oy as u32, w, h, w, h, &blended);
             }
         }
         self.state.update(cx, |state, _| {

@@ -29,6 +29,7 @@ use self::layer_set::*;
 pub use snapshot::{DocumentSnapshot, LayerSnapshot};
 pub use state::DocumentCore;
 
+pub(crate) mod adjustment_bake;
 mod apply;
 mod canvas;
 pub(crate) mod crop_bake;

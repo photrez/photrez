@@ -95,7 +95,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{Div, Entity, Hsla, TestSupportExt, div, px};
 
 use crate::components::ui;
-use crate::i18n::t;
+use crate::i18n::{t, t_args};
 use crate::shot;
 use crate::state::{AppState, DialogId, MenuId};
 use crate::tokens::{color, title};
@@ -470,9 +470,11 @@ fn command_row_enabled(
         row.active(|style| style.bg(ui::MENU_ROW_HOVER_FILL))
             .on_click(cx.listener(
                 move |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                    cx.stop_propagation();
                     state.update(cx, |state, _| {
                         state.open_menu = None;
                         state.context_menu = None;
+                        state.layer_context_menu = None;
                     });
                     run(app, cx);
                 },
@@ -481,6 +483,43 @@ fn command_row_enabled(
     } else {
         // A disabled row is inert but still part of the menu: the press must not
         // bubble to the overlay's click-away, as an input-transparent row would.
+        row.on_click(cx.listener(
+            |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                cx.stop_propagation();
+            },
+        ))
+        .into_any_element()
+    }
+}
+
+fn command_row_window(
+    state: &Entity<AppState>,
+    label: &str,
+    shortcut: Option<&str>,
+    id: &'static str,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    run: impl Fn(&mut crate::app::App, &mut gpui_kit::Window, &mut Context<crate::app::App>) + 'static,
+) -> gpui_kit::AnyElement {
+    let state = state.clone();
+    let row = ui::menu_row(label, shortcut, !enabled, None)
+        .id(id)
+        .test_support();
+    if enabled {
+        row.active(|style| style.bg(ui::MENU_ROW_HOVER_FILL))
+            .on_click(cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, window, cx: &mut Context<crate::app::App>| {
+                    cx.stop_propagation();
+                    state.update(cx, |state, _| {
+                        state.open_menu = None;
+                        state.context_menu = None;
+                        state.layer_context_menu = None;
+                    });
+                    run(app, window, cx);
+                },
+            ))
+            .into_any_element()
+    } else {
         row.on_click(cx.listener(
             |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
                 cx.stop_propagation();
@@ -903,7 +942,11 @@ pub fn render_context(
     ]))
     .absolute()
     .left(px(position.0))
-    .top(px(position.1));
+    .top(px(position.1))
+    .id("canvas-context-popup")
+    .test_support()
+    .block_mouse_except_scroll()
+    .on_click(|_, _, cx: &mut gpui_kit::App| cx.stop_propagation());
     div()
         .id("context-menu-overlay")
         .test_support()
@@ -911,8 +954,279 @@ pub fn render_context(
         .inset(px(0.0))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                cx.stop_propagation();
                 close_state.update(cx, |state, _| state.context_menu = None);
                 app.close_context_menu(cx);
+            }),
+        )
+        .child(popup)
+}
+
+/// The Layers row context menu: same shell and row chrome as the canvas
+/// menu, with the item list the rows document. Built from live state at
+/// render; the clicked layer anchors the list.
+pub fn render_layer_context(
+    state: &Entity<AppState>,
+    position: (f32, f32),
+    core_id: String,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let (layers, flags, selected) = {
+        let s = state.read(cx);
+        (
+            s.layers.clone(),
+            s.layer_flags.clone(),
+            s.selected_layers.clone(),
+        )
+    };
+    let multi = selected.len() > 1;
+    let index = layers
+        .iter()
+        .position(|row| row.core_id.as_deref() == Some(core_id.as_str()));
+    let clicked_flags = index
+        .map(|i| flags[i])
+        .unwrap_or_else(|| crate::state::LayerFlags {
+            visible: true,
+            locked: true,
+            has_adjustments: false,
+            lock_transparency: false,
+            lock_position: false,
+            lock_rotation: false,
+            is_background: true,
+        });
+    let background = clicked_flags.is_background;
+    let locked = clicked_flags.locked;
+    let visible = clicked_flags.visible;
+    let too_few = layers.len() <= 1;
+    let next_background = index
+        .filter(|i| i + 1 < layers.len())
+        .map(|i| flags[i + 1].is_background)
+        .unwrap_or(false);
+    let entries: Vec<gpui_kit::AnyElement> =
+        {
+            let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
+            rows.push(command_row(
+                state,
+                &t("layers.newLayer"),
+                Some("Ctrl+Shift+N"),
+                "ctx-layer-new",
+                cx,
+                |app, cx| app.add_empty_layer(cx),
+            ));
+            let duplicate_label = if multi {
+                let count = selected.len().to_string();
+                t_args("layers.duplicateCount", &[("count", count.as_str())])
+            } else {
+                t("menus.items.duplicateLayer")
+            };
+            rows.push(command_row(
+                state,
+                &duplicate_label,
+                Some("Ctrl+J"),
+                "ctx-layer-duplicate",
+                cx,
+                |app, cx| {
+                    let result = app.duplicate_selected_layer(cx);
+                    app.report_layer_op_for_view(result, cx);
+                },
+            ));
+            if !multi {
+                let rename_id = core_id.clone();
+                rows.push(command_row_window(
+                    state,
+                    &t("layers.renameLayer"),
+                    None,
+                    "ctx-layer-rename",
+                    !locked,
+                    cx,
+                    move |app, window, cx| app.begin_rename_layer(rename_id.clone(), window, cx),
+                ));
+            }
+            rows.push(ui::menu_separator().into_any_element());
+            let visibility_label = if visible {
+                t("layers.hideLayer")
+            } else {
+                t("layers.showLayer")
+            };
+            rows.push(command_row(
+                state,
+                &visibility_label,
+                None,
+                "ctx-layer-toggle-visibility",
+                cx,
+                {
+                    let core_id = core_id.clone();
+                    move |app, cx| app.toggle_layer_visibility(core_id.clone(), cx)
+                },
+            ));
+            let lock_label = if locked {
+                t("layers.unlockLayer")
+            } else {
+                t("layers.lockLayer")
+            };
+            rows.push(command_row(
+                state,
+                &lock_label,
+                None,
+                "ctx-layer-toggle-lock",
+                cx,
+                {
+                    let core_id = core_id.clone();
+                    move |app, cx| app.toggle_layer_locked(core_id.clone(), cx)
+                },
+            ));
+            rows.push(ui::menu_separator().into_any_element());
+            if !multi {
+                rows.push(command_row_enabled(
+                    state,
+                    &t("layers.moveLayerUp"),
+                    None,
+                    "ctx-layer-move-up",
+                    index.is_some_and(|i| i > 0 && !background),
+                    cx,
+                    {
+                        let core_id = core_id.clone();
+                        let state_for_rows = state.clone();
+                        move |app, cx| {
+                            let (from_row, to_row) = {
+                                let s = state_for_rows.read(cx);
+                                let pos = s.layers.iter().position(|row| {
+                                    row.core_id.as_deref() == Some(core_id.as_str())
+                                });
+                                match pos {
+                                    Some(i) if i > 0 => (s.layers[i].id, s.layers[i - 1].id),
+                                    _ => return,
+                                }
+                            };
+                            app.reorder_layer_rows(from_row, to_row, cx);
+                        }
+                    },
+                ));
+                rows.push(command_row_enabled(
+                    state,
+                    &t("layers.moveLayerDown"),
+                    None,
+                    "ctx-layer-move-down",
+                    index.is_some_and(|i| i < layers.len().saturating_sub(1) && !next_background),
+                    cx,
+                    {
+                        let core_id = core_id.clone();
+                        let state_for_rows = state.clone();
+                        move |app, cx| {
+                            let (from_row, to_row) = {
+                                let s = state_for_rows.read(cx);
+                                let pos = s.layers.iter().position(|row| {
+                                    row.core_id.as_deref() == Some(core_id.as_str())
+                                });
+                                match pos {
+                                    Some(i) if i + 1 < s.layers.len() => {
+                                        (s.layers[i].id, s.layers[i + 1].id)
+                                    }
+                                    _ => return,
+                                }
+                            };
+                            app.reorder_layer_rows(from_row, to_row, cx);
+                        }
+                    },
+                ));
+                rows.push(command_row_enabled(
+                    state,
+                    &t("menus.items.mergeDown"),
+                    Some("Ctrl+E"),
+                    "ctx-layer-merge-down",
+                    index.is_some_and(|i| i < layers.len().saturating_sub(1) && !next_background),
+                    cx,
+                    |app, cx| {
+                        let result = app.merge_selected_layer_down(cx);
+                        app.report_layer_op_for_view(result, cx);
+                    },
+                ));
+            } else {
+                let count = selected.len().to_string();
+                let merge_label = t_args("layers.mergeCount", &[("count", count.as_str())]);
+                rows.push(command_row(
+                    state,
+                    &merge_label,
+                    Some("Ctrl+E"),
+                    "ctx-layer-merge-selected",
+                    cx,
+                    |app, cx| {
+                        let result = app.merge_selected_layers(cx);
+                        app.report_layer_op_for_view(result, cx);
+                    },
+                ));
+            }
+            rows.push(command_row_enabled(
+                state,
+                &t("menus.items.flattenImage"),
+                Some("Ctrl+Shift+E"),
+                "ctx-layer-flatten",
+                !too_few,
+                cx,
+                |app, cx| {
+                    let result = app.flatten_document(cx);
+                    app.report_layer_op_for_view(result, cx);
+                },
+            ));
+            if !multi {
+                rows.push(command_row_enabled(
+                    state,
+                    &t("layers.applyAdjustment"),
+                    None,
+                    "ctx-layer-apply-adjustment",
+                    clicked_flags.has_adjustments,
+                    cx,
+                    |app, cx| app.apply_basic_adjustment_for_view(cx),
+                ));
+            }
+            rows.push(ui::menu_separator().into_any_element());
+            if multi {
+                let count = selected.len().to_string();
+                let delete_label = t_args("layers.deleteCount", &[("count", count.as_str())]);
+                rows.push(command_row(
+                    state,
+                    &delete_label,
+                    Some("Delete"),
+                    "ctx-layer-delete",
+                    cx,
+                    |app, cx| {
+                        app.delete_selected_layer(cx);
+                    },
+                ));
+            } else {
+                rows.push(command_row_enabled(
+                    state,
+                    &t("layers.deleteLayer"),
+                    Some("Delete"),
+                    "ctx-layer-delete",
+                    !(background || layers.len() <= 1),
+                    cx,
+                    |app, cx| {
+                        app.delete_selected_layer(cx);
+                    },
+                ));
+            }
+            rows
+        };
+    let close_state = state.clone();
+    let popup = crate::views::context_menus::shell(menu_entries(entries))
+        .absolute()
+        .left(px(position.0))
+        .top(px(position.1))
+        .id("layer-context-popup")
+        .test_support()
+        .block_mouse_except_scroll()
+        .on_click(|_, _, cx: &mut gpui_kit::App| cx.stop_propagation());
+    div()
+        .id("layer-context-menu-overlay")
+        .test_support()
+        .absolute()
+        .inset(px(0.0))
+        .on_click(
+            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                close_state.update(cx, |state, _| state.layer_context_menu = None);
+                app.close_layer_context_menu(cx);
             }),
         )
         .child(popup)

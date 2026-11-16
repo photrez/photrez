@@ -175,10 +175,10 @@ pub(crate) struct BrushTipCache {
 impl BrushTipCache {
     pub(crate) fn get(&mut self, size: f64, hardness: f64, color: [u8; 4]) -> Rc<BrushTip> {
         let key = (size.to_bits(), hardness.to_bits(), color);
-        if let Some((size_bits, hardness_bits, cached_color, tip)) = &self.entry {
-            if (*size_bits, *hardness_bits, *cached_color) == key {
-                return Rc::clone(tip);
-            }
+        if let Some((size_bits, hardness_bits, cached_color, tip)) = &self.entry
+            && (*size_bits, *hardness_bits, *cached_color) == key
+        {
+            return Rc::clone(tip);
         }
         let tip = Rc::new(brush::build_tip(size, hardness, color));
         self.entry = Some((key.0, key.1, key.2, Rc::clone(&tip)));

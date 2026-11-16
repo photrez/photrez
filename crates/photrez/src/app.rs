@@ -36,6 +36,7 @@ use crate::services::window_state::{self, WindowGeometry};
 use crate::state::{AppState, ToolId};
 use crate::views::workspace;
 
+mod apply_adjustment;
 mod autosave;
 pub(crate) mod brush_menu;
 mod color_picker;
@@ -52,7 +53,10 @@ mod drop;
 mod edge_scroll;
 mod history;
 mod layer_marquee;
+mod layer_menu;
+mod layer_nav;
 mod layer_projection;
+mod layer_tab;
 mod layers;
 mod loading;
 mod locale;
@@ -249,6 +253,11 @@ pub struct App {
     /// watched in render rather than in each of them.
     shell_focus_before_dialog: Option<gpui_kit::FocusHandle>,
     dialog_was_open: bool,
+    /// Focus targets for the Layers and History tabs. Both are
+    /// tab stops with the `LayersPanel` key context, so Arrow keys cycle
+    /// between them from either strip.
+    pub(crate) layers_tab_focus: gpui_kit::FocusHandle,
+    pub(crate) history_tab_focus: gpui_kit::FocusHandle,
     /// A New Document dialog opened by a shortcut; the next render focuses it
     /// because a window-global action has no `Window` to focus with.
     pending_new_document_focus: bool,
@@ -691,10 +700,11 @@ impl Render for App {
         {
             self.release_color_picker_pointer(window);
         }
-        if self.dialog_was_open && !dialog_open {
-            if let Some(handle) = self.shell_focus_before_dialog.take() {
-                handle.focus(window, cx);
-            }
+        if self.dialog_was_open
+            && !dialog_open
+            && let Some(handle) = self.shell_focus_before_dialog.take()
+        {
+            handle.focus(window, cx);
         }
         self.dialog_was_open = dialog_open;
         if !dialog_open {
@@ -787,6 +797,8 @@ impl Render for App {
             Rc::clone(&self.navigator_bounds),
             &self.layer_thumbs,
             &self.canvas_focus_handle,
+            &self.layers_tab_focus,
+            &self.history_tab_focus,
             &self.rename_focus,
             &self.resize_focus,
             &self.new_document_focus,

@@ -654,16 +654,32 @@ impl App {
     /// Classify a command by the display work it needs. Layer-local metadata
     /// edits recomposite only the union of the old and new layer bounds.
     fn command_edit_refresh(&self, doc_id: &str, command: &Command) -> EditRefresh {
-        let id = match command {
+        let id: &String = match command {
             Command::SetLocked { .. }
             | Command::Rename { .. }
             | Command::SetBackgroundFlag { .. } => return EditRefresh::None,
+            Command::SetLayersLocked { ids, .. } if ids.len() == 1 => return EditRefresh::None,
             Command::SetVisible { id, .. }
             | Command::SetOpacity { id, .. }
             | Command::SetBlendMode { id, .. }
             | Command::SetLayerParams { id, .. }
             | Command::SetAdjustment { id, .. }
+            | Command::ApplyBasicAdjustment { id, .. }
             | Command::TransformLayer { id, .. } => id,
+            Command::SetLayersVisible { ids, .. }
+            | Command::SetLayersOpacity { ids, .. }
+            | Command::SetLayersBlendMode { ids, .. } => {
+                if ids.len() != 1 {
+                    return EditRefresh::Full;
+                }
+                &ids[0]
+            }
+            Command::GroupTransformLayers { patches } => {
+                if patches.len() != 1 {
+                    return EditRefresh::Full;
+                }
+                &patches[0].id
+            }
             _ => return EditRefresh::Full,
         };
         let Some(old) = self.layer_doc_rect(doc_id, id) else {
@@ -833,10 +849,11 @@ impl App {
     /// Buffers are keyed by layer epoch; an edit that leaves a layer's pixels
     /// untouched reuses the shared buffer instead of copying it.
     fn projection_cache_for(&mut self, doc_id: &str, version: u64) -> Option<Arc<ProjectionCache>> {
-        if let Some(cache) = &self.projection_cache {
-            if cache.doc_id == doc_id && cache.version == version {
-                return Some(Arc::clone(cache));
-            }
+        if let Some(cache) = &self.projection_cache
+            && cache.doc_id == doc_id
+            && cache.version == version
+        {
+            return Some(Arc::clone(cache));
         }
         let session = self.sessions.get(doc_id)?;
         let loaded = session.loaded_document();

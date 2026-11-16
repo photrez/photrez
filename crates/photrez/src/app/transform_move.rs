@@ -1,7 +1,8 @@
 //! Move-tool transform session: frame move, eight-handle resize and rotation
 //! around the layer centre. Geometry comes from `transform_geometry`;
 //! the live preview recomposites the document with the dragged transform and
-//! commits one `TransformLayer` history entry on pointer-up.
+//! commits one history entry per gesture: a single layer uses
+//! `TransformLayer`, a group one `GroupTransformLayers`.
 
 use gpui_kit::Context;
 use photrez_core::document::content::Transform2D;
@@ -19,6 +20,21 @@ pub(super) type LayerBounds = (f64, f64, f64, f64);
 
 /// A snap guide proposed while dragging: (is-vertical, document position).
 type GuideLine = (bool, f64);
+
+/// Build the absolute-patch a host preview diffs to a core element. Kept
+/// beside the arm entry points because both the single-layer and the group
+/// commit paths set the same fields.
+fn patch_of(transform: &Transform2D) -> TransformPatch {
+    TransformPatch {
+        x: transform.x,
+        y: transform.y,
+        scale_x: transform.scale_x,
+        scale_y: transform.scale_y,
+        rotation: transform.rotation,
+        flip_h: Some(transform.flip_h),
+        flip_v: Some(transform.flip_v),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TransformMode {
@@ -262,6 +278,10 @@ impl App {
             Handle::Rotate => TransformMode::Rotate,
             other => TransformMode::Resize(other),
         };
+        let show_controls = self.state.read(cx).show_transform_controls;
+        if !show_controls && mode != TransformMode::Move {
+            return false;
+        }
         let blocked = layer.locked
             || (mode == TransformMode::Move && layer.lock_position.unwrap_or(false))
             || (mode == TransformMode::Rotate && layer.lock_rotation.unwrap_or(false));
@@ -375,6 +395,10 @@ impl App {
             Handle::Rotate => TransformMode::Rotate,
             other => TransformMode::Resize(other),
         };
+        let show_controls = self.state.read(cx).show_transform_controls;
+        if !show_controls && mode != TransformMode::Move {
+            return false;
+        }
         members.retain(|member| match mode {
             TransformMode::Move => !member.lock_position,
             TransformMode::Rotate => !member.lock_rotation,
@@ -793,8 +817,9 @@ impl App {
         ))
     }
 
-    /// Commit the previewed transform as one history entry (one per member for
-    /// a group transform).
+    /// Commit the previewed transform as one history entry: one per gesture
+    /// (`TransformLayer` for a single layer, `GroupTransformLayers` for a
+    /// group).
     pub(crate) fn finish_transform_drag(&mut self, cx: &mut Context<Self>) -> bool {
         if self.transform_drag.is_some() || self.group_transform_drag.is_some() {
             self.clear_queued_transform_drag_update();
@@ -805,44 +830,32 @@ impl App {
             let Ok(doc_id) = self.active_doc_id() else {
                 return true;
             };
-            let mut changed = false;
-            let mut result = Ok(());
-            for (id, transform) in &drag.previews {
-                let unchanged = drag
-                    .members
-                    .iter()
-                    .any(|member| member.id == *id && transforms_equal(&member.start, transform));
-                if unchanged {
-                    continue;
-                }
-                changed = true;
-                let applied = self.apply_core_command(
-                    &doc_id,
-                    Command::TransformLayer {
+            let patches: Vec<photrez_core::protocol::TransformLayerEntry> = drag
+                .previews
+                .iter()
+                .filter(|(id, transform)| {
+                    drag.members.iter().any(|member| {
+                        member.id == *id && !transforms_equal(&member.start, transform)
+                    })
+                })
+                .map(
+                    |(id, transform)| photrez_core::protocol::TransformLayerEntry {
                         id: id.clone(),
-                        transform: TransformPatch {
-                            x: transform.x,
-                            y: transform.y,
-                            scale_x: transform.scale_x,
-                            scale_y: transform.scale_y,
-                            rotation: transform.rotation,
-                            flip_h: Some(transform.flip_h),
-                            flip_v: Some(transform.flip_v),
-                        },
+                        transform: patch_of(transform),
                     },
-                    true,
-                    cx,
-                );
-                if let Err(error) = applied {
-                    result = Err(error);
-                    break;
-                }
-            }
-            if !changed {
+                )
+                .collect();
+            if patches.is_empty() {
                 self.set_status_error(None, cx);
                 cx.notify();
                 return true;
             }
+            let result = self.apply_core_command(
+                &doc_id,
+                Command::GroupTransformLayers { patches },
+                true,
+                cx,
+            );
             match result {
                 Ok(()) => self.set_status_error(None, cx),
                 Err(error) => self.set_status_error(Some(format!("Transform: {error}")), cx),
@@ -862,15 +875,7 @@ impl App {
         let Ok(doc_id) = self.active_doc_id() else {
             return true;
         };
-        let transform = TransformPatch {
-            x: drag.preview.x,
-            y: drag.preview.y,
-            scale_x: drag.preview.scale_x,
-            scale_y: drag.preview.scale_y,
-            rotation: drag.preview.rotation,
-            flip_h: Some(drag.preview.flip_h),
-            flip_v: Some(drag.preview.flip_v),
-        };
+        let transform = patch_of(&drag.preview);
         let result = self.apply_core_command(
             &doc_id,
             Command::TransformLayer {

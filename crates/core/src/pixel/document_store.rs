@@ -195,6 +195,9 @@ impl DocumentPixelStore {
         if let Some(plan) = self.history.pending_crop_bake.take() {
             self.apply_crop_bake(plan);
         }
+        if let Some(plan) = self.history.pending_adjustment_bake.take() {
+            self.apply_adjustment_bake(plan);
+        }
         if let Some(plan) = self.history.pending_rasterize.take() {
             self.apply_rasterize_pixels(plan);
         }
@@ -230,6 +233,54 @@ impl DocumentPixelStore {
     /// re-rasterize replaces it).
     fn apply_rasterize_pixels(&mut self, plan: crate::engine::rasterize_bake::RasterizePlan) {
         self.init_layer(&plan.layer_id, plan.width, plan.height, plan.rgba);
+    }
+
+    /// Apply the adjustment bake's pixel half: write the baked bytes into
+    /// the canonical buffer and fold the before/after `StateNode` pair into
+    /// the metadata entry's `pixel_deltas`, so undoing the bake restores the
+    /// pixels too.
+    fn apply_adjustment_bake(&mut self, plan: crate::engine::adjustment_bake::ApplyAdjustmentPlan) {
+        let Some((w, h, epoch)) = self
+            .layers
+            .get(&plan.layer_id)
+            .map(|px| (px.width, px.height, px.epoch()))
+        else {
+            return;
+        };
+        if w == 0
+            || h == 0
+            || w != plan.width
+            || h != plan.height
+            || plan.rgba.len() != w as usize * h as usize * 4
+        {
+            // The baked buffer must match the canonical raster one-to-one;
+            // refuse inconsistent bakes rather than corrupt the canon.
+            return;
+        }
+        let patch = TilePatch {
+            x: 0,
+            y: 0,
+            w: w as usize,
+            h: h as usize,
+            data: plan.rgba,
+        };
+        let Some((before, after)) =
+            self.cow_tiles(&plan.layer_id, std::slice::from_ref(&patch), epoch)
+        else {
+            return;
+        };
+        if let Some(px) = self.layers.get_mut(&plan.layer_id) {
+            px.write_tile(&patch);
+            px.bump_epoch();
+        }
+        self.history.attach_pixel_deltas(
+            plan.entry_index,
+            vec![PixelDelta {
+                layer_id: plan.layer_id.clone(),
+                before,
+                after,
+            }],
+        );
     }
 
     /// Execute the pixel half of a destructive crop: discard every pixel that
