@@ -6,11 +6,15 @@
 //! regression that crosses packet boundaries (selection contract + Move
 //! commit + context menu + tabs) fails here rather than slipping through.
 //!
-//! Coverage limit: the Alt-drag + document-switch workflow is not drivable
-//! from the mounted harness (a drag cannot be held across a document switch);
-//! its production routes are pinned by `cross_doc.rs` and the mounted
-//! `alt_drag_duplicates_the_layer_and_moves_the_copy` case. Save/reopen is
-//! pinned by the services document tests.
+//! Workflow 4 (Alt-drag → document switch → delayed release) drives the
+//! production handler the mounted row drop invokes
+//! (`App::drop_layer_on_row` with `Alt` read at release), exercising both
+//! documents and both histories. The mounted harness cannot hold a live drag
+//! across the switch itself; the drag payload is created at drag start and
+//! the release event is dispatched after switching documents, which is the
+//! exact semantic the production row handler implements.
+//!
+//! Save/reopen is pinned by the services document tests.
 use super::*;
 use crate::state::ToolId;
 use gpui_kit::test::TestWindowExt as _;
@@ -440,6 +444,326 @@ fn workflow_3_reorder_history_tab_undo_layers_tab_move(cx: &mut gpui_kit::TestAp
             super::canvas_input::history_cursor(&content, cx),
             history_before + 1,
             "the Move adds exactly one history entry"
+        );
+    })
+    .expect("test window remains open");
+}
+
+fn doc_stack_ids(content: &Entity<App>, cx: &gpui_kit::App, doc_id: &str) -> Vec<String> {
+    let loaded = content
+        .read(cx)
+        .sessions
+        .get(doc_id)
+        .expect("document is open")
+        .loaded_document();
+    loaded
+        .content_snapshot()
+        .expect("document content is present")
+        .layers
+        .iter()
+        .map(|layer| layer.id.clone())
+        .collect()
+}
+
+fn activate_by_id(content: &Entity<App>, cx: &mut gpui_kit::App, doc_id: &str) {
+    content.update(cx, |app, cx| {
+        app.activate_document(doc_id, cx).expect("document opens");
+    });
+}
+
+#[gpui_kit::test]
+fn workflow_4_alt_move_after_document_switch_moves_layer_and_advances_both_histories(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let doc_a = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("archive is the active document");
+        content
+            .update(cx, |app, cx| app.create_document(64, 64, cx))
+            .expect("second document is created");
+        let doc_b = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("the blank document is active");
+        assert_ne!(doc_a, doc_b, "the two documents are distinct");
+        let doc_b_cursor_before = super::canvas_input::history_cursor(&content, cx);
+        let doc_b_layers_before = doc_stack_ids(&content, cx, &doc_b);
+
+        // Back to docA; this is the document the drag started in.
+        activate_by_id(&content, cx, &doc_a);
+        let rows = super::canvas_input::layer_rows(&content, cx).0;
+        assert_eq!(rows.len(), 2, "the archive has two layers");
+        let source_row = rows[0].clone();
+        let source_core = source_row
+            .core_id
+            .clone()
+            .expect("archive layer has core id");
+        let source_path = content
+            .read(cx)
+            .core_layer_pixels_for_test(&source_core)
+            .expect("source pixels are readable");
+        let payload = crate::app::cross_doc::LayerDragPayload {
+            source_doc_id: doc_a.clone(),
+            core_id: Some(source_core.clone()),
+            row_id: source_row.id,
+        };
+        let doc_a_cursor_before = super::canvas_input::history_cursor(&content, cx);
+
+        // Mid-drag: switch documents instead of holding the drag; the release
+        // lands in docB through the same production path the mounted row drop
+        // drives.
+        activate_by_id(&content, cx, &doc_b);
+        let target_row = super::canvas_input::layer_rows(&content, cx).0[0].id;
+        content.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &payload,
+                target_row,
+                crate::app::cross_doc::InsertPosition::Above,
+                true,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+
+        // Doc B: the moved layer is present as the new topmost entry and its
+        // pixels match the source.
+        let doc_b_stack = doc_stack_ids(&content, cx, &doc_b);
+        assert_eq!(
+            doc_b_stack.len(),
+            doc_b_layers_before.len() + 1,
+            "docB gained the moved layer"
+        );
+        let moved_layer = doc_b_stack
+            .iter()
+            .find(|id| !doc_b_layers_before.contains(id))
+            .expect("the new layer is in docB's stack")
+            .clone();
+        let moved_pixels = content
+            .read(cx)
+            .core_layer_pixels_for_test(&moved_layer)
+            .expect("moved layer pixels are readable");
+        assert_eq!(
+            moved_pixels.2, source_path.2,
+            "docB holds the source pixels byte for byte"
+        );
+
+        // Doc A: the moved layer is gone; bottom remains.
+        let doc_a_stack = doc_stack_ids(&content, cx, &doc_a);
+        assert_eq!(
+            doc_a_stack,
+            vec!["bottom".to_string()],
+            "docA lost the moved layer"
+        );
+
+        // Histories: both documents got exactly one new entry each.
+        let doc_b_cursor_after = super::canvas_input::history_cursor(&content, cx);
+        assert_eq!(
+            doc_b_cursor_after,
+            doc_b_cursor_before + 1,
+            "docB recorded the AddLayerWithState entry exactly once"
+        );
+        activate_by_id(&content, cx, &doc_a);
+        assert_eq!(
+            super::canvas_input::history_cursor(&content, cx),
+            doc_a_cursor_before + 1,
+            "docA recorded the DeleteLayer entry exactly once"
+        );
+        activate_by_id(&content, cx, &doc_b);
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn workflow_4_plain_drag_after_document_switch_copies_and_keeps_the_source_selection(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let doc_a = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("archive is the active document");
+        content
+            .update(cx, |app, cx| app.create_document(64, 64, cx))
+            .expect("second document is created");
+        let doc_b = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("the blank document is active");
+        let doc_b_cursor_before = super::canvas_input::history_cursor(&content, cx);
+        let doc_b_layers_before = doc_stack_ids(&content, cx, &doc_b);
+
+        activate_by_id(&content, cx, &doc_a);
+        let rows = super::canvas_input::layer_rows(&content, cx).0;
+        let top_row = rows[0].clone();
+        let source_core = top_row.core_id.clone().expect("archive layer has core id");
+        let payload = crate::app::cross_doc::LayerDragPayload {
+            source_doc_id: doc_a.clone(),
+            core_id: Some(source_core.clone()),
+            row_id: top_row.id,
+        };
+        let doc_a_cursor_before = super::canvas_input::history_cursor(&content, cx);
+
+        activate_by_id(&content, cx, &doc_b);
+        let target_row = super::canvas_input::layer_rows(&content, cx).0[0].id;
+        content.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &payload,
+                target_row,
+                crate::app::cross_doc::InsertPosition::Above,
+                false,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+
+        let doc_b_stack = doc_stack_ids(&content, cx, &doc_b);
+        assert_eq!(
+            doc_b_stack.len(),
+            doc_b_layers_before.len() + 1,
+            "docB gained the copied layer"
+        );
+        let doc_a_stack = doc_stack_ids(&content, cx, &doc_a);
+        assert_eq!(
+            doc_a_stack,
+            vec!["top".to_string(), "bottom".to_string()],
+            "docA keeps both source layers on a plain drag"
+        );
+        activate_by_id(&content, cx, &doc_a);
+        assert_eq!(
+            super::canvas_input::history_cursor(&content, cx),
+            doc_a_cursor_before,
+            "docA records no deletion on a plain copy"
+        );
+        activate_by_id(&content, cx, &doc_b);
+        assert_eq!(
+            super::canvas_input::history_cursor(&content, cx),
+            doc_b_cursor_before + 1,
+            "docB recorded the AddLayerWithState entry once"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn workflow_4_alt_move_refuses_the_last_source_layer(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let doc_a = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("archive is the active document");
+        content
+            .update(cx, |app, cx| app.create_document(64, 64, cx))
+            .expect("second document is created");
+        let doc_b = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("the blank document is active");
+        let doc_b_layers_before = doc_stack_ids(&content, cx, &doc_b);
+        let doc_b_fixture_note = doc_b_layers_before;
+
+        activate_by_id(&content, cx, &doc_a);
+        // First Alt move leaves docA with a single layer.
+        let rows = super::canvas_input::layer_rows(&content, cx).0;
+        let top_row = rows[0].clone();
+        let rows_payload = crate::app::cross_doc::LayerDragPayload {
+            source_doc_id: doc_a.clone(),
+            core_id: top_row.core_id.clone(),
+            row_id: top_row.id,
+        };
+        activate_by_id(&content, cx, &doc_b);
+        let target_row = super::canvas_input::layer_rows(&content, cx).0[0].id;
+        content.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &rows_payload,
+                target_row,
+                crate::app::cross_doc::InsertPosition::Above,
+                true,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            doc_stack_ids(&content, cx, &doc_a),
+            vec!["bottom".to_string()],
+            "docA is down to one layer after the first Alt move"
+        );
+        let doc_b_layers_before_refusal = doc_stack_ids(&content, cx, &doc_b);
+        assert_eq!(
+            doc_b_layers_before_refusal.len(),
+            doc_b_fixture_note.len() + 1,
+            "the first Alt move added exactly one layer to docB"
+        );
+
+        // A second Alt move out of docA's last layer must refuse and change
+        // nothing on either side.
+        let doc_a_cursor_before = {
+            activate_by_id(&content, cx, &doc_a);
+            super::canvas_input::history_cursor(&content, cx)
+        };
+        let last_row = super::canvas_input::layer_rows(&content, cx).0[0].clone();
+        let sidebar = crate::app::cross_doc::LayerDragPayload {
+            source_doc_id: doc_a.clone(),
+            core_id: last_row.core_id.clone(),
+            row_id: last_row.id,
+        };
+        activate_by_id(&content, cx, &doc_b);
+        let doc_b_cursor_before = super::canvas_input::history_cursor(&content, cx);
+        let target_row = super::canvas_input::layer_rows(&content, cx).0[0].id;
+        content.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &sidebar,
+                target_row,
+                crate::app::cross_doc::InsertPosition::Above,
+                true,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+
+        assert_eq!(
+            doc_stack_ids(&content, cx, &doc_a),
+            vec!["bottom".to_string()],
+            "the last layer stays in docA on the refused Alt move"
+        );
+        assert_eq!(
+            doc_stack_ids(&content, cx, &doc_b),
+            doc_b_layers_before_refusal,
+            "docB is unchanged after the refusal"
+        );
+        activate_by_id(&content, cx, &doc_a);
+        assert_eq!(
+            super::canvas_input::history_cursor(&content, cx),
+            doc_a_cursor_before,
+            "the refusal records no deletion in docA"
+        );
+        activate_by_id(&content, cx, &doc_b);
+        assert_eq!(
+            super::canvas_input::history_cursor(&content, cx),
+            doc_b_cursor_before,
+            "the refusal records no addition in docB"
         );
     })
     .expect("test window remains open");
