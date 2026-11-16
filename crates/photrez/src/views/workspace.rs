@@ -241,15 +241,17 @@ pub(crate) fn render(
                                 .when(has_document && chrome_visible, |el| {
                                     el.child(
                                         // OptionBar — 38px
-                                        div().h(px(OPTIONBAR_H)).child(option_bar::render(
-                                            state,
-                                            f32::from(window.viewport_size().width)
-                                                - RAIL_W
-                                                - if dock_open { dock_w } else { 0.0 },
-                                            committed_selection,
-                                            transform_readout,
-                                            cx,
-                                        )),
+                                        div().h(px(OPTIONBAR_H)).items_stretch().child(
+                                            option_bar::render(
+                                                state,
+                                                f32::from(window.viewport_size().width)
+                                                    - RAIL_W
+                                                    - if dock_open { dock_w } else { 0.0 },
+                                                committed_selection,
+                                                transform_readout,
+                                                cx,
+                                            ),
+                                        ),
                                     )
                                 })
                                 .child(

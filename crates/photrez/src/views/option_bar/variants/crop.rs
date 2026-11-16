@@ -39,6 +39,7 @@ pub(super) fn crop_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    more: &mut Option<Div>,
 ) -> Div {
     let (
         delete_checked,
@@ -89,74 +90,78 @@ pub(super) fn crop_items(
         (s.crop_ratio_bounds.clone(), s.crop_unit_bounds.clone())
     };
     let p = crop_params();
-    row.child(tool_pill(
-        icons::with_stroke(icons::CROP, STROKE_PILL),
-        t(p.pill_label),
-    ))
-    .child(divider())
-    .child(crop_ratio_control(
-        &t(p.ratio_prefix),
-        mode,
-        aspect,
-        &recents,
-        ratio_open,
-        ratio_bounds,
-        cx,
-    ))
-    .when(custom_active, |row| {
-        row.child(divider()).child(crop_custom_fields(
+    let row = row
+        .child(tool_pill(
+            icons::with_stroke(icons::CROP, STROKE_PILL),
+            t(p.pill_label),
+        ))
+        .child(divider())
+        .child(crop_ratio_control(
+            &t(p.ratio_prefix),
+            mode,
             aspect,
-            edit.as_deref(),
-            edit_custom,
-            field,
+            &recents,
+            ratio_open,
+            ratio_bounds,
             cx,
         ))
-    })
-    .when(mode == crate::crop_aspect::CropMode::Size, |row| {
-        row.child(divider()).child(crop_size_fields(
-            &size_w,
-            &size_h,
-            unit,
-            unit_open,
-            edit.as_deref(),
-            !edit_custom,
-            field,
-            unit_bounds,
-            cx,
-        ))
-    })
-    .child(divider())
-    .child(option_checkbox_action(
-        p.delete_id,
-        p.delete_label,
-        delete_checked,
-        None,
-        cx,
-        |app, cx| app.toggle_crop_delete(cx),
-    ))
-    .child(option_checkbox_action(
-        p.fill_id,
-        p.fill_label,
-        fill_checked,
-        None,
-        cx,
-        |app, cx| app.toggle_crop_fill(cx),
-    ))
-    .child(crop_fill_swatch_group())
-    .child(divider())
-    .when(show_main_controls(), |row| {
-        row.child(crop_straighten_control(state, false, cx))
-            .child(crop_rotation_control(false, cx))
-            .child(divider())
-            .child(crop_guide_control(state, guides, false, cx))
-            .child(divider())
-            .child(crop_classic_toggle(
-                interaction == crate::crop_geometry::CropInteraction::Classic,
+        .when(custom_active, |row| {
+            row.child(divider()).child(crop_custom_fields(
+                aspect,
+                edit.as_deref(),
+                edit_custom,
+                field,
                 cx,
             ))
-    })
-    .when(show_more_dropdown() && !show_main_controls(), |row| {
-        row.child(more_dropdown_overflow(
+        })
+        .when(mode == crate::crop_aspect::CropMode::Size, |row| {
+            row.child(divider()).child(crop_size_fields(
+                &size_w,
+                &size_h,
+                unit,
+                unit_open,
+                edit.as_deref(),
+                !edit_custom,
+                field,
+                unit_bounds,
+                cx,
+            ))
+        })
+        .child(divider())
+        .child(option_checkbox_action(
+            p.delete_id,
+            p.delete_label,
+            delete_checked,
+            None,
+            cx,
+            |app, cx| app.toggle_crop_delete(cx),
+        ))
+        .child(option_checkbox_action(
+            p.fill_id,
+            p.fill_label,
+            fill_checked,
+            None,
+            cx,
+            |app, cx| app.toggle_crop_fill(cx),
+        ))
+        .child(crop_fill_swatch_group())
+        .child(divider())
+        .when(show_main_controls(), |row| {
+            row.child(crop_straighten_control(state, false, cx))
+                .child(crop_rotation_control(false, cx))
+                .child(divider())
+                .child(crop_guide_control(state, guides, false, cx))
+                .child(divider())
+                .child(crop_classic_toggle(
+                    interaction == crate::crop_geometry::CropInteraction::Classic,
+                    cx,
+                ))
+        })
+        .child(divider())
+        .child(cancel_button(cx))
+        .child(apply_button(cx));
+    if show_more_dropdown() && !show_main_controls() {
+        *more = Some(more_dropdown_overflow(
             more_open,
             state,
             cx,
@@ -170,11 +175,9 @@ pub(super) fn crop_items(
                     interaction == crate::crop_geometry::CropInteraction::Classic,
                     cx,
                 )),
-        ))
-    })
-    .child(divider())
-    .child(cancel_button(cx))
-    .child(apply_button(cx))
+        ));
+    }
+    row
 }
 
 fn crop_guide_control(

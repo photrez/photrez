@@ -7,6 +7,7 @@ pub(super) fn eyedropper_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     let auto_copy = state.read(cx).auto_copy_hex;
     row.child(tool_pill(
@@ -47,6 +48,7 @@ pub(super) fn paint_bucket_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     let (tolerance, contiguous, editing, focus) = {
         let s = state.read(cx);
@@ -118,6 +120,7 @@ pub(super) fn gradient_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     let (fg_color, bg_color, radial, fg_transparent, reverse, open, cursor) = {
         let s = state.read(cx);

@@ -909,3 +909,103 @@ fn a_locked_layer_keeps_the_move_bar_transform_fields_inert(cx: &mut gpui_kit::T
     })
     .expect("test window remains open");
 }
+
+/// A window resize flips the Move bar between the inline group and the
+/// overflow trigger in the same live view, not just in fresh mounts: the
+/// option bar reads `window.viewport_size()` every render, so the branch must
+/// follow the window. Pins both the narrow trip and the return trip.
+#[gpui_kit::test]
+fn window_resize_flips_the_move_bar_branches(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1500.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-reset").is_some(),
+            "1500 px mount renders the inline group"
+        );
+        assert!(
+            window.try_find("opt-more").is_none(),
+            "1500 px mount has no overflow trigger"
+        );
+    })
+    .expect("test window remains open");
+
+    // Bar = 1100 - 52 (rail) - 533 (dock) = 515; content 491 < 880: overflow.
+    cx.simulate_window_resize(
+        window.into(),
+        gpui_kit::size(gpui_kit::px(1100.), gpui_kit::px(820.)),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.find("opt-more").visible(),
+            "the narrow resize renders the overflow trigger"
+        );
+        assert!(
+            window.try_find("opt-reset").is_none(),
+            "the inline >= 880 px group stays folded at a 515 px bar"
+        );
+    })
+    .expect("resized window remains open");
+
+    // The return trip: the inline layout comes back.
+    cx.simulate_window_resize(
+        window.into(),
+        gpui_kit::size(gpui_kit::px(1500.), gpui_kit::px(820.)),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-reset").is_some(),
+            "the re-widened resize renders the inline group"
+        );
+        assert!(
+            window.try_find("opt-more").is_none(),
+            "the re-widened resize drops the overflow trigger"
+        );
+    })
+    .expect("re-widened window remains open");
+}
+
+/// A 1920x1080 physical display at 125% scaling lays out in 1536x864 logical
+/// px, the width this app uses for its wide-dock breakpoint. Pins the logical
+/// measurement the 125% discussion needs: the harness reports the scale
+/// factor and a logical viewport, and at exactly 1536 both dock and bar
+/// follow logical pixels (dock 598, content 862 < 880 -> overflow), matching
+/// the oracle measured at the same logical width.
+#[gpui_kit::test]
+fn scale_factor_change_keeps_the_bar_in_logical_pixels(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.find("opt-more").visible(),
+            "1536 logical px (1080p at 125%) is the overflow branch"
+        );
+        assert!(window.viewport_size().width == gpui_kit::px(1536.0));
+    })
+    .expect("1536 px mount remains open");
+
+    cx.simulate_window_scale_factor_change(window.into(), 1.25);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            (window.scale_factor() - 1.25).abs() < f32::EPSILON,
+            "the harness reports the changed scale factor"
+        );
+        assert_eq!(
+            window.viewport_size().width,
+            gpui_kit::px(1536.0),
+            "the viewport stays logical px when the scale factor changes"
+        );
+        assert!(
+            window.find("opt-more").visible(),
+            "the overflow branch survives a scale-factor change at the same logical width"
+        );
+    })
+    .expect("scaled window remains open");
+}

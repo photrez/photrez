@@ -40,16 +40,20 @@ const FIELD_30: Hsla = Hsla {
     a: 0.30,
 };
 
-/// The shared overflow dropdown: a trigger that toggles the bar-wide overflow
+/// The overflow dropdown: a trigger that toggles the bar-wide overflow
 /// state and, while open, the panel painted under it.
 ///
-/// The panel goes through `gpui_kit::deferred` + [`SelectPanelSurface`], the
-/// shape every working option-bar dropdown uses: the deferred pass paints it
-/// after the canvas, so its `occlude()` removes the canvas hitbox from the
-/// dispatch path and a row press cannot also start a canvas gesture; and the
-/// surface publishes the panel rect, which is what tells a click-away from an
-/// inside-panel click. Anchored to the bar's right edge, a folded trigger near
-/// the column edge keeps the whole panel inside the clipped canvas column.
+/// The trigger is absolutely pinned to the bar's right edge: as a trailing
+/// flow child it used to end at the row's intrinsic width and slide under the
+/// dock at narrow widths, clipping out of view exactly when the fallback
+/// control is needed. The panel goes through `gpui_kit::deferred` +
+/// [`SelectPanelSurface`], the shape every working option-bar dropdown uses:
+/// the deferred pass paints it after the canvas, so its `occlude()` removes
+/// the canvas hitbox from the dispatch path and a row press cannot also
+/// start a canvas gesture; and the surface publishes the panel rect, which is
+/// what tells a click-away from an inside-panel click. Anchored to the
+/// trigger (and so the bar's right edge), the panel stays inside the clipped
+/// canvas column.
 pub(super) fn more_dropdown_overflow(
     open: bool,
     state: &gpui_kit::Entity<AppState>,
@@ -59,7 +63,13 @@ pub(super) fn more_dropdown_overflow(
     let trigger = more_dropdown_button(cx).on_click(
         cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
     );
-    let mut wrapper = div().relative().flex_shrink_0().child(trigger);
+    let mut wrapper = div()
+        .relative()
+        .absolute()
+        .right(px(BAR_PX))
+        .top(px((BAR_H - CTRL_H) / 2.0))
+        .flex_shrink_0()
+        .child(trigger);
     if open {
         let panel = div()
             .id("opt-more-panel")

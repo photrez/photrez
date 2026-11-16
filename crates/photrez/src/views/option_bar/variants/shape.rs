@@ -43,6 +43,7 @@ pub(super) fn shape_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     use photrez_core::document::layer_params::ShapeFillKind;
 
