@@ -174,4 +174,97 @@ impl App {
             .collect();
         self.apply_core_command(doc_id, Command::GroupTransformLayers { patches }, true, cx)
     }
+
+    /// Fit the selected layers to the canvas: each one scales to the
+    /// largest factor that keeps its natural size inside the document and
+    /// lands centred on both axes. Scale signs are preserved (a layer
+    /// flipped on either axis stays flipped). Locked / position-locked /
+    /// background members never move.
+    pub(crate) fn fit_selected_layers_to_canvas(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let doc_id = self.active_doc_id()?;
+        let (doc_w, doc_h) = self.active_document_size()?;
+        let layers = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .map(|content| content.layers.clone())
+            .ok_or_else(|| "loaded content is missing".to_string())?;
+        let ids = self.selected_core_ids(cx);
+        let mut edits = Vec::new();
+        for id in ids {
+            let Some(layer) = layers.iter().find(|layer| layer.id == id) else {
+                continue;
+            };
+            if layer.locked
+                || layer.lock_position == Some(true)
+                || layer.is_background == Some(true)
+            {
+                continue;
+            }
+            if layer.width <= 0.0 || layer.height <= 0.0 {
+                continue;
+            }
+            let ratio = (doc_w / layer.width).min(doc_h / layer.height);
+            let sign_x = if layer.transform.scale_x < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            let sign_y = if layer.transform.scale_y < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            let eff_w = layer.width * ratio;
+            let eff_h = layer.height * ratio;
+            let x = ((doc_w - eff_w) / 2.0).round();
+            let y = ((doc_h - eff_h) / 2.0).round();
+            let mut next = layer.transform.clone();
+            next.x = x;
+            next.y = y;
+            next.scale_x = sign_x * ratio;
+            next.scale_y = sign_y * ratio;
+            edits.push((layer.id.clone(), x, y, next));
+        }
+        self.apply_transform_edits(&doc_id, edits, cx)
+    }
+
+    /// Rotate the selected layers by 90 degrees, normalized like a rotation
+    /// drag. Locked / rotation-locked / background members never move.
+    pub(crate) fn rotate_selected_layers_90(
+        &mut self,
+        clockwise: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let doc_id = self.active_doc_id()?;
+        let layers = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .map(|content| content.layers.clone())
+            .ok_or_else(|| "loaded content is missing".to_string())?;
+        let ids = self.selected_core_ids(cx);
+        let mut edits = Vec::new();
+        for id in ids {
+            let Some(layer) = layers.iter().find(|layer| layer.id == id) else {
+                continue;
+            };
+            if layer.locked
+                || layer.lock_rotation == Some(true)
+                || layer.is_background == Some(true)
+            {
+                continue;
+            }
+            let delta = if clockwise { 90.0 } else { -90.0 };
+            let mut next = layer.transform.clone();
+            next.rotation = crate::app::transform_geometry::normalize_rotation(
+                layer.transform.rotation + delta,
+            );
+            edits.push((layer.id.clone(), next.x, next.y, next));
+        }
+        self.apply_transform_edits(&doc_id, edits, cx)
+    }
 }

@@ -51,12 +51,23 @@ fn action_table_matches_the_pinned_rows() {
 }
 
 #[test]
-fn quick_icons_match_the_pinned_glyphs() {
-    assert_eq!(QUICK_ICONS.len(), 4);
-    assert_eq!(QUICK_ICONS[0], icons::ALIGN_H);
-    assert_eq!(QUICK_ICONS[1], icons::ALIGN_V);
-    assert_eq!(QUICK_ICONS[2], icons::SWAP);
-    assert_eq!(QUICK_ICONS[3], icons::BOX);
+fn quick_actions_match_the_pinned_rows_and_test_ids() {
+    assert_eq!(QUICK_ACTIONS.len(), 5);
+    assert_eq!(QUICK_ACTIONS[0].0, "prop-quick-center-h");
+    assert_eq!(QUICK_ACTIONS[0].1, icons::ALIGN_H);
+    assert_eq!(t(QUICK_ACTIONS[0].2), "Center horizontally on canvas");
+    assert_eq!(QUICK_ACTIONS[1].0, "prop-quick-center-v");
+    assert_eq!(QUICK_ACTIONS[1].1, icons::ALIGN_V);
+    assert_eq!(t(QUICK_ACTIONS[1].2), "Center vertically on canvas");
+    assert_eq!(QUICK_ACTIONS[2].0, "prop-quick-fit-canvas");
+    assert_eq!(QUICK_ACTIONS[2].1, icons::MAXIMIZE);
+    assert_eq!(t(QUICK_ACTIONS[2].2), "Fit to canvas (scale + center)");
+    assert_eq!(QUICK_ACTIONS[3].0, "prop-quick-rotate-ccw");
+    assert_eq!(QUICK_ACTIONS[3].1, icons::ROTATE_CCW);
+    assert_eq!(t(QUICK_ACTIONS[3].2), "Rotate 90\u{b0} counterclockwise");
+    assert_eq!(QUICK_ACTIONS[4].0, "prop-quick-rotate-cw");
+    assert_eq!(QUICK_ACTIONS[4].1, icons::ROTATE_CW);
+    assert_eq!(t(QUICK_ACTIONS[4].2), "Rotate 90\u{b0} clockwise");
 }
 
 /// A canvas action row lifts to its own border tier on hover, and the delete

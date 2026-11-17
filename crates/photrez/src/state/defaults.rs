@@ -208,6 +208,7 @@ impl Default for AppState {
             stroke_panel_bounds: std::rc::Rc::new(std::cell::Cell::new(None)),
             open_select: None,
             more_open: false,
+            layer_drag_active: false,
             select_cursor: 0,
             select_count: 0,
             stroke_popover_open: false,

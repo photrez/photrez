@@ -156,7 +156,28 @@ pub const ACTIONS: &[(&[u8], &str)] = &[
     (icons::ROTATE_CCW, "common.reset"),
 ];
 
-pub const QUICK_ICONS: &[&[u8]] = &[icons::ALIGN_H, icons::ALIGN_V, icons::SWAP, icons::BOX];
+// The wired Quick row: (test id, icon, tooltip key) in oracle order:
+// center horizontally, center vertically, fit to canvas, rotate 90\u{b0} CCW,
+// rotate 90\u{b0} CW. The tooltip keys mirror the oracle's labels.
+pub const QUICK_ACTIONS: &[(&str, &[u8], &str)] = &[
+    ("prop-quick-center-h", icons::ALIGN_H, "properties.centerH"),
+    ("prop-quick-center-v", icons::ALIGN_V, "properties.centerV"),
+    (
+        "prop-quick-fit-canvas",
+        icons::MAXIMIZE,
+        "properties.fitCanvas",
+    ),
+    (
+        "prop-quick-rotate-ccw",
+        icons::ROTATE_CCW,
+        "properties.rotateCCW",
+    ),
+    (
+        "prop-quick-rotate-cw",
+        icons::ROTATE_CW,
+        "properties.rotateCW",
+    ),
+];
 
 pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
@@ -729,9 +750,31 @@ fn wired_action_button(
         )
 }
 
-/// Same chrome, icon only — a 14px glyph, no label.
-fn icon_button(icon: &'static [u8]) -> Div {
-    div()
+/// The Quick-row button: a 14px glyph, icon only. Hover publishes the
+/// tooltip key through the shared live-tooltip state; a disabled button has
+/// the dimmed look and no click affordance, like the option bar's locked
+/// controls.
+#[allow(clippy::too_many_arguments)]
+fn quick_action_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    id: &'static str,
+    icon: &'static [u8],
+    tooltip: String,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    action: ActionHandler,
+) -> impl IntoElement {
+    let shown = {
+        let s = state.read(cx);
+        s.tooltip.as_deref() == Some(id)
+            && s.tooltip_since.is_some_and(|since| {
+                cx.background_executor().now().duration_since(since) >= crate::app::TOOLTIP_DELAY
+            })
+    };
+    let hover_id = id.to_string();
+    let mut button = div()
+        .id(id)
+        .test_support()
         .flex_1()
         .min_w(px(0.0))
         .overflow_hidden()
@@ -744,12 +787,54 @@ fn icon_button(icon: &'static [u8]) -> Div {
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(8.0))
+        .aria_label(tooltip.clone())
+        .on_hover(cx.listener(move |app, hovered: &bool, _window, cx| {
+            app.set_tooltip(
+                if *hovered {
+                    Some(hover_id.clone())
+                } else {
+                    None
+                },
+                cx,
+            );
+        }))
         .child(
             Icon::default()
                 .data(icon)
                 .size(px(14.0))
                 .text_color(color::TEXT_DIM),
-        )
+        );
+    if enabled {
+        button = button.on_click(
+            cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, _window, cx| match action(app, cx) {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                },
+            ),
+        );
+    } else {
+        button = button.opacity(0.3);
+    }
+    let tip = tooltip;
+    let mut wrapper = h_flex()
+        .id(format!("{id}-hover"))
+        .relative()
+        .flex_1()
+        .min_w(px(0.0))
+        .items_center()
+        .child(button);
+    if shown {
+        wrapper = wrapper.child(
+            crate::views::tooltips::tooltip(&tip, None)
+                .id(format!("{id}-tooltip"))
+                .test_support()
+                .absolute()
+                .bottom(px(BTN + 6.0))
+                .left(px(0.0)),
+        );
+    }
+    wrapper
 }
 
 use multi_layer::*;

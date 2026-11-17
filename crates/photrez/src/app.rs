@@ -73,6 +73,7 @@ mod select;
 mod selection;
 mod slider;
 mod startup;
+mod tab_hover;
 mod test_accessors;
 mod text;
 mod toasts;
@@ -442,6 +443,11 @@ pub struct App {
     projection_pixel_copies: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
+    /// Hover-to-switch while dragging a layer across document tabs: a
+    /// one-shot 500 ms timer, dropped (cancelled) on any exit.
+    tab_hover_task: Option<gpui_kit::Task<()>>,
+    /// The tab the hover timer is armed for, if any.
+    tab_hover_doc: Option<String>,
     /// The app-cache directory holding the autosave store, resolved once so
     /// the timer, the recovery prompt and the quit flush all use one answer.
     autosave_cache_root: Option<PathBuf>,

@@ -449,6 +449,99 @@ fn workflow_3_reorder_history_tab_undo_layers_tab_move(cx: &mut gpui_kit::TestAp
     .expect("test window remains open");
 }
 
+/// Tab hover-to-switch: during a layer drag, hovering a document tab for
+/// 500 ms activates that document, leaving the tab cancels the timer, the
+/// active tab arms nothing, and switching requires an active drag.
+#[gpui_kit::test]
+fn tab_hover_switches_documents_during_a_layer_drag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    let (doc_a, doc_b) = cx
+        .update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let doc_a = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the archive is the active document");
+            content
+                .update(cx, |app, cx| app.create_document(64, 64, cx))
+                .expect("the second document is created");
+            let doc_b = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the new document is active");
+            assert_ne!(doc_a, doc_b);
+
+            activate_by_id(&content, cx, &doc_a);
+            window.render_frame(cx);
+
+            let state = content.read(cx).state_for_test().clone();
+            state.update(cx, |s, _| s.layer_drag_active = true);
+            window.render_frame(cx);
+
+            window.hover(format!("document-tab-{doc_b}"), cx);
+            window.render_frame(cx);
+            assert_eq!(
+                content.read(cx).active_document_id_for_test().as_deref(),
+                Some(doc_a.as_str()),
+                "hovering before the delay has elapsed keeps the current document"
+            );
+            (doc_a, doc_b)
+        })
+        .expect("test window remains open");
+
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(650));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).active_document_id_for_test().as_deref(),
+            Some(doc_b.as_str()),
+            "hovering a tab for 500 ms mid-drag switches to its document"
+        );
+        window.hover(format!("document-tab-{doc_a}"), cx);
+        window.render_frame(cx);
+        window.hover(format!("document-tab-{doc_b}"), cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(650));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).active_document_id_for_test().as_deref(),
+            Some(doc_b.as_str()),
+            "leaving an armed tab cancels its hover timer"
+        );
+        let state = content.read(cx).state_for_test().clone();
+        state.update(cx, |s, _| s.layer_drag_active = false);
+        window.hover(format!("document-tab-{doc_a}"), cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(650));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).active_document_id_for_test().as_deref(),
+            Some(doc_b.as_str()),
+            "without an active drag, hovering a tab never switches documents"
+        );
+    })
+    .expect("test window remains open");
+}
+
 fn doc_stack_ids(content: &Entity<App>, cx: &gpui_kit::App, doc_id: &str) -> Vec<String> {
     let loaded = content
         .read(cx)

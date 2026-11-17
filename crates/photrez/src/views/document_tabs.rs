@@ -47,8 +47,9 @@
 //!   U+2026), which is what the baseline paints.
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
-//!   takes no space. The utility cluster holds the layout toggle (28px + 8
-//!   gap) and the export button (92px); it measures 153px as captured.
+//!   takes no space. It is mounted below 1024px (matching the oracle's
+//!   `lg:hidden` "Close side panels" button at the cluster's right end);
+//!   clicking it hides the dock, and the title-bar toggle brings it back.
 //! * **The layout toggle is mounted here**: it flips the right dock between
 //!   the side-by-side pair and the stacked column. It was previously removed
 //!   for lack of a click; `toggle_dock_layout` makes the click do something,
@@ -175,6 +176,7 @@ pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
+    window: &gpui_kit::Window,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     h_flex()
@@ -199,7 +201,7 @@ pub fn render(
         // squeezed, so the strip yields and they do not.
         .child(ui::clip(tab_list(tabs, active_id, cx)))
         .child(new_tab_button(cx))
-        .child(ui::pin(cluster(state, cx)))
+        .child(ui::pin(cluster(state, window, cx)))
 }
 
 /// The tab list: a row that takes the spare width and the strip's full height,
@@ -290,6 +292,14 @@ fn tab(
                 })
             },
         )
+        .on_hover({
+            let hover_id = tab_row.doc_id.clone();
+            cx.listener(
+                move |app: &mut crate::app::App, hovered: &bool, _window, cx| {
+                    app.tab_hover_drag(hovered, &hover_id, cx);
+                },
+            )
+        })
         .on_drop::<String>(cx.listener(
             move |app, from: &String, _window, cx: &mut Context<crate::app::App>| {
                 app.move_document_tab(from, &drop_id, cx);
@@ -302,6 +312,7 @@ fn tab(
                       payload: &crate::app::cross_doc::LayerDragPayload,
                       window,
                       cx: &mut Context<crate::app::App>| {
+                    app.clear_layer_drag_and_hover(cx);
                     app.apply_layer_drag(
                         payload,
                         crate::app::cross_doc::LayerDropTarget::Tab {
@@ -429,15 +440,61 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         )
 }
 
+/// The dock-close button: `x`, shown only below the 1024px breakpoint like
+/// the oracle's `CloseDockButton` (`lg:hidden`). Hides the right dock; it
+/// does not restore it — the title-bar toggle does that. 28px, 4px radius,
+/// white-at-4.5% hover fill, the `x` glyph at 16px.
+fn dock_close_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let state_for_click = state.clone();
+    let button = h_flex()
+        .id("tab-dock-close")
+        .test_support()
+        .w(px(28.0))
+        .h(px(28.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(RADIUS_4))
+        .flex_none()
+        .hover(|s| s.bg(color::WHITE_45))
+        .aria_label(t("menus.items.hideSidePanels"))
+        .on_click(cx.listener(
+            move |_app, _event, _window, cx: &mut Context<crate::app::App>| {
+                state_for_click.update(cx, |s, _| s.dock_open = false);
+                cx.notify();
+            },
+        ))
+        .child(
+            Icon::default()
+                .data(icons::X)
+                .size(px(16.0))
+                .text_color(color::ICON),
+        );
+    tooltip(
+        state,
+        "tab-dock-close",
+        t("menus.items.hideSidePanels"),
+        None,
+        cx,
+        button,
+    )
+}
+
 /// The utility cluster: centred on one row, 8px left and 16px right padding,
 /// never squeezed, a 1px left border and the full strip height. It holds the
-/// layout toggle (28px) then the export button (92px), 8px apart.
+/// layout toggle (28px), the export button (92px), and — below the 1024px
+/// breakpoint — the dock-close button, in the oracle's order.
 ///
-/// The dock-close button is hidden from the
-/// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
-/// absent rather than omitted. See the module docs for the layout toggle's
-/// place in the cluster.
-fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate::app::App>) -> Div {
+/// At the 1366px baseline the dock-close button paints nothing, so the
+/// cluster keeps its measured 153px. See the module docs for the layout
+/// toggle's place in the cluster.
+fn cluster(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    window: &gpui_kit::Window,
+    cx: &Context<crate::app::App>,
+) -> Div {
     h_flex()
         // Full strip height.
         .self_stretch()
@@ -450,6 +507,9 @@ fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate:
         .border_color(color::BORDER)
         .child(layout_toggle_button(state, cx))
         .child(export_button(state, cx))
+        .when(window.bounds().size.width < px(1024.0), |cluster| {
+            cluster.child(dock_close_button(state, cx))
+        })
 }
 
 /// The layout toggle: flips the right dock between the side-by-side pair of

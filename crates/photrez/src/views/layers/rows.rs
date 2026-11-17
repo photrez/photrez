@@ -333,16 +333,20 @@ fn layer_row(
             row_id: id,
         }
     };
-    let on_drag = move |_: &crate::app::cross_doc::LayerDragPayload,
-                        _: Point<gpui_kit::Pixels>,
-                        _: &mut Window,
-                        cx: &mut gpui_kit::App| {
-        // The ghost is a fixed row-sized chip and does not track the pointer
-        // offset; anchor it to the grab point if the drag ever needs to feel
-        // attached to the cursor.
-        cx.new(|_| LayerDragGhost {
-            name: ghost_name.clone(),
-        })
+    let on_drag = {
+        let state_for_drag = state.clone();
+        move |_: &crate::app::cross_doc::LayerDragPayload,
+              _: Point<gpui_kit::Pixels>,
+              _: &mut Window,
+              cx: &mut gpui_kit::App| {
+            state_for_drag.update(cx, |s, _| s.layer_drag_active = true);
+            // The ghost is a fixed row-sized chip and does not track the pointer
+            // offset; anchor it to the grab point if the drag ever needs to feel
+            // attached to the cursor.
+            cx.new(|_| LayerDragGhost {
+                name: ghost_name.clone(),
+            })
+        }
     };
 
     let bounds_for_drop = Rc::clone(&bounds);
@@ -352,6 +356,7 @@ fn layer_row(
               payload: &crate::app::cross_doc::LayerDragPayload,
               window,
               cx: &mut Context<crate::app::App>| {
+            app.clear_layer_drag_and_hover(cx);
             let position = bounds_for_drop
                 .get()
                 .map(|row| {
@@ -402,6 +407,20 @@ fn layer_row(
         .bg(row_fill(active, selected))
         .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
         .on_click(on_click)
+        .on_mouse_up(
+            gpui_kit::MouseButton::Left,
+            cx.listener(
+                |app: &mut crate::app::App, _: &gpui_kit::MouseUpEvent, _window, cx| {
+                    app.clear_layer_drag_and_hover(cx);
+                },
+            ),
+        )
+        .on_mouse_up_out(gpui_kit::MouseButton::Left, {
+            let weak = cx.weak_entity();
+            move |_event, _window, cx| {
+                let _ = weak.update(cx, |app, cx| app.clear_layer_drag_and_hover(cx));
+            }
+        })
         .on_drag(drag_payload, on_drag)
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
         .drag_over::<crate::app::cross_doc::LayerDragPayload>(

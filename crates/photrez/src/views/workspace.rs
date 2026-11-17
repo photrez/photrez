@@ -29,6 +29,9 @@ const RAIL_W: f32 = 52.0;
 const DOCK_W: f32 = 533.0;
 /// Right dock width at the wide breakpoint: 272+1+260 widens to 300+298.
 const DOCK_W_WIDE: f32 = 598.0;
+/// The dock stacks below this breakpoint (the reference's `lg`): one 272px
+/// column, the inspector above the layer dock, like the stacked layout.
+const NARROW_LAYOUT_W: f32 = 1024.0;
 /// The stacked dock's width: one 272px column.
 const STACKED_W: f32 = 272.0;
 /// The stacked dock at the wide breakpoint: 300px.
@@ -143,9 +146,13 @@ pub(crate) fn render(
         )
     };
     // The shell is responsive at the same breakpoints as the captured layout:
-    // a viewport 1536 layout px or wider widens both dock columns.
+    // a viewport 1536 layout px or wider widens both dock columns; below 1024
+    // the dock stacks into a single 272px column, matching the reference's
+    // below-lg single-column layout.
     let wide_layout = window.viewport_size().width >= px(1536.0);
-    let stacked = state.read(cx).right_dock_layout == crate::state::RightDockLayout::Stacked;
+    let narrow_layout = window.viewport_size().width < px(NARROW_LAYOUT_W);
+    let stacked =
+        state.read(cx).right_dock_layout == crate::state::RightDockLayout::Stacked || narrow_layout;
     let dock_w = if stacked {
         if wide_layout {
             STACKED_W_WIDE
@@ -234,6 +241,7 @@ pub(crate) fn render(
                                             state,
                                             &tabs,
                                             active_tab.as_deref(),
+                                            window,
                                             cx,
                                         )),
                                     )
@@ -345,6 +353,7 @@ pub(crate) fn render(
                                         camera,
                                         zoom_percent,
                                         wide_layout,
+                                        stacked,
                                         Rc::clone(&canvas_bounds),
                                         Rc::clone(&navigator_bounds),
                                         layer_thumbs,
@@ -657,6 +666,14 @@ fn canvas_hitbox(
                 app.canvas_hover_end(cx);
             }
         }))
+        .on_mouse_up(
+            gpui_kit::MouseButton::Left,
+            cx.listener(
+                |app: &mut crate::app::App, _: &gpui_kit::MouseUpEvent, _window, cx| {
+                    app.clear_layer_drag_and_hover(cx);
+                },
+            ),
+        )
         .on_scroll(
             cx.listener(|app: &mut crate::app::App, event, _window, cx| {
                 app.canvas_scroll(event, cx)

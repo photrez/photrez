@@ -612,6 +612,10 @@ pub struct AppState {
     /// The option bar's overflow (`MoreDropdown`) panel, independent of
     /// `open_select` so a preset list can open inside it.
     pub more_open: bool,
+    /// A layer drag is in flight (a cross-document move). Set on drag start,
+    /// cleared on drop anywhere the payload can land and on Escape; used by
+    /// the tab hover-to-switch timer, which only makes sense mid-drag.
+    pub layer_drag_active: bool,
     pub select_cursor: usize,
     pub select_count: usize,
     /// Laid-out bounds of the shape bar's stroke popover (click-away).

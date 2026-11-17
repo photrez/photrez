@@ -17,6 +17,8 @@ impl App {
         _: &CancelCanvasGesture,
         cx: &mut Context<Self>,
     ) {
+        // Any layer drag in flight ends here, and so does its hover timer.
+        self.clear_layer_drag_and_hover(cx);
         let (
             brush_menu,
             context_menu,

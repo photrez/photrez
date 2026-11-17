@@ -455,6 +455,8 @@ impl App {
             #[cfg(test)]
             preview_pushes: Cell::new(0),
             autosave_task: None,
+            tab_hover_task: None,
+            tab_hover_doc: None,
             autosave_cache_root: None,
         };
         #[cfg(feature = "input-measurement")]

@@ -151,6 +151,7 @@ pub fn render(
     camera: Option<Camera>,
     zoom_percent: Option<u32>,
     wide_layout: bool,
+    force_stacked: bool,
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
@@ -164,7 +165,7 @@ pub fn render(
         (
             s.inspector_tab,
             s.layer_tab,
-            s.right_dock_layout == RightDockLayout::Stacked,
+            s.right_dock_layout == RightDockLayout::Stacked || force_stacked,
         )
     };
     let (dock_w, inspector_w, layer_w) = if stacked {
