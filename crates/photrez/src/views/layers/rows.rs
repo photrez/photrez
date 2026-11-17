@@ -831,7 +831,7 @@ pub(crate) fn layer_thumb(
                 .text_color(color::WHITE)
                 .text_size(px(9.0))
                 .font_weight(gpui_kit::FontWeight(700.0))
-                .child("T"),
+                .child("T"), // i18n-exempt: single-letter type glyph on a text-layer badge
         );
     }
     frame
