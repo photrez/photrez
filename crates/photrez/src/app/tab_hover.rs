@@ -63,8 +63,10 @@ impl App {
     /// layer drag can end on: any cross-document drop and Escape.
     pub(crate) fn clear_layer_drag_and_hover(&mut self, cx: &mut Context<Self>) {
         self.cancel_tab_hover_switch(cx);
-        self.state
-            .update(cx, |state, _| state.layer_drag_active = false);
+        self.state.update(cx, |state, _| {
+            state.layer_drag_active = false;
+            state.layer_drag_source = None;
+        });
         cx.notify();
     }
 

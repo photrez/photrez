@@ -262,6 +262,8 @@ fn layer_row(
     let locked = flags.map(|flags| flags.locked).unwrap_or(false);
     let background = flags.is_some_and(|flags| flags.is_background);
     let has_adjustments = flags.map(|flags| flags.has_adjustments).unwrap_or(false);
+    let dragging_source = layer.core_id.is_some()
+        && state.read(cx).layer_drag_source.as_deref() == layer.core_id.as_deref();
 
     let state_for_click = state.clone();
     let on_click = cx.listener(
@@ -335,11 +337,15 @@ fn layer_row(
     };
     let on_drag = {
         let state_for_drag = state.clone();
+        let drag_source = drag_payload.core_id.clone();
         move |_: &crate::app::cross_doc::LayerDragPayload,
               _: Point<gpui_kit::Pixels>,
               _: &mut Window,
               cx: &mut gpui_kit::App| {
-            state_for_drag.update(cx, |s, _| s.layer_drag_active = true);
+            state_for_drag.update(cx, |s, _| {
+                s.layer_drag_active = true;
+                s.layer_drag_source = drag_source.clone();
+            });
             // The ghost is a fixed row-sized chip and does not track the pointer
             // offset; anchor it to the grab point if the drag ever needs to feel
             // attached to the cursor.
@@ -406,6 +412,11 @@ fn layer_row(
         .border_color(row_hairline_colour())
         .bg(row_fill(active, selected))
         .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
+        .when(dragging_source, |el| {
+            // The reference dims the row the drag came from and announces
+            // the state; the floating ghost carries the readable content.
+            el.opacity(0.35).aria_label("Dragging layer")
+        })
         .on_click(on_click)
         .on_mouse_up(
             gpui_kit::MouseButton::Left,

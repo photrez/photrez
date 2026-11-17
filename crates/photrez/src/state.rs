@@ -619,6 +619,9 @@ pub struct AppState {
     /// cleared on drop anywhere the payload can land and on Escape; used by
     /// the tab hover-to-switch timer, which only makes sense mid-drag.
     pub layer_drag_active: bool,
+    /// The core id of the row a cross-document layer drag started from, so
+    /// its own row can take the dimmed "being dragged" look.
+    pub layer_drag_source: Option<String>,
     pub select_cursor: usize,
     pub select_count: usize,
     /// Laid-out bounds of the shape bar's stroke popover (click-away).

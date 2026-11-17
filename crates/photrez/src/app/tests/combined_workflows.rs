@@ -607,6 +607,20 @@ fn unlocked_layer_row_drag_arms_the_drag_flag(cx: &mut gpui_kit::TestAppContext)
             state.read(cx).layer_drag_active,
             "the harness must reach the row's drag-start handler"
         );
+        assert_eq!(
+            state.read(cx).layer_drag_source,
+            state
+                .read(cx)
+                .layers
+                .first()
+                .and_then(|row| row.core_id.clone()),
+            "the source row is tracked"
+        );
+        assert_eq!(
+            window.find("layer-row-0").label(),
+            Some("Dragging layer"),
+            "the source row takes the dimmed, announced drag state"
+        );
     })
     .expect("test window remains open");
 }
