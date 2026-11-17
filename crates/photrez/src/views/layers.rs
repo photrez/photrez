@@ -893,6 +893,7 @@ mod tests {
             lock_position: false,
             lock_rotation: false,
             is_background: false,
+            is_text: false,
         }
     }
 

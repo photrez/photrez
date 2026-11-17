@@ -421,7 +421,9 @@ fn layer_row(
                 let _ = weak.update(cx, |app, cx| app.clear_layer_drag_and_hover(cx));
             }
         })
-        .on_drag(drag_payload, on_drag)
+        .when(!locked || background, |el| {
+            el.on_drag(drag_payload, on_drag)
+        })
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
         .drag_over::<crate::app::cross_doc::LayerDragPayload>(
             move |style, _payload, window, _cx| {
@@ -487,7 +489,36 @@ fn layer_row(
                     ),
             ))
         })
-        .child(layer_thumb(thumb))
+        .child({
+            let is_text = flags.is_some_and(|flags| flags.is_text);
+            let thumb = layer_thumb(thumb, is_text);
+            if !is_text {
+                thumb.into_any_element()
+            } else {
+                // The reference also starts a text edit from a double-click
+                // on the text layer's thumbnail, not just its name.
+                let thumb_core = rename_core.clone();
+                div()
+                    .id("layer-text-thumb")
+                    .test_support()
+                    .on_click(
+                        cx.listener(move |app, event: &gpui_kit::ClickEvent, window, cx| {
+                            let double = match event {
+                                gpui_kit::ClickEvent::Mouse(click) => click.up.click_count >= 2,
+                                _ => false,
+                            };
+                            if double {
+                                cx.stop_propagation();
+                                if let Some(core_id) = thumb_core.clone() {
+                                    app.open_layer_row_double_click(core_id, window, cx);
+                                }
+                            }
+                        }),
+                    )
+                    .child(thumb)
+                    .into_any_element()
+            }
+        })
         .child(
             div()
                 .id(format!("layer-name-{id}"))
@@ -510,7 +541,7 @@ fn layer_row(
                         if double {
                             cx.stop_propagation();
                             if let Some(core_id) = rename_core.clone() {
-                                app.begin_rename_layer(core_id, window, cx);
+                                app.open_layer_row_double_click(core_id.clone(), window, cx);
                             }
                         }
                     }),
@@ -731,7 +762,10 @@ impl Render for LayerDragGhost {
 
 /// The layer thumbnail's frame: 34x34, 1px border, 3px corners, checker inside.
 /// Shared by the layers rows and the properties panel's Selected Layer card.
-pub(crate) fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
+pub(crate) fn layer_thumb(
+    thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>,
+    is_text: bool,
+) -> Div {
     // A row without a core layer is the seeded display-only Background, whose
     // document image is the white 800x600 canvas; that is the swatch the
     // capture paints. Anything with pixels keeps the checkerboard frame.
@@ -765,6 +799,28 @@ pub(crate) fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>)
             )
             .absolute()
             .inset(px(1.0)),
+        );
+    }
+    if is_text {
+        // The reference pins a 14px accent "T" to a text layer's thumbnail.
+        frame = frame.child(
+            div()
+                .id("layer-text-badge")
+                .test_support()
+                .absolute()
+                .bottom(px(-3.0))
+                .right(px(-3.0))
+                .w(px(14.0))
+                .h(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(3.0))
+                .bg(color::ACCENT)
+                .text_color(color::WHITE)
+                .text_size(px(9.0))
+                .font_weight(gpui_kit::FontWeight(700.0))
+                .child("T"),
         );
     }
     frame

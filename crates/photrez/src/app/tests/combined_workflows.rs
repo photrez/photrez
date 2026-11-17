@@ -542,6 +542,112 @@ fn tab_hover_switches_documents_during_a_layer_drag(cx: &mut gpui_kit::TestAppCo
     .expect("test window remains open");
 }
 
+/// Press and move a row, but hold the release so the mid-drag flag can be
+/// observed before the row's mouse-up cleanup runs.
+fn drag_row_without_release(
+    window: &mut gpui_kit::Window,
+    from: gpui_kit::Point<gpui_kit::Pixels>,
+    to: gpui_kit::Point<gpui_kit::Pixels>,
+    cx: &mut gpui_kit::App,
+) {
+    window.render_frame(cx);
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+            position: from,
+            pressed_button: None,
+            modifiers: gpui_kit::Modifiers::default(),
+        }),
+        cx,
+    );
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: from,
+            click_count: 1,
+            ..Default::default()
+        }),
+        cx,
+    );
+    for step in 1..=8 {
+        let fraction = step as f32 / 8.0;
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: gpui_kit::point(
+                    from.x + (to.x - from.x) * fraction,
+                    from.y + (to.y - from.y) * fraction,
+                ),
+                pressed_button: Some(gpui_kit::MouseButton::Left),
+                modifiers: gpui_kit::Modifiers::default(),
+            }),
+            cx,
+        );
+    }
+    window.render_frame(cx);
+}
+
+/// The mounted drag path reaches the row's `on_drag`: an unlocked row arms
+/// the cross-document drag flag. This is the capability check for the locked
+/// row test below.
+#[gpui_kit::test]
+fn unlocked_layer_row_drag_arms_the_drag_flag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        let state = content.read(cx).state_for_test().clone();
+        state.update(cx, |s, _| s.layer_tab = crate::state::LayerTab::Layers);
+        window.render_frame(cx);
+        let from = window.find("layer-row-0").bounds().center();
+        let to = window.find("layer-row-1").bounds().center();
+        drag_row_without_release(window, from, to, cx);
+        assert!(
+            state.read(cx).layer_drag_active,
+            "the harness must reach the row's drag-start handler"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The reference refuses to start a layer drag on a locked row (a background
+/// layer is the exception). No drag means no drag flag and no reorder, even
+/// when the pointer moves onto another row.
+#[gpui_kit::test]
+fn locked_layer_row_does_not_start_a_drag(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        let state = content.read(cx).state_for_test().clone();
+        state.update(cx, |s, _| s.layer_tab = crate::state::LayerTab::Layers);
+        window.render_frame(cx);
+        let core_id = state
+            .read(cx)
+            .layers
+            .first()
+            .and_then(|row| row.core_id.clone())
+            .expect("the top row has a core id");
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+        window.render_frame(cx);
+
+        let from = window.find("layer-row-0").bounds().center();
+        let to = window.find("layer-row-1").bounds().center();
+        drag_row_without_release(window, from, to, cx);
+        assert!(
+            !state.read(cx).layer_drag_active,
+            "a locked row must not arm a cross-document drag"
+        );
+        let ids: Vec<u64> = state.read(cx).layers.iter().map(|row| row.id).collect();
+        assert_eq!(ids, vec![0, 1], "no drag means no reorder");
+    })
+    .expect("test window remains open");
+}
+
 fn doc_stack_ids(content: &Entity<App>, cx: &gpui_kit::App, doc_id: &str) -> Vec<String> {
     let loaded = content
         .read(cx)

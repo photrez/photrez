@@ -179,6 +179,9 @@ pub struct LayerFlags {
     /// Background layers cannot be locked; the header disables its toggles and
     /// their tooltips say to rename instead.
     pub is_background: bool,
+    /// The core layer is a text layer; its row thumbnail carries the small
+    /// accent "T" badge the reference paints for text layers.
+    pub is_text: bool,
 }
 
 /// What the transform rows show for the selected layer: position, rotation, its

@@ -35,6 +35,7 @@ impl Default for AppState {
                 lock_position: true,
                 lock_rotation: true,
                 is_background: true,
+                is_text: false,
             }],
             history: Vec::new(),
             chrome_visible: true,

@@ -638,7 +638,7 @@ fn selected_layer_section(
                 .border_color(color::DIVIDER)
                 .bg(color::FIELD)
                 .p(px(BOX_PAD))
-                .child(crate::views::layers::layer_thumb(thumb))
+                .child(crate::views::layers::layer_thumb(thumb, false))
                 .child(
                     v_flex()
                         .flex_1()

@@ -1015,6 +1015,7 @@ pub fn render_layer_context(
             lock_position: false,
             lock_rotation: false,
             is_background: true,
+            is_text: false,
         });
     let background = clicked_flags.is_background;
     let locked = clicked_flags.locked;
