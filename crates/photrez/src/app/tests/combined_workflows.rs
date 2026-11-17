@@ -605,6 +605,127 @@ fn drag_row_without_release(
     window.render_frame(cx);
 }
 
+/// A real held layer drag over another document's tab must arm the switch
+/// through `on_drag_move`, because GPUI suppresses `on_hover` while a drag is
+/// active. This reproduces the path a physical mouse takes and pins the fix
+/// for a real cross-document drag.
+#[gpui_kit::test]
+fn held_layer_drag_over_a_tab_switches_documents(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    let (doc_a, doc_b) = cx
+        .update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let doc_a = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the archive is active");
+            content
+                .update(cx, |app, cx| app.create_document(64, 64, cx))
+                .expect("a second document");
+            let doc_b = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the new document is active");
+            activate_by_id(&content, cx, &doc_a);
+            window.render_frame(cx);
+
+            let state = content.read(cx).state_for_test().clone();
+            state.update(cx, |s, _| s.layer_tab = crate::state::LayerTab::Layers);
+            window.render_frame(cx);
+
+            let from = window.find("layer-row-0").bounds().center();
+            let to = window
+                .find(format!("document-tab-{doc_b}"))
+                .bounds()
+                .center();
+            drag_row_without_release(window, from, to, cx);
+
+            assert!(state.read(cx).layer_drag_active, "a real row drag is held");
+            assert_eq!(
+                state.read(cx).layer_drag_hover_tab.as_deref(),
+                Some(doc_b.as_str()),
+                "the drag-move event over the tab marks it as the target"
+            );
+            (doc_a, doc_b)
+        })
+        .expect("test window remains open");
+
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(650));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).active_document_id_for_test().as_deref(),
+            Some(doc_b.as_str()),
+            "holding a real drag over the target tab switches documents"
+        );
+        let _ = doc_a;
+    })
+    .expect("test window remains open");
+}
+
+/// A real layer drag over a tab must NOT switch when no drag is active: the
+/// armed timer is gated by the cross-document drag flag.
+#[gpui_kit::test]
+fn hover_without_a_real_drag_never_switches_documents(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    let doc_a = cx
+        .update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let doc_a = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the archive is active");
+            content
+                .update(cx, |app, cx| app.create_document(64, 64, cx))
+                .expect("a second document");
+            let doc_b = content
+                .read(cx)
+                .active_document_id_for_test()
+                .expect("the new document is active");
+            activate_by_id(&content, cx, &doc_a);
+            window.render_frame(cx);
+            let to = window
+                .find(format!("document-tab-{doc_b}"))
+                .bounds()
+                .center();
+            // A plain move with no button held: no drag, no timer.
+            let _ = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                    position: to,
+                    pressed_button: None,
+                    modifiers: gpui_kit::Modifiers::default(),
+                }),
+                cx,
+            );
+            window.render_frame(cx);
+            doc_a
+        })
+        .expect("test window remains open");
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(650));
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, _window, cx| {
+        assert_eq!(
+            content.read(cx).active_document_id_for_test().as_deref(),
+            Some(doc_a.as_str()),
+            "no active drag means the hover timer never arms"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// The mounted drag path reaches the row's `on_drag`: an unlocked row arms
 /// the cross-document drag flag. This is the capability check for the locked
 /// row test below.

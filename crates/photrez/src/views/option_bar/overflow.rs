@@ -59,8 +59,12 @@ pub(super) fn more_dropdown_overflow(
     let trigger = more_dropdown_button(cx).on_click(
         cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
     );
+    // The panel is painted through `deferred`, i.e. after the normal tree, so
+    // it would cover a modal that opened while it was still open. Hide it for
+    // the lifetime of any dialog; the trigger itself stays put.
+    let modal_open = state.read(cx).active_dialog.is_some();
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
-    if open {
+    if open && !modal_open {
         let panel = div()
             .id("opt-more-panel")
             .test_support()

@@ -318,6 +318,21 @@ fn tab(
                 },
             )
         })
+        // GPUI suppresses `on_hover` while a drag is active, so the timer must
+        // also be armed from drag-move events, which keep firing over the tab
+        // while a layer is held. This is the path a real cross-document drag
+        // takes; `on_hover` only covers key/modality-driven hovers.
+        .on_drag_move::<crate::app::cross_doc::LayerDragPayload>({
+            let drag_hover_id = tab_row.doc_id.clone();
+            cx.listener(
+                move |app: &mut crate::app::App,
+                      _: &gpui_kit::DragMoveEvent<crate::app::cross_doc::LayerDragPayload>,
+                      _window,
+                      cx| {
+                    app.tab_hover_drag(&true, &drag_hover_id, cx);
+                },
+            )
+        })
         .on_drop::<String>(cx.listener(
             move |app, from: &String, _window, cx: &mut Context<crate::app::App>| {
                 app.move_document_tab(from, &drop_id, cx);

@@ -803,6 +803,39 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
     .expect("test window remains open");
 }
 
+/// A deferred overflow panel paints after the normal tree, so an open modal
+/// must hide it; otherwise it covers the dialog (captured in shots-native/173).
+#[gpui_kit::test]
+fn a_modal_hides_the_open_overflow_panel(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        window.click("opt-more", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_some(),
+            "the overflow panel is open before the dialog"
+        );
+
+        content.update(cx, |app, cx| app.open_new_document(cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_none(),
+            "the modal must not be covered by the deferred overflow panel"
+        );
+
+        content.update(cx, |app, cx| app.close_new_document(cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_some(),
+            "closing the modal restores the still-open overflow panel"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// Opening the overflow panel commits a live numeric edit and closes it, so
 /// a subsequent menu command cannot leave a stale typed buffer on screen.
 #[gpui_kit::test]
