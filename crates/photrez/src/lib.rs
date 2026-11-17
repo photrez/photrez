@@ -256,7 +256,14 @@ pub fn run() {
                 displays.get(index).map(|display| display.id()),
             ),
             None => (
-                WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx),
+                // The reference opens maximized on first run (`tauri.conf.json`:
+                // `maximized: true`). Keep the baseline centred rect as the
+                // restore bounds so unmaximizing returns to a usable size
+                // rather than the whole display. A saved geometry still wins,
+                // so a window the user resized last session is restored.
+                WindowBounds::Maximized(
+                    WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx).get_bounds(),
+                ),
                 None,
             ),
         };
