@@ -101,26 +101,28 @@ impl InputMeasurement {
     }
 
     pub(super) fn accepted_down(&mut self, at: Instant) {
-        if let Some(sample) = self.active.as_mut() {
-            if sample.down.is_none() {
-                sample.down = Some(at);
-            }
+        if let Some(sample) = self.active.as_mut()
+            && sample.down.is_none()
+        {
+            sample.down = Some(at);
         }
     }
 
     pub(super) fn accepted_up(&mut self, at: Instant) {
-        if let Some(sample) = self.active.as_mut() {
-            if sample.down.is_some() && sample.up.is_none() {
-                sample.up = Some(at);
-            }
+        if let Some(sample) = self.active.as_mut()
+            && sample.down.is_some()
+            && sample.up.is_none()
+        {
+            sample.up = Some(at);
         }
     }
 
     pub(super) fn accepted_preview(&mut self, at: Instant) {
-        if let Some(sample) = self.active.as_mut() {
-            if sample.down.is_some() && sample.preview.is_none() {
-                sample.preview = Some(at);
-            }
+        if let Some(sample) = self.active.as_mut()
+            && sample.down.is_some()
+            && sample.preview.is_none()
+        {
+            sample.preview = Some(at);
         }
     }
 

@@ -419,6 +419,7 @@ pub(crate) const TOOL_CROP: u8 = 2;
 /// I-beam, for tools whose policy is Crosshair/Text without a custom glyph.
 pub(crate) const CURSOR_CROSSHAIR: u8 = 3;
 pub(crate) const CURSOR_IBEAM: u8 = 4;
+#[cfg(windows)]
 pub(crate) const CURSOR_COUNT: usize = 5;
 #[cfg(test)]
 thread_local! {

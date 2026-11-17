@@ -43,8 +43,7 @@ fn the_tab_strip_mounts_the_dock_layout_toggle_and_it_flips_the_dock(
             "the toggle is not left of the plus button"
         );
         assert!(
-            f32::from(toggle.origin.x) + f32::from(toggle.size.width)
-                <= f32::from(export.origin.x),
+            f32::from(toggle.origin.x) + f32::from(toggle.size.width) <= f32::from(export.origin.x),
             "the toggle is not right of the export button"
         );
 

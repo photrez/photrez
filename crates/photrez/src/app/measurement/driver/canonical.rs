@@ -230,12 +230,12 @@ pub(super) fn validate_committed_state(
             "sample {sample_index}: receipt timestamps are out of order"
         ));
     }
-    if let Some(preview) = receipt.t_preview {
-        if preview < receipt.t_down || preview > receipt.t_up {
-            return Err(format!(
-                "sample {sample_index}: preview timestamp is out of order"
-            ));
-        }
+    if let Some(preview) = receipt.t_preview
+        && (preview < receipt.t_down || preview > receipt.t_up)
+    {
+        return Err(format!(
+            "sample {sample_index}: preview timestamp is out of order"
+        ));
     }
     if render.sample_id != receipt.sample_id
         || render.doc_id != receipt.doc_id

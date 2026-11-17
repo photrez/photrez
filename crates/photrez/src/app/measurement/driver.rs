@@ -130,14 +130,14 @@ pub fn run() {
     };
     // The sandbox is deleted when the run ends, so a receipt that has to hash
     // the measured fixture needs a copy that outlives the process.
-    if let Some(path) = config.fixture_out.as_deref() {
-        if let Err(error) = std::fs::copy(&fixture_path, path) {
-            sandbox.cleanup();
-            emit(
-                failure_json(format!("cannot copy the fixture to {path}: {error}")),
-                2,
-            );
-        }
+    if let Some(path) = config.fixture_out.as_deref()
+        && let Err(error) = std::fs::copy(&fixture_path, path)
+    {
+        sandbox.cleanup();
+        emit(
+            failure_json(format!("cannot copy the fixture to {path}: {error}")),
+            2,
+        );
     }
     let file_io: Arc<dyn FileIo> =
         match LocalFileIo::new(sandbox.root.clone(), sandbox.root.join("approvals.json")) {
@@ -1042,13 +1042,12 @@ impl Runner {
         let mut preview_push_ms =
             first_preview.map(|at| millis(at.saturating_duration_since(dispatch_started)));
         let mut first_pixel_ms = None;
-        if let Some(preview_at) = first_preview {
-            if let Some(present) = self
+        if let Some(preview_at) = first_preview
+            && let Some(present) = self
                 .wait_for_preview_present(&mut collector, &mut frames, window_id, preview_at, cx)
                 .await?
-            {
-                first_pixel_ms = Some(millis(present.saturating_duration_since(dispatch_started)));
-            }
+        {
+            first_pixel_ms = Some(millis(present.saturating_duration_since(dispatch_started)));
         }
 
         for position in points.iter().skip(1) {
@@ -1209,10 +1208,10 @@ impl Runner {
             });
             if let Some(index) = draw_index {
                 for event in frames.iter().skip(index + 1) {
-                    if let FrameRecord::Present { window_id, end } = event {
-                        if *window_id == expected_window {
-                            return Ok(Some(*end));
-                        }
+                    if let FrameRecord::Present { window_id, end } = event
+                        && *window_id == expected_window
+                    {
+                        return Ok(Some(*end));
                     }
                 }
             }
