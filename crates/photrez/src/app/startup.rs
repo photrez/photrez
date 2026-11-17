@@ -608,6 +608,54 @@ impl App {
         if shot_id.is_some() && app.state.read(cx).has_document && app.active_document.is_none() {
             app.install_shot_document(cx);
         }
+        // install_shot_document reprojects the layer rows/flags from the core
+        // document, overwriting the transient state the shot seeded. Re-apply
+        // it so a real-window capture shows the live status sentence and row
+        // states rather than the resting ones.
+        if let Some(sid) = shot_id {
+            app.state.update(cx, |state, _| match sid {
+                "status-locked" => {
+                    state.active_tool = ToolId::Brush;
+                    if let Some(flags) = state.layer_flags.first_mut() {
+                        flags.locked = true;
+                    }
+                }
+                "status-gradient" => state.active_tool = ToolId::Gradient,
+                "badge-text" => {
+                    state.active_tool = ToolId::Move;
+                    state.layers[0].core_id = Some("shot-text-layer".into());
+                    state.layers[0].name = "Text".into();
+                    if let Some(flags) = state.layer_flags.first_mut() {
+                        flags.is_text = true;
+                    }
+                }
+                "dim-drag-source" => {
+                    state.layers[0].core_id = Some("shot-drag-layer".into());
+                    state.layers[0].name = "Raster".into();
+                    state.layer_drag_active = true;
+                    state.layer_drag_source = Some("shot-drag-layer".into());
+                }
+                _ => {}
+            });
+            if sid == "status-gradient" {
+                app.pending_gesture = Some(crate::input_policy::PendingGesture {
+                    tool: ToolId::Gradient,
+                    start: (100.0, 100.0),
+                    last: (400.0, 325.0),
+                    start_screen: (0.0, 0.0),
+                    last_screen: (0.0, 0.0),
+                    crop_start: None,
+                    crop_pasteboard: false,
+                    crop_replacement_started: false,
+                    crop_modern_create: false,
+                    crop_modern_drag_started: false,
+                    crop_modern_preview: None,
+                    crop_snap_targets: None,
+                    shift: false,
+                    alt: false,
+                });
+            }
+        }
         // A `real-dialog-*` launch opens the live dialog through the same
         // command the user's shortcut runs, so the launch shows the body the
         // `dialog-*` fixture stubs.
