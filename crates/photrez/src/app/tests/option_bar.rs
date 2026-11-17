@@ -803,6 +803,67 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
     .expect("test window remains open");
 }
 
+/// Opening the overflow panel commits a live numeric edit and closes it, so
+/// a subsequent menu command cannot leave a stale typed buffer on screen.
+#[gpui_kit::test]
+fn opening_the_overflow_commits_a_live_numeric_field(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+
+        window.click("num-x", cx);
+        window.press("1", cx);
+        window.press("2", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_some(),
+            "the field is mid-edit before the menu opens"
+        );
+
+        window.click("opt-more", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_none(),
+            "the menu click commits and closes the field"
+        );
+        assert_eq!(
+            move_bar_readout(&content, cx).x,
+            12.0,
+            "the typed value reached the layer"
+        );
+
+        window.click("opt-move-reset", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            move_bar_readout(&content, cx).x,
+            0.0,
+            "the menu's reset reaches the same layer the field edits"
+        );
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_none(),
+            "no stale edit buffer survives the command"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// What the Move bar's transform cells are showing: the app's own readout for
 /// the layer on screen.
 fn move_bar_readout(
