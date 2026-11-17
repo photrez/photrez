@@ -73,6 +73,7 @@ mod select;
 mod selection;
 mod slider;
 mod startup;
+mod status;
 mod tab_hover;
 mod test_accessors;
 mod text;
@@ -821,6 +822,7 @@ impl Render for App {
             committed_selection,
             transform_readout,
             frame,
+            self.status_tip(cx),
             cx,
         )
     }

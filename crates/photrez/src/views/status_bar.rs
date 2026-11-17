@@ -247,6 +247,7 @@ pub fn render(
     layer_name: Option<&str>,
     autosave: crate::state::AutosaveStatus,
     frame: FrameMetrics,
+    status_tip: String,
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -274,7 +275,15 @@ pub fn render(
         // with a single child would park the History hint on the left, and
         // the resting layout keeps it on the right.
         .child(if doc_size.is_some() {
-            ui::clip(left_group(zoom_percent, doc_size, tool, layer_name, frame)).into_any_element()
+            ui::clip(left_group(
+                zoom_percent,
+                doc_size,
+                tool,
+                layer_name,
+                frame,
+                &status_tip,
+            ))
+            .into_any_element()
         } else {
             div().into_any_element()
         })
@@ -298,6 +307,7 @@ fn left_group(
     tool: crate::state::ToolId,
     layer_name: Option<&str>,
     frame: FrameMetrics,
+    status_tip: &str,
 ) -> Div {
     let zoom = zoom_percent
         .map(|percent| format!("{percent}%"))
@@ -316,7 +326,7 @@ fn left_group(
             &format!("{}: ", t("status.active")),
             &tool_label,
         ))
-        .child(divided_tip(tool))
+        .child(divided_tip(status_tip))
         .child(divided_field(
             &format!("{}: ", t("status.selectedLayer")),
             &layer,
@@ -439,24 +449,8 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
 /// The inner layer carries the colour and the outer the rule; nesting them
 /// rather than colouring the ruled div keeps the two layers apart, which
 /// matters if either ever grows a second child.
-fn divided_tip(tool: crate::state::ToolId) -> impl IntoElement {
-    ruled(div().text_color(STATUS_COLOR).child(t(tip_key(tool))))
-}
-
-fn tip_key(tool: crate::state::ToolId) -> &'static str {
-    use crate::state::ToolId;
-    match tool {
-        ToolId::Move => "status.toolTips.move",
-        ToolId::Selection => "status.toolTips.selection",
-        ToolId::Crop => "status.toolTips.crop",
-        ToolId::Eyedropper => "status.toolTips.eyedropper",
-        ToolId::Brush => "status.toolTips.brush",
-        ToolId::Eraser => "status.toolTips.eraser",
-        ToolId::PaintBucket => "status.toolTips.paintBucket",
-        ToolId::Gradient => "status.toolTips.gradient",
-        ToolId::Shape => "status.toolTips.shape",
-        ToolId::Text => "status.toolTips.text",
-    }
+fn divided_tip(tip: &str) -> impl IntoElement {
+    ruled(div().text_color(STATUS_COLOR).child(tip.to_string()))
 }
 
 /// The left-rule wrapper, applied to every cell

@@ -96,6 +96,7 @@ pub(crate) fn render(
     committed_selection: Option<photrez_core::document::content::SelectionState>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
     frame: status_bar::FrameMetrics,
+    status_tip: String,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
     // One read of the live state; every field the shell branches on is `Copy`.
@@ -376,6 +377,7 @@ pub(crate) fn render(
                 selected_layer_name.as_deref(),
                 autosave_status,
                 frame,
+                status_tip,
                 state,
                 cx,
             )))
