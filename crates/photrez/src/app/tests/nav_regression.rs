@@ -280,6 +280,116 @@ fn layer_drag_reorders_and_selects(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// Hold a layer drag over the given point so the mid-drag paint can be
+/// inspected before the release removes the `drag_over` style.
+fn hold_drag_at(
+    window: &mut gpui_kit::Window,
+    from: Point<gpui_kit::Pixels>,
+    to: Point<gpui_kit::Pixels>,
+    cx: &mut gpui_kit::App,
+) {
+    window.render_frame(cx);
+    let modifiers = gpui_kit::Modifiers::default();
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+            position: from,
+            pressed_button: None,
+            modifiers,
+        }),
+        cx,
+    );
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: from,
+            click_count: 1,
+            ..Default::default()
+        }),
+        cx,
+    );
+    for step in 1..=8 {
+        let fraction = step as f32 / 8.0;
+        let _ = window.dispatch_event(
+            gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                position: Point {
+                    x: from.x + (to.x - from.x) * fraction,
+                    y: from.y + (to.y - from.y) * fraction,
+                },
+                pressed_button: Some(gpui_kit::MouseButton::Left),
+                modifiers,
+            }),
+            cx,
+        );
+    }
+    window.render_frame(cx);
+}
+
+/// Painter evidence for the insertion indicator: while a layer drag is held
+/// over a row, the scene must carry the accent 2px edge on the side the drop
+/// would insert. This checks painted quads, not just the drop result.
+#[gpui_kit::test]
+fn layer_drag_paints_the_insertion_edge(cx: &mut TestAppContext) {
+    for (fraction, top) in [(0.25_f32, true), (0.75_f32, false)] {
+        let (handle, content) = open_app(cx);
+        cx.update_window(handle.into(), |_, window, cx| {
+            let state = content.read(cx).state_for_test().clone();
+            state.update(cx, |s, _| {
+                s.layer_tab = LayerTab::Layers;
+                s.layers = vec![
+                    LayerRow {
+                        id: 0,
+                        name: "Layer 1".into(),
+                        core_id: None,
+                    },
+                    LayerRow {
+                        id: 1,
+                        name: "Layer 2".into(),
+                        core_id: None,
+                    },
+                    LayerRow {
+                        id: 2,
+                        name: "Layer 3".into(),
+                        core_id: None,
+                    },
+                ];
+                s.selected_layer = 0;
+            });
+            window.render_frame(cx);
+
+            let from = window.find("layer-row-0").bounds().center();
+            let target = window.find("layer-row-2").bounds();
+            let to = Point {
+                x: target.origin.x + target.size.width / 2.0,
+                y: target.origin.y + target.size.height * fraction,
+            };
+            hold_drag_at(window, from, to, cx);
+
+            let accent = crate::tokens::color::ACCENT;
+            let scale = window.scale_factor();
+            let target_top = f32::from(target.origin.y) * scale;
+            let target_bottom =
+                (f32::from(target.origin.y) + f32::from(target.size.height)) * scale;
+            let edge = window.painted_quads().into_iter().find(|quad| {
+                quad.border_color == accent
+                    && if top {
+                        quad.border_widths.top.0 > quad.border_widths.bottom.0
+                    } else {
+                        quad.border_widths.bottom.0 > quad.border_widths.top.0
+                    }
+                    && quad.bounds.origin.y.0 <= target_bottom
+                    && quad.bounds.origin.y.0 + quad.bounds.size.height.0 >= target_top
+            });
+            assert!(
+                edge.is_some(),
+                "the {fraction} drop must paint an accent insertion edge on the {} of row 2",
+                if top { "top" } else { "bottom" }
+            );
+            content.update(cx, |app, cx| app.clear_layer_drag_and_hover(cx));
+        })
+        .unwrap();
+    }
+}
+
 /// Dropping on the target row's top half inserts above it; dropping on the
 /// bottom half inserts below it. This drives the production `on_drop`
 /// midline logic through the mounted path, one side per sub-case, and pins
