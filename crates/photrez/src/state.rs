@@ -622,6 +622,9 @@ pub struct AppState {
     /// The core id of the row a cross-document layer drag started from, so
     /// its own row can take the dimmed "being dragged" look.
     pub layer_drag_source: Option<String>,
+    /// The tab currently under the pointer during a cross-document layer
+    /// drag, used to highlight the drop target and dim the other tabs.
+    pub layer_drag_hover_tab: Option<String>,
     pub select_cursor: usize,
     pub select_count: usize,
     /// Laid-out bounds of the shape bar's stroke popover (click-away).

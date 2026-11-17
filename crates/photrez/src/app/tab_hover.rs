@@ -19,14 +19,25 @@ impl App {
     /// timer arms; leaving the tab, any drop or Escape cancels it.
     pub(crate) fn tab_hover_drag(&mut self, hovered: &bool, tab_id: &str, cx: &mut Context<Self>) {
         if !*hovered {
+            let leaving = self.state.read(cx).layer_drag_hover_tab.as_deref() == Some(tab_id);
+            if leaving {
+                self.state
+                    .update(cx, |state, _| state.layer_drag_hover_tab = None);
+            }
             if self.tab_hover_doc.as_deref() == Some(tab_id) {
                 self.cancel_tab_hover_switch(cx);
             }
+            cx.notify();
             return;
         }
         let drag_active = self.state.read(cx).layer_drag_active;
         if !drag_active {
             return;
+        }
+        if self.state.read(cx).layer_drag_hover_tab.as_deref() != Some(tab_id) {
+            self.state.update(cx, |state, _| {
+                state.layer_drag_hover_tab = Some(tab_id.to_string());
+            });
         }
         let active = self
             .active_document
@@ -66,6 +77,7 @@ impl App {
         self.state.update(cx, |state, _| {
             state.layer_drag_active = false;
             state.layer_drag_source = None;
+            state.layer_drag_hover_tab = None;
         });
         cx.notify();
     }

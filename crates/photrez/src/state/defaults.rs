@@ -211,6 +211,7 @@ impl Default for AppState {
             more_open: false,
             layer_drag_active: false,
             layer_drag_source: None,
+            layer_drag_hover_tab: None,
             select_cursor: 0,
             select_count: 0,
             stroke_popover_open: false,

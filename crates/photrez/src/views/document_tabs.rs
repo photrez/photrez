@@ -199,7 +199,7 @@ pub fn render(
         // The tab strip is the flexible one (the recorded strip scrolls
         // sideways); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
-        .child(ui::clip(tab_list(tabs, active_id, cx)))
+        .child(ui::clip(tab_list(state, tabs, active_id, cx)))
         .child(new_tab_button(cx))
         .child(ui::pin(cluster(state, window, cx)))
 }
@@ -213,6 +213,7 @@ pub fn render(
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar that is not present here.
 fn tab_list(
+    state: &gpui_kit::Entity<crate::state::AppState>,
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
     cx: &Context<crate::app::App>,
@@ -228,7 +229,7 @@ fn tab_list(
         .min_w(px(0.))
         .children(tabs.iter().map(|tab_row| {
             let active = active_id == Some(tab_row.doc_id.as_str());
-            tab(tab_row, active, cx)
+            tab(state, tab_row, active, cx)
         }))
 }
 
@@ -247,11 +248,12 @@ fn tab_list(
 /// invisible against it — plus the topbar hover fill, which names a token the
 /// app never declared and therefore paints nothing at all.
 ///
-/// Not reproduced, because the resting layout cannot show them:
-/// the drag-over outline, the dimmed
-/// (30% opacity), and reordering states (60% opacity, a 0.98 scale and a ring)
-/// and the two drop-edge indicators.
+/// Not reproduced: the reordering states (60% opacity, a 0.98 scale and a
+/// ring) and the two drop-edge indicators. The drag-over accent ring and the
+/// dimmed non-target tabs ARE painted now, driven by the cross-document
+/// layer-drag state in `AppState`.
 fn tab(
+    state: &gpui_kit::Entity<crate::state::AppState>,
     tab_row: &crate::state::TabRow,
     active: bool,
     cx: &Context<crate::app::App>,
@@ -261,6 +263,15 @@ fn tab(
     let close_id = tab_row.doc_id.clone();
     let drop_id = tab_row.doc_id.clone();
     let ghost_name = tab_row.name.clone();
+    let drag_states = {
+        let s = state.read(cx);
+        let hover_target = s.layer_drag_hover_tab.as_deref();
+        (
+            s.layer_drag_active && !active && hover_target != Some(tab_row.doc_id.as_str()),
+            hover_target == Some(tab_row.doc_id.as_str()),
+        )
+    };
+    let (dimmed, drag_over) = drag_states;
     h_flex()
         // Positioned as the containing block for the active underline, whose
         // The underline anchors to this tab's *padding* box.
@@ -279,6 +290,13 @@ fn tab(
         // The document background is the active branch; inactive tabs sit on
         // the strip colour, which is the topbar fill.
         .when(active, |el| el.bg(color::BG))
+        // During a cross-document layer drag the reference focuses the
+        // destination: non-target tabs dim, the hovered tab takes an accent
+        // outline. The shadow is an inset ring, so nothing shifts layout.
+        .when(dimmed, |el| el.opacity(0.3))
+        .when(drag_over, |el| {
+            el.shadow(vec![ui::inset_ring(color::ACCENT)])
+        })
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let _ = app.activate_document(&click_id, cx);

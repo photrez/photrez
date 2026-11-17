@@ -490,6 +490,11 @@ fn tab_hover_switches_documents_during_a_layer_drag(cx: &mut gpui_kit::TestAppCo
                 Some(doc_a.as_str()),
                 "hovering before the delay has elapsed keeps the current document"
             );
+            assert_eq!(
+                state.read(cx).layer_drag_hover_tab.as_deref(),
+                Some(doc_b.as_str()),
+                "the hovered tab is the drag target"
+            );
             (doc_a, doc_b)
         })
         .expect("test window remains open");
@@ -506,6 +511,16 @@ fn tab_hover_switches_documents_during_a_layer_drag(cx: &mut gpui_kit::TestAppCo
         );
         window.hover(format!("document-tab-{doc_a}"), cx);
         window.render_frame(cx);
+        assert_eq!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .layer_drag_hover_tab
+                .as_deref(),
+            Some(doc_a.as_str()),
+            "moving to another tab retargets the drag highlight"
+        );
         window.hover(format!("document-tab-{doc_b}"), cx);
         window.render_frame(cx);
     })
@@ -522,9 +537,14 @@ fn tab_hover_switches_documents_during_a_layer_drag(cx: &mut gpui_kit::TestAppCo
             "leaving an armed tab cancels its hover timer"
         );
         let state = content.read(cx).state_for_test().clone();
-        state.update(cx, |s, _| s.layer_drag_active = false);
+        content.update(cx, |app, cx| app.clear_layer_drag_and_hover(cx));
         window.hover(format!("document-tab-{doc_a}"), cx);
         window.render_frame(cx);
+        assert_eq!(
+            state.read(cx).layer_drag_hover_tab,
+            None,
+            "clearing the drag clears the tab highlight"
+        );
     })
     .expect("test window remains open");
 
