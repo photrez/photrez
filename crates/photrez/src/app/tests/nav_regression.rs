@@ -962,9 +962,8 @@ fn narrow_title_bar_toggle_controls_the_right_dock(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// Below the `lg` breakpoint the tab strip carries the dock-close button,
-/// like the oracle's `CloseDockButton` (`lg:hidden`): clicking it hides the
-/// dock, and it is absent at the 1366px baseline.
+/// Below the `lg` breakpoint the tab strip carries the dock-close button:
+/// clicking it hides the dock, and it is absent at the 1366px baseline.
 #[gpui_kit::test]
 fn narrow_tab_strip_close_hides_the_dock_and_is_hidden_at_baseline(cx: &mut TestAppContext) {
     let (handle, content) = open_app_sized(cx, None, 800.0, 600.0);

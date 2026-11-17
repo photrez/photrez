@@ -156,9 +156,9 @@ pub const ACTIONS: &[(&[u8], &str)] = &[
     (icons::ROTATE_CCW, "common.reset"),
 ];
 
-// The wired Quick row: (test id, icon, tooltip key) in oracle order:
+// The wired Quick row: (test id, icon, tooltip key) in reference order:
 // center horizontally, center vertically, fit to canvas, rotate 90\u{b0} CCW,
-// rotate 90\u{b0} CW. The tooltip keys mirror the oracle's labels.
+// rotate 90\u{b0} CW. The tooltip keys mirror the reference's labels.
 pub const QUICK_ACTIONS: &[(&str, &[u8], &str)] = &[
     ("prop-quick-center-h", icons::ALIGN_H, "properties.centerH"),
     ("prop-quick-center-v", icons::ALIGN_V, "properties.centerV"),

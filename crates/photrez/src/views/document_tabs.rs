@@ -47,7 +47,7 @@
 //!   U+2026), which is what the baseline paints.
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
-//!   takes no space. It is mounted below 1024px (matching the oracle's
+//!   takes no space. It is mounted below 1024px (matching the reference's
 //!   `lg:hidden` "Close side panels" button at the cluster's right end);
 //!   clicking it hides the dock, and the title-bar toggle brings it back.
 //! * **The layout toggle is mounted here**: it flips the right dock between
@@ -474,7 +474,7 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
 }
 
 /// The dock-close button: `x`, shown only below the 1024px breakpoint like
-/// the oracle's `CloseDockButton` (`lg:hidden`). Hides the right dock; it
+/// the reference's `CloseDockButton` (`lg:hidden`). Hides the right dock; it
 /// does not restore it — the title-bar toggle does that. 28px, 4px radius,
 /// white-at-4.5% hover fill, the `x` glyph at 16px.
 fn dock_close_button(
@@ -518,7 +518,7 @@ fn dock_close_button(
 /// The utility cluster: centred on one row, 8px left and 16px right padding,
 /// never squeezed, a 1px left border and the full strip height. It holds the
 /// layout toggle (28px), the export button (92px), and — below the 1024px
-/// breakpoint — the dock-close button, in the oracle's order.
+/// breakpoint — the dock-close button, in the reference's order.
 ///
 /// At the 1366px baseline the dock-close button paints nothing, so the
 /// cluster keeps its measured 153px. See the module docs for the layout
@@ -549,7 +549,7 @@ fn cluster(
 /// panels and the stacked single column. The baseline painted it and this
 /// app once removed it for lack of a click; the toggle now has a handler
 /// (`toggle_dock_layout`) and the icon tints ACCENT in the stacked state,
-/// matching the oracle. 28px, 4px radius, hover fill of white at 4.5%,
+/// matching the reference. 28px, 4px radius, hover fill of white at 4.5%,
 /// the COLUMNS glyph at 16px with a 1.75 stroke.
 fn layout_toggle_button(
     state: &gpui_kit::Entity<crate::state::AppState>,

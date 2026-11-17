@@ -1067,8 +1067,7 @@ fn window_resize_flips_the_move_bar_branches(cx: &mut gpui_kit::TestAppContext) 
 /// px, the width this app uses for its wide-dock breakpoint. Pins the logical
 /// measurement the 125% discussion needs: the harness reports the scale
 /// factor and a logical viewport, and at exactly 1536 both dock and bar
-/// follow logical pixels (dock 598, content 862 < 880 -> overflow), matching
-/// the oracle measured at the same logical width.
+/// follow logical pixels (dock 598, content 862 < 880 -> overflow).
 #[gpui_kit::test]
 fn scale_factor_change_keeps_the_bar_in_logical_pixels(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

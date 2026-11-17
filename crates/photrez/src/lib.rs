@@ -255,8 +255,8 @@ pub fn run() {
                 displays.get(index).map(|display| display.id()),
             ),
             None => (
-                // The reference opens maximized on first run (`tauri.conf.json`:
-                // `maximized: true`). Keep the baseline centred rect as the
+                // Open maximized on first run, matching the legacy layout's
+                // maximized window. Keep the baseline centred rect as the
                 // restore bounds so unmaximizing returns to a usable size
                 // rather than the whole display. A saved geometry still wins,
                 // so a window the user resized last session is restored.

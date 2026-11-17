@@ -149,7 +149,7 @@ impl App {
                 state.selected_layers = vec![row_id];
             }
             // A member of the existing selection keeps the multi selection;
-            // oracle moves the selection with it. Only a new member narrows.
+            // reference moves the selection with it. Only a new member narrows.
         });
         cx.notify();
         // The click was consumed only when it narrowed the selection to one

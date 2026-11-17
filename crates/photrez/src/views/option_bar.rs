@@ -338,7 +338,7 @@ pub(super) fn show_main_controls() -> bool {
     bar_content_width() >= 880.0
 }
 
-/// Shown only below 880px of bar content: the overflow button. The oracle's
+/// Shown only below 880px of bar content: the overflow button. The reference's
 /// `@max-[880px]` is a strict less-than, so exactly 880 keeps the inline
 /// layout (measured at viewport 1489/1555, content == 880).
 pub(super) fn show_more_dropdown() -> bool {
@@ -346,7 +346,7 @@ pub(super) fn show_more_dropdown() -> bool {
 }
 
 /// Hidden only below 900px of bar content: the field captions and the
-/// Align/Flip captions. The oracle's `@max-[900px]` is a strict less-than, so
+/// Align/Flip captions. The reference's `@max-[900px]` is a strict less-than, so
 /// exactly 900 shows the captions (measured at viewport 1509/1575).
 pub(super) fn show_field_labels() -> bool {
     bar_content_width() >= 900.0
@@ -633,7 +633,7 @@ mod bar_width_tests {
         assert!(show_paint_size_slider());
 
         // Outer widths are 2 * BAR_PAD_X wider than the content box the
-        // container query sees. The oracle's @max-[880px] is a strict
+        // container query sees. The reference's @max-[880px] is a strict
         // less-than, so exactly 880 keeps the inline layout only.
         set_bar_width(880.0 + 2.0 * BAR_PAD_X);
         assert!(!show_more_dropdown(), "exactly 880 has no overflow button");

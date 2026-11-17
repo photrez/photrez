@@ -64,7 +64,7 @@ fn status_tip_reports_paint_block_reasons(cx: &mut gpui_kit::TestAppContext) {
 }
 
 /// A live gradient drag replaces the tool hint with the distance/angle
-/// readout, using the same decimal precision as the oracle.
+/// readout, using the same decimal precision as the reference.
 #[gpui_kit::test]
 fn status_tip_reports_the_gradient_vector(cx: &mut gpui_kit::TestAppContext) {
     let directory = TestDirectory::new();

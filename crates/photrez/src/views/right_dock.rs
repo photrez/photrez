@@ -7,7 +7,7 @@
 //! `Stacked` (one 272px column, the inspector above the layer dock, 2px
 //! `BORDER` split). The toggle in the tab bar's utility cluster flips between
 //! them and tints its glyph ACCENT in the stacked state, mirroring the
-//! oracle's layout toggle.
+//! reference's layout toggle.
 //!
 //! # Geometry: 533x750 at (833,46)
 //!
@@ -94,7 +94,7 @@ use std::rc::Rc;
 /// The dock's measured width: 533px.
 const DOCK_W: f32 = 533.0;
 /// Stacked: one 272px column (300px at the wide breakpoint), the inspector
-/// above the layer dock. Matches the oracle's `w-[272px] 2xl:w-[300px]`.
+/// above the layer dock. Matches the reference's `w-[272px] 2xl:w-[300px]`.
 const STACKED_W: f32 = INSPECTOR_W;
 const STACKED_W_WIDE: f32 = INSPECTOR_W_WIDE;
 
