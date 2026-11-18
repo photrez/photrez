@@ -86,18 +86,18 @@ fn move_items(
     let locked = readout.is_some_and(|readout| readout.locked);
     row.child(tool_pill(
         icons::with_stroke(icons::CURSOR, STROKE_PILL),
-        t(PILL_LABEL_MOVE_KEY),
+        t!(PILL_LABEL_MOVE_KEY).into_owned(),
     ))
     .child(divider())
     .child(tooltip(
         state,
         "opt-auto-select",
-        t("tools.options.autoSelectTip"),
+        t!("tools.options.autoSelectTip"),
         None,
         cx,
         option_checkbox_action(
             "opt-auto-select",
-            &t("tools.options.autoSelect"),
+            &t!("tools.options.autoSelect"),
             state.read(cx).move_auto_select,
             auto_select_focus,
             cx,
@@ -107,12 +107,12 @@ fn move_items(
     .child(tooltip(
         state,
         "opt-snap",
-        t("tools.options.snapTip"),
+        t!("tools.options.snapTip"),
         None,
         cx,
         option_checkbox_action(
             "opt-snap",
-            &t("tools.options.snap"),
+            &t!("tools.options.snap"),
             state.read(cx).snap_enabled,
             snap_focus,
             cx,
@@ -123,12 +123,12 @@ fn move_items(
     .child(tooltip(
         state,
         "opt-transform",
-        t("tools.options.transformControlsTip"),
+        t!("tools.options.transformControlsTip"),
         None,
         cx,
         option_checkbox_action(
             "opt-transform",
-            &t("properties.transform"),
+            &t!("properties.transform"),
             state.read(cx).show_transform_controls,
             transform_focus,
             cx,
@@ -167,7 +167,7 @@ fn move_more_dropdown(
     cx: &Context<crate::app::App>,
 ) -> Div {
     let align_section = overflow_section(
-        overflow_caption(&t("properties.align")),
+        overflow_caption(&t!("properties.align")),
         overflow_group_row()
             .child(overflow_icon_button(
                 "opt-move-align-left",
@@ -214,7 +214,7 @@ fn move_more_dropdown(
         locked,
     );
     let flip_section = overflow_section(
-        overflow_caption(&t("properties.flip")),
+        overflow_caption(&t!("properties.flip")),
         overflow_group_row()
             .child(overflow_icon_button(
                 "opt-move-flip-h",
@@ -239,7 +239,7 @@ fn move_more_dropdown(
         .child(overflow_divider())
         .child(overflow_action_button(
             "opt-move-reset",
-            t("properties.resetTransform"),
+            t!("properties.resetTransform").into_owned(),
             None,
             !locked,
             true,
@@ -325,7 +325,7 @@ fn selection_items(
             },
             STROKE_PILL,
         ),
-        t("tools.rectSelect"),
+        t!("tools.rectSelect").into_owned(),
     ))
     .child(divider())
     .child(live_select(
@@ -337,9 +337,9 @@ fn selection_items(
         }),
         None,
         if elliptical {
-            t("tools.ellipseSelect")
+            t!("tools.ellipseSelect").into_owned()
         } else {
-            t("tools.rectSelect")
+            t!("tools.rectSelect").into_owned()
         },
         &["Rectangular", "Elliptical"], // i18n-exempt: not in catalog
         if open == Some("opt-select-shape") {
@@ -356,12 +356,12 @@ fn selection_items(
     .child(divider())
     .child(select_dropdown(
         None,
-        Some(format!("{}: ", t("tools.options.style")).as_str()),
-        t("tools.options.normal"),
+        Some(format!("{}: ", t!("tools.options.style")).as_str()),
+        t!("tools.options.normal").into_owned(),
     ))
     .child(divider())
     .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("properties.position")))
+        el.child(caps_label(&t!("properties.position")))
     })
     .when_some(committed.as_ref(), |el, selection| {
         el.child(field_pair(
@@ -377,7 +377,7 @@ fn selection_items(
     })
     .child(divider())
     .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("tools.options.size")))
+        el.child(caps_label(&t!("tools.options.size")))
     })
     .when_some(committed.as_ref(), |el, selection| {
         el.child(field_pair(
@@ -393,7 +393,7 @@ fn selection_items(
     })
     .child(divider())
     .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("properties.rotation")))
+        el.child(caps_label(&t!("properties.rotation")))
     })
     .when_some(committed.as_ref(), |el, selection| {
         el.child(field("sel-r", "R", FIELD_W_R, selection.angle, "\u{b0}"))
@@ -436,7 +436,7 @@ fn selection_more_dropdown(
                 .gap(px(ITEM_GAP))
                 .child(overflow_action_button(
                     "opt-sel-cut",
-                    t("menus.items.cut"),
+                    t!("menus.items.cut").into_owned(),
                     Some(icons::SLICE),
                     has_selection,
                     true,
@@ -445,7 +445,7 @@ fn selection_more_dropdown(
                 ))
                 .child(overflow_action_button(
                     "opt-sel-copy",
-                    t("menus.items.copy"),
+                    t!("menus.items.copy").into_owned(),
                     Some(icons::COPY),
                     has_selection,
                     true,
@@ -458,7 +458,7 @@ fn selection_more_dropdown(
                 .gap(px(ITEM_GAP))
                 .child(overflow_action_button(
                     "opt-sel-paste",
-                    t("menus.items.paste"),
+                    t!("menus.items.paste").into_owned(),
                     Some(icons::SQUARE_DASHED),
                     has_selection,
                     true,
@@ -467,7 +467,7 @@ fn selection_more_dropdown(
                 ))
                 .child(overflow_action_button(
                     "opt-sel-invert",
-                    t("menus.items.invertSelection"),
+                    t!("menus.items.invertSelection").into_owned(),
                     Some(icons::FLIP_H),
                     has_selection,
                     true,
@@ -480,7 +480,7 @@ fn selection_more_dropdown(
                 .gap(px(ITEM_GAP))
                 .child(overflow_action_button(
                     "opt-sel-delete",
-                    t("layers.deleteLayer"),
+                    t!("layers.deleteLayer").into_owned(),
                     Some(icons::TRASH),
                     has_selection,
                     true,
@@ -497,7 +497,7 @@ fn selection_more_dropdown(
                 ))
                 .child(overflow_action_button(
                     "opt-sel-deselect",
-                    t("menus.items.deselect"),
+                    t!("menus.items.deselect").into_owned(),
                     Some(icons::X),
                     has_selection,
                     true,
@@ -507,7 +507,7 @@ fn selection_more_dropdown(
         );
     let body = gpui_kit::base::v_flex()
         .gap(px(ITEM_GAP))
-        .child(overflow_caption(&t("tools.options.moreOptions")))
+        .child(overflow_caption(&t!("tools.options.moreOptions")))
         .child(grid);
     more_dropdown_overflow(open, state, cx, body)
 }

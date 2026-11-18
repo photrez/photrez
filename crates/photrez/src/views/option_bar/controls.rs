@@ -58,6 +58,9 @@ pub(super) fn option_checkbox_action(
         .px(px(FIELD_PX))
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(500.))
+        .role(gpui_kit::Role::CheckBox)
+        .aria_label(label.to_string())
+        .aria_toggled(checked.into())
         .hover(|s| s.bg(FIELD_60))
         .on_click(cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| on_click(app, cx)))
         .child(if checked {

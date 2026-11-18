@@ -1,76 +1,15 @@
-//! The right dock: its appearance and its two tab strips.
-//!
-//! # Geometry: 533x750 at (833,46)
-//!
-//! `manifest.json`: `shell-right-dock` / `dock-properties` / `dock-adjustments` /
-//! `dock-history` / `dock-presets` are 533x750 at (833,46), the `<main>` row
-//! beside the canvas. 750 = 820 - 46 (title bar) - 24 (status bar); five
-//! captures share the rect and differ only in selected tabs.
-//!
-//! Two columns measured in `dock-properties.png`:
-//! ```text
-//!   InspectorDock   x 833..1104   (272)   272px wide
-//!   +---------------------------+------------------+  y=46
-//!   | tab bar  38px  Properties | tab bar  38px    |  1px bottom border #333333
-//!   |                           | Layers | History  |
-//!   +---------------------------+------------------+  y=84
-//!   | panel content   712 tall   | panel content    |
-//!   |  272 - 2*1 border          |  527 tall        |
-//!   +----------------------------+------------------+  y=611
-//!   | Navigator (260x185 @1106,611)                 |
-//!   +-----------------------------------------------+  y=795
-//! ```
-//! 833 + 272 = 1105; InspectorDock's 1px right border takes 1px, placing
-//! `shell-navigator` at 1106, not 1105. LayerDock is 260px
-//! wide to the window edge; 272 + 1 + 260 = 533.
-//! Tab bars are 38px in both columns. The active
-//! **2px** ACCENT underline is 78px under "Properties" and 57px under "Layers",
-//! the labels' advance widths at 11.5px medium; buttons are **content-width,
-//! not equal-width**.
-//! Bottom Navigator: 185px; 38 (tab bar) + 527 (panel) + 185 = 750.
-//! `shell-navigator` is 260x185 at (1106,611): 611 = 46 + 38 + 527. Its 185
-//! includes a 1px top border; canvas below the 38px header is 185 - 38 - 1 = 146.
-//!
-//! The dock reads its tab choice from [`AppState`]
-//! (`state::is_seeded` / `state::active` / `shot::is`
-//! are the same question asked of the shot id):
-//! each frame this view copies the two `Copy` fields `inspector_tab` and
-//! `layer_tab` from [`AppState`], matching the shell's selection.
-//! A tab click writes the clicked tab to [`AppState`] and notifies the root,
-//! lighting it and swapping the panel next frame.
-//! Inactive tabs brighten their text and gain a 2%-white background on hover,
-//! reproduced through `.hover(...)` with `hsla(0.0, 0.0, 1.0, 0.02)`.
-//! No [`crate::tokens::color`] token represents 2% white.
-//! Every border here resolves to #333333
-//! ([`color::BORDER`]), not the #2e2e2e divider token ([`color::DIVIDER`]).
-//! `tokens.rs` sampled `shell-right-dock`'s left border: 750/750 pixels
-//! #333333; the divider value is corrected here.
-//! Four dock panels: `inspector_body` / `layer_body` call `properties_panel`,
-//! `adjustments_panel`, `layers`, and `history`; each owns its body and pixels,
-//! while this module frames and switches them.
-//! The Navigator's preview is canvas-drawn,
-//! not reproducible statically; frame, header,
-//! and label are drawn.
-//!
-//! # Gaps
-//!
-//! * No `z_index`; everything renders last in `workspace.rs`'s tree.
-//! * `Tooltip`, `FadeIn`, the colour transition, and per-row hover on active tabs
-//!   are interaction-only. Active-tab hover is omitted; inactive-tab hover is
-//!   reproduced.
-//! * Known deviation: the Presets tab's 50% opacity is omitted; re-add
-//!   `.opacity(0.5)` if the baseline flags it as too bright.
-//! * The Navigator mounts its collapse chevron, fit button and zoom row
-//!   function-first; the pixel shape follows this app's own slider and
-//!   header idioms rather than the captured one.
-
+//! Right dock: 533x750 at (833,46), split into a 272px inspector and 260px layer column.
+//! Both tab bars are 38px; the 185px Navigator fills the bottom of the layer column.
+//! Borders are BORDER (#333333); tab underlines are ACCENT and content-width.
+//! Tabs read live `AppState` fields; inactive hover is reproduced, active hover is not.
+//! The Navigator preview is canvas-drawn; each panel owns its own body and pixels.
 use crate::components::ui;
 use crate::display::canvas_bridge::{self, Camera, CanvasImage};
-use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, InspectorTab, LayerTab};
 use crate::tokens::color;
 use crate::views::{adjustments_panel, history, layers, properties_panel};
+use rust_i18n::t;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -391,7 +330,7 @@ fn presets_stub() -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
                 .text_color(color::TEXT)
-                .child(t("panels.presets")),
+                .child(t!("panels.presets")),
         )
         .child(
             div()
@@ -401,7 +340,7 @@ fn presets_stub() -> Div {
                 .line_height(relative(1.3))
                 .text_center()
                 .text_color(color::TEXT_DIM)
-                .child(t("panels.presetsComingSoon")),
+                .child(t!("panels.presetsComingSoon")),
         )
 }
 
@@ -448,7 +387,7 @@ fn navigator(
     let fit = crate::views::option_bar::controls::tooltip(
         state,
         "navigator-fit",
-        t("canvasProps.fitToScreen"),
+        t!("canvasProps.fitToScreen"),
         None,
         cx,
         fit,
@@ -493,7 +432,7 @@ fn navigator(
                         .font_family(ui::FONT_UI)
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child(t("panels.navigator")),
+                        .child(t!("panels.navigator")),
                 ),
         )
         .when(!collapsed, |el| el.child(fit));
@@ -565,7 +504,7 @@ fn navigator(
                         .text_size(px(12.0))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT_DIM)
-                        .child(t("history.noImageOpen")),
+                        .child(t!("history.noImageOpen")),
                 ),
         )
     };

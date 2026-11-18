@@ -37,11 +37,11 @@ fn transform_rows_read_the_layer_or_fall_back_to_the_baseline() {
 fn action_table_matches_the_pinned_rows() {
     assert_eq!(ACTIONS.len(), 3);
     assert_eq!(ACTIONS[0].0, icons::FLIP_H);
-    assert_eq!(t(ACTIONS[0].1), "Flip H");
+    assert_eq!(t!(ACTIONS[0].1), "Flip H");
     assert_eq!(ACTIONS[1].0, icons::FLIP_V);
-    assert_eq!(t(ACTIONS[1].1), "Flip V");
+    assert_eq!(t!(ACTIONS[1].1), "Flip V");
     assert_eq!(ACTIONS[2].0, icons::ROTATE_CCW);
-    assert_eq!(t(ACTIONS[2].1), "Reset");
+    assert_eq!(t!(ACTIONS[2].1), "Reset");
 }
 
 #[test]

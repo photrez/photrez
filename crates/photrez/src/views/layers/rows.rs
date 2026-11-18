@@ -27,25 +27,12 @@ const GHOST_TILE: f32 = 20.0;
 const GHOST_TILE_RADIUS: f32 = 2.0;
 const GHOST_TILE_ICON: f32 = 12.0;
 
-/// The colour of the 1px rule closing every layer row.
-///
-/// DIVIDER at 10% over the row would name a 2/255 step a capture would never
-/// notice. The rule that reaches the screen is the app-wide border override
-/// ([`color::BORDER`]), so this is rgb(51,51,51): a 21/255 step over the
-/// rgb(30,30,30) panel, on the row's bottom edge. Kept as a function so the
-/// tier is assertable without a window; the width is a fixed 1px.
+/// 1px row rule: BORDER (#333333), not DIVIDER; kept as a function so the tier is assertable.
 pub(super) fn row_hairline_colour() -> Hsla {
     color::BORDER
 }
 
-/// The row's own fill, in three branches: full `ROW_ACTIVE` on
-/// the active row, the same colour at 70% on a row selected without being
-/// active, and nothing on the rest.
-///
-/// The middle tier is a 5/255 step over the panel - the ratified pixel gate
-/// cannot see it, which is why this build does not paint it. A multi-selection
-/// therefore reads as one bright row plus a column of dimmed ones rather than
-/// a block of identical ones.
+/// Active row full, selected-but-inactive 70%, rest none; the 70% tier is below the pixel gate.
 pub(super) fn row_fill(active: bool, selected: bool) -> Hsla {
     if active {
         color::ROW_ACTIVE
@@ -165,7 +152,7 @@ pub(super) fn layer_list(
                     .font_family(ui::FONT_UI)
                     .font_weight(FontWeight(500.))
                     .text_color(color::TEXT)
-                    .child(t("layers.noLayersYet")),
+                    .child(t!("layers.noLayersYet")),
             )
             .child(
                 div()
@@ -177,7 +164,7 @@ pub(super) fn layer_list(
                     .line_height(relative(1.3))
                     .text_center()
                     .text_color(color::TEXT_DIM)
-                    .child(t("layers.addAnImage")),
+                    .child(t!("layers.addAnImage")),
             );
     }
     v_flex()
@@ -386,9 +373,9 @@ fn layer_row(
                 state,
                 format!("layer-eye-{id}"),
                 if visible {
-                    t("layers.hideLayer")
+                    t!("layers.hideLayer")
                 } else {
-                    t("layers.showLayer")
+                    t!("layers.showLayer")
                 },
                 None,
                 cx,
@@ -476,7 +463,7 @@ fn layer_row(
             el.child(tooltip(
                 state,
                 format!("layer-adjustments-{id}"),
-                t("layers.layerAdjustmentsApplied"),
+                t!("layers.layerAdjustmentsApplied"),
                 None,
                 cx,
                 div()
@@ -595,7 +582,7 @@ fn move_button(
     tooltip(
         state,
         format!("layer-{direction}-{row_id}"),
-        t(tooltip_key),
+        t!(tooltip_key),
         None,
         cx,
         button,

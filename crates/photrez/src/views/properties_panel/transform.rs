@@ -50,14 +50,14 @@ pub(super) fn section(
                 if flags.locked {
                     Some((
                         "properties-status-layer-locked",
-                        t("properties.layerLockedTransform"),
+                        t!("properties.layerLockedTransform"),
                     ))
                 } else if flags.lock_position && flags.lock_rotation {
-                    Some(("properties-status-pos-rot", t("properties.posRotLocked")))
+                    Some(("properties-status-pos-rot", t!("properties.posRotLocked")))
                 } else if flags.lock_position {
-                    Some(("properties-status-pos", t("properties.posLocked")))
+                    Some(("properties-status-pos", t!("properties.posLocked")))
                 } else if flags.lock_rotation {
-                    Some(("properties-status-rot", t("properties.rotLocked")))
+                    Some(("properties-status-rot", t!("properties.rotLocked")))
                 } else {
                     None
                 }
@@ -90,7 +90,7 @@ pub(super) fn section(
         .flex_1()
         .h(px(24.0))
         .items_center()
-        .aria_label(t("tools.options.opacity"))
+        .aria_label(t!("tools.options.opacity"))
         .child(ui::slider(
             opacity_percent(opacity),
             None,
@@ -118,16 +118,16 @@ pub(super) fn section(
         .py(px(PAD_Y))
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
-        .child(section_header(icons::MOVE, &t("properties.transform")))
+        .child(section_header(icons::MOVE, &t!("properties.transform")))
         .when(status.is_some(), move |el| match status {
-            Some((id, message)) => el.child(status_hint(id, message)),
+            Some((id, message)) => el.child(status_hint(id, message.into_owned())),
             None => el,
         })
         .child(
             v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
                 // Position — X / Y, each taking half the slot.
                 ui::prop_row(
-                    &t("properties.position"),
+                    &t!("properties.position"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -157,7 +157,7 @@ pub(super) fn section(
                 // fields commit a scale, and the link decides whether the other
                 // axis follows them.
                 ui::prop_row(
-                    &t("tools.options.size"),
+                    &t!("tools.options.size"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -186,7 +186,7 @@ pub(super) fn section(
                 .into_any_element(),
                 // Rotation — one field, "deg" rather than "px".
                 ui::prop_row(
-                    &t("properties.rotation"),
+                    &t!("properties.rotation"),
                     ui::live_num_field(
                         "prop-r",
                         Some("R"), // i18n-exempt: technical token (field label glyph)
@@ -201,7 +201,7 @@ pub(super) fn section(
                 .into_any_element(),
                 // Scale — read-only `NumField`s, percent.
                 ui::prop_row(
-                    &t("properties.scale"),
+                    &t!("properties.scale"),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -222,7 +222,7 @@ pub(super) fn section(
                 // Opacity — the slider plus a right-aligned 44px readout, both
                 // driven by the selected layer's own opacity.
                 ui::prop_row(
-                    &t("tools.options.opacity"),
+                    &t!("tools.options.opacity"),
                     h_flex()
                         .flex_1()
                         .items_center()
@@ -250,13 +250,13 @@ pub(super) fn section(
                 // keys, resolved from the `properties.*` entries: properties.flipH /
                 // properties.flipV / common.reset.
                 ui::prop_row(
-                    &t("properties.actions"),
+                    &t!("properties.actions"),
                     h_flex().flex_1().gap(px(6.0)).children(
                         ACTIONS
                             .iter()
                             .zip(ACTION_HANDLERS)
                             .map(|(&(svg, key), (id, action))| {
-                                wired_action_button(svg, id, t(key), cx, *action)
+                                wired_action_button(svg, id, t!(key).into_owned(), cx, *action)
                             }),
                     ),
                 )

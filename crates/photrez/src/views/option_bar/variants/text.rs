@@ -114,7 +114,7 @@ pub(super) fn text_items(
     };
     row.child(tool_pill(
         icons::with_stroke(icons::TYPE, STROKE_PILL),
-        t(PILL_LABEL_TEXT_KEY),
+        t!(PILL_LABEL_TEXT_KEY).into_owned(),
     ))
     .child(divider())
     .child(font_family_button())
@@ -128,7 +128,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-weight",
-        t("tools.options.fontWeight"),
+        t!("tools.options.fontWeight"),
         None,
         cx,
         live_select(
@@ -150,7 +150,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-italic",
-        t("tools.options.italic"),
+        t!("tools.options.italic"),
         None,
         cx,
         text_toggle_action(
@@ -171,7 +171,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-underline",
-        t("tools.options.underline"),
+        t!("tools.options.underline"),
         None,
         cx,
         text_toggle_action(
@@ -191,7 +191,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-strikethrough",
-        t("tools.options.strikethrough"),
+        t!("tools.options.strikethrough"),
         None,
         cx,
         text_toggle_action(
@@ -211,7 +211,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-uppercase",
-        t("tools.options.uppercase"),
+        t!("tools.options.uppercase"),
         None,
         cx,
         text_toggle_action(
@@ -236,7 +236,7 @@ pub(super) fn text_items(
             .child(tooltip(
                 state,
                 "opt-align-left",
-                t("properties.alignLeft"),
+                t!("properties.alignLeft"),
                 None,
                 cx,
                 text_icon_action(
@@ -252,7 +252,7 @@ pub(super) fn text_items(
             .child(tooltip(
                 state,
                 "opt-align-center",
-                t("properties.alignCenter"),
+                t!("properties.alignCenter"),
                 None,
                 cx,
                 text_icon_action(
@@ -268,7 +268,7 @@ pub(super) fn text_items(
             .child(tooltip(
                 state,
                 "opt-align-right",
-                t("properties.alignRight"),
+                t!("properties.alignRight"),
                 None,
                 cx,
                 text_icon_action(
@@ -286,7 +286,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-box-mode",
-        t("tools.options.boxModeDesc"),
+        t!("tools.options.boxModeDesc"),
         None,
         cx,
         box_mode_control(state, cx),
@@ -294,7 +294,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-text-color",
-        t("tools.options.textColor"),
+        t!("tools.options.textColor"),
         None,
         cx,
         text_color_swatch(state, cx),
@@ -303,7 +303,7 @@ pub(super) fn text_items(
     .child(tooltip(
         state,
         "opt-text-stroke",
-        t("tools.options.strokeOptions"),
+        t!("tools.options.strokeOptions"),
         None,
         cx,
         text_stroke_control(

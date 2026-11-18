@@ -22,7 +22,7 @@ pub(super) fn align_group(locked: bool, cx: &Context<crate::app::App>) -> impl I
         .items_center()
         .gap(px(ICON_GAP))
         .when(show_field_labels(), |el| {
-            el.child(group_label(&t("properties.align")))
+            el.child(group_label(&t!("properties.align")))
         })
         .child(square_icon_button(
             "Align left",
@@ -72,7 +72,7 @@ pub(super) fn flip_group(locked: bool, cx: &Context<crate::app::App>) -> impl In
         .items_center()
         .gap(px(ICON_GAP))
         .when(show_field_labels(), |el| {
-            el.child(group_label(&t("properties.flip")))
+            el.child(group_label(&t!("properties.flip")))
         })
         .child(square_icon_button(
             "Flip horizontal",
@@ -143,7 +143,7 @@ pub(super) fn reset_button(locked: bool, cx: &Context<crate::app::App>) -> impl 
         .text_size(px(TEXT_SM))
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
-        .child(t("common.reset"));
+        .child(t!("common.reset"));
     if locked {
         button = button.opacity(0.3);
     } else {

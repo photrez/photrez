@@ -1,6 +1,8 @@
 use super::*;
 use crate::app::tool_settings::ToolFlag;
-use crate::i18n::t;
+use gpui_kit::component::Sizable;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use rust_i18n::t;
 
 mod stroke;
 mod text;
@@ -396,7 +398,7 @@ pub(super) fn reverse_button(cx: &gpui_kit::Context<crate::app::App>) -> impl In
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
         .child(div().text_size(px(TEXT_MD)).child("\u{21c4}")) // i18n-exempt: glyph or symbol
-        .child(div().child(t("tools.options.reverse")))
+        .child(div().child(t!("tools.options.reverse")))
 }
 
 // ── Shape ──────────────────────────────────────────────────────────────────────
@@ -427,7 +429,7 @@ pub(super) fn fill_toggle(enabled: bool, cx: &Context<crate::app::App>) -> impl 
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_shape_fill(cx);
         }))
-        .child(t("tools.fill"))
+        .child(t!("tools.fill"))
 }
 
 /// The shape bar's 22px fill colour swatch: the selected shape's fill in edit
@@ -473,7 +475,7 @@ pub(super) fn shape_arrow_toggle(enabled: bool, cx: &Context<crate::app::App>) -
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_tool_flag(crate::app::tool_settings::ToolFlag::ShapeArrowHead, cx);
         }))
-        .child(t("tools.options.shapes.arrow"))
+        .child(t!("tools.options.shapes.arrow"))
 }
 
 /// The shape bar's corner-radius field. Clicking starts an inline edit; valid
@@ -506,7 +508,7 @@ pub(super) fn radius_field(
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.begin_shape_radius_field(window, cx);
         }))
-        .child(dim_span(&t("properties.cornerRadius")))
+        .child(dim_span(&t!("properties.cornerRadius")))
         .child(
             div()
                 .w(px(RADIUS_INPUT_W))
@@ -683,26 +685,39 @@ pub(super) fn caps_label(text: &str) -> Div {
 
 // ── Crop ───────────────────────────────────────────────────────────────────────
 
-/// The crop fill controls: the white colour swatch + "Use BG"
-/// button, shown when `fill_enabled` is true. At the capture's rest state the
-/// fill source resolves to the white background default (the crop's
-/// resolved fill colour), so the swatch paints [`color::WHITE`].
-///
-/// The swatch is a 22x18 rect with a 2px corner radius, not
-/// the circular `round_swatch` - it is flat (no ring) to match the baseline.
-pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
-    div()
-        .id("opt-crop-use-bg")
+/// Crop Fill color and source actions. The parent shows them only while Fill BG is on.
+pub(super) fn crop_fill_swatch_group(
+    state: &gpui_kit::Entity<AppState>,
+    use_bg_label: &'static str,
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (color_value, color_focus) = {
+        let state = state.read(cx);
+        (
+            state.resolved_crop_fill_color(),
+            state.crop_fill_color_focus.clone(),
+        )
+    };
+    let crop_fill_label = t!("tools.options.cropFillColor");
+    let background_label = t!("tools.options.useBgColor");
+    let state_for_background = state.clone();
+    let mut color_button = Button::new("opt-crop-fill-color");
+    if let Some(focus) = color_focus.as_ref() {
+        color_button = color_button.track_focus(focus);
+    }
+    let color_button = color_button
+        .xsmall()
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(color::FIELD)
+                .foreground(ZINC)
+                .hover(color::FIELD)
+                .active(color::FIELD),
+        )
         .h(px(CTRL_H))
-        .flex_shrink_0()
-        .h_flex()
-        .items_center()
-        .gap(px(ITEM_GAP))
-        .rounded(px(RADIUS_SM))
-        .border_1()
-        .border_color(color::BORDER)
-        .bg(color::FIELD)
-        .px(px(FIELD_PX))
+        .w(px(24.0))
+        .px(px(0.0))
+        .py(px(0.0))
         .child(
             div()
                 .h(px(18.0))
@@ -711,19 +726,54 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
                 .rounded(px(RADIUS_SM))
                 .border_1()
                 .border_color(color::BORDER)
-                .bg(color::WHITE),
+                .bg(crate::palette::hsla(color_value)),
         )
+        .accessibility_label(crop_fill_label.clone())
+        .tooltip(crop_fill_label)
+        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
+            app.open_color_picker(crate::state::ColorTarget::CropFill, window, cx);
+        }));
+    h_flex()
+        .h(px(CTRL_H))
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(4.0))
+        .rounded(px(RADIUS_SM))
+        .border_1()
+        .border_color(color::BORDER)
+        .bg(color::FIELD)
+        .px(px(4.0))
+        .child(color_button)
         .child(
-            div()
-                .flex_shrink_0()
+            Button::new("opt-crop-fill-use-bg")
+                .xsmall()
+                .custom(
+                    ButtonCustomVariant::new(cx)
+                        .color(color::FIELD)
+                        .foreground(ZINC)
+                        .hover(color::FIELD)
+                        .active(color::FIELD),
+                )
+                .h(px(CTRL_H))
+                .px(px(6.0))
+                .rounded(px(RADIUS_SM))
                 .text_size(px(TEXT_XS))
                 .text_color(ZINC)
-                .font_weight(FontWeight(500.))
-                .child("Use BG"), // i18n-exempt: not in catalog
+                .label(use_bg_label)
+                .accessibility_label(background_label.clone())
+                .tooltip(background_label)
+                .on_click(
+                    cx.listener(move |_, _: &gpui_kit::ClickEvent, _window, cx| {
+                        state_for_background.update(cx, |state, _| {
+                            state.crop_fill_use_background = true;
+                        });
+                        cx.notify();
+                    }),
+                ),
         )
 }
 
-/// `t("common.apply", "Apply")` — accent action:
+/// `t!("common.apply")` labels this accent action:
 /// 24px tall, 10px padding, 4px radius, bold white text and a subtle shadow, with the fill at
 /// 15%. Live via the Crop bar, so [`ACTION_PX`] is consumed (the dead-code
 /// allow on it was dropped in mod.rs).
@@ -758,10 +808,10 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
                 Err(error) => app.set_status_error(Some(format!("Crop: {error}")), cx),
             }
         }))
-        .child(t("common.apply"))
+        .child(t!("common.apply"))
 }
 
-/// `t("common.cancel", "Cancel")` — secondary
+/// `t!("common.cancel")` labels this secondary
 /// action. The resting `option-crop` baseline paints the border-only ghost:
 /// the interior stays the bar's `#1b1b1b` (27) where the field background
 /// would read 37. The border and the `#A1A1AA` label paint; the fill does not.
@@ -783,5 +833,5 @@ pub(super) fn cancel_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Int
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.cancel_crop(cx);
         }))
-        .child(t("common.cancel"))
+        .child(t!("common.cancel"))
 }

@@ -27,8 +27,8 @@ pub(super) fn more_dropdown_button(cx: &Context<crate::app::App>) -> Button {
                 .hover(|style| style.text_color(color::WHITE))
                 .child(Icon::default().data(icons::MORE).size(px(ICON_LG))),
         )
-        .accessibility_label(t("tools.options.moreOptions"))
-        .tooltip(t("tools.options.moreOptions"))
+        .accessibility_label(t!("tools.options.moreOptions"))
+        .tooltip(t!("tools.options.moreOptions"))
 }
 
 /// The field background at 30% opacity: the tint of the overflow group

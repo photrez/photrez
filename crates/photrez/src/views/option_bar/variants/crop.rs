@@ -88,14 +88,18 @@ pub(super) fn crop_items(
         let s = state.read(cx);
         (s.crop_ratio_bounds.clone(), s.crop_unit_bounds.clone())
     };
+    let (delete_focus, fill_focus) = {
+        let s = state.read(cx);
+        (s.crop_delete_focus.clone(), s.crop_fill_focus.clone())
+    };
     let p = crop_params();
     row.child(tool_pill(
         icons::with_stroke(icons::CROP, STROKE_PILL),
-        t(p.pill_label),
+        t!(p.pill_label).into_owned(),
     ))
     .child(divider())
     .child(crop_ratio_control(
-        &t(p.ratio_prefix),
+        &t!(p.ratio_prefix),
         mode,
         aspect,
         &recents,
@@ -130,7 +134,7 @@ pub(super) fn crop_items(
         p.delete_id,
         p.delete_label,
         delete_checked,
-        None,
+        delete_focus,
         cx,
         |app, cx| app.toggle_crop_delete(cx),
     ))
@@ -138,11 +142,13 @@ pub(super) fn crop_items(
         p.fill_id,
         p.fill_label,
         fill_checked,
-        None,
+        fill_focus,
         cx,
         |app, cx| app.toggle_crop_fill(cx),
     ))
-    .child(crop_fill_swatch_group())
+    .when(fill_checked, |row| {
+        row.child(crop_fill_swatch_group(state, p.use_bg_label, cx))
+    })
     .child(divider())
     .when(show_main_controls(), |row| {
         row.child(crop_straighten_control(state, false, cx))
@@ -185,8 +191,8 @@ fn crop_guide_control(
 ) -> impl IntoElement {
     let label = format!(
         "{}: {}",
-        t("crop.guides"),
-        t(crop_guide_label_key(selected))
+        t!("crop.guides"),
+        t!(crop_guide_label_key(selected))
     );
     let state = state.clone();
 
@@ -216,7 +222,7 @@ fn crop_guide_control(
                 .fold(menu, |menu, guide| {
                     let state = state.clone();
                     menu.item(
-                        PopupMenuItem::new(t(crop_guide_label_key(guide)))
+                        PopupMenuItem::new(t!(crop_guide_label_key(guide)))
                             .checked(guide == selected)
                             .on_click(move |_, _, cx| {
                                 state.update(cx, |state, cx| {
@@ -246,8 +252,8 @@ fn crop_classic_toggle(
     gpui_kit::component::checkbox::Checkbox::new("crop-classic")
         .small()
         .checked(checked)
-        .label(t("crop.classicCrop"))
-        .tooltip(t("tools.options.classicCropTip"))
+        .label(t!("crop.classicCrop").into_owned())
+        .tooltip(t!("tools.options.classicCropTip").into_owned())
         .on_change(cx.listener(|app, checked, _window, cx| {
             app.set_crop_interaction(
                 if *checked {
@@ -286,7 +292,7 @@ fn crop_straighten_control(
         .when(!full_width, |track| track.w(px(88.0)).flex_shrink_0())
         .items_center()
         .role(gpui_kit::Role::Slider)
-        .aria_label(t("crop.straighten"))
+        .aria_label(t!("crop.straighten"))
         .aria_numeric_value(rotation)
         .aria_numeric_value_step(0.1)
         .aria_min_numeric_value(-45.0)
@@ -337,7 +343,7 @@ fn crop_straighten_control(
     if full_width {
         gpui_kit::base::v_flex()
             .gap(px(PILL_PX))
-            .child(overflow_caption(&t("crop.straighten")))
+            .child(overflow_caption(&t!("crop.straighten")))
             .child(
                 h_flex()
                     .w_full()
@@ -354,7 +360,7 @@ fn crop_straighten_control(
                 div()
                     .text_size(px(TEXT_XS))
                     .text_color(ZINC)
-                    .child(t("crop.straighten")),
+                    .child(t!("crop.straighten")),
             )
             .child(slider)
             .child(value)
@@ -376,7 +382,7 @@ fn crop_angle_field(
             s.num_field_focus_for("opt-crop-angle"),
         )
     };
-    let label = t("crop.angle");
+    let label = t!("crop.angle");
     let value = format!("{rotation:.1}");
     crate::components::ui::live_num_field(
         "opt-crop-angle",
@@ -415,7 +421,7 @@ fn crop_rotation_control(full_width: bool, cx: &Context<crate::app::App>) -> gpu
     if full_width {
         gpui_kit::base::v_flex()
             .gap(px(PILL_PX))
-            .child(overflow_caption(&t("properties.rotation")))
+            .child(overflow_caption(&t!("properties.rotation")))
             .child(overflow_group_row().w_full().child(buttons))
     } else {
         buttons
@@ -430,7 +436,7 @@ fn crop_rotation_button(
     full_width: bool,
     cx: &Context<crate::app::App>,
 ) -> Button {
-    let label = t(label_key);
+    let label = t!(label_key);
     let mut button = Button::new(id)
         .xsmall()
         .custom(
@@ -561,7 +567,7 @@ pub(super) fn crop_ratio_list(
         ))
         .child(crop_ratio_divider());
     if !recents.is_empty() {
-        panel = panel.child(crop_ratio_caption(&t("common.recents")));
+        panel = panel.child(crop_ratio_caption(&t!("common.recents")));
         for (index, recent) in recents.iter().enumerate() {
             let value = *recent;
             panel = panel.child(crop_ratio_action_row(

@@ -62,7 +62,7 @@ pub(super) fn shape_stroke_pill(
                         .child(if active {
                             format!("{width:.0}px")
                         } else {
-                            t("common.off")
+                            t!("common.off").into_owned()
                         }),
                 ),
         ))
@@ -112,9 +112,9 @@ fn stroke_popover(
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let on_off = if enabled {
-        t("common.on")
+        t!("common.on")
     } else {
-        t("common.off")
+        t!("common.off")
     };
     let body = div()
         .flex()
@@ -126,7 +126,7 @@ fn stroke_popover(
                 .items_center()
                 .justify_between()
                 .gap(px(GAP))
-                .child(dim_span(&t("common.color")))
+                .child(dim_span(&t!("common.color")))
                 .child(stroke_color_button(state, color_value, enabled, cx)),
         )
         .child(
@@ -134,7 +134,7 @@ fn stroke_popover(
                 .items_center()
                 .justify_between()
                 .gap(px(GAP))
-                .child(dim_span(&t("common.width")))
+                .child(dim_span(&t!("common.width")))
                 .child(stroke_width_field(state, width, editing, focus, cx)),
         );
     div()
@@ -170,7 +170,7 @@ fn stroke_popover(
                         .text_size(px(TEXT_SM))
                         .font_weight(FontWeight(600.))
                         .text_color(color::WHITE)
-                        .child(t("tools.options.strokeOutline")),
+                        .child(t!("tools.options.strokeOutline")),
                 )
                 .child(option_checkbox_action(
                     "opt-stroke-enable",

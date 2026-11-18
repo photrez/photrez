@@ -60,7 +60,7 @@ fn centred_progress(fill_width: f32) -> Div {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
                 .text_color(color::TEXT)
-                .child(crate::i18n::t("common.loading")),
+                .child(rust_i18n::t!("common.loading")),
         )
         .child(
             div()

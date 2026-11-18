@@ -1,87 +1,8 @@
-//! The document tab strip: its appearance.
-//!
-//! The 38px strip that caps the editor column, directly under the title bar:
-//! at the default client area the active tab occupies `x52,y46,89.86x37`, and the
-//! column runs from the tool rail's right edge (x=52) to the right dock
-//! (x=833) — 781px wide. Left to right it holds the flexible tab list, the
-//! new-document button, and the utility cluster (Export only)
-//! pressed against the dock edge.
-//!
-//! # Scope: the resting state, with exactly one open (and active) document
-//!
-//! The strip measures: surface #141414, active tab #171717, every border
-//! column #333333, underline #F28E42 across y=81..82, export button 725..816.
-//!
-//! A static screenshot cannot show behaviour, so what stays out of this module
-//! is drag-to-reorder with drop indicators, cross-document drag dimming,
-//! the hover-to-switch timer, the toasts, the export menu, and the
-//! wheel/keyboard navigation. Clicks that have a native command are wired:
-//! a tab activates,
-//! its close button closes the document, `+` opens the New Document dialog and
-//! Export opens the Export dialog. Hover *styling* is reproduced where it is a plain
-//! colour change, as in
-//! [`crate::views::tool_rail`] and [`crate::views::title_bar`].
-//!
-//! With **zero** documents this strip can still paint: the tab list renders no
-//! tab, so the flexible list comes up empty while the `+` and the utility
-//! cluster stay where they are. That state is *not* implemented here; this
-//! module renders the captured one-document state, because that is what the
-//! baseline measured.
-//!
-//! # Transcription notes
-//!
-//! * **Every border paints `#333333`**, whatever colour the element asks
-//!   for: a global border colour outranks the per-element
-//!   divider and field-border values, so the root, tab,
-//!   new-document button and utility cluster, and the
-//!   export button all resolve to [`color::BORDER`]. Confirmed against
-//!   `shell-full-page.png`: (141,60), (400,83), (636,60), (680,60), (725,64)
-//!   and (816,64) are unanimous. `color::DIVIDER` (#2e2e2e) appears nowhere in
-//!   this component — there is no divider fill on it either.
-//! * **Two hover names refer to colours that do not exist.** No shipped
-//!   token declares a topbar-hover or app-hover value, so those
-//!   hovers paint nothing: both are no-ops here and are
-//!   recorded as such below rather than invented.
-//! * **`Export…` is the resolved translation**, not the `"Export"` fallback
-//!   in the catalogue key: `locales/en.json` is `"Export…"` (one
-//!   U+2026), which is what the baseline paints.
-//! * **The dock-close button is hidden at this width**: the breakpoint is
-//!   1024px and the baseline window is 1366px, so it is not shown and
-//!   takes no space. The arithmetic agrees with leaving it out: the utility
-//!   cluster measures 117px (1 border + 8 left padding + 92 export +
-//!   16 right padding).
-//! * **The layout toggle was captured, and is removed.** The baseline paints
-//!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
-//!   8 gap + 92 export + 16 right padding), which put its left border at
-//!   exactly x=680, where `shell-full-page.png` has #333333. That control
-//!   switched the right dock between side-by-side and stacked, and tinted the
-//!   glyph with the accent only in the stacked layout. This app ships one
-//!   dock layout, so the control had no handler: a painted control that answers
-//!   no click is removed rather than kept, the same ruling that took the crop
-//!   bar's dead control out. Export keeps its measured x=725..816 place; the
-//!   cluster's left border moves from x=680 to x=716.
-//! * **Box model**: GPUI/taffy defaults to border-box sizing, so the
-//!   38px strip spends its 1px bottom border inside the 38 and leaves the 37px
-//!   content height `manifest.json` measures for the tab. The tab's width is
-//!   12 + 10 padding + 1 right border + 8 gap + 16 close button + the advance
-//!   width of "Baseline" at 11.5px/500 ≈ 42.86 = 89.86.
-//! * **No letter-spacing compensation** (unlike `title_bar::pad_x`): this
-//!   strip asks for no tracking, so GPUI's lack of tracking
-//!   costs nothing here.
-//!
-//! # Known fidelity gaps
-//!
-//! * **Icon hover tint.** `Icon` captures its `text_color` while the element
-//!   tree is built, before hover refinement, so the `plus` and
-//!   tab-close `x` glyphs do not brighten with their buttons — only the
-//!   backgrounds and plain text do. Same gap as `tool_rail` and `title_bar`;
-//!   no measurement covers a hover of those three controls, so it is unverified
-//!   either way.
-//! * The transition timings, the text-selection lock, the
-//!   ARIA roles and tab order have no pixel consequence and are dropped. The
-//!   pointer cursor is applied to the controls that work, and the icon-only `+`
-//!   carries an accessible name.
-
+//! Document tab strip: 38px under the title bar, x=52..833, one active tab at x=52.
+//! Every border resolves to BORDER (#333333); the active underline is ACCENT (#F28E42).
+//! The captured dock-layout toggle is removed because this build ships one dock layout.
+//! Drag timing, toasts, export menu and wheel navigation are interaction, not pixels.
+//! Zero-document state is not painted here; only the captured one-document state.
 // `gpui-kit` re-exports all of GPUI at its root, so every import below goes
 // through it; `h_flex` is the free function from `gpui-base`, which builds the
 // centred single row used here.
@@ -91,9 +12,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{FontWeight, Point, TestSupportExt, Window, div, px};
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
+use rust_i18n::t;
 
 use gpui_kit::Div;
 
@@ -417,7 +338,7 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         .flex_none()
         .items_center()
         .justify_center()
-        .aria_label(t("menus.items.newDocument"))
+        .aria_label(t!("menus.items.newDocument"))
         .border_l_1()
         .border_color(color::BORDER)
         .hover(|s| s.text_color(color::TEXT))
@@ -501,7 +422,7 @@ fn export_button(
                 app.toggle_select("tab-export", 0, 4, window, cx);
             },
         ))
-        .child(t(EXPORT_LABEL_KEY))
+        .child(t!(EXPORT_LABEL_KEY))
         .child(
             Icon::default()
                 .data(icons::CHEVRON_DOWN)
@@ -510,10 +431,10 @@ fn export_button(
         );
     if open {
         let options = [
-            t("menus.items.quickExportPng").to_string(),
-            t("menus.items.quickExportJpg").to_string(),
-            t("menus.items.quickExportWebp").to_string(),
-            t("menus.items.exportAs").to_string(),
+            t!("menus.items.quickExportPng").to_string(),
+            t!("menus.items.quickExportJpg").to_string(),
+            t!("menus.items.quickExportWebp").to_string(),
+            t!("menus.items.exportAs").to_string(),
         ];
         button = button.child(gpui_kit::deferred(
             crate::views::option_bar::controls::floating_options_panel(

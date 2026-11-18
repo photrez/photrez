@@ -13,7 +13,7 @@ pub(in crate::views::dialogs) fn printer_notice(
 ) -> Option<String> {
     match error {
         Some(message) => Some(message.to_string()),
-        None if printer_count == 0 => Some(t("dialogs.print.noPrinters").to_string()),
+        None if printer_count == 0 => Some(t!("dialogs.print.noPrinters").to_string()),
         None => None,
     }
 }

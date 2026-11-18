@@ -30,6 +30,8 @@ fn fields(hsv: Hsv) -> [Readout; 6] {
         target: ColorTarget::Foreground,
         hsv,
         original: [9, 9, 9, 255],
+        return_focus: None,
+        crop_fill_original: None,
         hex: "#123456".to_string(),
     })
 }

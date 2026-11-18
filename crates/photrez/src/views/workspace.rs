@@ -39,26 +39,7 @@ const HINT_W: f32 = 216.0;
 /// overlay origin and the hint strip's offsets give it back.
 const RING: f32 = 3.0;
 
-/// Render the full shell for one frame.
-///
-/// Geometry of the shell regions:
-///
-/// ```text
-/// <photrez-app>           BG (#171717)
-///   AppTitleBar          (46px)
-///   <main> flex_1 min_h_0
-///     LeftToolRail        52px
-///     <center col> flex_1 min_w_0
-///       DocumentTabs      (38px)
-///       OptionBar         (38px)
-///       Canvas            flex_1  <- 668px at 820px window
-///     RightDock           533px (only when dock_open)
-///   BottomStatusBar        (24px)
-/// ```
-///
-/// `state` is the live state entity, not a snapshot: the tool rail and the
-/// dock's tab bars write their selection back into it, and every field the
-/// shell reads here is `Copy`, so one read per frame is enough.
+/// Render one frame from live `state`; every field read here is `Copy`, so one read per frame is enough.
 #[allow(clippy::too_many_arguments)] // the shell composes one frame from the whole app state
 pub(crate) fn render(
     state: &Entity<AppState>,

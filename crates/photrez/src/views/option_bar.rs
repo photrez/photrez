@@ -29,10 +29,10 @@ use gpui_kit::{
 };
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, ToolId};
 use crate::tokens::color;
+use rust_i18n::t;
 
 pub(crate) mod controls;
 mod move_group;
@@ -472,7 +472,7 @@ mod tests {
         let p = brush_params(false);
         assert!(p.icon == icons::BRUSH, "brush must use the BRUSH icon");
         assert_eq!(p.label, PILL_LABEL_BRUSH_KEY);
-        assert_eq!(t(p.label), "Brush Tool");
+        assert_eq!(t!(p.label), "Brush Tool");
         assert_eq!(p.size, "20");
         assert_eq!(p.hardness, "80");
         assert_eq!(p.slider_pct, BRUSH_SLIDER_PCT);
@@ -484,7 +484,7 @@ mod tests {
         let p = brush_params(true);
         assert!(p.icon == icons::ERASER, "eraser must use the ERASER icon");
         assert_eq!(p.label, PILL_LABEL_ERASER_KEY);
-        assert_eq!(t(p.label), "Eraser Tool");
+        assert_eq!(t!(p.label), "Eraser Tool");
         assert_eq!(p.size, "32");
         assert_eq!(p.hardness, "100");
         assert_eq!(p.slider_pct, ERASER_SLIDER_PCT);
@@ -510,10 +510,10 @@ mod tests {
         let p = crop_params();
         // Pill label + ratio dropdown face.
         assert_eq!(p.pill_label, PILL_LABEL_CROP_KEY);
-        assert_eq!(t(p.pill_label), "Crop Tool");
+        assert_eq!(t!(p.pill_label), "Crop Tool");
         assert_eq!(p.ratio_prefix, "tools.options.aspectRatio");
-        assert_eq!(t("tools.options.aspectRatio"), "Aspect Ratio");
-        assert_eq!(t(p.ratio_value), "Free", "resting cropMode is 'free'");
+        assert_eq!(t!("tools.options.aspectRatio"), "Aspect Ratio");
+        assert_eq!(t!(p.ratio_value), "Free", "resting cropMode is 'free'");
         assert_eq!(p.delete_id, "opt-crop-delete");
         assert_eq!(p.delete_label, "Delete");
         assert!(p.delete_checked, "Delete ships checked");
@@ -522,8 +522,8 @@ mod tests {
         assert!(p.fill_checked, "Fill BG ships checked");
         // Swatch + action buttons.
         assert_eq!(p.use_bg_label, "Use BG");
-        assert_eq!(t(p.cancel_label), "Cancel");
-        assert_eq!(t(p.apply_label), "Apply");
+        assert_eq!(t!(p.cancel_label), "Cancel");
+        assert_eq!(t!(p.apply_label), "Apply");
     }
 }
 

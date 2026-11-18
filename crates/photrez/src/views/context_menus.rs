@@ -1,156 +1,18 @@
-//! The right-click context menus: appearance only.
-//!
-//! Five surfaces live here: the shared shell every menu except the brush one
-//! renders through, the brush panel (`ctx-brush`), the canvas menu
-//! (`ctx-canvas`), the export button's item list (`ctx-export`) and the
-//! layer row's item list (`ctx-layer`).
-//!
-//! # Geometry: pointer-anchored, so only the size is fixed
-//!
-//! These open wherever the pointer is (the shell clamps the anchor
-//! into the viewport with a 4px margin), so the captured origins are click
-//! points, not layout constants — only the sizes have to be reproduced:
-//!
-//! ```text
-//! ctx-canvas       210x280 @  442,462
-//! ctx-export       210x131 @  607, 82.5
-//! ctx-layer        210x345 @ 1152,190
-//! ctx-brush        200x245 @  420,323   (panel; the shot itself is 1366x820)
-//! ```
-//!
-//! Every figure was read back out of the recorded `ctx-*` captures with a
-//! throwaway crop-analysis script (crop-relative coordinates — the three
-//! small PNGs are element crops, so crop 0,0 is the menu's own top-left; only
-//! `ctx-brush` is a viewport shot). The row arithmetic then checks itself:
-//! 4px vertical padding + N rows x 28px + S separators x (8px margin + 1px
-//! rule) + 4px vertical padding,
-//! plus the 2px border, lands exactly on each manifest height — 280 for canvas
-//! (9 rows, 2 separators), 131 for export (4 rows, 1 separator), 345 for layer
-//! (11 rows, 3 separators).
-//!
-//! The canvas origin in the capture (`ctx-canvas`) is (442,462), read from
-//! `manifest.json`; an earlier probe recorded the same crop at
-//! (420,320), and this file uses the manifest coordinates so the
-//! overlay aligns to the baseline box.
-//!
-//! # Why 210px and not `menus.rs`'s 224px
-//!
-//! Different surfaces, different constants. The title-bar popups are 224px
-//! wide; these three are 210px.
-//! Both were measured rather than
-//! derived, and they disagree — so this file keeps its own `CTX_W` and shares
-//! nothing width-like with `menus.rs`, which another agent owns. If a shared
-//! menu-chrome helper ever emerges, `menu_shell` / `menu_row` /
-//! `menu_separator` below are the three functions to compare against it: the
-//! item styling is *not* known to match `menus.rs` (a different surface), so
-//! consolidation needs a pixel check first, not just a
-//! signature match.
-//!
-//! # What the shared shell contributes
-//!
-//! One shell (210px minimum width, clipped, 6px corners, a 1px divider edge,
-//! panel fill, 4px vertical padding, plus the
-//! `0 8px 24px rgba(0,0,0,0.45)` shadow), one row shape (at least 28px tall,
-//! full width, label left, optional shortcut right at 10px in the dim text
-//! colour, 24px horizontal padding, 12px labels, 24px gap between label and
-//! shortcut, disabled rows at 35% opacity), one separator (1px rule with 4px
-//! margins above and below, full-bleed — it reads edge to edge).
-//! Factored once here as `menu_shell`, `menu_row`, `menu_separator`;
-//! each menu below is just an entry list through them. Stacking order,
-//! hover and keyboard-focus styling, open animation and the selection callback
-//! are
-//! interaction and are not rendered — with one measured exception, below.
-//!
-//! Hover tints are omitted, matching the capture's static-only
-//! decision: none of the `ctx-*` baselines captures a hover. A real hover
-//! would be `hover(|s| s.bg(hsla(0., 0., 1., 0.06)))` on a
-//! non-danger row and `hsla(0.072, 0.8713, 0.6039, 0.15)` on a danger row;
-//! there is no resting baseline showing either, so no `.id` +
-//! `Stateful` wrapper is built here.
-//!
-//! # What state each baseline caught
-//!
-//! * **ctx-canvas** — no selection, empty clipboard: Cut / Copy / Paste,
-//!   Deselect and Zoom to Selection read `#5a5a5a` (TEXT at 35%) and are drawn
-//!   `disabled`; Select All, Invert Selection, Actual Size, Fit Canvas read
-//!   `#cacaca`. Separators at crop y=93, 186.
-//! * **ctx-export** — all four entries enabled, no highlight anywhere (rows
-//!   5..14 read plain panel, so no focus tint to reproduce). Separator at
-//!   crop y=94. The PNG is 132 tall against a 131-tall manifest box —
-//!   `y=82.5` rounding in the capture, not a second row of padding.
-//! * **ctx-layer** — single layer, unlocked, no adjustments: Move Up / Move
-//!   Down / Merge Down / Flatten Image / Apply Adjustment / Delete Layer all
-//!   read `#5a5a5a` (disabled); New / Duplicate / Rename / Hide / Lock read
-//!   `#cacaca`. Labels assume the fresh-layer defaults the pixels cannot
-//!   distinguish: "Hide Layer" (visible) and "Lock Layer" (unlocked).
-//!   Separators at crop y=93, 158, 307. The danger style needs no branch: a
-//!   danger entry is full-brightness text at rest (accent only arrives on
-//!   hover or keyboard focus), so Delete Layer renders as a normal disabled row.
-//! * **ctx-brush** — brush tool at its defaults (Size 20px -> slider 3,
-//!   Hardness 80%, Strength 100%), no preset selected (all four `tool: "both"`
-//!   presets — Hard Round, Soft Round, Detail, Large Soft — read default
-//!   `#252525` chrome, 2x2 grid, Reset below). The panel is 200 wide at
-//!   viewport (420,323); the shot is full-viewport because at that zoom the
-//!   menu floats over the canvas, so this renders as the full-page variant:
-//!   a transparent 1366x820 frame with the panel inside it, same as the three
-//!   small menus.
-//!
-//! # The one interaction trace that stays
-//!
-//! The shell focuses the first enabled entry on open, and the capture's
-//! applies its 15% accent focus wash there: crop rows 98..125
-//! of `ctx-canvas` ("Select All") and 5..32 of `ctx-layer` ("New Layer") read
-//! `#3d2e23` edge to edge — accent at 15% over panel, to the pixel. The label
-//! on those rows stays `#cacaca` (the keyboard-focus text rule for
-//! non-danger entries), so only the row background differs. It is painted
-//! here as the static constant `FOCUS_BG` — there is no keyboard nav behind
-//! it and none is planned (see the project-wide gap list), this is simply
-//! what the resting capture shows. `ctx-export` has no such row, so none is
-//! painted there.
-//!
-//! # How this composes
-//!
-//! `render()` reads `crate::shot::active()` and returns a transparent
-//! 1366x820 frame with the requested menu absolutely positioned inside it —
-//! the frame is `absolute` so appending it late in the shell tree disturbs no
-//! layout, and late means it paints over the shell, which is what stands in
-//! for the stacking order this view cannot express (no `z_index` in GPUI).
-//! Unknown
-//! ids (including unset) render `ctx-canvas`.
-//!
-//! # Known gaps, specific to this file
-//!
-//! * The brush size slider's wedge (a diagonal notch drawn over the track)
-//!   renders as the rectangle `ui::slider` already draws — that gap is owned
-//!   by `ui.rs` (documented on `SliderKind::BrushSize`) and inherited here,
-//!   not re-explained.
-//! * The brush panel's invisible range fields (overlaid, fully transparent)
-//!   take pointer input only; nothing visible, nothing rendered.
-//! * The brush grid is two columns in source and two flex rows here —
-//!   identical pixels for the fixed 2x2, but a third preset row would need a
-//!   third flex row rather than flowing automatically.
-//! * No explicit line height anywhere: the small menus centre 12px/10px
-//!   runs in fixed 28px rows so line height cannot move them, but the brush
-//!   panel stacks 10px labels and 4px-padded buttons in flow, where GPUI's
-//!   default line height decides the exact block heights. Transcribed
-//!   faithfully (12px panel inset, 12px and 4px gaps, 4px button padding);
-//!   if a later capture
-//!   disagrees by a pixel per block, line height is the first suspect.
-//! * The brush panel's large drop shadow is two `BoxShadow`s, transcribed
-//!   stop; whether the blur matches the capture's rasteriser is unmeasured.
-//! * `ctx-export`'s `y=82.5` is kept fractional as measured; subpixel top
-//!   edges rasterise differently per engine, so its top/bottom border rows
-//!   are the likeliest single-pixel misses in this file.
-
+//! Right-click menus: appearance only. Five surfaces share one shell, row and separator.
+//! Menus are pointer-anchored; only sizes are fixed (210px wide, 200px for the brush panel).
+//! Width is deliberately distinct from `menus.rs`'s 224px; consolidation needs a pixel check.
+//! Hover, focus styling, open animation and callbacks are interaction, not rendered.
+//! The frame is absolute and must be appended late in the tree to paint over the shell.
+//! `ctx-export` keeps fractional y=82.5; subpixel edges are the likeliest 1px miss.
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{BoxShadow, Div, FontWeight, Hsla, div, hsla, px};
 
 use crate::components::ui;
 use crate::components::ui::SliderKind;
-use crate::i18n::t;
 use crate::shot;
 use crate::tokens::color;
+use rust_i18n::t;
 
 /// The minimum width of every pointer-anchored menu, measured, not
 /// shared with `menus.rs`'s 224px. See the module docs on why the two widths
@@ -293,28 +155,28 @@ fn menu_shadow() -> Vec<BoxShadow> {
 /// first enabled entry.
 fn canvas_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row(&t("menus.items.cut"), Some("Ctrl+X"), true, None),
-        ui::menu_row(&t("menus.items.copy"), Some("Ctrl+C"), true, None),
-        ui::menu_row(&t("menus.items.paste"), Some("Ctrl+V"), true, None),
+        ui::menu_row(&t!("menus.items.cut"), Some("Ctrl+X"), true, None),
+        ui::menu_row(&t!("menus.items.copy"), Some("Ctrl+C"), true, None),
+        ui::menu_row(&t!("menus.items.paste"), Some("Ctrl+V"), true, None),
         ui::menu_separator(),
         ui::menu_row(
-            &t("menus.items.selectAll"),
+            &t!("menus.items.selectAll"),
             Some("Ctrl+A"),
             false,
             Some(FOCUS_BG),
         ),
-        ui::menu_row(&t("menus.items.deselect"), Some("Ctrl+D"), true, None),
+        ui::menu_row(&t!("menus.items.deselect"), Some("Ctrl+D"), true, None),
         ui::menu_row(
-            &t("menus.items.invertSelection"),
+            &t!("menus.items.invertSelection"),
             Some("Ctrl+Shift+I"),
             false,
             None,
         ),
         ui::menu_separator(),
-        ui::menu_row(&t("menus.items.actualSize"), Some("Ctrl+1"), false, None),
-        ui::menu_row(&t("menus.items.fitCanvas"), Some("Ctrl+0"), false, None),
+        ui::menu_row(&t!("menus.items.actualSize"), Some("Ctrl+1"), false, None),
+        ui::menu_row(&t!("menus.items.fitCanvas"), Some("Ctrl+0"), false, None),
         ui::menu_row(
-            &t("menus.items.zoomToSelection"),
+            &t!("menus.items.zoomToSelection"),
             Some("Ctrl+Alt+0"),
             true,
             None,
@@ -326,11 +188,11 @@ fn canvas_menu() -> Div {
 /// 1 separator, 210x131, nothing disabled, no focus tint in the capture.
 fn export_menu() -> Div {
     menu_shell(vec![
-        ui::menu_row(&t("menus.items.quickExportPng"), None, false, None),
-        ui::menu_row(&t("menus.items.quickExportJpg"), None, false, None),
-        ui::menu_row(&t("menus.items.quickExportWebp"), None, false, None),
+        ui::menu_row(&t!("menus.items.quickExportPng"), None, false, None),
+        ui::menu_row(&t!("menus.items.quickExportJpg"), None, false, None),
+        ui::menu_row(&t!("menus.items.quickExportWebp"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row(&t("menus.items.exportAs"), None, false, None),
+        ui::menu_row(&t!("menus.items.exportAs"), None, false, None),
     ])
 }
 
@@ -353,29 +215,29 @@ fn export_menu() -> Div {
 fn layer_menu() -> Div {
     menu_shell(vec![
         ui::menu_row(
-            &t("layers.newLayer"),
+            &t!("layers.newLayer"),
             Some("Ctrl+Shift+N"),
             false,
             Some(FOCUS_BG),
         ),
-        ui::menu_row(&t("layers.duplicateLayer"), Some("Ctrl+J"), false, None),
-        ui::menu_row(&t("layers.renameLayer"), None, false, None),
+        ui::menu_row(&t!("layers.duplicateLayer"), Some("Ctrl+J"), false, None),
+        ui::menu_row(&t!("layers.renameLayer"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row(&t("layers.hideLayer"), None, false, None),
-        ui::menu_row(&t("layers.lockLayer"), None, false, None),
+        ui::menu_row(&t!("layers.hideLayer"), None, false, None),
+        ui::menu_row(&t!("layers.lockLayer"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row(&t("layers.moveLayerUp"), None, true, None),
-        ui::menu_row(&t("layers.moveLayerDown"), None, true, None),
-        ui::menu_row(&t("layers.mergeDown"), Some("Ctrl+E"), true, None),
+        ui::menu_row(&t!("layers.moveLayerUp"), None, true, None),
+        ui::menu_row(&t!("layers.moveLayerDown"), None, true, None),
+        ui::menu_row(&t!("layers.mergeDown"), Some("Ctrl+E"), true, None),
         ui::menu_row(
-            &t("menus.items.flattenImage"),
+            &t!("menus.items.flattenImage"),
             Some("Ctrl+Shift+E"),
             true,
             None,
         ),
-        ui::menu_row(&t("layers.applyAdjustment"), None, true, None),
+        ui::menu_row(&t!("layers.applyAdjustment"), None, true, None),
         ui::menu_separator(),
-        ui::menu_row(&t("layers.deleteLayer"), Some("Delete"), true, None),
+        ui::menu_row(&t!("layers.deleteLayer"), Some("Delete"), true, None),
     ])
 }
 
@@ -397,15 +259,15 @@ fn brush_panel() -> Div {
         .overflow_hidden()
         .shadow(brush_shadow())
         .child(brush_section(
-            &format!("{}: 20px", t("tools.options.size")),
+            &format!("{}: 20px", t!("tools.options.size")),
             ui::slider(3.0, None, SliderKind::BrushSize, true),
         ))
         .child(brush_section(
-            &format!("{}: 80%", t("tools.options.hardness")),
+            &format!("{}: 80%", t!("tools.options.hardness")),
             ui::slider(80.0, None, SliderKind::BrushHardness, true),
         ))
         .child(brush_section(
-            &format!("{}: 100%", t("tools.options.strength")),
+            &format!("{}: 100%", t!("tools.options.strength")),
             ui::slider(100.0, None, SliderKind::Alpha, true),
         ))
         .child(preset_grid())
@@ -493,7 +355,7 @@ fn reset_button() -> Div {
                 .text_size(px(BTN_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT)
-                .child(t("common.reset")),
+                .child(t!("common.reset")),
         )
 }
 
