@@ -1,7 +1,7 @@
-# cargo-deny configuration: licence and advisory policy for the dependency tree.
+# cargo-deny configuration: licence, advisory, and workspace-package policy.
 # Run from the repository root:
 #
-#   cargo deny check licenses
+#   cargo deny check
 #
 # Reference: https://embarkstudios.github.io/cargo-deny/
 
@@ -35,6 +35,20 @@ allow = [
 [bans]
 multiple-versions = "allow"
 wildcards = "allow"
+# Each named package may be a direct dependency only of the packages in
+# `wrappers`. A use that goes through one of those packages stays allowed.
+# `photrez` reaches the engine only through `photrez-core`.
+deny = [
+    { crate = "photrez-document", wrappers = [
+        "photrez-format",
+        "photrez-render",
+        "photrez-core",
+    ] },
+    { crate = "photrez-raster", wrappers = ["photrez-render", "photrez-core"] },
+    { crate = "photrez-format", wrappers = ["photrez-core"] },
+    { crate = "photrez-render", wrappers = ["photrez-core"] },
+    { crate = "photrez-core", wrappers = ["photrez"] },
+]
 
 [advisories]
 version = 2
@@ -68,3 +82,5 @@ ignore = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+

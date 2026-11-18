@@ -1,0 +1,12 @@
+rules:
+  dangerous-triggers:
+    ignore:
+      # The pull request title lint runs on the base branch so the action can
+      # read the title of a fork pull request. It checks out no pull request
+      # code, so the trigger has nothing to execute.
+      - lint-pr.yml
+  cache-poisoning:
+    ignore:
+      # The release build keeps its own cache prefix, so a pull request run
+      # cannot write the cache that the publishing job restores.
+      - release.yml

@@ -1,0 +1,7 @@
+# The chooser. A blank issue is not a report, and a vulnerability does not
+# belong in a public issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/photrez/photrez/security/advisories/new
+    about: Report it privately. Do not open a public issue for it.
