@@ -16,7 +16,7 @@
 // `match` arm, and `brush_params` carries its own test.
 // lean-ctx: dead_code lint re-enabled; every fn below is called.
 
-use gpui_kit::base::{h_flex, StyledExt};
+use gpui_kit::base::{StyledExt, h_flex};
 use gpui_kit::component::Icon;
 // `h_flex` is both the free fn and the `StyledExt` trait method (`.h_flex()`);
 // both live in `gpui_kit::base` (re-export of the `gpui_base` crate). Import
@@ -24,8 +24,8 @@ use gpui_kit::component::Icon;
 // resolve.
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    checkerboard, div, hsla, linear_color_stop, linear_gradient, px, BoxShadow, Div, FontWeight,
-    Hsla, Stateful, TestSupportExt,
+    BoxShadow, Div, FontWeight, Hsla, Stateful, TestSupportExt, checkerboard, div, hsla,
+    linear_color_stop, linear_gradient, px,
 };
 
 use crate::components::ui;
@@ -338,14 +338,18 @@ pub(super) fn show_main_controls() -> bool {
     bar_content_width() >= 880.0
 }
 
-/// Shown only below 880px of bar content: the overflow button.
+/// Shown only below 880px of bar content: the overflow button. The reference's
+/// `@max-[880px]` is a strict less-than, so exactly 880 keeps the inline
+/// layout (measured at viewport 1489/1555, content == 880).
 pub(super) fn show_more_dropdown() -> bool {
-    bar_content_width() <= 880.0
+    bar_content_width() < 880.0
 }
 
-/// Hidden below 900px of bar content: the field captions and the Align/Flip captions.
+/// Hidden only below 900px of bar content: the field captions and the
+/// Align/Flip captions. The reference's `@max-[900px]` is a strict less-than, so
+/// exactly 900 shows the captions (measured at viewport 1509/1575).
 pub(super) fn show_field_labels() -> bool {
-    bar_content_width() > 900.0
+    bar_content_width() >= 900.0
 }
 
 /// Shown only at 960px of bar content or wider: the selection and group captions.
@@ -409,9 +413,21 @@ pub fn render(
 ) -> impl IntoElement {
     set_bar_width(width);
     let active_tool = state.read(cx).active_tool;
-    // Every tool bar now renders its controls through the real chrome; the
-    // additive live strip is gone.
-    h_flex()
+    let (row, more) = fade_in_row(
+        state,
+        &active_tool,
+        committed_selection,
+        transform_readout,
+        cx,
+    );
+    // Every tool bar renders its controls through the real chrome; the
+    // additive live strip is gone. The row fills the bar and clips its own
+    // overflow, so the overflow trigger mounts after it and stays at the
+    // bar's right edge, reachable at every width.
+    let mut bar = h_flex()
+        .w_full()
+        .id("option-bar-root")
+        .test_support()
         .h(px(BAR_H))
         .flex_shrink_0()
         .items_center()
@@ -421,13 +437,11 @@ pub fn render(
         .bg(color::TOOLBAR)
         .px(px(BAR_PX))
         .font_family(ui::FONT_UI)
-        .child(fade_in_row(
-            state,
-            &active_tool,
-            committed_selection,
-            transform_readout,
-            cx,
-        ))
+        .child(row);
+    if let Some(trigger) = more {
+        bar = bar.child(trigger);
+    }
+    bar
 }
 
 // ── Crop ─────────────────────────────────────────────────────────────────────
@@ -619,16 +633,14 @@ mod bar_width_tests {
         assert!(show_paint_size_slider());
 
         // Outer widths are 2 * BAR_PAD_X wider than the content box the
-        // container query sees.
+        // container query sees. The reference's @max-[880px] is a strict
+        // less-than, so exactly 880 keeps the inline layout only.
         set_bar_width(880.0 + 2.0 * BAR_PAD_X);
-        assert!(show_more_dropdown(), "880 is still the narrow layout");
-        assert!(
-            show_main_controls(),
-            "both boundary groups render at exactly 880 (Tailwind min/max are inclusive)"
-        );
+        assert!(!show_more_dropdown(), "exactly 880 has no overflow button");
+        assert!(show_main_controls(), "exactly 880 shows the inline group");
 
         set_bar_width(900.0 + 2.0 * BAR_PAD_X);
-        assert!(!show_field_labels(), "exactly 900 keeps labels hidden");
+        assert!(show_field_labels(), "exactly 900 shows the captions");
         assert!(show_paint_size_slider(), "exactly 900 shows the slider");
 
         // The captured 1536 px viewport: 885 px outer bar, 861 px content box.

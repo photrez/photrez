@@ -22,13 +22,13 @@ impl App {
         else {
             return (x, y);
         };
-        if self.brush_axis_lock.is_none() {
-            if let Some((screen_x, screen_y)) = screen {
-                let dx = screen_x - screen_start.0;
-                let dy = screen_y - screen_start.1;
-                if dx.abs() >= 5.0 || dy.abs() >= 5.0 {
-                    self.brush_axis_lock = Some((x - start.0).abs() > (y - start.1).abs());
-                }
+        if self.brush_axis_lock.is_none()
+            && let Some((screen_x, screen_y)) = screen
+        {
+            let dx = screen_x - screen_start.0;
+            let dy = screen_y - screen_start.1;
+            if dx.abs() >= 5.0 || dy.abs() >= 5.0 {
+                self.brush_axis_lock = Some((x - start.0).abs() > (y - start.1).abs());
             }
         }
         match self.brush_axis_lock {
@@ -254,13 +254,11 @@ impl App {
             let _ = self.refresh_after_edit(cx);
             self.set_status_error(Some("Brush: the stroke commit was refused".into()), cx);
         }
-        if committed_ok {
-            if let Some(session) = self.sessions.get_mut(&doc_id) {
-                session
-                    .loaded_document_mut()
-                    .registry
-                    .set_history_label(&doc_id, if eraser { "Eraser" } else { "Brush" });
-            }
+        if committed_ok && let Some(session) = self.sessions.get_mut(&doc_id) {
+            session
+                .loaded_document_mut()
+                .registry
+                .set_history_label(&doc_id, if eraser { "Eraser" } else { "Brush" });
         }
         self.project_history(cx);
         cx.notify();

@@ -92,7 +92,7 @@ pub(super) fn checked_box() -> Div {
         .border_color(color::BORDER)
         .bg(color::ACCENT)
         .shadow(vec![
-            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.))
+            BoxShadow::new(px(0.), px(1.), SHADOW_XS).blur_radius(px(2.)),
         ])
         .child(
             Icon::default()
@@ -311,7 +311,7 @@ pub(crate) fn tooltip(
             .text_size(px(TEXT_SM))
             .text_color(color::WHITE)
             .shadow(vec![
-                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(14.))
+                BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(14.)),
             ])
             .child(text.into());
         if let Some(shortcut) = shortcut {
@@ -385,18 +385,9 @@ pub(super) fn live_select(
     ));
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
-        let panel = floating_options_panel(
-            id,
-            &options
-                .iter()
-                .map(|option| option.to_string())
-                .collect::<Vec<_>>(),
-            active,
-            CTRL_H + 4.0,
-            0.0,
-            140.0,
-            cx,
-        );
+        let owned_options: Vec<String> = options.iter().map(|option| option.to_string()).collect();
+        let panel =
+            floating_options_panel(id, &owned_options, active, CTRL_H + 4.0, 0.0, 140.0, cx);
         wrapper = wrapper.child(gpui_kit::deferred(SelectPanelSurface::new(
             panel,
             panel_bounds,
@@ -436,7 +427,7 @@ pub(crate) fn floating_options_panel(
         .py(px(4.0))
         .occlude()
         .shadow(vec![
-            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.)),
         ]);
     for (index, option) in options.iter().enumerate() {
         panel = panel.child(

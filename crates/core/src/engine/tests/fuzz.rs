@@ -93,11 +93,7 @@ fn next_u32(rng: &mut u32) -> u32 {
 /// distinct streams, and never hand xorshift32 the fixed point 0.
 fn seed_rng(seed: u32) -> u32 {
     let mixed = seed.wrapping_mul(0x9E37_79B9).wrapping_add(1);
-    if mixed == 0 {
-        1
-    } else {
-        mixed
-    }
+    if mixed == 0 { 1 } else { mixed }
 }
 
 fn chance(rng: &mut u32, percent: u32) -> bool {

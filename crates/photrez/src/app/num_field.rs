@@ -10,12 +10,13 @@ use super::App;
 /// Every inline numeric field the app opens. A row whose id is absent here gets no focus
 /// handle, so Tab cannot reach it; adding a field means adding its id here as well.
 /// Traversal order comes from the view tree, not from this list.
-pub(crate) const NUM_FIELD_IDS: [&str; 26] = [
+pub(crate) const NUM_FIELD_IDS: [&str; 27] = [
     "opt-text-size",
     "opt-text-stroke-width",
     "opt-tolerance",
     "opt-shape-radius",
     "opt-stroke-width",
+    "opt-crop-angle",
     "opt-brush-size",
     "opt-brush-hardness",
     "opt-brush-opacity",
@@ -38,6 +39,16 @@ pub(crate) const NUM_FIELD_IDS: [&str; 26] = [
     "print-height",
     "print-copies",
 ];
+
+pub(crate) fn begin_crop_angle_field(
+    app: &mut App,
+    id: &'static str,
+    window: &mut Window,
+    cx: &mut Context<App>,
+) {
+    let rotation = app.state.read(cx).crop_rotation;
+    app.begin_num_field(id, rotation, window, cx);
+}
 
 impl App {
     pub(crate) fn begin_num_field(
@@ -75,19 +86,25 @@ impl App {
     /// Ends the open edit keeping what the user typed, the path Enter takes.
     /// An empty buffer restores the value the edit started from.
     pub(crate) fn commit_num_field(&mut self, cx: &mut Context<Self>) {
-        let empty = self
+        let Some((id, buffer)) = self
             .state
             .read(cx)
             .num_field
             .as_ref()
-            .map(|field| field.buffer.trim().is_empty())
-            .unwrap_or(true);
-        if empty {
+            .map(|field| (field.id, field.buffer.clone()))
+        else {
+            return;
+        };
+        if buffer.trim().is_empty() {
             self.cancel_num_field(cx);
             return;
         }
         self.state.update(cx, |state, _| state.num_field = None);
-        cx.notify();
+        if id == "opt-crop-angle" {
+            self.apply_num_field_value(id, &buffer, cx);
+        } else {
+            cx.notify();
+        }
     }
 
     /// Feeds a keystroke to one focused numeric row. Tab moves focus before the
@@ -276,7 +293,9 @@ impl App {
             return;
         };
         self.state.update(cx, |state, _| state.num_field = None);
-        self.apply_num_field_value(id, &original, cx);
+        if id != "opt-crop-angle" {
+            self.apply_num_field_value(id, &original, cx);
+        }
         cx.notify();
     }
 
@@ -329,6 +348,10 @@ impl App {
         else {
             return;
         };
+        if id == "opt-crop-angle" {
+            cx.notify();
+            return;
+        }
         self.apply_num_field_value(id, &raw, cx);
     }
 
@@ -345,6 +368,10 @@ impl App {
             "opt-tolerance" => self.set_fill_tolerance(value, cx),
             "opt-shape-radius" => self.set_shape_radius(value, cx),
             "opt-stroke-width" => self.set_shape_stroke_width(value, cx),
+            "opt-crop-angle" => {
+                self.set_crop_rotation(value, cx);
+                Ok(())
+            }
             "opt-text-stroke-width" => self.set_text_stroke_width_field(value, cx),
             "sel-x" | "sel-y" | "sel-w" | "sel-h" | "sel-r" => {
                 self.set_selection_field(id, value, cx)

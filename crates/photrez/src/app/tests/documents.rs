@@ -322,11 +322,13 @@ fn new_document_dialog_creates_a_dirty_tab_with_the_chosen_preset(
             Some(1),
             "the app's new document is one Background layer"
         );
-        assert!(content
-            .read(cx)
-            .active_document_id_for_test()
-            .as_deref()
-            .is_some_and(|id| id.starts_with("native-doc-")));
+        assert!(
+            content
+                .read(cx)
+                .active_document_id_for_test()
+                .as_deref()
+                .is_some_and(|id| id.starts_with("native-doc-"))
+        );
     })
     .expect("test window remains open");
 }
@@ -435,9 +437,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
     cx.update_window(window.into(), |_, window, cx| {
         content.update(cx, |app, cx| app.open_new_document(cx));
         window.render_frame(cx);
-        window.click("new-doc-preset-1", cx);
-        window.render_frame(cx);
-        window.click("new-doc-preset-1", cx);
+        window.double_click("new-doc-preset-1", cx);
         window.render_frame(cx);
         let state = content.read(cx).state_for_test().read(cx);
         assert_eq!(
@@ -448,7 +448,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
         assert_eq!(
             content.read(cx).active_document_dims_for_test(),
             Some((2480, 3508)),
-            "the second press uses the A4 preset"
+            "the double press uses the A4 preset"
         );
     })
     .expect("test window remains open");

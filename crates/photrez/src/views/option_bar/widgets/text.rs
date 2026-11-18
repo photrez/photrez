@@ -228,7 +228,7 @@ fn box_mode_list(
         .py(px(4.0))
         .occlude()
         .shadow(vec![
-            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.))
+            BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.)),
         ])
         .child(box_mode_row(
             "opt-box-mode-point",

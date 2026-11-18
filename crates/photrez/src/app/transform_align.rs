@@ -1,13 +1,13 @@
 //! Multi-selection layout commands: align to the canvas and distribute along one
-//! axis. Both build a list of edits and commit them through one
-//! `TransformLayer` command per moved layer.
+//! axis. Both build a list of edits and commit them as one
+//! `GroupTransformLayers` command.
 
 use gpui_kit::Context;
 use photrez_core::document::content::Transform2D;
-use photrez_core::protocol::{Command, TransformPatch};
+use photrez_core::protocol::Command;
 
-use super::transform_move::LayerBounds;
 use super::App;
+use super::transform_move::LayerBounds;
 
 impl App {
     /// Align the selected layers to the canvas (Properties multi-selection).
@@ -97,9 +97,9 @@ impl App {
         }
         members.sort_by(|a, b| {
             if horizontal {
-                a.2 .0.total_cmp(&b.2 .0)
+                a.2.0.total_cmp(&b.2.0)
             } else {
-                a.2 .1.total_cmp(&b.2 .1)
+                a.2.1.total_cmp(&b.2.1)
             }
         });
         let first = members[0].2;
@@ -136,7 +136,7 @@ impl App {
         self.apply_transform_edits(&doc_id, edits, cx)
     }
 
-    fn selected_core_ids(&self, cx: &Context<Self>) -> Vec<String> {
+    pub(crate) fn selected_core_ids(&self, cx: &Context<Self>) -> Vec<String> {
         let state = self.state.read(cx);
         state
             .layers
@@ -152,12 +152,15 @@ impl App {
         edits: Vec<(String, f64, f64, Transform2D)>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        for (id, x, y, start) in edits {
-            self.apply_core_command(
-                doc_id,
-                Command::TransformLayer {
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let patches: Vec<photrez_core::protocol::TransformLayerEntry> = edits
+            .into_iter()
+            .map(
+                |(id, x, y, start)| photrez_core::protocol::TransformLayerEntry {
                     id,
-                    transform: TransformPatch {
+                    transform: photrez_core::protocol::TransformPatch {
                         x,
                         y,
                         scale_x: start.scale_x,
@@ -167,10 +170,101 @@ impl App {
                         flip_v: Some(start.flip_v),
                     },
                 },
-                true,
-                cx,
-            )?;
+            )
+            .collect();
+        self.apply_core_command(doc_id, Command::GroupTransformLayers { patches }, true, cx)
+    }
+
+    /// Fit the selected layers to the canvas: each one scales to the
+    /// largest factor that keeps its natural size inside the document and
+    /// lands centred on both axes. Scale signs are preserved (a layer
+    /// flipped on either axis stays flipped). Locked / position-locked /
+    /// background members never move.
+    pub(crate) fn fit_selected_layers_to_canvas(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let doc_id = self.active_doc_id()?;
+        let (doc_w, doc_h) = self.active_document_size()?;
+        let layers = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .map(|content| content.layers.clone())
+            .ok_or_else(|| "loaded content is missing".to_string())?;
+        let ids = self.selected_core_ids(cx);
+        let mut edits = Vec::new();
+        for id in ids {
+            let Some(layer) = layers.iter().find(|layer| layer.id == id) else {
+                continue;
+            };
+            if layer.locked
+                || layer.lock_position == Some(true)
+                || layer.is_background == Some(true)
+            {
+                continue;
+            }
+            if layer.width <= 0.0 || layer.height <= 0.0 {
+                continue;
+            }
+            let ratio = (doc_w / layer.width).min(doc_h / layer.height);
+            let sign_x = if layer.transform.scale_x < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            let sign_y = if layer.transform.scale_y < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            let eff_w = layer.width * ratio;
+            let eff_h = layer.height * ratio;
+            let x = ((doc_w - eff_w) / 2.0).round();
+            let y = ((doc_h - eff_h) / 2.0).round();
+            let mut next = layer.transform.clone();
+            next.x = x;
+            next.y = y;
+            next.scale_x = sign_x * ratio;
+            next.scale_y = sign_y * ratio;
+            edits.push((layer.id.clone(), x, y, next));
         }
-        Ok(())
+        self.apply_transform_edits(&doc_id, edits, cx)
+    }
+
+    /// Rotate the selected layers by 90 degrees, normalized like a rotation
+    /// drag. Locked / rotation-locked / background members never move.
+    pub(crate) fn rotate_selected_layers_90(
+        &mut self,
+        clockwise: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let doc_id = self.active_doc_id()?;
+        let layers = self
+            .sessions
+            .get(&doc_id)
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .map(|content| content.layers.clone())
+            .ok_or_else(|| "loaded content is missing".to_string())?;
+        let ids = self.selected_core_ids(cx);
+        let mut edits = Vec::new();
+        for id in ids {
+            let Some(layer) = layers.iter().find(|layer| layer.id == id) else {
+                continue;
+            };
+            if layer.locked
+                || layer.lock_rotation == Some(true)
+                || layer.is_background == Some(true)
+            {
+                continue;
+            }
+            let delta = if clockwise { 90.0 } else { -90.0 };
+            let mut next = layer.transform.clone();
+            next.rotation = crate::app::transform_geometry::normalize_rotation(
+                layer.transform.rotation + delta,
+            );
+            edits.push((layer.id.clone(), next.x, next.y, next));
+        }
+        self.apply_transform_edits(&doc_id, edits, cx)
     }
 }

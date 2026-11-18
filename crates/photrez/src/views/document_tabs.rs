@@ -43,23 +43,17 @@
 //!   hovers paint nothing: both are no-ops here and are
 //!   recorded as such below rather than invented.
 //! * **`Export…` is the resolved translation**, not the `"Export"` fallback
-//!   in the catalogue key: `assets/i18n/en.json:51` is `"Export…"` (one
+//!   in the catalogue key: `locales/en.json` is `"Export…"` (one
 //!   U+2026), which is what the baseline paints.
 //! * **The dock-close button is hidden at this width**: the breakpoint is
 //!   1024px and the baseline window is 1366px, so it is not shown and
-//!   takes no space. The arithmetic agrees with leaving it out: the utility
-//!   cluster measures 117px (1 border + 8 left padding + 92 export +
-//!   16 right padding).
-//! * **The layout toggle was captured, and is removed.** The baseline paints
-//!   it: the cluster measured 153px (1 border + 8 left padding + 28 toggle +
-//!   8 gap + 92 export + 16 right padding), which put its left border at
-//!   exactly x=680, where `shell-full-page.png` has #333333. That control
-//!   switched the right dock between side-by-side and stacked, and tinted the
-//!   glyph with the accent only in the stacked layout. This app ships one
-//!   dock layout, so the control had no handler: a painted control that answers
-//!   no click is removed rather than kept, the same ruling that took the crop
-//!   bar's dead control out. Export keeps its measured x=725..816 place; the
-//!   cluster's left border moves from x=680 to x=716.
+//!   takes no space. It is mounted below 1024px (matching the reference's
+//!   `lg:hidden` "Close side panels" button at the cluster's right end);
+//!   clicking it hides the dock, and the title-bar toggle brings it back.
+//! * **The layout toggle is mounted here**: it flips the right dock between
+//!   the side-by-side pair and the stacked column. It was previously removed
+//!   for lack of a click; `toggle_dock_layout` makes the click do something,
+//!   so the control is kept. The icon tints ACCENT only in the stacked state.
 //! * **Box model**: GPUI/taffy defaults to border-box sizing, so the
 //!   38px strip spends its 1px bottom border inside the 38 and leaves the 37px
 //!   content height `manifest.json` measures for the tab. The tab's width is
@@ -88,12 +82,14 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, FontWeight, Point, TestSupportExt, Window};
+use gpui_kit::{FontWeight, Point, TestSupportExt, Window, div, px};
 
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
+use crate::state::RightDockLayout;
 use crate::tokens::color;
+use crate::views::option_bar::controls::tooltip;
 
 use gpui_kit::Div;
 
@@ -165,7 +161,7 @@ const EXPORT_TEXT: f32 = 12.5;
 const EXPORT_ICON: f32 = 14.0;
 
 /// The export label's *resolved* string, not the key's
-/// fallback: `assets/i18n/en.json:51` is `"Export…"`.
+/// fallback: `locales/en.json` is `"Export…"`.
 const EXPORT_LABEL_KEY: &str = "menus.items.export";
 
 /// The 38px strip: one centred row that is never squeezed, a 1px bottom
@@ -180,6 +176,7 @@ pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
+    window: &gpui_kit::Window,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     h_flex()
@@ -202,9 +199,9 @@ pub fn render(
         // The tab strip is the flexible one (the recorded strip scrolls
         // sideways); the two controls at the far end are fixed and must never be
         // squeezed, so the strip yields and they do not.
-        .child(ui::clip(tab_list(tabs, active_id, cx)))
+        .child(ui::clip(tab_list(state, tabs, active_id, cx)))
         .child(new_tab_button(cx))
-        .child(ui::pin(cluster(state, cx)))
+        .child(ui::pin(cluster(state, window, cx)))
 }
 
 /// The tab list: a row that takes the spare width and the strip's full height,
@@ -216,6 +213,7 @@ pub fn render(
 /// container is dropped rather than emulated: a GPUI scroll host would
 /// reserve or overlay a scrollbar that is not present here.
 fn tab_list(
+    state: &gpui_kit::Entity<crate::state::AppState>,
     tabs: &[crate::state::TabRow],
     active_id: Option<&str>,
     cx: &Context<crate::app::App>,
@@ -231,7 +229,7 @@ fn tab_list(
         .min_w(px(0.))
         .children(tabs.iter().map(|tab_row| {
             let active = active_id == Some(tab_row.doc_id.as_str());
-            tab(tab_row, active, cx)
+            tab(state, tab_row, active, cx)
         }))
 }
 
@@ -250,11 +248,12 @@ fn tab_list(
 /// invisible against it — plus the topbar hover fill, which names a token the
 /// app never declared and therefore paints nothing at all.
 ///
-/// Not reproduced, because the resting layout cannot show them:
-/// the drag-over outline, the dimmed
-/// (30% opacity), and reordering states (60% opacity, a 0.98 scale and a ring)
-/// and the two drop-edge indicators.
+/// Not reproduced: the reordering states (60% opacity, a 0.98 scale and a
+/// ring) and the two drop-edge indicators. The drag-over accent ring and the
+/// dimmed non-target tabs ARE painted now, driven by the cross-document
+/// layer-drag state in `AppState`.
 fn tab(
+    state: &gpui_kit::Entity<crate::state::AppState>,
     tab_row: &crate::state::TabRow,
     active: bool,
     cx: &Context<crate::app::App>,
@@ -264,6 +263,15 @@ fn tab(
     let close_id = tab_row.doc_id.clone();
     let drop_id = tab_row.doc_id.clone();
     let ghost_name = tab_row.name.clone();
+    let drag_states = {
+        let s = state.read(cx);
+        let hover_target = s.layer_drag_hover_tab.as_deref();
+        (
+            s.layer_drag_active && !active && hover_target != Some(tab_row.doc_id.as_str()),
+            hover_target == Some(tab_row.doc_id.as_str()),
+        )
+    };
+    let (dimmed, drag_over) = drag_states;
     h_flex()
         // Positioned as the containing block for the active underline, whose
         // The underline anchors to this tab's *padding* box.
@@ -282,6 +290,13 @@ fn tab(
         // The document background is the active branch; inactive tabs sit on
         // the strip colour, which is the topbar fill.
         .when(active, |el| el.bg(color::BG))
+        // During a cross-document layer drag the reference focuses the
+        // destination: non-target tabs dim, the hovered tab takes an accent
+        // outline. The shadow is an inset ring, so nothing shifts layout.
+        .when(dimmed, |el| el.opacity(0.3))
+        .when(drag_over, |el| {
+            el.shadow(vec![ui::inset_ring(color::ACCENT)])
+        })
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
                 let _ = app.activate_document(&click_id, cx);
@@ -295,6 +310,29 @@ fn tab(
                 })
             },
         )
+        .on_hover({
+            let hover_id = tab_row.doc_id.clone();
+            cx.listener(
+                move |app: &mut crate::app::App, hovered: &bool, _window, cx| {
+                    app.tab_hover_drag(hovered, &hover_id, cx);
+                },
+            )
+        })
+        // GPUI suppresses `on_hover` while a drag is active, so the timer must
+        // also be armed from drag-move events, which keep firing over the tab
+        // while a layer is held. This is the path a real cross-document drag
+        // takes; `on_hover` only covers key/modality-driven hovers.
+        .on_drag_move::<crate::app::cross_doc::LayerDragPayload>({
+            let drag_hover_id = tab_row.doc_id.clone();
+            cx.listener(
+                move |app: &mut crate::app::App,
+                      _: &gpui_kit::DragMoveEvent<crate::app::cross_doc::LayerDragPayload>,
+                      _window,
+                      cx| {
+                    app.tab_hover_drag(&true, &drag_hover_id, cx);
+                },
+            )
+        })
         .on_drop::<String>(cx.listener(
             move |app, from: &String, _window, cx: &mut Context<crate::app::App>| {
                 app.move_document_tab(from, &drop_id, cx);
@@ -307,6 +345,7 @@ fn tab(
                       payload: &crate::app::cross_doc::LayerDragPayload,
                       window,
                       cx: &mut Context<crate::app::App>| {
+                    app.clear_layer_drag_and_hover(cx);
                     app.apply_layer_drag(
                         payload,
                         crate::app::cross_doc::LayerDropTarget::Tab {
@@ -434,16 +473,61 @@ fn new_tab_button(cx: &Context<crate::app::App>) -> impl IntoElement {
         )
 }
 
+/// The dock-close button: `x`, shown only below the 1024px breakpoint like
+/// the reference's `CloseDockButton` (`lg:hidden`). Hides the right dock; it
+/// does not restore it — the title-bar toggle does that. 28px, 4px radius,
+/// white-at-4.5% hover fill, the `x` glyph at 16px.
+fn dock_close_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let state_for_click = state.clone();
+    let button = h_flex()
+        .id("tab-dock-close")
+        .test_support()
+        .w(px(28.0))
+        .h(px(28.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(RADIUS_4))
+        .flex_none()
+        .hover(|s| s.bg(color::WHITE_45))
+        .aria_label(t("menus.items.hideSidePanels"))
+        .on_click(cx.listener(
+            move |_app, _event, _window, cx: &mut Context<crate::app::App>| {
+                state_for_click.update(cx, |s, _| s.dock_open = false);
+                cx.notify();
+            },
+        ))
+        .child(
+            Icon::default()
+                .data(icons::X)
+                .size(px(16.0))
+                .text_color(color::ICON),
+        );
+    tooltip(
+        state,
+        "tab-dock-close",
+        t("menus.items.hideSidePanels"),
+        None,
+        cx,
+        button,
+    )
+}
+
 /// The utility cluster: centred on one row, 8px left and 16px right padding,
 /// never squeezed, a 1px left border and the full strip height. It holds the
-/// export button.
+/// layout toggle (28px), the export button (92px), and — below the 1024px
+/// breakpoint — the dock-close button, in the reference's order.
 ///
-/// The dock-close button is hidden from the
-/// 1024px breakpoint up, so it paints nothing at the 1366px baseline; it is
-/// absent rather than omitted.
-/// See the module docs for the 117px arithmetic that confirms it, and for why
-/// the layout toggle is not mounted here.
-fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate::app::App>) -> Div {
+/// At the 1366px baseline the dock-close button paints nothing, so the
+/// cluster keeps its measured 153px. See the module docs for the layout
+/// toggle's place in the cluster.
+fn cluster(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    window: &gpui_kit::Window,
+    cx: &Context<crate::app::App>,
+) -> Div {
     h_flex()
         // Full strip height.
         .self_stretch()
@@ -454,7 +538,62 @@ fn cluster(state: &gpui_kit::Entity<crate::state::AppState>, cx: &Context<crate:
         .pr(px(CLUSTER_PAD_R))
         .border_l_1()
         .border_color(color::BORDER)
+        .child(layout_toggle_button(state, cx))
         .child(export_button(state, cx))
+        .when(window.bounds().size.width < px(1024.0), |cluster| {
+            cluster.child(dock_close_button(state, cx))
+        })
+}
+
+/// The layout toggle: flips the right dock between the side-by-side pair of
+/// panels and the stacked single column. The baseline painted it and this
+/// app once removed it for lack of a click; the toggle now has a handler
+/// (`toggle_dock_layout`) and the icon tints ACCENT in the stacked state,
+/// matching the reference. 28px, 4px radius, hover fill of white at 4.5%,
+/// the COLUMNS glyph at 16px with a 1.75 stroke.
+fn layout_toggle_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    cx: &Context<crate::app::App>,
+) -> impl IntoElement {
+    let stacked = state.read(cx).right_dock_layout == RightDockLayout::Stacked;
+    let button = h_flex()
+        .id("tab-dock-layout")
+        .test_support()
+        .w(px(28.0))
+        .h(px(28.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(RADIUS_4))
+        .flex_none()
+        .hover(|s| s.bg(color::WHITE_45))
+        .aria_label(t(if stacked {
+            "panels.switchToSideBySide"
+        } else {
+            "panels.switchToStacked"
+        }))
+        .on_click(cx.listener(
+            |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
+                app.toggle_dock_layout(cx);
+            },
+        ))
+        .child(
+            Icon::default()
+                .data(icons::COLUMNS)
+                .size(px(16.0))
+                .text_color(if stacked { color::ACCENT } else { color::ICON }),
+        );
+    tooltip(
+        state,
+        "tab-dock-layout",
+        t(if stacked {
+            "panels.switchToSideBySide"
+        } else {
+            "panels.switchToStacked"
+        }),
+        None,
+        cx,
+        button,
+    )
 }
 
 /// The export button: 28px tall, never squeezed, centred on one row with 8px

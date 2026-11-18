@@ -3,7 +3,7 @@
 //! pixel undo/redo replay.
 
 use super::PixelStoreRegistry;
-use crate::raster::paint::raster::{raster_shadow, RasterDab, RasterTip};
+use crate::raster::paint::raster::{RasterDab, RasterTip, raster_shadow};
 use crate::raster::tile::TilePatch;
 use std::time::Instant;
 

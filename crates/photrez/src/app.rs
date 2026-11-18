@@ -24,7 +24,7 @@ use gpui_kit::{
 use photrez_core::document::content::LayerType;
 
 use crate::display::canvas_bridge::{
-    thumbnail_image, Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine, TransformFrame,
+    Camera, CanvasImage, CanvasOverlay, CheckerCache, GradientLine, TransformFrame, thumbnail_image,
 };
 use crate::services;
 use crate::services::document::LoadedDocument;
@@ -36,6 +36,7 @@ use crate::services::window_state::{self, WindowGeometry};
 use crate::state::{AppState, ToolId};
 use crate::views::workspace;
 
+mod apply_adjustment;
 mod autosave;
 pub(crate) mod brush_menu;
 mod color_picker;
@@ -52,7 +53,10 @@ mod drop;
 mod edge_scroll;
 mod history;
 mod layer_marquee;
+mod layer_menu;
+mod layer_nav;
 mod layer_projection;
+mod layer_tab;
 mod layers;
 mod loading;
 mod locale;
@@ -69,6 +73,8 @@ mod select;
 mod selection;
 mod slider;
 mod startup;
+mod status;
+mod tab_hover;
 mod test_accessors;
 mod text;
 mod toasts;
@@ -84,8 +90,8 @@ mod viewport;
 pub(crate) use commands::PRINT_PAPERS;
 pub(crate) use history::{RedoDocument, UndoDocument};
 pub(crate) use layers::{
-    blend_label, DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
-    SelectAllLayersAction, StampVisibleAction, BLEND_MODES,
+    BLEND_MODES, DuplicateLayerAction, FlattenDocumentAction, MergeLayerDownAction, NewLayerAction,
+    SelectAllLayersAction, StampVisibleAction, blend_label,
 };
 pub(crate) use selection::{
     CopySelectionAction, CutSelectionAction, DeselectAction, InvertSelectionAction,
@@ -249,6 +255,11 @@ pub struct App {
     /// watched in render rather than in each of them.
     shell_focus_before_dialog: Option<gpui_kit::FocusHandle>,
     dialog_was_open: bool,
+    /// Focus targets for the Layers and History tabs. Both are
+    /// tab stops with the `LayersPanel` key context, so Arrow keys cycle
+    /// between them from either strip.
+    pub(crate) layers_tab_focus: gpui_kit::FocusHandle,
+    pub(crate) history_tab_focus: gpui_kit::FocusHandle,
     /// A New Document dialog opened by a shortcut; the next render focuses it
     /// because a window-global action has no `Window` to focus with.
     pending_new_document_focus: bool,
@@ -357,6 +368,12 @@ pub struct App {
     projection_cache: Option<std::sync::Arc<canvas_refresh::ProjectionCache>>,
     projection_key: Option<canvas_refresh::ProjectionKey>,
     projection_generation: u64,
+    crop_preview_displayed_key: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_running: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_failed: Option<canvas_refresh::CropPreviewKey>,
+    crop_preview_cache_generation: u64,
+    #[cfg(test)]
+    crop_preview_test_gate: Option<futures::channel::oneshot::Receiver<()>>,
     /// Identifies the live loading overlay so stale progress watchers stop.
     loading_generation: u64,
     /// The print boundary. Production uses the native print service; tests
@@ -406,6 +423,7 @@ pub struct App {
     pan: Option<viewport::PanDrag>,
     /// An option-bar slider drag is in flight.
     slider_dragging: bool,
+    crop_straighten_document_id: Option<String>,
     #[cfg(feature = "input-measurement")]
     measurement: measurement::InputMeasurement,
     /// A non-brush pointer drag waiting for pointer-up.
@@ -426,6 +444,11 @@ pub struct App {
     projection_pixel_copies: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
+    /// Hover-to-switch while dragging a layer across document tabs: a
+    /// one-shot 500 ms timer, dropped (cancelled) on any exit.
+    tab_hover_task: Option<gpui_kit::Task<()>>,
+    /// The tab the hover timer is armed for, if any.
+    tab_hover_doc: Option<String>,
     /// The app-cache directory holding the autosave store, resolved once so
     /// the timer, the recovery prompt and the quit flush all use one answer.
     autosave_cache_root: Option<PathBuf>,
@@ -666,6 +689,7 @@ impl Render for App {
         }
         self.window_scale = window.scale_factor();
         self.maybe_schedule_viewport_projection(cx);
+        self.maybe_schedule_crop_preview(cx);
         if self.state.read(cx).overlay_owns_canvas() {
             crate::app::cursor::set_rotate(false, 0);
             crate::app::cursor::set_brush_hidden(false);
@@ -683,10 +707,11 @@ impl Render for App {
         {
             self.release_color_picker_pointer(window);
         }
-        if self.dialog_was_open && !dialog_open {
-            if let Some(handle) = self.shell_focus_before_dialog.take() {
-                handle.focus(window, cx);
-            }
+        if self.dialog_was_open
+            && !dialog_open
+            && let Some(handle) = self.shell_focus_before_dialog.take()
+        {
+            handle.focus(window, cx);
         }
         self.dialog_was_open = dialog_open;
         if !dialog_open {
@@ -779,6 +804,8 @@ impl Render for App {
             Rc::clone(&self.navigator_bounds),
             &self.layer_thumbs,
             &self.canvas_focus_handle,
+            &self.layers_tab_focus,
+            &self.history_tab_focus,
             &self.rename_focus,
             &self.resize_focus,
             &self.new_document_focus,
@@ -795,6 +822,7 @@ impl Render for App {
             committed_selection,
             transform_readout,
             frame,
+            self.status_tip(cx),
             cx,
         )
     }

@@ -458,10 +458,12 @@ fn symlink_substitution_is_rejected_without_touching_its_target() {
             .expect_err("final target symlink substitution is rejected"),
         "E_VALIDATION",
     );
-    assert!(fs::symlink_metadata(&final_path)
-        .expect("substitution remains a symlink")
-        .file_type()
-        .is_symlink());
+    assert!(
+        fs::symlink_metadata(&final_path)
+            .expect("substitution remains a symlink")
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(
         fs::read(&victim_path).expect("victim remains readable"),
         victim_bytes

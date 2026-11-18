@@ -165,6 +165,45 @@ impl App {
                 Some("Canvas"),
             ),
             KeyBinding::new("escape", canvas_input::CancelCanvasGesture, Some("Canvas")),
+            KeyBinding::new(
+                "arrowleft",
+                layer_tab::LayerDockTabSwitch,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "arrowright",
+                layer_tab::LayerDockTabSwitch,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new("up", layer_nav::LayersPanelMoveUp, Some("LayersPanel")),
+            KeyBinding::new("down", layer_nav::LayersPanelMoveDown, Some("LayersPanel")),
+            KeyBinding::new(
+                "shift-up",
+                layer_nav::LayersPanelExtendUp,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "shift-down",
+                layer_nav::LayersPanelExtendDown,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "enter",
+                layer_nav::LayersPanelToggleVisibility,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "space",
+                layer_nav::LayersPanelToggleLock,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new(
+                "ctrl-a",
+                layer_nav::LayersPanelSelectAll,
+                Some("LayersPanel"),
+            ),
+            KeyBinding::new("home", layer_nav::LayersPanelFirst, Some("LayersPanel")),
+            KeyBinding::new("end", layer_nav::LayersPanelLast, Some("LayersPanel")),
             KeyBinding::new("ctrl-z", history::UndoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-shift-z", history::RedoDocument, Some("Canvas")),
             KeyBinding::new("ctrl-y", history::RedoDocument, Some("Canvas")),
@@ -296,6 +335,8 @@ impl App {
             .map(|_| cx.focus_handle().tab_stop(true))
             .collect();
         let rename_field_focus = cx.focus_handle().tab_stop(true);
+        let layers_tab_focus = cx.focus_handle().tab_stop(true);
+        let history_tab_focus = cx.focus_handle().tab_stop(true);
         let dialog_trap_focus = cx.focus_handle();
         let mut app = Self {
             state: cx.new(|_| {
@@ -312,6 +353,8 @@ impl App {
                 state
             }),
             canvas_focus_handle: cx.focus_handle().tab_stop(true),
+            layers_tab_focus,
+            history_tab_focus,
             rename_focus: cx.focus_handle(),
             resize_focus: cx.focus_handle(),
             new_document_focus: cx.focus_handle(),
@@ -370,6 +413,12 @@ impl App {
             projection_cache: None,
             projection_key: None,
             projection_generation: 0,
+            crop_preview_displayed_key: None,
+            crop_preview_running: None,
+            crop_preview_failed: None,
+            crop_preview_cache_generation: 0,
+            #[cfg(test)]
+            crop_preview_test_gate: None,
             loading_generation: 0,
             print_backend: Arc::new(PrintService::default()),
             pending_window_close: false,
@@ -392,6 +441,7 @@ impl App {
             pointer_alt: false,
             pan: None,
             slider_dragging: false,
+            crop_straighten_document_id: None,
             #[cfg(feature = "input-measurement")]
             measurement: measurement::InputMeasurement::default(),
             pending_gesture: None,
@@ -405,13 +455,25 @@ impl App {
             #[cfg(test)]
             preview_pushes: Cell::new(0),
             autosave_task: None,
+            tab_hover_task: None,
+            tab_hover_doc: None,
             autosave_cache_root: None,
         };
         #[cfg(feature = "input-measurement")]
         app.measurement.share_bounds(Rc::clone(&app.canvas_bounds));
         let focus_out = cx.on_focus_out(&app.canvas_focus_handle, window, |this, _, window, cx| {
             this.release_canvas_pointer(window);
-            this.cancel_canvas_gesture(cx);
+            let crop_gesture = this.state.read(cx).active_tool == ToolId::Crop
+                && (this.crop_drag.is_some()
+                    || this
+                        .pending_gesture
+                        .as_ref()
+                        .is_some_and(|gesture| gesture.tool == ToolId::Crop));
+            if crop_gesture {
+                this.cancel_crop_gesture(cx);
+            } else {
+                this.cancel_canvas_gesture(cx);
+            }
             this.release_navigation(cx);
         });
         app._window_watch.push(focus_out);
@@ -451,6 +513,40 @@ impl App {
         register_global_action::<canvas_input::IncreaseBrushHardness>(
             cx,
             App::increase_brush_hardness_action,
+        );
+        register_global_action::<layer_nav::LayersPanelMoveUp>(
+            cx,
+            App::layers_panel_move_up_action,
+        );
+        register_global_action::<layer_nav::LayersPanelMoveDown>(
+            cx,
+            App::layers_panel_move_down_action,
+        );
+        register_global_action::<layer_nav::LayersPanelExtendUp>(
+            cx,
+            App::layers_panel_extend_up_action,
+        );
+        register_global_action::<layer_nav::LayersPanelExtendDown>(
+            cx,
+            App::layers_panel_extend_down_action,
+        );
+        register_global_action::<layer_nav::LayersPanelToggleVisibility>(
+            cx,
+            App::layers_panel_toggle_visibility_action,
+        );
+        register_global_action::<layer_nav::LayersPanelToggleLock>(
+            cx,
+            App::layers_panel_toggle_lock_action,
+        );
+        register_global_action::<layer_nav::LayersPanelSelectAll>(
+            cx,
+            App::layers_panel_select_all_action,
+        );
+        register_global_action::<layer_nav::LayersPanelFirst>(cx, App::layers_panel_first_action);
+        register_global_action::<layer_nav::LayersPanelLast>(cx, App::layers_panel_last_action);
+        register_global_action::<layer_tab::LayerDockTabSwitch>(
+            cx,
+            App::layer_dock_tab_switch_action,
         );
         register_global_action::<canvas_input::CancelCanvasGesture>(
             cx,
@@ -511,6 +607,54 @@ impl App {
         }
         if shot_id.is_some() && app.state.read(cx).has_document && app.active_document.is_none() {
             app.install_shot_document(cx);
+        }
+        // install_shot_document reprojects the layer rows/flags from the core
+        // document, overwriting the transient state the shot seeded. Re-apply
+        // it so a real-window capture shows the live status sentence and row
+        // states rather than the resting ones.
+        if let Some(sid) = shot_id {
+            app.state.update(cx, |state, _| match sid {
+                "status-locked" => {
+                    state.active_tool = ToolId::Brush;
+                    if let Some(flags) = state.layer_flags.first_mut() {
+                        flags.locked = true;
+                    }
+                }
+                "status-gradient" => state.active_tool = ToolId::Gradient,
+                "badge-text" => {
+                    state.active_tool = ToolId::Move;
+                    state.layers[0].core_id = Some("shot-text-layer".into());
+                    state.layers[0].name = "Text".into();
+                    if let Some(flags) = state.layer_flags.first_mut() {
+                        flags.is_text = true;
+                    }
+                }
+                "dim-drag-source" => {
+                    state.layers[0].core_id = Some("shot-drag-layer".into());
+                    state.layers[0].name = "Raster".into();
+                    state.layer_drag_active = true;
+                    state.layer_drag_source = Some("shot-drag-layer".into());
+                }
+                _ => {}
+            });
+            if sid == "status-gradient" {
+                app.pending_gesture = Some(crate::input_policy::PendingGesture {
+                    tool: ToolId::Gradient,
+                    start: (100.0, 100.0),
+                    last: (400.0, 325.0),
+                    start_screen: (0.0, 0.0),
+                    last_screen: (0.0, 0.0),
+                    crop_start: None,
+                    crop_pasteboard: false,
+                    crop_replacement_started: false,
+                    crop_modern_create: false,
+                    crop_modern_drag_started: false,
+                    crop_modern_preview: None,
+                    crop_snap_targets: None,
+                    shift: false,
+                    alt: false,
+                });
+            }
         }
         // A `real-dialog-*` launch opens the live dialog through the same
         // command the user's shortcut runs, so the launch shows the body the

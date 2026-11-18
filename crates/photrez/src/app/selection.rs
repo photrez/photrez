@@ -7,11 +7,11 @@
 
 use gpui_kit::Context;
 use photrez_core::document::content::{LayerType, SelectionShape, SelectionState, Transform2D};
-use photrez_core::protocol::{Command, CommandEnvelope, CONTRACT_VERSION};
+use photrez_core::protocol::{CONTRACT_VERSION, Command, CommandEnvelope};
 
+use super::App;
 use super::canvas_input::next_layer_id;
 use super::transform_geometry::{document_to_layer_local, rotated_rect_corners};
-use super::App;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ClipboardImage {

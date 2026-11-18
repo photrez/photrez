@@ -17,9 +17,12 @@ impl App {
         _: &CancelCanvasGesture,
         cx: &mut Context<Self>,
     ) {
+        // Any layer drag in flight ends here, and so does its hover timer.
+        self.clear_layer_drag_and_hover(cx);
         let (
             brush_menu,
             context_menu,
+            layer_menu,
             open_select,
             more_open,
             active_tool,
@@ -30,6 +33,7 @@ impl App {
             (
                 state.brush_menu.is_some(),
                 state.context_menu.is_some(),
+                state.layer_context_menu.is_some(),
                 state.open_select.is_some(),
                 state.more_open,
                 state.active_tool,
@@ -43,6 +47,10 @@ impl App {
         }
         if context_menu {
             self.close_context_menu(cx);
+            return;
+        }
+        if layer_menu {
+            self.close_layer_context_menu(cx);
             return;
         }
         if active_tool == ToolId::Text && text_stroke_popover {
@@ -89,7 +97,11 @@ impl App {
             return;
         }
 
+        if active_tool == ToolId::Crop && self.cancel_crop_gesture(cx) {
+            return;
+        }
         self.cancel_canvas_gesture(cx);
+        self.crop_straighten_document_id = None;
         self.selection_edit_mode = false;
     }
 
@@ -186,6 +198,7 @@ impl App {
             let _ = self.commit_text_edit(cx);
         }
         self.cancel_canvas_gesture(cx);
+        self.crop_straighten_document_id = None;
         self.selection_edit_mode = false;
         // Entering Crop with no pending frame opens the default frame
         // over the whole page (the crop overlay renders as soon as the tool arms).
@@ -201,12 +214,18 @@ impl App {
             }
             if tool != ToolId::Crop {
                 state.crop_rect = None;
+                state.crop_hidden_preview = None;
                 state.crop_history.clear();
                 state.crop_redo.clear();
+                state.crop_offset = (0.0, 0.0);
+                state.crop_rotation = 0.0;
             } else if let Some((doc_w, doc_h)) = seed_crop {
                 state.crop_rect = Some([0.0, 0.0, doc_w, doc_h]);
+                state.crop_hidden_preview = None;
                 state.crop_history.clear();
                 state.crop_redo.clear();
+                state.crop_offset = (0.0, 0.0);
+                state.crop_rotation = 0.0;
             }
             state.selection_drag = None;
         });

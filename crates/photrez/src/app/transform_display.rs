@@ -10,9 +10,9 @@ use photrez_core::render::compositor::{
     CompositeError, CompositeRegion, CompositedRegionRgba, CompositedRgba,
 };
 
+use super::App;
 use super::slider::PreviewInput;
 use super::transform_move::{GroupMember, LayerBounds};
-use super::App;
 
 enum TransformPreviewComposite {
     Region(CompositedRegionRgba),
@@ -222,10 +222,10 @@ impl App {
     /// document has a non-raster layer (the caller then uses the synchronous
     /// path, which renders shapes and text from their parameters).
     fn ensure_transform_preview_cache(&mut self, doc_id: &str) -> bool {
-        if let Some((cached_id, _, _)) = &self.transform_preview_cache {
-            if cached_id == doc_id {
-                return true;
-            }
+        if let Some((cached_id, _, _)) = &self.transform_preview_cache
+            && cached_id == doc_id
+        {
+            return true;
         }
         let Some(session) = self.sessions.get(doc_id) else {
             return false;

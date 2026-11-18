@@ -22,8 +22,8 @@ use crate::services::save_stream::{SaveHandle, SaveStream};
 
 mod loader;
 
+pub use loader::{LoadedDocument, load_document_candidate, load_document_candidate_with_progress};
 use loader::{integer_dimension, resource_limit, validation};
-pub use loader::{load_document_candidate, load_document_candidate_with_progress, LoadedDocument};
 
 #[cfg(test)]
 mod tests;

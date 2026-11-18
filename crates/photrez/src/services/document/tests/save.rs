@@ -7,7 +7,7 @@ use crate::services::file_io::{FileIo, LocalFileIo};
 use crate::services::save_stream::SaveStream;
 use photrez_core::pixel::export::encode_image;
 
-use super::{archive, document_json, load, png_rgba, raster_layer, single_raster_archive, PNG_1X1};
+use super::{PNG_1X1, archive, document_json, load, png_rgba, raster_layer, single_raster_archive};
 
 static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(1);
 

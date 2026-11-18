@@ -94,6 +94,10 @@ impl App {
     /// preset list can open inside the panel without unmounting it.
     pub(crate) fn toggle_more_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let open = self.state.read(cx).more_open;
+        // Clicking out of a live numeric field commits it in the reference;
+        // without this, the field keeps showing its typed buffer after a menu
+        // command changes the layer underneath it (e.g. Reset Transform).
+        self.commit_num_field(cx);
         self.state.update(cx, |state, _| {
             state.more_open = !open;
             if state.more_open {
@@ -199,13 +203,10 @@ impl App {
                 self.export_document_action(&crate::app::ExportDocument, cx);
             }
         }
-        if id == "settings-language" {
-            let locale = match index {
-                1 => crate::i18n::Locale::Id,
-                2 => crate::i18n::Locale::Bjn,
-                _ => crate::i18n::Locale::En,
-            };
-            self.choose_settings_language(locale, cx);
+        if id == "settings-language"
+            && let Some(locale) = crate::i18n::locales().get(index)
+        {
+            self.choose_settings_language(*locale, cx);
         }
         if id == "export-format" {
             let format = [

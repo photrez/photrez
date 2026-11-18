@@ -1,8 +1,8 @@
-use gpui_kit::base::h_flex;
 use gpui_kit::base::StyledExt;
+use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Decorations, WeakEntity, Window, WindowControlArea};
+use gpui_kit::{Decorations, WeakEntity, Window, WindowControlArea, div, px};
 
 use crate::icons;
 use crate::tokens::{color, title};

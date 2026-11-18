@@ -195,6 +195,9 @@ impl DocumentPixelStore {
         if let Some(plan) = self.history.pending_crop_bake.take() {
             self.apply_crop_bake(plan);
         }
+        if let Some(plan) = self.history.pending_adjustment_bake.take() {
+            self.apply_adjustment_bake(plan);
+        }
         if let Some(plan) = self.history.pending_rasterize.take() {
             self.apply_rasterize_pixels(plan);
         }
@@ -232,6 +235,54 @@ impl DocumentPixelStore {
         self.init_layer(&plan.layer_id, plan.width, plan.height, plan.rgba);
     }
 
+    /// Apply the adjustment bake's pixel half: write the baked bytes into
+    /// the canonical buffer and fold the before/after `StateNode` pair into
+    /// the metadata entry's `pixel_deltas`, so undoing the bake restores the
+    /// pixels too.
+    fn apply_adjustment_bake(&mut self, plan: crate::engine::adjustment_bake::ApplyAdjustmentPlan) {
+        let Some((w, h, epoch)) = self
+            .layers
+            .get(&plan.layer_id)
+            .map(|px| (px.width, px.height, px.epoch()))
+        else {
+            return;
+        };
+        if w == 0
+            || h == 0
+            || w != plan.width
+            || h != plan.height
+            || plan.rgba.len() != w as usize * h as usize * 4
+        {
+            // The baked buffer must match the canonical raster one-to-one;
+            // refuse inconsistent bakes rather than corrupt the canon.
+            return;
+        }
+        let patch = TilePatch {
+            x: 0,
+            y: 0,
+            w: w as usize,
+            h: h as usize,
+            data: plan.rgba,
+        };
+        let Some((before, after)) =
+            self.cow_tiles(&plan.layer_id, std::slice::from_ref(&patch), epoch)
+        else {
+            return;
+        };
+        if let Some(px) = self.layers.get_mut(&plan.layer_id) {
+            px.write_tile(&patch);
+            px.bump_epoch();
+        }
+        self.history.attach_pixel_deltas(
+            plan.entry_index,
+            vec![PixelDelta {
+                layer_id: plan.layer_id.clone(),
+                before,
+                after,
+            }],
+        );
+    }
+
     /// Execute the pixel half of a destructive crop: discard every pixel that
     /// fell outside the new document, then fold the resulting before/after
     /// states into the crop's metadata entry. One command, one history step.
@@ -243,13 +294,9 @@ impl DocumentPixelStore {
             // cropped Background over it", baked into the Background layer.
             let doc_w = plan.doc_width.max(0.0) as u32;
             let doc_h = plan.doc_height.max(0.0) as u32;
-            let before = self
-                .layer_state(&fill.layer_id)
-                .map(|ls| ls.current_state().clone());
-            let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
-            if let (Some(before), Some(source)) = (before, source) {
+            if fill.create_background {
                 let bytes = crate::engine::crop_bake::composite_layer_over_fill(
-                    &source,
+                    &[],
                     fill.width,
                     fill.height,
                     &fill.placement,
@@ -257,20 +304,37 @@ impl DocumentPixelStore {
                     doc_h,
                     fill.color,
                 );
-                self.state_nodes.remove(&fill.layer_id);
-                if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
-                    layer.width = doc_w;
-                    layer.height = doc_h;
-                    layer.pixels = bytes;
-                    layer.bump_epoch();
-                }
-                if let Some(ls) = self.layer_state(&fill.layer_id) {
-                    let after = ls.current_state().clone();
-                    deltas.push(PixelDelta {
-                        layer_id: fill.layer_id.clone(),
-                        before,
-                        after,
-                    });
+                self.init_layer(&fill.layer_id, doc_w, doc_h, bytes);
+            } else {
+                let before = self
+                    .layer_state(&fill.layer_id)
+                    .map(|ls| ls.current_state().clone());
+                let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
+                if let (Some(before), Some(source)) = (before, source) {
+                    let bytes = crate::engine::crop_bake::composite_layer_over_fill(
+                        &source,
+                        fill.width,
+                        fill.height,
+                        &fill.placement,
+                        doc_w,
+                        doc_h,
+                        fill.color,
+                    );
+                    self.state_nodes.remove(&fill.layer_id);
+                    if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
+                        layer.width = doc_w;
+                        layer.height = doc_h;
+                        layer.pixels = bytes;
+                        layer.bump_epoch();
+                    }
+                    if let Some(ls) = self.layer_state(&fill.layer_id) {
+                        let after = ls.current_state().clone();
+                        deltas.push(PixelDelta {
+                            layer_id: fill.layer_id.clone(),
+                            before,
+                            after,
+                        });
+                    }
                 }
             }
         }
@@ -345,10 +409,10 @@ impl DocumentPixelStore {
                 }
                 None => 0,
             };
-            if self.layer_state(layer_id).is_some() {
-                if let Some(ls) = self.state_nodes.get_mut(layer_id) {
-                    ls.set_current(node.clone());
-                }
+            if self.layer_state(layer_id).is_some()
+                && let Some(ls) = self.state_nodes.get_mut(layer_id)
+            {
+                ls.set_current(node.clone());
             }
             return epoch;
         }

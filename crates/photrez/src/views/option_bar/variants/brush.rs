@@ -22,6 +22,7 @@ pub(super) fn brush_items(
     row: Div,
     eraser: bool,
     cx: &Context<crate::app::App>,
+    more: &mut Option<Div>,
 ) -> Div {
     let (size, hardness, opacity, flow, smoothing, preset, open, cursor) = {
         let s = state.read(cx);
@@ -70,95 +71,96 @@ pub(super) fn brush_items(
     };
     let focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
     let p = brush_params(eraser);
-    row.child(tool_pill(
-        icons::with_stroke(p.icon, STROKE_PILL),
-        t(p.label),
-    ))
-    .child(divider())
-    .child(brush_field(
-        "opt-brush-size",
-        &t("tools.options.size"),
-        PAINT_INPUT_W,
-        format!("{size:.0}"),
-        "px",
-        editing("opt-brush-size"),
-        focus("opt-brush-size"),
-        cx,
-    ))
-    .when(show_paint_size_slider(), |el| {
-        el.child(brush_size_slider(p.slider_pct))
-    })
-    .child(divider())
-    .child(brush_field(
-        "opt-brush-hardness",
-        &t("tools.options.hard"),
-        PAINT_INPUT_W_SM,
-        format!("{:.0}", hardness * 100.0),
-        "%",
-        editing("opt-brush-hardness"),
-        focus("opt-brush-hardness"),
-        cx,
-    ))
-    .child(brush_field(
-        "opt-brush-opacity",
-        &t("tools.options.strength"),
-        PAINT_INPUT_W_SM,
-        format!("{:.0}", opacity * 100.0),
-        "%",
-        editing("opt-brush-opacity"),
-        focus("opt-brush-opacity"),
-        cx,
-    ))
-    .when(show_main_controls(), |el| {
-        el.child(divider())
-            .child(brush_field(
-                "opt-brush-flow",
-                &t("tools.options.flow"),
-                PAINT_INPUT_W_SM,
-                format!("{:.0}", flow * 100.0),
-                "%",
-                editing("opt-brush-flow"),
-                focus("opt-brush-flow"),
-                cx,
-            ))
-            .child(brush_field(
-                "opt-brush-smoothing",
-                &t("tools.options.smooth"),
-                PAINT_INPUT_W_SM,
-                format!("{smoothing:.0}"),
-                "%",
-                editing("opt-brush-smoothing"),
-                focus("opt-brush-smoothing"),
-                cx,
-            ))
-            .child(tooltip(
-                state,
-                "opt-brush-preset",
-                t("tools.options.brushPresets"),
-                None,
-                cx,
-                live_select(
-                    "opt-brush-preset",
-                    None,
-                    None,
-                    preset_name.to_string(),
-                    labels,
-                    if open == Some("opt-brush-preset") {
-                        cursor
-                    } else {
-                        preset_active
-                    },
-                    open == Some("opt-brush-preset"),
-                    state.read(cx).select_panel_bounds.clone(),
+    let row = row
+        .child(tool_pill(
+            icons::with_stroke(p.icon, STROKE_PILL),
+            t(p.label),
+        ))
+        .child(divider())
+        .child(brush_field(
+            "opt-brush-size",
+            &t("tools.options.size"),
+            PAINT_INPUT_W,
+            format!("{size:.0}"),
+            "px",
+            editing("opt-brush-size"),
+            focus("opt-brush-size"),
+            cx,
+        ))
+        .when(show_paint_size_slider(), |el| {
+            el.child(brush_size_slider(p.slider_pct))
+        })
+        .child(divider())
+        .child(brush_field(
+            "opt-brush-hardness",
+            &t("tools.options.hard"),
+            PAINT_INPUT_W_SM,
+            format!("{:.0}", hardness * 100.0),
+            "%",
+            editing("opt-brush-hardness"),
+            focus("opt-brush-hardness"),
+            cx,
+        ))
+        .child(brush_field(
+            "opt-brush-opacity",
+            &t("tools.options.strength"),
+            PAINT_INPUT_W_SM,
+            format!("{:.0}", opacity * 100.0),
+            "%",
+            editing("opt-brush-opacity"),
+            focus("opt-brush-opacity"),
+            cx,
+        ))
+        .when(show_main_controls(), |el| {
+            el.child(divider())
+                .child(brush_field(
+                    "opt-brush-flow",
+                    &t("tools.options.flow"),
+                    PAINT_INPUT_W_SM,
+                    format!("{:.0}", flow * 100.0),
+                    "%",
+                    editing("opt-brush-flow"),
+                    focus("opt-brush-flow"),
                     cx,
-                ),
-            ))
-            .when(eraser, |el| {
-                el.child(hard100_button("opt-brush-hard100", cx))
-            })
-    })
-    .when(show_more_dropdown(), |el| {
-        el.child(brush_more_dropdown(
+                ))
+                .child(brush_field(
+                    "opt-brush-smoothing",
+                    &t("tools.options.smooth"),
+                    PAINT_INPUT_W_SM,
+                    format!("{smoothing:.0}"),
+                    "%",
+                    editing("opt-brush-smoothing"),
+                    focus("opt-brush-smoothing"),
+                    cx,
+                ))
+                .child(tooltip(
+                    state,
+                    "opt-brush-preset",
+                    t("tools.options.brushPresets"),
+                    None,
+                    cx,
+                    live_select(
+                        "opt-brush-preset",
+                        None,
+                        None,
+                        preset_name.to_string(),
+                        labels,
+                        if open == Some("opt-brush-preset") {
+                            cursor
+                        } else {
+                            preset_active
+                        },
+                        open == Some("opt-brush-preset"),
+                        state.read(cx).select_panel_bounds.clone(),
+                        cx,
+                    ),
+                ))
+                .when(eraser, |el| {
+                    el.child(hard100_button("opt-brush-hard100", cx))
+                })
+        });
+    if show_more_dropdown() {
+        *more = Some(brush_more_dropdown(
             state,
             eraser,
             flow,
@@ -167,8 +169,9 @@ pub(super) fn brush_items(
             labels,
             preset_active,
             cx,
-        ))
-    })
+        ));
+    }
+    row
 }
 
 /// The more-dropdown: the narrow bar folds the overflow
@@ -202,17 +205,9 @@ pub(super) fn brush_more_dropdown(
             .filter(|field| field.id == id)
             .map(|field| field.buffer.clone())
     };
-    // The press may land on the icon inside the button, so the clickable id
-    // sits on the wrapper and the visual button is its child.
-    let trigger =
-        div()
-            .id("opt-more")
-            .test_support()
-            .flex_shrink_0()
-            .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
-                app.toggle_more_menu(window, cx)
-            }))
-            .child(more_dropdown_button());
+    let trigger = more_dropdown_button(cx).on_click(
+        cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
+    );
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
     if open {
         let mut panel = div()
@@ -220,7 +215,7 @@ pub(super) fn brush_more_dropdown(
             .test_support()
             .absolute()
             .top(px(CTRL_H + 4.0))
-            .left(px(0.0))
+            .right(px(0.0))
             .w(px(200.0))
             .flex()
             .flex_col()

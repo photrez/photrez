@@ -144,7 +144,7 @@
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, hsla, px, BoxShadow, Div, FontWeight, Hsla};
+use gpui_kit::{BoxShadow, Div, FontWeight, Hsla, div, hsla, px};
 
 use crate::components::ui;
 use crate::components::ui::SliderKind;

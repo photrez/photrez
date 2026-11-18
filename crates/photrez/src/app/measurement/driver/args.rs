@@ -284,7 +284,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Option<Config>, String> {
 #[cfg(test)]
 mod tests {
     use super::super::fixture::{Base, Content};
-    use super::{parse_args, Case, Config};
+    use super::{Case, Config, parse_args};
 
     #[test]
     fn parser_bounds_workload() {

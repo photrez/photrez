@@ -1,5 +1,14 @@
 //! The right dock: its appearance and its two tab strips.
 //!
+//! # Two layouts
+//!
+//! `AppState::right_dock_layout` picks one of two arrangements:
+//! `SideBySide` (the default; the 533x750 two-column capture below) and
+//! `Stacked` (one 272px column, the inspector above the layer dock, 2px
+//! `BORDER` split). The toggle in the tab bar's utility cluster flips between
+//! them and tints its glyph ACCENT in the stacked state, mirroring the
+//! reference's layout toggle.
+//!
 //! # Geometry: 533x750 at (833,46)
 //!
 //! `manifest.json`: `shell-right-dock` / `dock-properties` / `dock-adjustments` /
@@ -68,7 +77,7 @@ use crate::components::ui;
 use crate::display::canvas_bridge::{self, Camera, CanvasImage};
 use crate::i18n::t;
 use crate::icons;
-use crate::state::{AppState, InspectorTab, LayerTab};
+use crate::state::{AppState, InspectorTab, LayerTab, RightDockLayout};
 use crate::tokens::color;
 use crate::views::{adjustments_panel, history, layers, properties_panel};
 
@@ -76,14 +85,18 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, hsla, px, relative, Bounds, Context, Div, Entity, FontWeight, MouseButton, Pixels,
-    TestSupportExt,
+    Bounds, Context, Div, Entity, FontWeight, MouseButton, Pixels, TestSupportExt, div, hsla, px,
+    relative,
 };
 use std::cell::Cell;
 use std::rc::Rc;
 
 /// The dock's measured width: 533px.
 const DOCK_W: f32 = 533.0;
+/// Stacked: one 272px column (300px at the wide breakpoint), the inspector
+/// above the layer dock. Matches the reference's `w-[272px] 2xl:w-[300px]`.
+const STACKED_W: f32 = INSPECTOR_W;
+const STACKED_W_WIDE: f32 = INSPECTOR_W_WIDE;
 
 /// The dock at the wide breakpoint (viewport 1536 px or wider): the layout
 /// widens both columns to 300px and 298px.
@@ -138,61 +151,93 @@ pub fn render(
     camera: Option<Camera>,
     zoom_percent: Option<u32>,
     wide_layout: bool,
+    force_stacked: bool,
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layers_tab_focus: &gpui_kit::FocusHandle,
+    history_tab_focus: &gpui_kit::FocusHandle,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
-    let (inspector_tab, layer_tab) = {
+    let (inspector_tab, layer_tab, stacked) = {
         let s = state.read(cx);
-        (s.inspector_tab, s.layer_tab)
+        (
+            s.inspector_tab,
+            s.layer_tab,
+            s.right_dock_layout == RightDockLayout::Stacked || force_stacked,
+        )
     };
-    let (dock_w, inspector_w, layer_w) = if wide_layout {
+    let (dock_w, inspector_w, layer_w) = if stacked {
+        if wide_layout {
+            (STACKED_W_WIDE, STACKED_W_WIDE, STACKED_W_WIDE)
+        } else {
+            (STACKED_W, STACKED_W, STACKED_W)
+        }
+    } else if wide_layout {
         (DOCK_W_WIDE, INSPECTOR_W_WIDE, LAYER_W_WIDE)
     } else {
         (DOCK_W, INSPECTOR_W, LAYER_W)
     };
     let document_size = canvas.map(|image| image.dimensions());
-    h_flex()
-        .id("right-dock")
-        .test_support()
-        .flex_none()
-        .items_stretch()
-        .w(px(dock_w))
-        .h_full()
-        .bg(color::PANEL)
-        .child(
-            inspector_dock(
-                inspector_tab,
-                state,
-                document_size,
-                zoom_percent,
-                inspector_w,
-                transform_readout,
-                cx,
-            )
-            .id("inspector-dock")
-            .test_support(),
-        )
-        .child(
-            layer_dock(
-                layer_tab,
-                state,
-                canvas,
-                camera,
-                zoom_percent,
-                layer_w,
-                canvas_bounds,
-                navigator_bounds,
-                layer_thumbs,
-                cx,
-            )
-            .id("layer-dock")
-            .test_support(),
-        )
+    let inspector = inspector_dock(
+        inspector_tab,
+        state,
+        document_size,
+        zoom_percent,
+        inspector_w,
+        transform_readout,
+        layer_thumbs,
+        stacked,
+        cx,
+    )
+    .id("inspector-dock")
+    .test_support();
+    let layer = layer_dock(
+        layer_tab,
+        state,
+        canvas,
+        camera,
+        zoom_percent,
+        layer_w,
+        canvas_bounds,
+        navigator_bounds,
+        layer_thumbs,
+        layers_tab_focus,
+        history_tab_focus,
+        stacked,
+        cx,
+    )
+    .id("layer-dock")
+    .test_support();
+    if stacked {
+        v_flex()
+            .id("right-dock")
+            .test_support()
+            .flex_none()
+            .items_stretch()
+            .w(px(dock_w))
+            .h_full()
+            .bg(color::PANEL)
+            .child(inspector)
+            .child(layer)
+    } else {
+        h_flex()
+            .id("right-dock")
+            .test_support()
+            .flex_none()
+            .items_stretch()
+            .w(px(dock_w))
+            .h_full()
+            .bg(color::PANEL)
+            .child(inspector)
+            .child(layer)
+    }
 }
 
+/// The inspector column: tab bar plus the panel body. In the stacked layout
+/// it is one half of a full-height column above the layer dock.
+#[allow(clippy::too_many_arguments)] // the dock reads one state record spread across panel inputs
 fn inspector_dock(
     inspector_tab: InspectorTab,
     state: &Entity<AppState>,
@@ -200,44 +245,50 @@ fn inspector_dock(
     zoom_percent: Option<u32>,
     width: f32,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    stacked: bool,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let active = inspector_tab_id(&inspector_tab);
-    v_flex()
+    let dock = v_flex()
         .w(px(width))
-        .h_full()
-        .flex_none()
         .overflow_hidden()
         .bg(color::PANEL)
-        .border_r(px(SPLIT_BORDER))
-        .border_color(color::BORDER)
-        .child(tab_bar(
-            active,
-            &["properties", "adjustments", "presets"],
-            write_inspector_tab,
-            state,
-            cx,
-        ))
-        .child(
-            v_flex()
-                .id(match inspector_tab {
-                    InspectorTab::Properties => "inspector-body-properties",
-                    InspectorTab::Adjustments => "inspector-body-adjustments",
-                    InspectorTab::Presets => "inspector-body-presets",
-                })
-                .test_support()
-                .flex_1()
-                .min_h(px(0.0))
-                .overflow_hidden()
-                .child(inspector_body(
-                    &inspector_tab,
-                    state,
-                    document_size,
-                    zoom_percent,
-                    transform_readout,
-                    cx,
-                )),
-        )
+        .border_color(color::BORDER);
+    let dock = if stacked {
+        dock.flex_1().min_h(px(0.0)).border_b(px(SPLIT_BORDER))
+    } else {
+        dock.h_full().flex_none().border_r(px(SPLIT_BORDER))
+    };
+    dock.child(tab_bar(
+        active,
+        &["properties", "adjustments", "presets"],
+        write_inspector_tab,
+        state,
+        cx,
+        None,
+    ))
+    .child(
+        v_flex()
+            .id(match inspector_tab {
+                InspectorTab::Properties => "inspector-body-properties",
+                InspectorTab::Adjustments => "inspector-body-adjustments",
+                InspectorTab::Presets => "inspector-body-presets",
+            })
+            .test_support()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .child(inspector_body(
+                &inspector_tab,
+                state,
+                document_size,
+                zoom_percent,
+                transform_readout,
+                layer_thumbs,
+                cx,
+            )),
+    )
 }
 
 /// The Adjustments and Properties branches wrap their panels because the panel
@@ -253,6 +304,7 @@ fn inspector_body(
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     cx: &Context<crate::app::App>,
 ) -> Div {
     match inspector_tab {
@@ -272,6 +324,7 @@ fn inspector_body(
                     document_size,
                     zoom_percent,
                     transform_readout,
+                    layer_thumbs,
                     cx,
                 ))
         }
@@ -291,47 +344,51 @@ fn layer_dock(
     canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    layers_tab_focus: &gpui_kit::FocusHandle,
+    history_tab_focus: &gpui_kit::FocusHandle,
+    stacked: bool,
     cx: &Context<crate::app::App>,
 ) -> Div {
     let active = layer_tab_id(&layer_tab);
-    v_flex()
-        .w(px(width))
-        .h_full()
-        .flex_none()
-        .overflow_hidden()
-        .bg(color::PANEL)
-        .child(tab_bar(
-            active,
-            &["layers", "history"],
-            write_layer_tab,
+    let dock = v_flex().w(px(width)).overflow_hidden().bg(color::PANEL);
+    let dock = if stacked {
+        dock.flex_1().min_h(px(0.0))
+    } else {
+        dock.h_full().flex_none()
+    };
+    dock.child(tab_bar(
+        active,
+        &["layers", "history"],
+        write_layer_tab,
+        state,
+        cx,
+        Some(&[layers_tab_focus.clone(), history_tab_focus.clone()]),
+    ))
+    .child(
+        v_flex()
+            .id(match layer_tab {
+                LayerTab::Layers => "layer-body-layers",
+                LayerTab::History => "layer-body-history",
+            })
+            .test_support()
+            .flex_1()
+            .min_h(px(0.0))
+            .overflow_hidden()
+            .child(layer_body(&layer_tab, state, layer_thumbs, cx)),
+    )
+    .child(
+        navigator(
             state,
+            canvas,
+            camera,
+            zoom_percent,
+            canvas_bounds,
+            navigator_bounds,
             cx,
-        ))
-        .child(
-            v_flex()
-                .id(match layer_tab {
-                    LayerTab::Layers => "layer-body-layers",
-                    LayerTab::History => "layer-body-history",
-                })
-                .test_support()
-                .flex_1()
-                .min_h(px(0.0))
-                .overflow_hidden()
-                .child(layer_body(&layer_tab, state, layer_thumbs, cx)),
         )
-        .child(
-            navigator(
-                state,
-                canvas,
-                camera,
-                zoom_percent,
-                canvas_bounds,
-                navigator_bounds,
-                cx,
-            )
-            .id("navigator")
-            .test_support(),
-        )
+        .id("navigator")
+        .test_support(),
+    )
 }
 
 /// Both branches are wrapped in a flex column because the panel `render()`

@@ -30,7 +30,7 @@ impl PrintRateLimiter {
 
 #[cfg(test)]
 mod tests {
-    use super::{PrintRateLimiter, PRINT_MIN_INTERVAL};
+    use super::{PRINT_MIN_INTERVAL, PrintRateLimiter};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -38,9 +38,11 @@ mod tests {
         let limiter = PrintRateLimiter::default();
         let start = Instant::now();
         assert!(limiter.check_at(start).is_ok());
-        assert!(limiter
-            .check_at(start + Duration::from_millis(500))
-            .is_err());
+        assert!(
+            limiter
+                .check_at(start + Duration::from_millis(500))
+                .is_err()
+        );
         assert!(limiter.check_at(start + PRINT_MIN_INTERVAL).is_ok());
     }
 }

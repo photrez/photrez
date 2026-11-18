@@ -7,7 +7,7 @@
 //! Must not own: reading or writing the settings file (`services::settings`),
 //! opening or observing the window (`main`, `app`).
 
-use gpui_kit::{point, px, size, Bounds, Pixels};
+use gpui_kit::{Bounds, Pixels, point, px, size};
 
 /// The settings key the record is stored under.
 pub const KEY: &str = "photrez.window";
@@ -164,11 +164,7 @@ fn overlap(geometry: WindowGeometry, display: Bounds<Pixels>) -> f32 {
     let dh = display.size.height.as_f32();
     let w = (geometry.x + geometry.w).min(dx + dw) - geometry.x.max(dx);
     let h = (geometry.y + geometry.h).min(dy + dh) - geometry.y.max(dy);
-    if w <= 0.0 || h <= 0.0 {
-        0.0
-    } else {
-        w * h
-    }
+    if w <= 0.0 || h <= 0.0 { 0.0 } else { w * h }
 }
 
 #[cfg(test)]

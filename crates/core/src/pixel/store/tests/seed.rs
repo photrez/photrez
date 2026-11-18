@@ -161,14 +161,15 @@ fn seeded_nondefault_baseline() -> (PixelStoreRegistry, PtzDocumentContent) {
     r.seed_document(DOC, content.clone())
         .expect("nondefault baseline seed");
     assert_nondefault_metadata(r.document_content(DOC).expect("seeded content"), DOC);
-    assert!(r
-        .apply_pixel_patch(
+    assert!(
+        r.apply_pixel_patch(
             DOC,
             "pixels",
             vec![tile(0, 0, 2, 1, 0)],
             vec![tile(0, 0, 2, 1, 9)],
         )
-        .is_some());
+        .is_some()
+    );
     (r, content)
 }
 
@@ -195,14 +196,15 @@ fn seed_document_succeeds_for_pristine_empty_layer_candidate() {
 fn seed_document_rejects_id_and_dimension_mismatches_without_mutation() {
     let mut r = reg();
     r.add_layer("seed-doc", "pixels", 2, 1, vec![0; 8]).unwrap();
-    assert!(r
-        .apply_pixel_patch(
+    assert!(
+        r.apply_pixel_patch(
             "seed-doc",
             "pixels",
             vec![tile(0, 0, 2, 1, 0)],
             vec![tile(0, 0, 2, 1, 7)],
         )
-        .is_some());
+        .is_some()
+    );
 
     let before_pixels = r.get_layer("seed-doc", "pixels").unwrap().pixels.clone();
     let before_cursor = r.get_history_cursor("seed-doc");

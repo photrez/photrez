@@ -189,7 +189,7 @@
 //! re-implement inline; it is left local, as they are.
 
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, AnyElement};
+use gpui_kit::{AnyElement, div, px};
 
 use crate::icons;
 use crate::shot;

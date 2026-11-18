@@ -50,15 +50,15 @@ use std::time::{Duration, Instant};
 use gpui_kit::base::v_flex;
 use gpui_kit::profiler::set_trace_enabled;
 use gpui_kit::{
-    px, size, AnyWindowHandle, App, AppContext, Context, IntoElement, ParentElement, Render,
-    RenderImage, Styled, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    AnyWindowHandle, App, AppContext, Context, IntoElement, ParentElement, Render, RenderImage,
+    Styled, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions, px, size,
 };
-use photrez::display::canvas_bridge::{canvas_element, CanvasImage};
+use photrez::display::canvas_bridge::{CanvasImage, canvas_element};
 use photrez_core::document::content::{
     BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D,
 };
-use photrez_core::pixel::export::encode_image;
 use photrez_core::pixel::PixelStoreRegistry;
+use photrez_core::pixel::export::encode_image;
 use photrez_core::raster::PixelLayer;
 use photrez_core::render::compositor::composite_layers;
 
@@ -88,14 +88,14 @@ pub(super) fn run() {
         Err(error) => fail(&cfg, &error),
     };
     let fixture_digest = digest64(&base);
-    if let Some(path) = cfg.fixture_png.as_deref() {
-        if let Err(error) = write_fixture_png(path, width, height, &base) {
-            fail(&cfg, &error);
-        }
+    if let Some(path) = cfg.fixture_png.as_deref()
+        && let Err(error) = write_fixture_png(path, width, height, &base)
+    {
+        fail(&cfg, &error);
     }
 
     gpui_kit::application().run(move |cx: &mut App| {
-        gpui_kit::init(cx);
+        photrez::init_gpui_host(cx, None);
         let _ = set_trace_enabled(true);
 
         let initial = match clone_rgba(&base).and_then(|rgba| {

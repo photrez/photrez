@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use gpui_kit::{point, px, size, Bounds, Corners, Pixels, Point, RenderImage, Window};
+use gpui_kit::{Bounds, Corners, Pixels, Point, RenderImage, Window, point, px, size};
 
 const RECORD_LEN: usize = 4268;
 const RESOURCE: &[u8] = include_bytes!("../../../assets/cursors/tool_cursors.curres");

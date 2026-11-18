@@ -1,28 +1,30 @@
 use super::*;
 
-use gpui_kit::relative;
+use gpui_kit::{Bounds, Pixels, relative};
+use std::cell::Cell;
+use std::rc::Rc;
 
 use crate::views::option_bar::controls::tooltip;
 
-/// 22px — one reorder chevron.
+/// 22px � one reorder chevron.
 const MOVE_BTN: f32 = 22.0;
 
-/// 14px — the glyph inside it.
+/// 14px � the glyph inside it.
 const MOVE_ICON: f32 = 14.0;
 
 /// 4px between the chevrons and on the strip's trailing edge.
 const MOVE_GAP: f32 = 4.0;
 
-/// 24px — the adjustments indicator's box.
+/// 24px � the adjustments indicator's box.
 const ADJUST_BOX: f32 = 24.0;
-/// 14px — the sliders glyph inside it.
+/// 14px � the sliders glyph inside it.
 const ADJUST_ICON: f32 = 14.0;
-/// 4px — the indicator's trailing gap before the lock button.
+/// 4px � the indicator's trailing gap before the lock button.
 const ADJUST_GAP: f32 = 4.0;
 /// A 1.75 stroke width on the indicator's icon.
 const ADJUST_STROKE: f32 = 1.75;
 
-/// 20px square with a 2px corner and a 12px glyph — the drag ghost's icon tile.
+/// 20px square with a 2px corner and a 12px glyph � the drag ghost's icon tile.
 const GHOST_TILE: f32 = 20.0;
 const GHOST_TILE_RADIUS: f32 = 2.0;
 const GHOST_TILE_ICON: f32 = 12.0;
@@ -134,6 +136,7 @@ pub(super) fn layer_list(
         // stub's card: 12px from the glyph to the title, 4px from the
         // title to its supporting line.
         return v_flex()
+            .key_context("LayersPanel")
             .w_full()
             .flex_1()
             .min_h(px(0.0))
@@ -181,6 +184,7 @@ pub(super) fn layer_list(
             );
     }
     v_flex()
+        .key_context("LayersPanel")
         .w_full()
         .flex_1()
         .min_h(px(0.0))
@@ -189,15 +193,17 @@ pub(super) fn layer_list(
         .border_y(px(1.0))
         .border_color(color::BORDER)
         .children(layers.iter().enumerate().map(|(index, layer)| {
+            let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
             layer_row(
                 layer,
                 RowView {
                     flags: flags.get(index).copied(),
-                    active: layer.id == selected,
+                    active: !selected_layers.is_empty() && layer.id == selected,
                     selected: selected_layers.contains(&layer.id),
                     up_target: index.checked_sub(1).map(|up| layers[up].id),
                     down_target: layers.get(index + 1).map(|down| down.id),
                     thumb: thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+                    bounds: Rc::clone(&bounds),
                 },
                 state,
                 cx,
@@ -212,6 +218,9 @@ struct RowView<'a> {
     up_target: Option<u64>,
     down_target: Option<u64>,
     thumb: Option<&'a std::sync::Arc<gpui_kit::RenderImage>>,
+    /// The row's window bounds, tracked by an invisible canvas child. The drop
+    /// handler reads it to decide between `Above` and `Below`.
+    bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
 }
 
 /// A 50px row with a 10px child gap and 14px side inset. Its fill and its
@@ -245,6 +254,7 @@ fn layer_row(
         up_target,
         down_target,
         thumb,
+        bounds,
     } = view;
     let id = layer.id;
     let name = layer.name.clone();
@@ -252,6 +262,8 @@ fn layer_row(
     let locked = flags.map(|flags| flags.locked).unwrap_or(false);
     let background = flags.is_some_and(|flags| flags.is_background);
     let has_adjustments = flags.map(|flags| flags.has_adjustments).unwrap_or(false);
+    let dragging_source = layer.core_id.is_some()
+        && state.read(cx).layer_drag_source.as_deref() == layer.core_id.as_deref();
 
     let state_for_click = state.clone();
     let on_click = cx.listener(
@@ -283,11 +295,11 @@ fn layer_row(
             state_for_click.update(cx, |s, _| {
                 if toggle {
                     if let Some(index) = s.selected_layers.iter().position(|row| *row == id) {
-                        if s.selected_layers.len() > 1 {
-                            s.selected_layers.remove(index);
-                        }
-                        if s.selected_layer == id {
-                            s.selected_layer = *s.selected_layers.last().unwrap_or(&id);
+                        s.selected_layers.remove(index);
+                        if s.selected_layer == id
+                            && let Some(&last) = s.selected_layers.last()
+                        {
+                            s.selected_layer = last;
                         }
                     } else {
                         s.selected_layers.push(id);
@@ -323,24 +335,46 @@ fn layer_row(
             row_id: id,
         }
     };
-    let on_drag = move |_: &crate::app::cross_doc::LayerDragPayload,
-                        _: Point<gpui_kit::Pixels>,
-                        _: &mut Window,
-                        cx: &mut gpui_kit::App| {
-        // The ghost is a fixed row-sized chip and does not track the pointer
-        // offset; anchor it to the grab point if the drag ever needs to feel
-        // attached to the cursor.
-        cx.new(|_| LayerDragGhost {
-            name: ghost_name.clone(),
-        })
+    let on_drag = {
+        let state_for_drag = state.clone();
+        let drag_source = drag_payload.core_id.clone();
+        move |_: &crate::app::cross_doc::LayerDragPayload,
+              _: Point<gpui_kit::Pixels>,
+              _: &mut Window,
+              cx: &mut gpui_kit::App| {
+            state_for_drag.update(cx, |s, _| {
+                s.layer_drag_active = true;
+                s.layer_drag_source = drag_source.clone();
+            });
+            // The ghost is a fixed row-sized chip and does not track the pointer
+            // offset; anchor it to the grab point if the drag ever needs to feel
+            // attached to the cursor.
+            cx.new(|_| LayerDragGhost {
+                name: ghost_name.clone(),
+            })
+        }
     };
 
+    let bounds_for_drop = Rc::clone(&bounds);
+    let bounds_for_hint = Rc::clone(&bounds);
     let on_drop = cx.listener(
         move |app,
               payload: &crate::app::cross_doc::LayerDragPayload,
               window,
               cx: &mut Context<crate::app::App>| {
-            app.drop_layer_on_row(payload, id, window.modifiers().alt, cx);
+            app.clear_layer_drag_and_hover(cx);
+            let position = bounds_for_drop
+                .get()
+                .map(|row| {
+                    let pointer = window.mouse_position().y - row.origin.y;
+                    if f32::from(pointer) < f32::from(row.size.height) / 2.0 {
+                        crate::app::cross_doc::InsertPosition::Above
+                    } else {
+                        crate::app::cross_doc::InsertPosition::Below
+                    }
+                })
+                .unwrap_or(crate::app::cross_doc::InsertPosition::Above);
+            app.drop_layer_on_row(payload, id, position, window.modifiers().alt, cx);
         },
     );
 
@@ -378,9 +412,59 @@ fn layer_row(
         .border_color(row_hairline_colour())
         .bg(row_fill(active, selected))
         .when(!selected, |el| el.hover(|s| s.bg(row_hover_fill())))
+        .when(dragging_source, |el| {
+            // The reference dims the row the drag came from and announces
+            // the state; the floating ghost carries the readable content.
+            el.opacity(0.35).aria_label("Dragging layer")
+        })
         .on_click(on_click)
-        .on_drag(drag_payload, on_drag)
+        .on_mouse_up(
+            gpui_kit::MouseButton::Left,
+            cx.listener(
+                |app: &mut crate::app::App, _: &gpui_kit::MouseUpEvent, _window, cx| {
+                    app.clear_layer_drag_and_hover(cx);
+                },
+            ),
+        )
+        .on_mouse_up_out(gpui_kit::MouseButton::Left, {
+            let weak = cx.weak_entity();
+            move |_event, _window, cx| {
+                let _ = weak.update(cx, |app, cx| app.clear_layer_drag_and_hover(cx));
+            }
+        })
+        .when(!locked || background, |el| {
+            el.on_drag(drag_payload, on_drag)
+        })
         .on_drop::<crate::app::cross_doc::LayerDragPayload>(on_drop)
+        .drag_over::<crate::app::cross_doc::LayerDragPayload>(
+            move |style, _payload, window, _cx| {
+                let top_half = bounds_for_hint
+                    .get()
+                    .map(|row| {
+                        f32::from(window.mouse_position().y) - f32::from(row.origin.y)
+                            < f32::from(row.size.height) / 2.0
+                    })
+                    .unwrap_or(true);
+                if top_half {
+                    style.border_t_2().border_color(color::ACCENT)
+                } else {
+                    style.border_b_2().border_color(color::ACCENT)
+                }
+            },
+        )
+        .when_some(layer.core_id.clone(), |el, core_id| {
+            let open_layer_menu = cx.listener(
+                move |app,
+                      event: &gpui_kit::MouseDownEvent,
+                      _window,
+                      cx: &mut Context<crate::app::App>| {
+                    cx.stop_propagation();
+                    let at = (f32::from(event.position.x), f32::from(event.position.y));
+                    app.open_layer_context_menu(&core_id, at, cx);
+                },
+            );
+            el.on_mouse_down(gpui_kit::MouseButton::Right, open_layer_menu)
+        })
         .when_some(layer.core_id.clone(), |el, core_id| {
             el.child(tooltip(
                 state,
@@ -416,7 +500,36 @@ fn layer_row(
                     ),
             ))
         })
-        .child(layer_thumb(thumb))
+        .child({
+            let is_text = flags.is_some_and(|flags| flags.is_text);
+            let thumb = layer_thumb(thumb, is_text);
+            if !is_text {
+                thumb.into_any_element()
+            } else {
+                // The reference also starts a text edit from a double-click
+                // on the text layer's thumbnail, not just its name.
+                let thumb_core = rename_core.clone();
+                div()
+                    .id("layer-text-thumb")
+                    .test_support()
+                    .on_click(
+                        cx.listener(move |app, event: &gpui_kit::ClickEvent, window, cx| {
+                            let double = match event {
+                                gpui_kit::ClickEvent::Mouse(click) => click.up.click_count >= 2,
+                                _ => false,
+                            };
+                            if double {
+                                cx.stop_propagation();
+                                if let Some(core_id) = thumb_core.clone() {
+                                    app.open_layer_row_double_click(core_id, window, cx);
+                                }
+                            }
+                        }),
+                    )
+                    .child(thumb)
+                    .into_any_element()
+            }
+        })
         .child(
             div()
                 .id(format!("layer-name-{id}"))
@@ -439,7 +552,7 @@ fn layer_row(
                         if double {
                             cx.stop_propagation();
                             if let Some(core_id) = rename_core.clone() {
-                                app.begin_rename_layer(core_id, window, cx);
+                                app.open_layer_row_double_click(core_id.clone(), window, cx);
                             }
                         }
                     }),
@@ -537,6 +650,19 @@ fn layer_row(
                     ),
             )
         })
+        // The row carries its own bounds so the drop handler can split the
+        // pointer between `Above` and `Below` the midline. The canvas paints
+        // nothing.
+        .child(
+            gpui_kit::canvas(
+                move |row_bounds, _window, _cx| {
+                    bounds.set(Some(row_bounds));
+                },
+                |_bounds, _state, _window, _cx| {},
+            )
+            .absolute()
+            .inset_0(),
+        )
         // The closed ring: a 1px overlay border on the row's padding box, so
         // its bottom edge sits just above the rule instead of losing to it.
         .when_some(ring_alpha, |el, alpha| {
@@ -602,10 +728,10 @@ fn move_button(
     )
 }
 
-/// 24px — the row's eye and lock buttons.
+/// 24px � the row's eye and lock buttons.
 const ROW_BTN: f32 = 24.0;
 
-/// 16px / 14px — the glyphs inside those buttons.
+/// 16px / 14px � the glyphs inside those buttons.
 const ROW_EYE_ICON: f32 = 16.0;
 const ROW_LOCK_ICON: f32 = 14.0;
 
@@ -646,10 +772,11 @@ impl Render for LayerDragGhost {
 }
 
 /// The layer thumbnail's frame: 34x34, 1px border, 3px corners, checker inside.
-///
-/// The canvas bitmap is a *layer preview*, which a static view cannot have —
-/// so this is the empty chrome, exactly as in `properties_panel.rs`.
-fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
+/// Shared by the layers rows and the properties panel's Selected Layer card.
+pub(crate) fn layer_thumb(
+    thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>,
+    is_text: bool,
+) -> Div {
     // A row without a core layer is the seeded display-only Background, whose
     // document image is the white 800x600 canvas; that is the swatch the
     // capture paints. Anything with pixels keeps the checkerboard frame.
@@ -683,6 +810,28 @@ fn layer_thumb(thumb: Option<&std::sync::Arc<gpui_kit::RenderImage>>) -> Div {
             )
             .absolute()
             .inset(px(1.0)),
+        );
+    }
+    if is_text {
+        // The reference pins a 14px accent "T" to a text layer's thumbnail.
+        frame = frame.child(
+            div()
+                .id("layer-text-badge")
+                .test_support()
+                .absolute()
+                .bottom(px(-3.0))
+                .right(px(-3.0))
+                .w(px(14.0))
+                .h(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(3.0))
+                .bg(color::ACCENT)
+                .text_color(color::WHITE)
+                .text_size(px(9.0))
+                .font_weight(gpui_kit::FontWeight(700.0))
+                .child("T"), // i18n-exempt: single-letter type glyph on a text-layer badge
         );
     }
     frame

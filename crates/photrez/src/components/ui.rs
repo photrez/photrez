@@ -49,7 +49,7 @@
 
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, Hsla, TestSupportExt};
+use gpui_kit::{Div, FontWeight, Hsla, TestSupportExt, div, px};
 
 use crate::tokens::color;
 
@@ -454,7 +454,7 @@ mod tests {
     #[gpui_kit::test]
     fn bundled_ui_font_is_inherited_by_standard_controls(cx: &mut gpui_kit::TestAppContext) {
         cx.update(|cx| {
-            gpui_kit::init(cx);
+            crate::init_gpui_host(cx, None);
             crate::app::load_fonts(cx);
             assert_eq!(
                 gpui_kit::component::Theme::global(cx).font_family.as_ref(),

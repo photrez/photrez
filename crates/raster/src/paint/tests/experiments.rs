@@ -529,7 +529,16 @@ mod tests {
         let (meta_serial, _) =
             raster_shadow(6912, 3888, true, None, false, 3000.0, &dabs, &tip, true);
         let serial_total_us = meta_serial.prep_us + meta_serial.raster_us + meta_serial.patchgen_us;
-        println!("serial_full: prep_us={} raster_us={} patchgen_us={} total_us={} tiles={} changedMB={:.1} digest={}", meta_serial.prep_us, meta_serial.raster_us, meta_serial.patchgen_us, serial_total_us, meta_serial.tile_count, meta_serial.changed_bytes as f64/1e6, meta_serial.digest);
+        println!(
+            "serial_full: prep_us={} raster_us={} patchgen_us={} total_us={} tiles={} changedMB={:.1} digest={}",
+            meta_serial.prep_us,
+            meta_serial.raster_us,
+            meta_serial.patchgen_us,
+            serial_total_us,
+            meta_serial.tile_count,
+            meta_serial.changed_bytes as f64 / 1e6,
+            meta_serial.digest
+        );
         // Isolated stages for projection
         let blend = blend_only(6912, 3888, true, false, 3000.0, &dabs, &tip);
         let blend_par = blend_par_row_bands(6912, 3888, true, false, 3000.0, &dabs, &tip);
@@ -550,16 +559,31 @@ mod tests {
         );
         let proj_serial_us = blend.blend_us + v.us_baseline;
         let proj_parallel_us = blend_par.blend_us + v.us_rayon;
-        println!("isolated: blend_us={} blend_par_us={} extract_baseline_us={} extract_rayon_us={} raw_copy_us={} prealloc_us={}", blend.blend_us, blend_par.blend_us, v.us_baseline, v.us_rayon, v.us_raw_copy, v.us_prealloc);
+        println!(
+            "isolated: blend_us={} blend_par_us={} extract_baseline_us={} extract_rayon_us={} raw_copy_us={} prealloc_us={}",
+            blend.blend_us,
+            blend_par.blend_us,
+            v.us_baseline,
+            v.us_rayon,
+            v.us_raw_copy,
+            v.us_prealloc
+        );
         println!(
             "projection: serial_isolated_total_us={} parallel_isolated_total_us={} delta_us={}",
             proj_serial_us,
             proj_parallel_us,
             proj_serial_us as i128 - proj_parallel_us as i128
         );
-        println!("reconciliation: serial_full==isolated? full_total_us={} isolated_total_us={} diff_us={}", serial_total_us, proj_serial_us, serial_total_us as i128 - proj_serial_us as i128);
+        println!(
+            "reconciliation: serial_full==isolated? full_total_us={} isolated_total_us={} diff_us={}",
+            serial_total_us,
+            proj_serial_us,
+            serial_total_us as i128 - proj_serial_us as i128
+        );
         // Transport is external to Rust (harness wall - compute); prior in-shell stress transport 37ms (wall 10.6s debug build) — not re-measured here, reported as separate stage
-        println!("note: transportAndSerMs is external (harness wall - compute), prior stress wall transport ~37ms in debug harness; not included in Rust us totals above");
+        println!(
+            "note: transportAndSerMs is external (harness wall - compute), prior stress wall transport ~37ms in debug harness; not included in Rust us totals above"
+        );
     }
 
     /// Small-scale determinism guard for the variants themselves (always runs).

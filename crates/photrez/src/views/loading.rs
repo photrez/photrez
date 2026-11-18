@@ -9,7 +9,7 @@
 
 use gpui_kit::base::v_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, Hsla};
+use gpui_kit::{Div, FontWeight, Hsla, div, px};
 
 use crate::components::ui;
 use crate::tokens::color;

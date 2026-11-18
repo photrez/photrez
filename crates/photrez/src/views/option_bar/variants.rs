@@ -23,33 +23,45 @@ pub(super) fn fade_in_row(
     committed_selection: Option<photrez_core::document::content::SelectionState>,
     readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
-) -> impl IntoElement {
-    let row = h_flex().items_center().gap(px(GAP));
+) -> (impl IntoElement, Option<Div>) {
+    // The row fills the space the bar leaves and clips its own overflow, so
+    // a trailing control mounted as a flex sibling after it stays reachable
+    // at every width.
+    let mut more: Option<Div> = None;
+    let row = h_flex()
+        .items_center()
+        .gap(px(GAP))
+        .flex_1()
+        .min_w(px(0.0))
+        .overflow_hidden();
     let row = match active_tool {
-        ToolId::Move => move_items(state, row, readout, cx),
-        ToolId::Selection => selection_items(state, row, committed_selection, cx),
-        ToolId::Crop => crop_items(state, row, cx),
-        ToolId::Brush => brush_items(state, row, false, cx),
-        ToolId::Eraser => brush_items(state, row, true, cx),
-        ToolId::Eyedropper => eyedropper_items(state, row, cx),
-        ToolId::PaintBucket => paint_bucket_items(state, row, cx),
-        ToolId::Gradient => gradient_items(state, row, cx),
-        ToolId::Shape => shape_items(state, row, cx),
-        ToolId::Text => text_items(state, row, cx),
+        ToolId::Move => move_items(state, row, readout, cx, &mut more),
+        ToolId::Selection => selection_items(state, row, committed_selection, cx, &mut more),
+        ToolId::Crop => crop_items(state, row, cx, &mut more),
+        ToolId::Brush => brush_items(state, row, false, cx, &mut more),
+        ToolId::Eraser => brush_items(state, row, true, cx, &mut more),
+        ToolId::Eyedropper => eyedropper_items(state, row, cx, &mut more),
+        ToolId::PaintBucket => paint_bucket_items(state, row, cx, &mut more),
+        ToolId::Gradient => gradient_items(state, row, cx, &mut more),
+        ToolId::Shape => shape_items(state, row, cx, &mut more),
+        ToolId::Text => text_items(state, row, cx, &mut more),
     };
-    row.id(match active_tool {
-        ToolId::Move => "option-bar-move",
-        ToolId::Selection => "option-bar-selection",
-        ToolId::Crop => "option-bar-crop",
-        ToolId::Eyedropper => "option-bar-eyedropper",
-        ToolId::Brush => "option-bar-brush",
-        ToolId::Eraser => "option-bar-eraser",
-        ToolId::PaintBucket => "option-bar-paint-bucket",
-        ToolId::Gradient => "option-bar-gradient",
-        ToolId::Shape => "option-bar-shape",
-        ToolId::Text => "option-bar-text",
-    })
-    .test_support()
+    (
+        row.id(match active_tool {
+            ToolId::Move => "option-bar-move",
+            ToolId::Selection => "option-bar-selection",
+            ToolId::Crop => "option-bar-crop",
+            ToolId::Eyedropper => "option-bar-eyedropper",
+            ToolId::Brush => "option-bar-brush",
+            ToolId::Eraser => "option-bar-eraser",
+            ToolId::PaintBucket => "option-bar-paint-bucket",
+            ToolId::Gradient => "option-bar-gradient",
+            ToolId::Shape => "option-bar-shape",
+            ToolId::Text => "option-bar-text",
+        })
+        .test_support(),
+        more,
+    )
 }
 // ── Move ──────────────────────────────────────────────────────────────────────
 
@@ -64,6 +76,7 @@ fn move_items(
     row: Div,
     readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
+    more: &mut Option<Div>,
 ) -> Div {
     let (snap_focus, auto_select_focus, transform_focus, more_open) = {
         let s = state.read(cx);
@@ -84,77 +97,79 @@ fn move_items(
     };
     let num_focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
     let locked = readout.is_some_and(|readout| readout.locked);
-    row.child(tool_pill(
-        icons::with_stroke(icons::CURSOR, STROKE_PILL),
-        t(PILL_LABEL_MOVE_KEY),
-    ))
-    .child(divider())
-    .child(tooltip(
-        state,
-        "opt-auto-select",
-        t("tools.options.autoSelectTip"),
-        None,
-        cx,
-        option_checkbox_action(
+    let row = row
+        .child(tool_pill(
+            icons::with_stroke(icons::CURSOR, STROKE_PILL),
+            t(PILL_LABEL_MOVE_KEY),
+        ))
+        .child(divider())
+        .child(tooltip(
+            state,
             "opt-auto-select",
-            &t("tools.options.autoSelect"),
-            state.read(cx).move_auto_select,
-            auto_select_focus,
+            t("tools.options.autoSelectTip"),
+            None,
             cx,
-            |app, cx| app.toggle_move_auto_select(cx),
-        ),
-    ))
-    .child(tooltip(
-        state,
-        "opt-snap",
-        t("tools.options.snapTip"),
-        None,
-        cx,
-        option_checkbox_action(
+            option_checkbox_action(
+                "opt-auto-select",
+                &t("tools.options.autoSelect"),
+                state.read(cx).move_auto_select,
+                auto_select_focus,
+                cx,
+                |app, cx| app.toggle_move_auto_select(cx),
+            ),
+        ))
+        .child(tooltip(
+            state,
             "opt-snap",
-            &t("tools.options.snap"),
-            state.read(cx).snap_enabled,
-            snap_focus,
+            t("tools.options.snapTip"),
+            None,
             cx,
-            |app, cx| app.toggle_snap(cx),
-        ),
-    ))
-    .child(divider())
-    .child(tooltip(
-        state,
-        "opt-transform",
-        t("tools.options.transformControlsTip"),
-        None,
-        cx,
-        option_checkbox_action(
+            option_checkbox_action(
+                "opt-snap",
+                &t("tools.options.snap"),
+                state.read(cx).snap_enabled,
+                snap_focus,
+                cx,
+                |app, cx| app.toggle_snap(cx),
+            ),
+        ))
+        .child(divider())
+        .child(tooltip(
+            state,
             "opt-transform",
-            &t("properties.transform"),
-            state.read(cx).show_transform_controls,
-            transform_focus,
+            t("tools.options.transformControlsTip"),
+            None,
             cx,
-            |app, cx| app.toggle_transform_controls(cx),
-        ),
-    ))
-    .child(divider())
-    .child(position_group(readout, &editing, &num_focus, cx))
-    .child(size_group(readout))
-    .child(transform_cell(
-        "num-r",
-        "R", // i18n-exempt: technical token (field label glyph)
-        FIELD_W_R,
-        readout.map(|readout| readout.rotation),
-        locked,
-        "\u{b0}", // i18n-exempt: technical token (field label glyph)
-        editing("num-r"),
-        num_focus("num-r"),
-        cx,
-    ))
-    .when(show_main_controls(), |el| {
-        el.child(main_controls(locked, cx))
-    })
-    .when(show_more_dropdown(), |el| {
-        el.child(move_more_dropdown(state, more_open, locked, cx))
-    })
+            option_checkbox_action(
+                "opt-transform",
+                &t("properties.transform"),
+                state.read(cx).show_transform_controls,
+                transform_focus,
+                cx,
+                |app, cx| app.toggle_transform_controls(cx),
+            ),
+        ))
+        .child(divider())
+        .child(position_group(readout, &editing, &num_focus, cx))
+        .child(size_group(readout))
+        .child(transform_cell(
+            "num-r",
+            "R", // i18n-exempt: technical token (field label glyph)
+            FIELD_W_R,
+            readout.map(|readout| readout.rotation),
+            locked,
+            "\u{b0}", // i18n-exempt: technical token (field label glyph)
+            editing("num-r"),
+            num_focus("num-r"),
+            cx,
+        ))
+        .when(show_main_controls(), |el| {
+            el.child(main_controls(locked, cx))
+        });
+    if show_more_dropdown() {
+        *more = Some(move_more_dropdown(state, more_open, locked, cx));
+    }
+    row
 }
 
 /// The Move bar's overflow body: the Align and Flip groups and
@@ -283,6 +298,7 @@ fn selection_items(
     row: Div,
     committed: Option<photrez_core::document::content::SelectionState>,
     cx: &Context<crate::app::App>,
+    more: &mut Option<Div>,
 ) -> Div {
     let (shape, open, cursor, more_open) = {
         let s = state.read(cx);
@@ -303,125 +319,116 @@ fn selection_items(
             .map(|field| field.buffer.clone())
     };
     let focus = |id: &'static str| state.read(cx).num_field_focus_for(id);
-    let field = |id: &'static str,
-                 label: &'static str,
-                 width: f32,
-                 value: f64,
-                 suffix: &'static str,
-                 cx: &Context<crate::app::App>| {
-        selection_field(
-            id,
-            label,
-            width,
-            selection_field_value(value),
-            suffix,
-            editing(id),
-            focus(id),
-            cx,
-        )
-    };
-    row.child(tool_pill(
-        icons::with_stroke(
-            if elliptical {
+    let field =
+        |id: &'static str, label: &'static str, width: f32, value: f64, suffix: &'static str| {
+            selection_field(
+                id,
+                label,
+                width,
+                selection_field_value(value),
+                suffix,
+                editing(id),
+                focus(id),
+                cx,
+            )
+        };
+    let row = row
+        .child(tool_pill(
+            icons::with_stroke(
+                if elliptical {
+                    icons::CIRCLE_DASHED
+                } else {
+                    icons::SQUARE_DASHED
+                },
+                STROKE_PILL,
+            ),
+            t("tools.rectSelect"),
+        ))
+        .child(divider())
+        .child(live_select(
+            "opt-select-shape",
+            Some(if elliptical {
                 icons::CIRCLE_DASHED
             } else {
                 icons::SQUARE_DASHED
+            }),
+            None,
+            if elliptical {
+                t("tools.ellipseSelect")
+            } else {
+                t("tools.rectSelect")
             },
-            STROKE_PILL,
-        ),
-        t("tools.rectSelect"),
-    ))
-    .child(divider())
-    .child(live_select(
-        "opt-select-shape",
-        Some(if elliptical {
-            icons::CIRCLE_DASHED
-        } else {
-            icons::SQUARE_DASHED
-        }),
-        None,
-        if elliptical {
-            t("tools.ellipseSelect")
-        } else {
-            t("tools.rectSelect")
-        },
-        &["Rectangular", "Elliptical"], // i18n-exempt: not in catalog
-        if open == Some("opt-select-shape") {
-            cursor
-        } else if elliptical {
-            1
-        } else {
-            0
-        },
-        open == Some("opt-select-shape"),
-        state.read(cx).select_panel_bounds.clone(),
-        cx,
-    ))
-    .child(divider())
-    .child(select_dropdown(
-        None,
-        Some(format!("{}: ", t("tools.options.style")).as_str()),
-        t("tools.options.normal"),
-    ))
-    .child(divider())
-    .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("properties.position")))
-    })
-    .when_some(committed.as_ref(), |el, selection| {
-        el.child(field_pair(
-            field("sel-x", "X", FIELD_W_XY, selection.x, "px", cx),
-            field("sel-y", "Y", FIELD_W_XY, selection.y, "px", cx),
-        ))
-    })
-    .when(committed.is_none(), |el| {
-        el.child(field_pair(
-            dimmed(editable_field("sel-x", "X", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
-            dimmed(editable_field("sel-y", "Y", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
-        ))
-    })
-    .child(divider())
-    .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("tools.options.size")))
-    })
-    .when_some(committed.as_ref(), |el, selection| {
-        el.child(field_pair(
-            field("sel-w", "W", FIELD_W_XY, selection.width, "px", cx),
-            field("sel-h", "H", FIELD_W_XY, selection.height, "px", cx),
-        ))
-    })
-    .when(committed.is_none(), |el| {
-        el.child(field_pair(
-            dimmed(editable_field("sel-w", "W", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
-            dimmed(editable_field("sel-h", "H", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
-        ))
-    })
-    .child(divider())
-    .when(show_group_labels_960(), |el| {
-        el.child(caps_label(&t("properties.rotation")))
-    })
-    .when_some(committed.as_ref(), |el, selection| {
-        el.child(field(
-            "sel-r",
-            "R",
-            FIELD_W_R,
-            selection.angle,
-            "\u{b0}",
+            &["Rectangular", "Elliptical"], // i18n-exempt: not in catalog
+            if open == Some("opt-select-shape") {
+                cursor
+            } else if elliptical {
+                1
+            } else {
+                0
+            },
+            open == Some("opt-select-shape"),
+            state.read(cx).select_panel_bounds.clone(),
             cx,
         ))
-    })
-    .when(committed.is_none(), |el| {
-        el.child(dimmed(editable_field(
-            "sel-r", "R", FIELD_W_R, "0", "\u{b0}",
-        ))) // i18n-exempt: technical token (field label glyph)
-    })
-    .when(show_more_dropdown(), |el| {
-        el.child(selection_more_dropdown(
+        .child(divider())
+        .child(select_dropdown(
+            None,
+            Some(format!("{}: ", t("tools.options.style")).as_str()),
+            t("tools.options.normal"),
+        ))
+        .child(divider())
+        .when(show_group_labels_960(), |el| {
+            el.child(caps_label(&t("properties.position")))
+        })
+        .when_some(committed.as_ref(), |el, selection| {
+            el.child(field_pair(
+                field("sel-x", "X", FIELD_W_XY, selection.x, "px"),
+                field("sel-y", "Y", FIELD_W_XY, selection.y, "px"),
+            ))
+        })
+        .when(committed.is_none(), |el| {
+            el.child(field_pair(
+                dimmed(editable_field("sel-x", "X", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+                dimmed(editable_field("sel-y", "Y", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+            ))
+        })
+        .child(divider())
+        .when(show_group_labels_960(), |el| {
+            el.child(caps_label(&t("tools.options.size")))
+        })
+        .when_some(committed.as_ref(), |el, selection| {
+            el.child(field_pair(
+                field("sel-w", "W", FIELD_W_XY, selection.width, "px"),
+                field("sel-h", "H", FIELD_W_XY, selection.height, "px"),
+            ))
+        })
+        .when(committed.is_none(), |el| {
+            el.child(field_pair(
+                dimmed(editable_field("sel-w", "W", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+                dimmed(editable_field("sel-h", "H", FIELD_W_XY, "0", "px")), // i18n-exempt: technical token (field label glyph)
+            ))
+        })
+        .child(divider())
+        .when(show_group_labels_960(), |el| {
+            el.child(caps_label(&t("properties.rotation")))
+        })
+        .when_some(committed.as_ref(), |el, selection| {
+            el.child(field("sel-r", "R", FIELD_W_R, selection.angle, "\u{b0}"))
+        })
+        .when(committed.is_none(), |el| {
+            el.child(dimmed(editable_field(
+                "sel-r", "R", FIELD_W_R, "0", "\u{b0}",
+            ))) // i18n-exempt: technical token (field label glyph)
+        });
+    if show_more_dropdown() {
+        *more = Some(selection_more_dropdown(
             state,
             more_open,
             committed.is_some(),
             cx,
-        ))
-    })
+        ));
+    }
+    row
 }
 
 /// The Selection bar's overflow body: the clipboard grid, folded away at

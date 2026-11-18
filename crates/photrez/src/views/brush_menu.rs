@@ -9,7 +9,7 @@
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, Entity, FontWeight, TestSupportExt};
+use gpui_kit::{Div, Entity, FontWeight, TestSupportExt, div, px, relative};
 
 use crate::app::tool_settings::BRUSH_PRESETS;
 use crate::components::ui::{self, SliderKind};

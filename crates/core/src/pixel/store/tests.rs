@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Tests for `pixel::store` (split across sibling modules so each file stays
-//! under the 1000-line guard). Uses `use super::*` for the production items it
+//! Tests for `pixel::store`, split across sibling modules. Uses `use super::*` for the production items it
 //! exercises.
 
 use super::*;
@@ -9,6 +8,7 @@ use crate::raster::paint::raster::{RasterDab, RasterTip};
 use crate::raster::reference::assert_byte_eq;
 use crate::raster::tile::TilePatch;
 
+mod apply_adjustment;
 mod crop_bake;
 mod history_round_trip;
 mod history_unification;
@@ -228,7 +228,7 @@ fn new_command_after_undo_invalidates_redo() {
         vec![tile(0, 0, 1, 1, 2)],
     );
     r.undo_pixel("docA").unwrap(); // cursor 1
-                                   // new branch
+    // new branch
     r.apply_pixel_patch(
         "docA",
         "L1",
@@ -277,7 +277,7 @@ fn commit_pixels_composites_onto_canonical_overlapping() {
     let mut r = PixelStoreRegistry::new();
     r.open_document("d");
     let _ = r.add_layer("d", "L", 4, 4, vec![255; 4 * 4 * 4]); // white 4x4
-                                                               // stroke A: 2x2 red opaque dab at (1,1) -- covers (0,0) within tile (0,0).
+    // stroke A: 2x2 red opaque dab at (1,1) -- covers (0,0) within tile (0,0).
     let mut tip_a_data = Vec::new();
     for _ in 0..4 {
         tip_a_data.extend_from_slice(&[255u8, 0, 0, 255]);

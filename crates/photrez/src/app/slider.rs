@@ -6,8 +6,8 @@ use gpui_kit::{AppContext, Context, KeyDownEvent, Window};
 
 use crate::state::{SliderTarget, ToolId};
 
-use super::brush_menu::paint_size_to_slider;
 use super::App;
+use super::brush_menu::paint_size_to_slider;
 
 /// A value waiting for the next frame: one adjustment channel or one opacity.
 /// The slider holds one drag at a time, so one slot is enough.
@@ -72,6 +72,17 @@ impl App {
             self.set_status_error(Some(format!("Slider: {error}")), cx);
             return;
         }
+        if target == SliderTarget::CropStraighten {
+            if self.state.read(cx).active_tool != crate::state::ToolId::Crop {
+                window.release_pointer();
+                return;
+            }
+            let Ok(doc_id) = self.active_doc_id() else {
+                window.release_pointer();
+                return;
+            };
+            self.crop_straighten_document_id = Some(doc_id);
+        }
         self.slider_dragging = true;
         self.set_slider_from_x(target, x, window, cx);
     }
@@ -84,6 +95,14 @@ impl App {
         cx: &mut Context<Self>,
     ) {
         if !self.slider_dragging {
+            return;
+        }
+        if target == SliderTarget::CropStraighten
+            && (self.crop_straighten_document_id.as_deref() != self.active_doc_id().ok().as_deref()
+                || self.state.read(cx).active_tool != crate::state::ToolId::Crop)
+        {
+            window.release_pointer();
+            self.slider_pointer_up(cx);
             return;
         }
         let blocked_by_overlay = {
@@ -106,6 +125,7 @@ impl App {
 
     pub(crate) fn slider_pointer_up(&mut self, cx: &mut Context<Self>) {
         self.slider_dragging = false;
+        self.crop_straighten_document_id = None;
         let pending = self.pending_slider_update.take();
         let last = self.last_slider_preview_update.take();
         self.slider_preview_next = None;
@@ -482,10 +502,11 @@ impl App {
                 Err(_) => return false,
             },
         };
-        if let Some(preview) = &self.slider_preview {
-            if preview.doc_id == doc_id && preview.layer_id == layer_id {
-                return true;
-            }
+        if let Some(preview) = &self.slider_preview
+            && preview.doc_id == doc_id
+            && preview.layer_id == layer_id
+        {
+            return true;
         }
         let Some(session) = self.sessions.get(&doc_id) else {
             return false;
@@ -720,6 +741,13 @@ impl App {
                 let result = self.set_selected_layer_opacity(value / 100.0, cx);
                 self.report_slider_write("Opacity", result, cx);
             }
+            SliderTarget::CropStraighten => match key {
+                "left" | "down" => self.nudge_crop_rotation(-0.1, cx),
+                "right" | "up" => self.nudge_crop_rotation(0.1, cx),
+                "home" => self.set_crop_rotation(-45.0, cx),
+                "end" => self.set_crop_rotation(45.0, cx),
+                _ => return false,
+            },
         }
         true
     }
@@ -771,6 +799,7 @@ impl App {
                 SliderTarget::AdjustmentSaturation => state.adjustment_slider_bounds[2].get(),
                 SliderTarget::PrintScale => state.print_scale_slider_bounds.get(),
                 SliderTarget::LayerOpacity => state.opacity_slider_bounds.get(),
+                SliderTarget::CropStraighten => state.crop_straighten_slider_bounds.get(),
             }
         };
         let Some(bounds) = bounds else {
@@ -842,6 +871,10 @@ impl App {
                     window,
                     cx,
                 );
+            }
+            SliderTarget::CropStraighten => {
+                let value = ((fraction * 90.0 - 45.0) * 10.0).round() / 10.0;
+                self.set_crop_rotation(value, cx);
             }
         }
     }

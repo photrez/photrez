@@ -148,19 +148,19 @@ mod imp {
 
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-        SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-        BLENDFUNCTION, DIB_RGB_COLORS, RGBQUAD,
+        AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
+        CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC,
+        RGBQUAD, ReleaseDC, SelectObject,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, GetWindowLongPtrW, IsWindow,
-        RegisterClassW, SetWindowPos, ShowWindow, UpdateLayeredWindow, GWLP_HINSTANCE,
-        HWND_TOPMOST, MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE,
-        SW_SHOWNOACTIVATE, ULW_ALPHA, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_SETCURSOR, WNDCLASSW,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_HINSTANCE, GetCursorPos,
+        GetWindowLongPtrW, HWND_TOPMOST, IsWindow, MA_NOACTIVATE, RegisterClassW, SW_HIDE,
+        SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowPos, ShowWindow,
+        ULW_ALPHA, UpdateLayeredWindow, WM_ERASEBKGND, WM_MOUSEACTIVATE, WM_SETCURSOR, WNDCLASSW,
         WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
     };
 
-    use super::{rasterize, RingKey};
+    use super::{RingKey, rasterize};
     use crate::display::canvas_bridge::BrushRing;
 
     const CLASS_NAME: &str = "PhotrezBrushRing";
@@ -257,13 +257,13 @@ mod imp {
 
     pub(super) fn hide() {
         STATE.with(|state| {
-            if let Some(window) = state.borrow_mut().as_mut() {
-                if window.visible {
-                    unsafe {
-                        ShowWindow(window.hwnd, SW_HIDE);
-                    }
-                    window.visible = false;
+            if let Some(window) = state.borrow_mut().as_mut()
+                && window.visible
+            {
+                unsafe {
+                    ShowWindow(window.hwnd, SW_HIDE);
                 }
+                window.visible = false;
             }
         });
     }

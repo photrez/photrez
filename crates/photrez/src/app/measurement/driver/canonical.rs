@@ -1,13 +1,13 @@
 //! The canonical pixel side of a run: the digest, the pixel diff and the
 //! snapshot and commit validators that keep a sample honest.
 
-use gpui_kit::{point, px, Bounds, Pixels};
+use gpui_kit::{Bounds, Pixels, point, px};
 use photrez_core::document::content::LayerType;
 
+use crate::app::App;
 use crate::app::measurement::{
     InputMeasurementReceipt, InputMeasurementRender, InputMeasurementSnapshot, RefreshOutcome,
 };
-use crate::app::App;
 use crate::display::canvas_bridge::fit_placement;
 
 use super::CanonicalState;
@@ -230,12 +230,12 @@ pub(super) fn validate_committed_state(
             "sample {sample_index}: receipt timestamps are out of order"
         ));
     }
-    if let Some(preview) = receipt.t_preview {
-        if preview < receipt.t_down || preview > receipt.t_up {
-            return Err(format!(
-                "sample {sample_index}: preview timestamp is out of order"
-            ));
-        }
+    if let Some(preview) = receipt.t_preview
+        && (preview < receipt.t_down || preview > receipt.t_up)
+    {
+        return Err(format!(
+            "sample {sample_index}: preview timestamp is out of order"
+        ));
     }
     if render.sample_id != receipt.sample_id
         || render.doc_id != receipt.doc_id

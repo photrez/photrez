@@ -49,7 +49,7 @@ pub(crate) fn shape_render_margin(params: &ShapeParams) -> f64 {
     cap.max(head)
 }
 
-pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, ShapeError> {
+fn shape_bitmap_geometry(params: &ShapeParams) -> Result<(u32, u32, f64), ShapeError> {
     if !params.width.is_finite()
         || !params.height.is_finite()
         || !params.radius.is_finite()
@@ -58,8 +58,7 @@ pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, S
         return Err(ShapeError::InvalidDimensions);
     }
 
-    let is_line = params.kind == ShapeKind::Line;
-    let valid = if is_line {
+    let valid = if params.kind == ShapeKind::Line {
         params.width > 0.0 || params.height > 0.0
     } else {
         params.width > 0.0 && params.height > 0.0
@@ -71,6 +70,17 @@ pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, S
     let margin = shape_render_margin(params);
     let width = bitmap_dimension(params.width + margin * 2.0);
     let height = bitmap_dimension(params.height + margin * 2.0);
+    Ok((width, height, margin))
+}
+
+pub(crate) fn shape_bitmap_dimensions(params: &ShapeParams) -> Result<(u32, u32), ShapeError> {
+    let (width, height, _) = shape_bitmap_geometry(params)?;
+    Ok((width, height))
+}
+
+pub(crate) fn rasterize_shape(params: &ShapeParams) -> Result<RasterizedShape, ShapeError> {
+    let is_line = params.kind == ShapeKind::Line;
+    let (width, height, margin) = shape_bitmap_geometry(params)?;
 
     let stroke_enabled = if is_line { true } else { params.stroke.enabled };
     let stroke_width = if stroke_enabled {
@@ -660,7 +670,7 @@ mod tests {
     fn filled_rect_is_opaque_red() {
         let shape = rasterize_shape(&params(ShapeKind::Rect, 4.0, 4.0)).expect("rect rasterizes");
         assert_eq!((shape.width, shape.height), (4, 4));
-        for pixel in shape.pixels.as_chunks::<4>().0.iter() {
+        for pixel in shape.pixels.as_chunks::<4>().0 {
             assert_eq!(*pixel, [255, 0, 0, 255]);
         }
     }
@@ -676,6 +686,25 @@ mod tests {
         let shape = rasterize_shape(&params).expect("stroked rect rasterizes");
         assert_eq!(shape_render_margin(&params), 1.0);
         assert_eq!((shape.width, shape.height), (6, 6));
+    }
+
+    #[test]
+    fn bitmap_dimensions_match_rasterization_and_cap_without_allocating() {
+        let mut shape_params = params(ShapeKind::Rect, 4.25, 6.5);
+        shape_params.stroke = ShapeStroke {
+            enabled: true,
+            color: "#000000".to_owned(),
+            width: 1.25,
+        };
+        assert_eq!(shape_bitmap_dimensions(&shape_params), Ok((7, 9)));
+        let rasterized = rasterize_shape(&shape_params).expect("small shape rasterizes");
+        assert_eq!((rasterized.width, rasterized.height), (7, 9));
+
+        let oversized = params(ShapeKind::Rect, MAX_SHAPE_DIM + 1.0, 3.0);
+        assert_eq!(
+            shape_bitmap_dimensions(&oversized),
+            Ok((MAX_SHAPE_DIM as u32, 3))
+        );
     }
 
     #[test]

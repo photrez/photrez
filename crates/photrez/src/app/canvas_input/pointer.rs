@@ -3,6 +3,10 @@
 
 use super::*;
 
+fn crop_pointer_screen_point(screen: (f64, f64)) -> Point<Pixels> {
+    gpui_kit::point(gpui_kit::px(screen.0 as f32), gpui_kit::px(screen.1 as f32))
+}
+
 impl App {
     pub(crate) fn canvas_pointer_down(
         &mut self,
@@ -72,10 +76,10 @@ impl App {
         }
         {
             let camera = self.active_camera();
-            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera) {
-                if self.selection_rotate_start(bounds, doc_size, point, cx) {
-                    return;
-                }
+            if let Some(point) = canvas_doc_coords_free(event.position, bounds, doc_size, camera)
+                && self.selection_rotate_start(bounds, doc_size, point, cx)
+            {
+                return;
             }
         }
         if event.button == gpui_kit::MouseButton::Right
@@ -124,11 +128,88 @@ impl App {
         let camera = self.active_camera();
         let tool = self.state.read(cx).active_tool;
         let free_mapped = canvas_doc_coords_free(event.position, bounds, doc_size, camera);
+        let contained_mapped = canvas_doc_coords(event.position, bounds, doc_size, camera);
+        let crop_free_hit = if tool == ToolId::Crop && contained_mapped.is_none() {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| f64::from(camera.zoom))
+                .unwrap_or(1.0);
+            let state = self.state.read(cx);
+            state.crop_rect.and_then(|rect| {
+                free_mapped.filter(|&(x, y)| {
+                    App::crop_pointer_target_at(
+                        (x, y),
+                        rect,
+                        zoom,
+                        state.crop_interaction,
+                        state.crop_rotation,
+                    )
+                    .is_some()
+                })
+            })
+        } else {
+            None
+        };
         let mapped = if tool == ToolId::Move {
             free_mapped
+        } else if tool == ToolId::Crop {
+            contained_mapped.or(crop_free_hit)
         } else {
-            canvas_doc_coords(event.position, bounds, doc_size, camera)
+            contained_mapped
         };
+        if tool == ToolId::Crop
+            && contained_mapped.is_none()
+            && crop_free_hit.is_none()
+            && let Some((x, y)) = free_mapped
+        {
+            let (interaction, snapshot) = {
+                let state = self.state.read(cx);
+                (
+                    state.crop_interaction,
+                    crate::app::crop::crop_snapshot(state),
+                )
+            };
+            if interaction == crate::crop_geometry::CropInteraction::Classic {
+                if let Some(snapshot) = snapshot {
+                    let screen = (f64::from(event.position.x), f64::from(event.position.y));
+                    self.pending_gesture = Some(PendingGesture {
+                        tool: ToolId::Crop,
+                        start: (x, y),
+                        last: (x, y),
+                        start_screen: screen,
+                        last_screen: screen,
+                        crop_start: Some(snapshot),
+                        crop_pasteboard: true,
+                        crop_replacement_started: false,
+                        crop_modern_create: false,
+                        crop_modern_drag_started: false,
+                        crop_modern_preview: None,
+                        crop_snap_targets: None,
+                        shift: event.modifiers.shift,
+                        alt: event.modifiers.alt,
+                    });
+                }
+            } else {
+                let screen = (f64::from(event.position.x), f64::from(event.position.y));
+                self.pending_gesture = Some(PendingGesture {
+                    tool: ToolId::Crop,
+                    start: (x, y),
+                    last: (x, y),
+                    start_screen: screen,
+                    last_screen: screen,
+                    crop_start: snapshot,
+                    crop_pasteboard: true,
+                    crop_replacement_started: false,
+                    crop_modern_create: true,
+                    crop_modern_drag_started: false,
+                    crop_modern_preview: None,
+                    crop_snap_targets: crate::app::crop::crop_snap_targets(self),
+                    shift: event.modifiers.shift,
+                    alt: event.modifiers.alt,
+                });
+            }
+            return;
+        }
         if let Some(session) = self.state.read(cx).text_edit.clone() {
             let inside_editor = free_mapped.is_some_and(|(x, y)| {
                 let zoom = display_scale(bounds, doc_size, camera).max(f64::EPSILON);
@@ -148,55 +229,100 @@ impl App {
         let Some((x, y)) = mapped else {
             return;
         };
-        if event.click_count >= 2 && matches!(tool, ToolId::Move | ToolId::Selection) {
-            if let Some(core_id) = self.layer_hit_at(x, y) {
-                let text_layer = self.active_document.as_ref().and_then(|document| {
-                    self.sessions
-                        .get(&document.doc_id)
-                        .and_then(|session| session.loaded_document().content_snapshot())
-                        .and_then(|content| {
-                            content
-                                .layers
-                                .iter()
-                                .find(|layer| layer.id == core_id)
-                                .filter(|layer| {
-                                    matches!(layer.layer_type, LayerType::Text)
-                                        && layer.text_data.is_some()
-                                })
-                                .cloned()
-                        })
-                });
-                if let Some(layer) = text_layer {
-                    let Some(text_data) = layer.text_data.clone() else {
-                        return;
-                    };
-                    self.move_auto_select_click(x, y, false, cx);
-                    self.select_canvas_tool(ToolId::Text, cx);
-                    self.begin_text_edit_existing(
-                        layer.id,
-                        layer.transform.x,
-                        layer.transform.y,
-                        text_data,
-                        cx,
-                    );
+        if event.click_count >= 2
+            && matches!(tool, ToolId::Move | ToolId::Selection)
+            && let Some(core_id) = self.layer_hit_at(x, y)
+        {
+            let text_layer = self.active_document.as_ref().and_then(|document| {
+                self.sessions
+                    .get(&document.doc_id)
+                    .and_then(|session| session.loaded_document().content_snapshot())
+                    .and_then(|content| {
+                        content
+                            .layers
+                            .iter()
+                            .find(|layer| layer.id == core_id)
+                            .filter(|layer| {
+                                matches!(layer.layer_type, LayerType::Text)
+                                    && layer.text_data.is_some()
+                            })
+                            .cloned()
+                    })
+            });
+            if let Some(layer) = text_layer {
+                let Some(text_data) = layer.text_data.clone() else {
                     return;
-                }
+                };
+                self.move_auto_select_click(x, y, false, cx);
+                self.select_canvas_tool(ToolId::Text, cx);
+                self.begin_text_edit_existing(
+                    layer.id,
+                    layer.transform.x,
+                    layer.transform.y,
+                    text_data,
+                    cx,
+                );
+                return;
             }
         }
-        if tool == ToolId::Crop {
-            if let Some(rect) = self.state.read(cx).crop_rect {
-                let zoom = self
-                    .effective_camera()
-                    .map(|camera| camera.zoom as f64)
-                    .unwrap_or(1.0);
-                if let Some((handle, interior)) = App::crop_handle_at((x, y), rect, zoom) {
-                    self.crop_drag = Some(crate::app::crop::CropDrag {
-                        handle: if interior { None } else { Some(handle) },
-                        start_rect: rect,
-                        start_doc: (x, y),
-                    });
-                    return;
+        if tool == ToolId::Crop
+            && let Some(rect) = self.state.read(cx).crop_rect
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (target, start_snapshot, interaction) = {
+                let state = self.state.read(cx);
+                (
+                    App::crop_pointer_target_at(
+                        (x, y),
+                        rect,
+                        zoom,
+                        state.crop_interaction,
+                        state.crop_rotation,
+                    ),
+                    crate::crop_geometry::CropSnapshot {
+                        frame: rect,
+                        offset: state.crop_offset,
+                        rotation: state.crop_rotation,
+                    },
+                    state.crop_interaction,
+                )
+            };
+            if event.click_count >= 2
+                && self.crop_drag.is_none()
+                && self.pending_gesture.is_none()
+                && target == Some(crate::app::crop::CropPointerTarget::Move)
+            {
+                match self.apply_crop(cx) {
+                    Ok(()) => self.set_status_error(None, cx),
+                    Err(error) => self.set_status_error(Some(format!("Crop: {error}")), cx),
                 }
+                return;
+            }
+            if let Some(target) = target {
+                let snap_targets = if interaction == crate::crop_geometry::CropInteraction::Classic
+                {
+                    crate::app::crop::crop_snap_targets(self).map(std::rc::Rc::new)
+                } else {
+                    None
+                };
+                self.snap_guides.clear();
+                self.crop_drag = Some(crate::app::crop::CropDrag {
+                    handle: match target {
+                        crate::app::crop::CropPointerTarget::Resize(handle) => Some(handle),
+                        crate::app::crop::CropPointerTarget::Move
+                        | crate::app::crop::CropPointerTarget::Rotate => None,
+                    },
+                    rotate: target == crate::app::crop::CropPointerTarget::Rotate,
+                    start_snapshot,
+                    start_doc: (x, y),
+                    start_screen: (f64::from(event.position.x), f64::from(event.position.y)),
+                    interaction,
+                    snap_targets,
+                });
+                return;
             }
         }
         match tool {
@@ -226,11 +352,11 @@ impl App {
             ToolId::Eyedropper => self.sample_eyedropper(x, y, cx),
             ToolId::Move => {
                 let zoom = display_scale(bounds, doc_size, camera);
-                if event.modifiers.alt {
-                    if let Err(error) = self.duplicate_selected_layer_id(cx) {
-                        self.set_status_error(Some(format!("Alt-copy: {error}")), cx);
-                        return;
-                    }
+                if event.modifiers.alt
+                    && let Err(error) = self.duplicate_selected_layer_id(cx)
+                {
+                    self.set_status_error(Some(format!("Alt-copy: {error}")), cx);
+                    return;
                 }
                 let modify = event.modifiers.shift || event.modifiers.control;
                 if self.state.read(cx).move_auto_select
@@ -238,9 +364,7 @@ impl App {
                 {
                     return;
                 }
-                if self.state.read(cx).show_transform_controls
-                    && self.begin_transform_drag((x, y), zoom, cx)
-                {
+                if self.begin_transform_drag((x, y), zoom, cx) {
                     return;
                 }
                 // A press that misses every layer starts the layer marquee;
@@ -251,10 +375,33 @@ impl App {
                 }
             }
             ToolId::Selection | ToolId::Crop | ToolId::Shape | ToolId::Gradient | ToolId::Text => {
+                let (crop_start, crop_modern_create) = if tool == ToolId::Crop {
+                    let state = self.state.read(cx);
+                    (
+                        crate::app::crop::crop_snapshot(state),
+                        state.crop_interaction == crate::crop_geometry::CropInteraction::Modern,
+                    )
+                } else {
+                    (None, false)
+                };
+                let crop_snap_targets = if crop_modern_create {
+                    crate::app::crop::crop_snap_targets(self)
+                } else {
+                    None
+                };
                 self.pending_gesture = Some(PendingGesture {
                     tool,
                     start: (x, y),
                     last: (x, y),
+                    start_screen: (f64::from(event.position.x), f64::from(event.position.y)),
+                    last_screen: (f64::from(event.position.x), f64::from(event.position.y)),
+                    crop_start,
+                    crop_pasteboard: false,
+                    crop_replacement_started: false,
+                    crop_modern_create,
+                    crop_modern_drag_started: false,
+                    crop_modern_preview: None,
+                    crop_snap_targets,
                     shift: event.modifiers.shift,
                     alt: event.modifiers.alt,
                 });
@@ -340,16 +487,71 @@ impl App {
             );
             return;
         }
-        if let Some(drag) = self.crop_drag {
+        if let Some(drag) = self.crop_drag.clone() {
             let camera = self.active_camera();
             let Some((x, y)) = canvas_doc_coords_free(event.position, bounds, doc_size, camera)
             else {
                 return;
             };
-            let (doc_w, doc_h) = self.active_document_size().unwrap_or((1.0, 1.0));
-            let rect = App::crop_drag_rect(drag, (x, y), doc_w, doc_h);
-            self.state
-                .update(cx, |state, _| state.crop_rect = Some(rect));
+            let (mode, ratio, snap_enabled) = {
+                let state = self.state.read(cx);
+                (
+                    state.crop_mode,
+                    crate::app::crop::crop_resize_ratio(state),
+                    state.snap_enabled,
+                )
+            };
+            let snap_zoom = bounds
+                .get()
+                .and_then(|viewport| {
+                    crate::display::canvas_bridge::camera_placement(
+                        viewport.size.width.into(),
+                        viewport.size.height.into(),
+                        doc_size.0 as f32,
+                        doc_size.1 as f32,
+                        self.active_camera(),
+                    )
+                })
+                .map(|(_, _, page_width, _)| f64::from(page_width) / f64::from(doc_size.0))
+                .filter(|zoom| zoom.is_finite() && *zoom > 0.0)
+                .unwrap_or(1.0)
+                .max(0.01);
+            let zoom = self
+                .effective_camera()
+                .map(|camera| f64::from(camera.zoom))
+                .unwrap_or(1.0);
+            let mut update = crate::app::crop::crop_drag_update(
+                &drag,
+                crate::app::crop::CropDragInput {
+                    doc: (x, y),
+                    screen: (f64::from(event.position.x), f64::from(event.position.y)),
+                    mode,
+                    ratio,
+                    zoom,
+                    doc_size: self.active_document_size().unwrap_or((1.0, 1.0)),
+                    shift: event.modifiers.shift,
+                    alt: event.modifiers.alt,
+                },
+            );
+            self.snap_guides.clear();
+            if drag.interaction == crate::crop_geometry::CropInteraction::Classic
+                && !drag.rotate
+                && !event.modifiers.alt
+                && snap_enabled
+                && let Some(targets) = drag.snap_targets.as_deref()
+            {
+                let (frame, guides) = crate::crop_geometry::snap_classic_crop(
+                    update.frame,
+                    drag.handle,
+                    targets,
+                    12.0 / snap_zoom,
+                );
+                update.frame = frame;
+                self.snap_guides = guides;
+            }
+            self.state.update(cx, |state, _| {
+                crate::app::crop::restore_crop_snapshot(state, update)
+            });
             cx.notify();
             return;
         }
@@ -361,12 +563,64 @@ impl App {
             return;
         }
         let camera = self.active_camera();
-        let Some((x, y)) = canvas_doc_coords(event.position, bounds, doc_size, camera) else {
+        let pending_crop_free_coordinates = self
+            .pending_gesture
+            .as_ref()
+            .is_some_and(|pending| pending.crop_pasteboard || pending.crop_modern_create);
+        let mapped = if pending_crop_free_coordinates {
+            canvas_doc_coords_free(event.position, bounds, doc_size, camera)
+        } else {
+            canvas_doc_coords(event.position, bounds, doc_size, camera)
+        };
+        let Some((x, y)) = mapped else {
             return;
         };
+        let snap_zoom = bounds
+            .get()
+            .and_then(|viewport| {
+                crate::display::canvas_bridge::camera_placement(
+                    viewport.size.width.into(),
+                    viewport.size.height.into(),
+                    doc_size.0 as f32,
+                    doc_size.1 as f32,
+                    camera,
+                )
+            })
+            .map(|(_, _, page_width, _)| f64::from(page_width) / f64::from(doc_size.0))
+            .filter(|zoom| zoom.is_finite() && *zoom > 0.0)
+            .unwrap_or(1.0)
+            .max(0.01);
         let mut gradient_badge = None;
         if let Some(pending) = self.pending_gesture.as_mut() {
             pending.last = (x, y);
+            pending.last_screen = (f64::from(event.position.x), f64::from(event.position.y));
+            if pending.crop_modern_create {
+                if let Some(start) = canvas_doc_coords_free(
+                    crop_pointer_screen_point(pending.start_screen),
+                    bounds,
+                    doc_size,
+                    camera,
+                ) {
+                    pending.start = start;
+                }
+                if !pending.crop_modern_drag_started {
+                    if !modern_crop_drag_started(pending) {
+                        return;
+                    }
+                    pending.crop_modern_drag_started = true;
+                }
+            } else if pending.crop_pasteboard && !crop_replacement_drag_started(pending) {
+                return;
+            }
+            if pending.crop_pasteboard
+                && !pending.crop_modern_create
+                && (pending.last.0 == pending.start.0 || pending.last.1 == pending.start.1)
+            {
+                return;
+            }
+            if pending.crop_pasteboard && !pending.crop_modern_create {
+                pending.crop_replacement_started = true;
+            }
             if pending.tool == ToolId::Gradient {
                 let dx = x - pending.start.0;
                 let dy = y - pending.start.1;
@@ -379,8 +633,56 @@ impl App {
                     angle: (degrees * 10.0).round() / 10.0,
                 });
             }
-            let (px, py, pw, ph) = gesture_rect(pending);
-            let preview = [px, py, pw, ph];
+            let preview = if pending.crop_modern_create {
+                let mut preview = [
+                    pending.start.0.min(pending.last.0),
+                    pending.start.1.min(pending.last.1),
+                    (pending.last.0 - pending.start.0).abs(),
+                    (pending.last.1 - pending.start.1).abs(),
+                ];
+                let guides = if event.modifiers.alt || !self.state.read(cx).snap_enabled {
+                    Vec::new()
+                } else if let Some(targets) = &pending.crop_snap_targets {
+                    let Some(viewport) = bounds.get() else {
+                        return;
+                    };
+                    let viewport_doc_origin = (
+                        (pending.start_screen.0 - f64::from(viewport.origin.x)) / snap_zoom
+                            - pending.start.0,
+                        (pending.start_screen.1 - f64::from(viewport.origin.y)) / snap_zoom
+                            - pending.start.1,
+                    );
+                    let mut snap_preview = preview;
+                    snap_preview[0] += viewport_doc_origin.0;
+                    snap_preview[1] += viewport_doc_origin.1;
+                    let (snapped, guides) = crate::crop_geometry::snap_crop_creation(
+                        snap_preview,
+                        targets,
+                        12.0 / snap_zoom,
+                    );
+                    preview = snapped;
+                    preview[0] -= viewport_doc_origin.0;
+                    preview[1] -= viewport_doc_origin.1;
+                    guides
+                } else {
+                    Vec::new()
+                };
+                self.snap_guides = guides;
+                pending.crop_modern_preview = Some(preview);
+                preview
+            } else if pending.tool == ToolId::Crop {
+                let state = self.state.read(cx);
+                crate::crop_geometry::drag_create(
+                    pending.start,
+                    pending.last,
+                    (!pending.crop_pasteboard)
+                        .then(|| crate::app::crop::crop_resize_ratio(state))
+                        .flatten(),
+                )
+            } else {
+                let (x, y, width, height) = gesture_rect(pending);
+                [x, y, width, height]
+            };
             match pending.tool {
                 ToolId::Selection => {
                     self.state
@@ -388,8 +690,17 @@ impl App {
                     cx.notify();
                 }
                 ToolId::Crop => {
-                    self.state
-                        .update(cx, |state, _| state.crop_rect = Some(preview));
+                    let classic_crop_pasteboard =
+                        pending.crop_pasteboard && !pending.crop_modern_create;
+                    if !pending.crop_modern_create {
+                        self.state.update(cx, |state, _| {
+                            state.crop_rect = Some(preview);
+                            if classic_crop_pasteboard {
+                                state.crop_hidden_preview = None;
+                                state.crop_rotation = 0.0;
+                            }
+                        });
+                    }
                     cx.notify();
                 }
                 _ => {}
@@ -453,7 +764,8 @@ impl App {
         }
         if (tool == ToolId::Crop && self.state.read(cx).crop_rect.is_some()) || tool == ToolId::Move
         {
-            let rotate = tool == ToolId::Move && policy == CursorPolicy::Rotate;
+            let rotate =
+                matches!(tool, ToolId::Crop | ToolId::Move) && policy == CursorPolicy::Rotate;
             let direction = if rotate {
                 self.rotate_cursor_direction(cx).unwrap_or(0)
             } else {
@@ -480,6 +792,11 @@ impl App {
             (doc_w, doc_h),
             self.active_camera(),
         )?;
+        if self.state.read(cx).active_tool == ToolId::Crop {
+            let rect = self.state.read(cx).crop_rect?;
+            let center = (rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0);
+            return Some(crate::app::cursor::direction_bucket(center, (x, y)));
+        }
         let (_, layer) = self.selected_layer_for_cursor(cx).ok()?;
         let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
         let center =
@@ -519,7 +836,7 @@ impl App {
         self.native_ring_active = false;
         let tool = self.state.read(cx).active_tool;
         let policy = self.canvas_cursor_policy(cx);
-        let rotate = tool == ToolId::Move && policy == CursorPolicy::Rotate;
+        let rotate = matches!(tool, ToolId::Crop | ToolId::Move) && policy == CursorPolicy::Rotate;
         let direction = if rotate {
             self.rotate_cursor_direction(cx).unwrap_or(0)
         } else {
@@ -551,7 +868,7 @@ impl App {
         {
             return !cfg!(windows);
         }
-        if tool == ToolId::Move
+        if matches!(tool, ToolId::Crop | ToolId::Move)
             && policy == CursorPolicy::Rotate
             && !crate::app::cursor::native_rotate_available()
         {
@@ -650,14 +967,12 @@ impl App {
             return;
         }
         if let Some(drag) = self.crop_drag.take() {
-            let changed = self
-                .state
-                .read(cx)
-                .crop_rect
-                .is_some_and(|rect| rect != drag.start_rect);
+            self.snap_guides.clear();
+            let changed = crate::app::crop::crop_snapshot(self.state.read(cx))
+                .is_some_and(|snapshot| snapshot != drag.start_snapshot);
             if changed {
                 self.state.update(cx, |state, _| {
-                    state.crop_history.push(drag.start_rect);
+                    state.crop_history.push(drag.start_snapshot);
                     state.crop_redo.clear();
                 });
             }
@@ -670,25 +985,59 @@ impl App {
             return;
         }
         let camera = self.active_camera();
-        let mapped = canvas_doc_coords(event.position, bounds, doc_size, camera);
+        let pending_crop_free_coordinates = self
+            .pending_gesture
+            .as_ref()
+            .is_some_and(|pending| pending.crop_pasteboard || pending.crop_modern_create);
+        let mapped = if pending_crop_free_coordinates {
+            canvas_doc_coords_free(event.position, bounds, doc_size, camera)
+        } else {
+            canvas_doc_coords(event.position, bounds, doc_size, camera)
+        };
         let inside_surface = bounds
             .get()
             .map(|surface| surface.contains(&event.position))
             .unwrap_or(false);
-        if let Some((x, y)) = mapped {
-            if let Some(pending) = self.pending_gesture.as_mut() {
-                pending.last = (x, y);
+        if let Some(pending) = self.pending_gesture.as_mut() {
+            if pending.crop_modern_create {
+                pending.shift = event.modifiers.shift;
+                if pending.crop_modern_drag_started
+                    && let (Some(start), Some(end)) = (
+                        canvas_doc_coords_free(
+                            crop_pointer_screen_point(pending.start_screen),
+                            bounds,
+                            doc_size,
+                            camera,
+                        ),
+                        canvas_doc_coords_free(
+                            crop_pointer_screen_point(pending.last_screen),
+                            bounds,
+                            doc_size,
+                            camera,
+                        ),
+                    )
+                {
+                    pending.start = start;
+                    pending.last = end;
+                }
+            } else {
+                pending.last_screen = (f64::from(event.position.x), f64::from(event.position.y));
+                if let Some((x, y)) = mapped {
+                    pending.last = (x, y);
+                }
             }
-            if self.input.has_active_brush() {
-                let (x, y) = self.brush_axis_point(
-                    event.modifiers.shift,
-                    Some((f32::from(event.position.x), f32::from(event.position.y))),
-                    x,
-                    y,
-                );
-                let (smooth_x, smooth_y) = self.paint_smoother.add(x, y);
-                self.input.update_brush(smooth_x, smooth_y);
-            }
+        }
+        if let Some((x, y)) = mapped
+            && self.input.has_active_brush()
+        {
+            let (x, y) = self.brush_axis_point(
+                event.modifiers.shift,
+                Some((f32::from(event.position.x), f32::from(event.position.y))),
+                x,
+                y,
+            );
+            let (smooth_x, smooth_y) = self.paint_smoother.add(x, y);
+            self.input.update_brush(smooth_x, smooth_y);
         }
         if let Some(pending) = self.pending_gesture.take() {
             // A release outside the canvas surface (a toolbar click while the

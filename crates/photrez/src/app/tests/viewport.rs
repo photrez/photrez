@@ -2,8 +2,8 @@ use super::canvas_input::tab_to_canvas;
 use super::*;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
-    point, px, Bounds, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PlatformInput, Point, ScrollDelta, ScrollEvent, ScrollSource,
+    Bounds, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput,
+    Point, ScrollDelta, ScrollEvent, ScrollSource, point, px,
 };
 use photrez_core::document::content::{SelectionShape, SelectionState};
 

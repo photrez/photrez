@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-    EnumDisplayDevicesW, GetDC, GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
-    DIB_RGB_COLORS, DISPLAY_DEVICEW, SRCCOPY,
+    BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+    DIB_RGB_COLORS, DISPLAY_DEVICEW, DeleteDC, DeleteObject, EnumDisplayDevicesW, GetDC, GetDIBits,
+    ReleaseDC, SRCCOPY, SelectObject,
 };
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
@@ -46,11 +46,7 @@ pub fn self_hwnd() -> Option<HWND> {
         EnumWindows(callback, 0);
     }
     let hwnd = SELF_HWND.load(Ordering::SeqCst);
-    if hwnd == 0 {
-        None
-    } else {
-        Some(hwnd)
-    }
+    if hwnd == 0 { None } else { Some(hwnd) }
 }
 
 /// Client area size of the window, in pixels.
@@ -82,11 +78,7 @@ fn read_dib(memdc: isize, bmp: isize, old: isize, width: i32, height: i32) -> Op
             &mut info,
             DIB_RGB_COLORS,
         );
-        if got == height {
-            Some(buffer)
-        } else {
-            None
-        }
+        if got == height { Some(buffer) } else { None }
     }
 }
 

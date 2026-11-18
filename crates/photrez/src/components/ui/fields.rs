@@ -1,14 +1,14 @@
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Div, FontWeight, TestSupportExt};
+use gpui_kit::{Div, FontWeight, TestSupportExt, div, px};
 
 use crate::icons;
 use crate::tokens::color;
 
 use super::{
-    caption, value_mono, value_sans, FIELD_H, FONT_UI, ICON_SM, INNER_GAP, LABEL_W, PAD_X, RADIUS,
-    ROW_GAP, SELECT_PAD_X, SLOT_GAP, TEXT_SM,
+    FIELD_H, FONT_UI, ICON_SM, INNER_GAP, LABEL_W, PAD_X, RADIUS, ROW_GAP, SELECT_PAD_X, SLOT_GAP,
+    TEXT_SM, caption, value_mono, value_sans,
 };
 
 /// The `NumField` / `EditableNumField` box: 24px tall, vertically centred, a
@@ -114,7 +114,7 @@ pub fn live_num_field(
         &mut gpui_kit::Context<crate::app::App>,
     ),
     cx: &Context<crate::app::App>,
-) -> impl IntoElement {
+) -> impl IntoElement + use<> {
     let text = match editing {
         Some("") => "|".to_string(),
         Some(buffer) => format!("{buffer}|"),

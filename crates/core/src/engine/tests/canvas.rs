@@ -308,6 +308,31 @@ fn apply_crop_with_rotation_and_target_matches_the_worked_numbers() {
 }
 
 #[test]
+fn apply_crop_rotation_turns_the_layer_the_other_way() {
+    let mut e = DocumentCore::new();
+    e.seed_layers(vec![mk("A", 0.0, 0.0, 100.0, 100.0)], 0);
+
+    e.apply(env(Command::ApplyCrop {
+        x: 0.0,
+        y: 0.0,
+        width: 100.0,
+        height: 100.0,
+        rotation: Some(30.0),
+        target_width: None,
+        target_height: None,
+        delete_cropped_pixels: false,
+        fill_background: None,
+    }))
+    .unwrap();
+
+    // The layer rotation is clockwise-positive (the transform drag adds the
+    // pointer's clockwise turn), and the crop turns the content the other
+    // way, so a crop rotation of 30 degrees leaves the layer at -30.
+    let a = layer_by(&e, "A");
+    assert!(close(a.rotation, -30.0), "rot {}", a.rotation);
+}
+
+#[test]
 fn apply_crop_half_target_pair_rejects() {
     let mut e = DocumentCore::new();
     e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
@@ -350,6 +375,100 @@ fn apply_crop_non_finite_rotation_rejects() {
     assert_eq!(e.version(), 0);
     assert_eq!(e.doc_size(), None);
     assert_eq!(e.snapshot().layers, snap_before.layers);
+}
+
+#[test]
+fn apply_crop_non_finite_target_rejects_before_mutation() {
+    for (target_width, target_height) in [
+        (f64::NAN, 200.0),
+        (f64::INFINITY, 200.0),
+        (f64::NEG_INFINITY, 200.0),
+        (200.0, f64::NAN),
+        (200.0, f64::INFINITY),
+        (200.0, f64::NEG_INFINITY),
+    ] {
+        let mut e = DocumentCore::new();
+        e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
+        let snap_before = e.snapshot();
+
+        let res = e.apply(env(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+            rotation: None,
+            target_width: Some(target_width),
+            target_height: Some(target_height),
+            delete_cropped_pixels: false,
+            fill_background: None,
+        }));
+
+        assert!(
+            res.is_err(),
+            "accepted target {target_width}x{target_height}"
+        );
+        assert_eq!(res.unwrap_err().code, "E_INVALID");
+        assert!(e.entries.is_empty());
+        assert_eq!(e.version(), 0);
+        assert_eq!(e.doc_size(), None);
+        assert_eq!(e.snapshot().layers, snap_before.layers);
+    }
+}
+
+#[test]
+fn apply_crop_oversized_output_rejects_before_mutation() {
+    for (width, height, target_width, target_height) in [
+        (100.0, 100.0, Some(16_385.0), Some(200.0)),
+        (100.0, 100.0, Some(200.0), Some(16_385.0)),
+        (16_385.0, 100.0, None, None),
+    ] {
+        let mut e = DocumentCore::new();
+        e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
+        let snap_before = e.snapshot();
+
+        let res = e.apply(env(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+            rotation: None,
+            target_width,
+            target_height,
+            delete_cropped_pixels: false,
+            fill_background: None,
+        }));
+
+        assert!(
+            res.is_err(),
+            "accepted output {width}x{height} -> {target_width:?}x{target_height:?}"
+        );
+        assert_eq!(res.unwrap_err().code, "E_INVALID");
+        assert!(e.entries.is_empty());
+        assert_eq!(e.version(), 0);
+        assert_eq!(e.doc_size(), None);
+        assert_eq!(e.snapshot().layers, snap_before.layers);
+    }
+}
+
+#[test]
+fn apply_crop_accepts_output_at_the_maximum_edge() {
+    let mut e = DocumentCore::new();
+    e.seed_layers(vec![mk("A", 0.0, 0.0, 50.0, 50.0)], 0);
+
+    e.apply(env(Command::ApplyCrop {
+        x: 0.0,
+        y: 0.0,
+        width: 100.0,
+        height: 100.0,
+        rotation: None,
+        target_width: Some(16_384.0),
+        target_height: Some(16_384.0),
+        delete_cropped_pixels: false,
+        fill_background: None,
+    }))
+    .expect("the maximum output edge is inclusive");
+
+    assert_eq!(e.doc_size(), Some((16_384.0, 16_384.0)));
 }
 
 #[test]

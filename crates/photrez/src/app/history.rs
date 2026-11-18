@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use gpui_kit::{Context, RenderImage};
-use photrez_core::protocol::{Command, CommandEnvelope, PixelPatchHandoff, CONTRACT_VERSION};
+use photrez_core::protocol::{CONTRACT_VERSION, Command, CommandEnvelope, PixelPatchHandoff};
 
 use super::App;
 

@@ -52,10 +52,12 @@ fn text_click_opens_an_editor_and_typing_commits_to_the_layer(cx: &mut gpui_kit:
             Some("hi"),
             "the typed text is committed to the layer"
         );
-        assert!(content
-            .read(cx)
-            .active_document_save_state_for_test()
-            .is_some_and(|(_, _, dirty)| dirty));
+        assert!(
+            content
+                .read(cx)
+                .active_document_save_state_for_test()
+                .is_some_and(|(_, _, dirty)| dirty)
+        );
     })
     .expect("test window remains open");
 }
@@ -325,6 +327,70 @@ fn double_clicking_a_text_layer_opens_its_editor(cx: &mut gpui_kit::TestAppConte
             content.read(cx).text_edit_content_for_test(cx).as_deref(),
             Some("a"),
             "double-click opens the layer's editor"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// The reference starts a text edit from the layer row, not a rename: a
+/// double-click on a text layer's name in the Layers panel opens its editor.
+#[gpui_kit::test]
+fn double_clicking_a_text_layer_row_opens_its_editor(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Text, 1.0);
+        window.render_frame(cx);
+        let (w, h, _) = pixels(&content, cx);
+        drag_doc(window, (w, h), (0.5, 0.5), (0.5, 0.5), cx);
+        tab_to_canvas(window, cx);
+        window.press("a", cx);
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .layer_flags
+                .iter()
+                .any(|flags| flags.is_text),
+            "the projection marks the text layer so its row shows the T badge"
+        );
+
+        assert!(
+            window.find("layer-text-badge").visible(),
+            "the text layer's row paints the accent T badge"
+        );
+
+        let row_id = content.read(cx).state_for_test().read(cx).selected_layer;
+        window.double_click(format!("layer-name-{row_id}"), cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).active_tool,
+            ToolId::Text,
+            "the row double-click selects the Text tool"
+        );
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("a"),
+            "the row double-click opens the text layer's editor"
+        );
+        content.update(cx, |app, cx| {
+            let _ = app.commit_text_edit(cx);
+        });
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+
+        window.double_click("layer-text-thumb", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            content.read(cx).text_edit_content_for_test(cx).as_deref(),
+            Some("a"),
+            "the thumbnail double-click opens the same editor"
         );
     })
     .expect("test window remains open");

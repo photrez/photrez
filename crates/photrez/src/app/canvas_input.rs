@@ -20,16 +20,29 @@ use photrez_core::protocol::{Command, TransformPatch};
 use photrez_core::raster::paint::raster::RasterTip;
 use photrez_core::raster::tile::TilePatch;
 
-use super::transform_move::TransformDragUpdate;
 use super::App;
+use super::transform_move::TransformDragUpdate;
 use crate::input_policy::{
-    brush, BrushTarget, CursorContext, CursorPolicy, PaintTarget, PendingGesture,
+    BrushTarget, CursorContext, CursorPolicy, PaintTarget, PendingGesture, brush,
 };
 use crate::state::{SelectionShape, ToolId};
 
-/// The selected layer's transform record as the properties panel reads it:
-/// (layer id, x, y, scale-x, scale-y, rotation, flip-h, flip-v).
-type ActiveLayerTransform = (String, f64, f64, f64, f64, f64, bool, bool);
+fn crop_replacement_drag_started(pending: &PendingGesture) -> bool {
+    let dx = pending.last_screen.0 - pending.start_screen.0;
+    let dy = pending.last_screen.1 - pending.start_screen.1;
+    dx * dx + dy * dy >= 9.0
+}
+
+fn modern_crop_drag_started(pending: &PendingGesture) -> bool {
+    let dx = (pending.last_screen.0 - pending.start_screen.0).abs();
+    let dy = (pending.last_screen.1 - pending.start_screen.1).abs();
+    dx >= 5.0 || dy >= 5.0
+}
+
+fn crop_canvas_click_within_restore_tolerance(pending: &PendingGesture) -> bool {
+    (pending.last.0 - pending.start.0).abs() <= 2.0
+        && (pending.last.1 - pending.start.1).abs() <= 2.0
+}
 
 #[derive(Clone, PartialEq, Debug, gpui_kit::Action)]
 #[action(namespace = photrez, no_json)]
@@ -91,6 +104,48 @@ impl App {
         self.state.read(cx).active_dialog.is_some() || self.state.read(cx).loading.is_some()
     }
 
+    pub(crate) fn cancel_crop_gesture(&mut self, cx: &mut Context<Self>) -> bool {
+        let crop_drag = self.crop_drag.take();
+        let pending_crop = self
+            .pending_gesture
+            .as_ref()
+            .is_some_and(|gesture| gesture.tool == ToolId::Crop);
+        let pending_crop_start = pending_crop
+            .then(|| {
+                self.pending_gesture
+                    .take()
+                    .and_then(|gesture| gesture.crop_start)
+            })
+            .flatten();
+        if crop_drag.is_none() && !pending_crop {
+            if self.state.read(cx).active_tool == ToolId::Crop {
+                self.snap_guides.clear();
+                self.cancel_crop(cx);
+                return true;
+            }
+            return false;
+        }
+        self.snap_guides.clear();
+        self.stop_edge_scroll();
+        self.input.cancel();
+        self.state.update(cx, |state, _| {
+            state.hud = None;
+            state.gradient_badge = None;
+            state.crop_hidden_preview = None;
+            if let Some(drag) = crop_drag {
+                crate::app::crop::restore_crop_snapshot(state, drag.start_snapshot);
+            } else if let Some(snapshot) = pending_crop_start {
+                crate::app::crop::restore_crop_snapshot(state, snapshot);
+            } else {
+                state.crop_rect = None;
+                state.crop_offset = (0.0, 0.0);
+                state.crop_rotation = 0.0;
+            }
+        });
+        cx.notify();
+        true
+    }
+
     /// Drop any in-flight canvas gesture before the active tool changes.
     pub(crate) fn cancel_canvas_gesture(&mut self, cx: &mut Context<Self>) {
         self.stop_edge_scroll();
@@ -108,13 +163,19 @@ impl App {
         if had_brush || had_preview || had_crop_drag || self.pending_gesture.is_some() {
             self.input.cancel();
             self.pending_gesture = None;
+            if tool == ToolId::Crop {
+                self.snap_guides.clear();
+            }
             self.state.update(cx, |state, _| {
                 state.selection_drag = None;
                 state.gradient_badge = None;
                 if tool == ToolId::Crop {
                     state.crop_rect = None;
+                    state.crop_hidden_preview = None;
                     state.crop_history.clear();
                     state.crop_redo.clear();
+                    state.crop_offset = (0.0, 0.0);
+                    state.crop_rotation = 0.0;
                 }
             });
             if had_brush {
@@ -125,6 +186,9 @@ impl App {
     }
 
     fn finish_pointer_gesture(&mut self, pending: PendingGesture, cx: &mut Context<Self>) {
+        if pending.crop_modern_create {
+            self.snap_guides.clear();
+        }
         self.state.update(cx, |state, _| {
             state.selection_drag = None;
             state.gradient_badge = None;
@@ -135,11 +199,76 @@ impl App {
                 self.apply_selection(rect, cx)
             }
             ToolId::Crop => {
-                let (x, y, w, h) = gesture_rect(&pending);
-                self.state
-                    .update(cx, |state, _| state.crop_rect = Some([x, y, w, h]));
-                cx.notify();
-                Ok(())
+                let classic = self.state.read(cx).crop_interaction
+                    == crate::crop_geometry::CropInteraction::Classic;
+                let canvas_click = crop_canvas_click_within_restore_tolerance(&pending);
+                if pending.crop_modern_create {
+                    if pending.crop_modern_drag_started {
+                        let (start, end) = pending
+                            .crop_modern_preview
+                            .map_or((pending.start, pending.last), |[x, y, width, height]| {
+                                ((x, y), (x + width, y + height))
+                            });
+                        self.create_modern_crop_from_drag(start, end, pending.shift, cx)
+                    } else if pending.crop_start.is_none() {
+                        self.create_default_modern_crop(cx)
+                    } else {
+                        Ok(())
+                    }
+                } else if pending.crop_pasteboard {
+                    if pending.crop_replacement_started || crop_replacement_drag_started(&pending) {
+                        Ok(())
+                    } else {
+                        self.state.update(cx, |state, _| {
+                            if let Some(snapshot) = pending.crop_start {
+                                state.crop_hidden_preview = Some(snapshot);
+                                state.crop_rect = None;
+                                state.crop_rotation = 0.0;
+                            }
+                        });
+                        cx.notify();
+                        Ok(())
+                    }
+                } else if classic
+                    && pending.crop_start.is_none()
+                    && canvas_click
+                    && let Ok((doc_w, doc_h)) = self.active_document_size()
+                {
+                    if let (Some((viewport_w, viewport_h)), Some(mut camera)) =
+                        (self.viewport_size(), self.effective_camera())
+                    {
+                        camera.center_on(
+                            (doc_w / 2.0) as f32,
+                            (doc_h / 2.0) as f32,
+                            viewport_w,
+                            viewport_h,
+                        );
+                        self.set_camera(camera, cx);
+                    }
+                    self.state.update(cx, |state, _| {
+                        if let Some(snapshot) = state.crop_hidden_preview.take() {
+                            crate::app::crop::restore_crop_snapshot(state, snapshot);
+                        } else {
+                            state.crop_rect = Some([0.0, 0.0, doc_w, doc_h]);
+                            state.crop_offset = (0.0, 0.0);
+                            state.crop_rotation = 0.0;
+                        }
+                    });
+                    cx.notify();
+                    Ok(())
+                } else {
+                    let ratio = crate::app::crop::crop_resize_ratio(self.state.read(cx));
+                    let frame =
+                        crate::crop_geometry::drag_create(pending.start, pending.last, ratio);
+                    self.state.update(cx, |state, _| {
+                        state.crop_rect = Some(frame);
+                        state.crop_hidden_preview = None;
+                        state.crop_offset = (0.0, 0.0);
+                        state.crop_rotation = 0.0;
+                    });
+                    cx.notify();
+                    Ok(())
+                }
             }
             ToolId::Shape => self.apply_shape(pending.start, pending.last, cx),
             ToolId::Gradient => self.apply_gradient(pending.start, pending.last, cx),
@@ -221,6 +350,123 @@ impl App {
         cx.notify();
     }
 
+    /// Reorder one row relative to another, landing it above or below the
+    /// target row, without using the target row's identity. This is what the
+    /// panel drop handler calls after it has resolved the pointer against the
+    /// row's bounds and the Background clamp.
+    pub(crate) fn reorder_layer_with_position(
+        &mut self,
+        from_row: u64,
+        to_row: u64,
+        position: crate::app::cross_doc::InsertPosition,
+        cx: &mut Context<Self>,
+    ) {
+        let (source_index, target_index, is_background_after_target, length) = {
+            let state = self.state.read(cx);
+            let source_index = state.layers.iter().position(|row| row.id == from_row);
+            let target_index = state.layers.iter().position(|row| row.id == to_row);
+            let is_background_after_target =
+                target_index.map(|i| state.layer_flags.get(i).is_some_and(|f| f.is_background));
+            (
+                source_index,
+                target_index,
+                is_background_after_target,
+                state.layers.len(),
+            )
+        };
+        let (Some(source_index), Some(target_index)) = (source_index, target_index) else {
+            cx.notify();
+            return;
+        };
+        let clamped_position = if is_background_after_target == Some(true)
+            && target_index + 1 == length
+            && matches!(position, crate::app::cross_doc::InsertPosition::Below)
+        {
+            crate::app::cross_doc::InsertPosition::Above
+        } else {
+            position
+        };
+        // The math the reference panel applies: decide against the pre-removal
+        // stack, then lean on the core's remove-then-insert contract.
+        let to_index = if source_index < target_index {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => target_index - 1,
+                crate::app::cross_doc::InsertPosition::Below => target_index,
+            }
+        } else if source_index > target_index {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => target_index,
+                crate::app::cross_doc::InsertPosition::Below => (target_index + 1).min(length - 1),
+            }
+        } else {
+            match clamped_position {
+                crate::app::cross_doc::InsertPosition::Above => source_index,
+                crate::app::cross_doc::InsertPosition::Below => (source_index + 1).min(length - 1),
+            }
+        };
+        if to_index == source_index {
+            cx.notify();
+            return;
+        }
+        self.reorder_layer_to_index(from_row, to_index, cx);
+    }
+
+    /// Same-document reorder landing at an absolute index of the stack. The
+    /// index is post-removal: the core removes the layer, then inserts it at
+    /// `to_index` (clamped to the new length).
+    fn reorder_layer_to_index(&mut self, from_row: u64, to_index: usize, cx: &mut Context<Self>) {
+        let projected = {
+            let state = self.state.read(cx);
+            state
+                .layers
+                .iter()
+                .find(|row| row.id == from_row)
+                .and_then(|row| row.core_id.clone())
+        };
+        let Some(core_id) = projected else {
+            // An unprojected demo row drives no core Reorder; reorder the UI
+            // rows directly with the same above/below index math.
+            self.state.update(cx, |state, _| {
+                if let Some(index) = state.layers.iter().position(|row| row.id == from_row) {
+                    let row = state.layers.remove(index);
+                    let index = to_index.min(state.layers.len());
+                    state.layers.insert(index, row);
+                }
+                state.selected_layer = from_row;
+            });
+            cx.notify();
+            return;
+        };
+        let selected_core = core_id.clone();
+        let result = self.active_doc_id().and_then(|doc_id| {
+            self.apply_core_command(
+                &doc_id,
+                Command::Reorder {
+                    id: core_id,
+                    to: to_index,
+                },
+                true,
+                cx,
+            )
+        });
+        match result {
+            Ok(()) => {
+                self.state.update(cx, |state, _| {
+                    if let Some(row) = state
+                        .layers
+                        .iter()
+                        .find(|row| row.core_id.as_deref() == Some(selected_core.as_str()))
+                    {
+                        state.selected_layer = row.id;
+                    }
+                });
+                self.set_status_error(None, cx);
+            }
+            Err(error) => self.set_status_error(Some(format!("Reorder: {error}")), cx),
+        }
+        cx.notify();
+    }
+
     pub(crate) fn active_doc_id(&self) -> Result<String, String> {
         self.active_document
             .as_ref()
@@ -239,21 +485,6 @@ impl App {
             .content_snapshot()
             .ok_or_else(|| "loaded content is missing".to_string())?;
         Ok((content.width, content.height))
-    }
-
-    fn active_layer_transform(&self, cx: &Context<Self>) -> Result<ActiveLayerTransform, String> {
-        let (_, layer) = self.selected_layer(cx)?;
-        let t = &layer.transform;
-        Ok((
-            layer.id.clone(),
-            t.x,
-            t.y,
-            t.scale_x,
-            t.scale_y,
-            t.rotation,
-            t.flip_h,
-            t.flip_v,
-        ))
     }
 
     /// One live rotation of the committed pixel selection about its centre.
@@ -344,84 +575,78 @@ impl App {
             };
         }
         if self.state.read(cx).active_tool == ToolId::Crop {
-            if let (Some(rect), Some(position), Some(bounds)) = (
-                self.state.read(cx).crop_rect,
-                self.hover_pos,
-                self.canvas_bounds.get(),
-            ) {
+            if self.crop_drag.as_ref().is_some_and(|drag| drag.rotate) {
+                return CursorPolicy::Rotate;
+            }
+            if let (Some(rect), Some(position)) = (self.state.read(cx).crop_rect, self.hover_pos) {
                 let (doc_w, doc_h) = self
                     .active_document
                     .as_ref()
                     .map(|document| document.canvas.dimensions())
                     .unwrap_or((1, 1));
-                if let Some((x, y)) = canvas_doc_coords(
-                    position,
-                    &self.canvas_bounds,
-                    (doc_w, doc_h),
-                    self.active_camera(),
-                ) {
-                    let _ = bounds;
-                    let zoom = self
-                        .effective_camera()
-                        .map(|camera| camera.zoom as f64)
-                        .unwrap_or(1.0);
-                    if let Some((handle, interior)) = App::crop_handle_at((x, y), rect, zoom) {
-                        if interior {
-                            return CursorPolicy::SystemDefault;
-                        }
-                        return match handle {
-                            crate::app::crop::CropHandle::Nw | crate::app::crop::CropHandle::Se => {
-                                CursorPolicy::ResizeNwse
-                            }
-                            crate::app::crop::CropHandle::Ne | crate::app::crop::CropHandle::Sw => {
-                                CursorPolicy::ResizeNesw
-                            }
-                            crate::app::crop::CropHandle::W | crate::app::crop::CropHandle::E => {
-                                CursorPolicy::ResizeEw
-                            }
-                            crate::app::crop::CropHandle::N | crate::app::crop::CropHandle::S => {
-                                CursorPolicy::ResizeNs
-                            }
-                        };
-                    }
-                }
-            }
-        }
-        if self.state.read(cx).active_tool == ToolId::Move
-            && self.state.read(cx).show_transform_controls
-        {
-            if let (Some(position), Some((doc_w, doc_h))) = (
-                self.hover_pos,
-                self.active_document
-                    .as_ref()
-                    .map(|document| document.canvas.dimensions()),
-            ) {
                 if let Some((x, y)) = canvas_doc_coords_free(
                     position,
                     &self.canvas_bounds,
                     (doc_w, doc_h),
                     self.active_camera(),
                 ) {
-                    if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                        if crate::app::transform_geometry::layer_can_transform(&layer) {
-                            let zoom = self
-                                .effective_camera()
-                                .map(|camera| camera.zoom as f64)
-                                .unwrap_or(1.0);
-                            let (frame_w, frame_h) =
-                                crate::app::transform_geometry::layer_frame_size(&layer);
-                            if let Some(handle) = crate::app::transform_geometry::detect_handle(
-                                crate::app::transform_geometry::Point { x, y },
-                                &layer.transform,
-                                frame_w,
-                                frame_h,
-                                zoom,
-                            ) {
-                                return cursor_for_handle(handle);
-                            }
+                    let zoom = self
+                        .effective_camera()
+                        .map(|camera| camera.zoom as f64)
+                        .unwrap_or(1.0);
+                    let state = self.state.read(cx);
+                    return match App::crop_pointer_target_at(
+                        (x, y),
+                        rect,
+                        zoom,
+                        state.crop_interaction,
+                        state.crop_rotation,
+                    ) {
+                        Some(crate::app::crop::CropPointerTarget::Resize(handle)) => {
+                            crop_cursor_for_handle(
+                                handle,
+                                state.crop_interaction,
+                                state.crop_rotation,
+                            )
                         }
-                    }
+                        Some(crate::app::crop::CropPointerTarget::Move) | None => {
+                            CursorPolicy::SystemDefault
+                        }
+                        Some(crate::app::crop::CropPointerTarget::Rotate) => CursorPolicy::Rotate,
+                    };
                 }
+            }
+        }
+        if self.state.read(cx).active_tool == ToolId::Move
+            && self.state.read(cx).show_transform_controls
+            && let (Some(position), Some((doc_w, doc_h))) = (
+                self.hover_pos,
+                self.active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions()),
+            )
+            && let Some((x, y)) = canvas_doc_coords_free(
+                position,
+                &self.canvas_bounds,
+                (doc_w, doc_h),
+                self.active_camera(),
+            )
+            && let Ok((_, layer)) = self.selected_layer_for_cursor(cx)
+            && crate::app::transform_geometry::layer_can_transform(&layer)
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+            if let Some(handle) = crate::app::transform_geometry::detect_handle(
+                crate::app::transform_geometry::Point { x, y },
+                &layer.transform,
+                frame_w,
+                frame_h,
+                zoom,
+            ) {
+                return cursor_for_handle(handle);
             }
         }
         let selected = self.selected_layer(cx).ok();
@@ -549,6 +774,36 @@ impl App {
             height: canonical.height,
             base_pixels: canonical.pixels.clone(),
         })
+    }
+}
+
+pub(crate) fn crop_cursor_for_handle(
+    handle: crate::app::crop::CropHandle,
+    interaction: crate::crop_geometry::CropInteraction,
+    rotation: f64,
+) -> CursorPolicy {
+    use crate::app::crop::CropHandle;
+    let base = match handle {
+        CropHandle::E => 0.0,
+        CropHandle::Se => 45.0,
+        CropHandle::S => 90.0,
+        CropHandle::Sw => 135.0,
+        CropHandle::W => 180.0,
+        CropHandle::Nw => 225.0,
+        CropHandle::N => 270.0,
+        CropHandle::Ne => 315.0,
+    };
+    let rotation = if interaction == crate::crop_geometry::CropInteraction::Classic {
+        rotation
+    } else {
+        0.0
+    };
+    let index = (((base + rotation).rem_euclid(360.0) / 45.0) + 0.5).floor() as u8 % 8;
+    match index % 4 {
+        0 => CursorPolicy::ResizeEw,
+        1 => CursorPolicy::ResizeNwse,
+        2 => CursorPolicy::ResizeNs,
+        _ => CursorPolicy::ResizeNesw,
     }
 }
 

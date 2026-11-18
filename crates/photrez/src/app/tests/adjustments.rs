@@ -14,6 +14,76 @@ fn slider_bounds(
         .expect("the adjusted track is laid out")
 }
 
+fn one_delta_drag_track(
+    window: &mut gpui_kit::Window,
+    bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
+    fraction: f32,
+    cx: &mut gpui_kit::App,
+) {
+    let y = bounds.origin.y + bounds.size.height / 2.0;
+    let start_x = bounds.origin.x + gpui_kit::px(4.0);
+    let end_x = bounds.origin.x + gpui_kit::px(f32::from(bounds.size.width) * fraction);
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: gpui_kit::point(start_x, y),
+            ..Default::default()
+        }),
+        cx,
+    );
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+            position: gpui_kit::point((start_x + end_x) / 2.0, y),
+            pressed_button: Some(gpui_kit::MouseButton::Left),
+            modifiers: gpui_kit::Modifiers::default(),
+        }),
+        cx,
+    );
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+            position: gpui_kit::point(end_x, y),
+            pressed_button: Some(gpui_kit::MouseButton::Left),
+            modifiers: gpui_kit::Modifiers::default(),
+        }),
+        cx,
+    );
+    let _ = window.dispatch_event(
+        gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+            button: gpui_kit::MouseButton::Left,
+            position: gpui_kit::point(end_x, y),
+            click_count: 1,
+            ..Default::default()
+        }),
+        cx,
+    );
+    window.render_frame(cx);
+}
+
+#[gpui_kit::test]
+fn adjustment_slider_drag_commits_exactly_one_history_entry(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.state_for_test().update(cx, |state, _| {
+                state.inspector_tab = crate::state::InspectorTab::Adjustments;
+            });
+        });
+        window.render_frame(cx);
+
+        let before = super::canvas_input::history_cursor(&content, cx);
+        let bright = slider_bounds(&content, cx, 0);
+        one_delta_drag_track(window, bright, 0.9, cx);
+        let after = super::canvas_input::history_cursor(&content, cx);
+        assert_eq!(
+            after,
+            before + 1,
+            "a full adjustment drag commits exactly one undo entry (before={before} after={after})"
+        );
+    })
+    .expect("test window remains open");
+}
+
 fn drag_track(
     window: &mut gpui_kit::Window,
     bounds: gpui_kit::Bounds<gpui_kit::Pixels>,

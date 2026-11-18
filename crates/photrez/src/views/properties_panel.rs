@@ -78,7 +78,7 @@ use crate::tokens::color;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, relative, Div, FontWeight, TestSupportExt};
+use gpui_kit::{Div, FontWeight, TestSupportExt, div, px, relative};
 
 /// The inspector dock's width at the wide breakpoint: 272 px.
 ///
@@ -133,11 +133,11 @@ const HDR_ICON: f32 = 15.0;
 /// 12.5px, medium weight — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
-// --- Static "Selected Layer" literals (single-selected-layer branch) ---
-// ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact resting
-// text; change them only with a new measurement.
-pub const LAYER_NAME: &str = "Background"; // i18n-exempt: new-document layer name
-pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
+// --- Selected Layer card: live values ---
+/// The card's live subtitle, pinned by a test in this module's `tests`.
+pub(crate) fn selected_layer_subtitle(kind: &str, width: u32, height: u32) -> String {
+    format!("{kind} layer \u{b7} {width} \u{d7} {height} px")
+}
 
 /// The wired Actions row: (test id, handler) paired with the [ACTIONS] table
 /// order. The handlers are the ones the deleted additive strip used.
@@ -156,13 +156,35 @@ pub const ACTIONS: &[(&[u8], &str)] = &[
     (icons::ROTATE_CCW, "common.reset"),
 ];
 
-pub const QUICK_ICONS: &[&[u8]] = &[icons::ALIGN_H, icons::ALIGN_V, icons::SWAP, icons::BOX];
+// The wired Quick row: (test id, icon, tooltip key) in reference order:
+// center horizontally, center vertically, fit to canvas, rotate 90\u{b0} CCW,
+// rotate 90\u{b0} CW. The tooltip keys mirror the reference's labels.
+pub const QUICK_ACTIONS: &[(&str, &[u8], &str)] = &[
+    ("prop-quick-center-h", icons::ALIGN_H, "properties.centerH"),
+    ("prop-quick-center-v", icons::ALIGN_V, "properties.centerV"),
+    (
+        "prop-quick-fit-canvas",
+        icons::MAXIMIZE,
+        "properties.fitCanvas",
+    ),
+    (
+        "prop-quick-rotate-ccw",
+        icons::ROTATE_CCW,
+        "properties.rotateCCW",
+    ),
+    (
+        "prop-quick-rotate-cw",
+        icons::ROTATE_CW,
+        "properties.rotateCW",
+    ),
+];
 
 pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (has_document, has_layers, multi) = {
@@ -185,7 +207,7 @@ pub fn render(
     } else {
         let text_selected = state.read(cx).selected_layer_type.as_deref() == Some("text");
         v_flex()
-            .child(selected_layer_section())
+            .child(selected_layer_section(state, layer_thumbs, cx))
             .when(text_selected, |el| el.child(typography_section(state, cx)))
             .child(transform::section(state, transform_readout, cx))
     };
@@ -405,11 +427,11 @@ fn canvas_property_button(
     icon: &'static [u8],
     cx: &Context<crate::app::App>,
     action: impl Fn(
-            &mut crate::app::App,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) -> Result<(), String>
-        + 'static,
+        &mut crate::app::App,
+        &mut gpui_kit::Window,
+        &mut Context<crate::app::App>,
+    ) -> Result<(), String>
+    + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
@@ -490,11 +512,11 @@ pub(super) fn canvas_action_button(
     tone: ActionTone,
     cx: &Context<crate::app::App>,
     action: impl Fn(
-            &mut crate::app::App,
-            &mut gpui_kit::Window,
-            &mut Context<crate::app::App>,
-        ) -> Result<(), String>
-        + 'static,
+        &mut crate::app::App,
+        &mut gpui_kit::Window,
+        &mut Context<crate::app::App>,
+    ) -> Result<(), String>
+    + 'static,
 ) -> impl IntoElement {
     let (fill, hover, text, icon_text) = tone.colours();
     h_flex()
@@ -567,23 +589,33 @@ pub(super) fn section_header(icon: &'static [u8], label: &str) -> Div {
     )
 }
 
-/// The layer thumbnail's frame: 34x34, 1px divider border, 3px corners, checker
-/// inside. The seeded Background layer is this view's only single-layer branch
-/// and its image is the white 800x600 document, so the frame paints that
-/// swatch; checkerboard stays the fallback for a layer without pixels.
-fn layer_thumb() -> Div {
-    div()
-        .w(px(THUMB))
-        .h(px(THUMB))
-        .rounded(px(R3))
-        .border(px(1.0))
-        .border_color(color::DIVIDER)
-        .bg(color::WHITE)
-        .flex_shrink_0()
-}
-
-/// The "Selected Layer" section: header, then the bordered thumb+text box.
-fn selected_layer_section() -> Div {
+/// The "Selected Layer" section: header, then the bordered thumb+text box,
+/// fed from the app's live selection projection.
+fn selected_layer_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (name, type_label, width, height, thumb) = {
+        let s = state.read(cx);
+        let index = s
+            .layers
+            .iter()
+            .position(|row| row.id == s.selected_layer)
+            .unwrap_or(0);
+        let type_label = match s.selected_layer_type.as_deref() {
+            Some("shape") => "Shape",
+            Some("text") => "Text",
+            _ => "Image",
+        };
+        (
+            s.active_layer_name.clone(),
+            type_label,
+            s.active_layer_width,
+            s.active_layer_height,
+            layer_thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+        )
+    };
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -606,7 +638,7 @@ fn selected_layer_section() -> Div {
                 .border_color(color::DIVIDER)
                 .bg(color::FIELD)
                 .p(px(BOX_PAD))
-                .child(layer_thumb())
+                .child(crate::views::layers::layer_thumb(thumb, false))
                 .child(
                     v_flex()
                         .flex_1()
@@ -619,7 +651,7 @@ fn selected_layer_section() -> Div {
                                 .font_weight(FontWeight(500.))
                                 .line_height(relative(1.1))
                                 .text_color(color::TEXT)
-                                .child(LAYER_NAME.to_string()),
+                                .child(name),
                         )
                         .child(
                             div()
@@ -627,7 +659,7 @@ fn selected_layer_section() -> Div {
                                 .font_family(ui::FONT_UI)
                                 .line_height(relative(1.15))
                                 .text_color(color::TEXT_DIM)
-                                .child(LAYER_SUBTITLE.to_string()),
+                                .child(selected_layer_subtitle(type_label, width, height)),
                         ),
                 ),
         )
@@ -672,7 +704,7 @@ fn status_hint(id: &'static str, message: String) -> impl IntoElement {
 fn wired_action_button(
     icon: &'static [u8],
     id: &'static str,
-    label: &str,
+    label: String,
     cx: &Context<crate::app::App>,
     action: ActionHandler,
 ) -> impl IntoElement {
@@ -718,9 +750,31 @@ fn wired_action_button(
         )
 }
 
-/// Same chrome, icon only — a 14px glyph, no label.
-fn icon_button(icon: &'static [u8]) -> Div {
-    div()
+/// The Quick-row button: a 14px glyph, icon only. Hover publishes the
+/// tooltip key through the shared live-tooltip state; a disabled button has
+/// the dimmed look and no click affordance, like the option bar's locked
+/// controls.
+#[allow(clippy::too_many_arguments)]
+fn quick_action_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    id: &'static str,
+    icon: &'static [u8],
+    tooltip: String,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    action: ActionHandler,
+) -> impl IntoElement {
+    let shown = {
+        let s = state.read(cx);
+        s.tooltip.as_deref() == Some(id)
+            && s.tooltip_since.is_some_and(|since| {
+                cx.background_executor().now().duration_since(since) >= crate::app::TOOLTIP_DELAY
+            })
+    };
+    let hover_id = id.to_string();
+    let mut button = div()
+        .id(id)
+        .test_support()
         .flex_1()
         .min_w(px(0.0))
         .overflow_hidden()
@@ -733,12 +787,54 @@ fn icon_button(icon: &'static [u8]) -> Div {
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(8.0))
+        .aria_label(tooltip.clone())
+        .on_hover(cx.listener(move |app, hovered: &bool, _window, cx| {
+            app.set_tooltip(
+                if *hovered {
+                    Some(hover_id.clone())
+                } else {
+                    None
+                },
+                cx,
+            );
+        }))
         .child(
             Icon::default()
                 .data(icon)
                 .size(px(14.0))
                 .text_color(color::TEXT_DIM),
-        )
+        );
+    if enabled {
+        button = button.on_click(
+            cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, _window, cx| match action(app, cx) {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                },
+            ),
+        );
+    } else {
+        button = button.opacity(0.3);
+    }
+    let tip = tooltip;
+    let mut wrapper = h_flex()
+        .id(format!("{id}-hover"))
+        .relative()
+        .flex_1()
+        .min_w(px(0.0))
+        .items_center()
+        .child(button);
+    if shown {
+        wrapper = wrapper.child(
+            crate::views::tooltips::tooltip(&tip, None)
+                .id(format!("{id}-tooltip"))
+                .test_support()
+                .absolute()
+                .bottom(px(BTN + 6.0))
+                .left(px(0.0)),
+        );
+    }
+    wrapper
 }
 
 use multi_layer::*;

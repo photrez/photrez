@@ -2,10 +2,11 @@
 //!
 //! Owns the application composition shared by every entry point:
 //!
-//!   1. `gpui_kit::application().run(...)` -> `gpui_kit::init(cx)` before any
+//!   1. `gpui_kit::application().run(...)` -> merge the toolkit catalog and
+//!      settle the startup locale, then `gpui_kit::init(cx)` before any
 //!      control is constructed.
-//!   2. Settle the startup locale: stored preference, then the OS locale,
-//!      then `en` (`i18n::initial_locale`).
+//!   2. The startup locale: stored preference, then the OS locale, then `en`
+//!      (`i18n::initial_locale`).
 //!   3. Register the bundled UI and document fonts.
 //!   4. Open the main window on [`app::App`].
 //!
@@ -19,6 +20,7 @@
 pub mod app;
 pub mod components;
 pub(crate) mod crop_aspect;
+pub(crate) mod crop_geometry;
 pub mod display;
 pub mod i18n;
 pub mod icons;
@@ -31,7 +33,9 @@ pub mod tokens;
 pub mod units;
 pub mod views;
 
-use gpui_kit::{px, size, App, AppContext, TitlebarOptions, WindowBounds, WindowOptions};
+rust_i18n::i18n!("locales", fallback = "en");
+
+use gpui_kit::{App, AppContext, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -143,7 +147,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
 #[allow(unsafe_code)] // SAFETY: one SystemParametersInfoW call that writes the ANIMATIONINFO it is given a pointer to.
 fn system_animations_enabled() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, ANIMATIONINFO, SPI_GETANIMATION,
+        ANIMATIONINFO, SPI_GETANIMATION, SystemParametersInfoW,
     };
     let mut info = ANIMATIONINFO {
         cbSize: std::mem::size_of::<ANIMATIONINFO>() as u32,
@@ -165,6 +169,24 @@ fn system_animations_enabled() -> bool {
     true
 }
 
+/// Wires catalogs, sets startup locale, then initializes GPUI Kit.
+/// Shared by production startup, tests, and measurement hosts.
+///
+/// A test mount must not reset the process-wide locale: the harness mounts
+/// many apps, and the locale tests own that global behind the shared lock.
+/// The startup locale is therefore settled outside the test build only.
+pub fn init_gpui_host(
+    cx: &mut gpui_kit::App,
+    store: Option<&dyn services::settings::SettingsStore>,
+) {
+    i18n::wire_component_catalog();
+    #[cfg(not(test))]
+    i18n::set_locale(i18n::initial_locale(store));
+    #[cfg(test)]
+    let _ = store;
+    gpui_kit::init(cx);
+}
+
 /// Runs the application: toolkit init, locale, fonts, and the main window.
 ///
 /// This is the only startup path. `main.rs` calls it; tests and measurement
@@ -181,23 +203,23 @@ pub fn run() {
         shot::set_pan(x, y);
     }
     let open_path = startup_args.open_path;
-    gpui_kit::application().run(|cx: &mut App| {
-        gpui_kit::init(cx);
+    let settings = services::settings::FileSettings::user_default();
+    gpui_kit::application().run(move |cx: &mut App| {
+        // The toolkit catalog merges before the toolkit reads a string, and the
+        // locale settles before any control renders. Both run ahead of
+        // `gpui_kit::init`, which is the order the toolkit documents.
+        init_gpui_host(
+            cx,
+            settings
+                .as_ref()
+                .map(|store| store as &dyn services::settings::SettingsStore),
+        );
 
         // A `--shot` launch must never catch a dialog half-faded, and a user
         // who told the OS they do not want animation gets a static interface.
         // With the flag set the runtime paints each animation's settled state
         // and schedules no animation frames at all.
         cx.set_reduce_motion(shot::active().is_some() || !system_animations_enabled());
-
-        // Settle the locale before any control reads a string: the whole
-        // window tree renders from the catalog (`i18n/`).
-        let settings = services::settings::FileSettings::user_default();
-        i18n::set_locale(i18n::initial_locale(
-            settings
-                .as_ref()
-                .map(|store| store as &dyn services::settings::SettingsStore),
-        ));
 
         // Rasterise the logo once, before any window opens. `title_bar::init`
         // fills the `LOGO_IMAGE` cache that `title_bar::logo` reads per frame;
@@ -233,7 +255,14 @@ pub fn run() {
                 displays.get(index).map(|display| display.id()),
             ),
             None => (
-                WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx),
+                // Open maximized on first run, matching the legacy layout's
+                // maximized window. Keep the baseline centred rect as the
+                // restore bounds so unmaximizing returns to a usable size
+                // rather than the whole display. A saved geometry still wins,
+                // so a window the user resized last session is restored.
+                WindowBounds::Maximized(
+                    WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx).get_bounds(),
+                ),
                 None,
             ),
         };

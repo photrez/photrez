@@ -20,12 +20,12 @@ mod imp {
     use windows_sys::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
     #[cfg(not(test))]
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, DefWindowProcW, GetAncestor, GetCursorPos, SetWindowLongPtrW,
-        WindowFromPoint, GA_ROOT, GWLP_WNDPROC,
+        CallWindowProcW, DefWindowProcW, GA_ROOT, GWLP_WNDPROC, GetAncestor, GetCursorPos,
+        SetWindowLongPtrW, WindowFromPoint,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateIconFromResourceEx, LoadCursorW, SetCursor, HCURSOR, HTCLIENT, IDC_ARROW,
-        LR_DEFAULTCOLOR, LR_DEFAULTSIZE, WM_SETCURSOR,
+        CreateIconFromResourceEx, HCURSOR, HTCLIENT, IDC_ARROW, LR_DEFAULTCOLOR, LR_DEFAULTSIZE,
+        LoadCursorW, SetCursor, WM_SETCURSOR,
     };
 
     /// RT_CURSOR resources: one record per 22.5-degree direction. Each record is
@@ -131,6 +131,15 @@ mod imp {
 
     #[cfg(not(test))]
     fn tool_cursor_for(index: u8) -> Option<HCURSOR> {
+        if index == super::CURSOR_CROSSHAIR || index == super::CURSOR_IBEAM {
+            let id = if index == super::CURSOR_CROSSHAIR {
+                32515 // IDC_CROSS
+            } else {
+                32513 // IDC_IBEAM
+            };
+            let handle = unsafe { LoadCursorW(0, id as *const u16) };
+            return (handle != 0).then_some(handle);
+        }
         TOOL_CURSORS.get_or_init(build_tools)[usize::from(index) % TOOL_COUNT]
     }
 
@@ -204,7 +213,7 @@ mod imp {
     /// Swap the pointer for a tool icon while it is over the canvas.
     pub(super) fn set_tool_cursor(index: Option<u8>) {
         match index {
-            Some(index) if usize::from(index) < TOOL_COUNT => {
+            Some(index) if usize::from(index) < super::CURSOR_COUNT => {
                 MODE.with(|state| state.set(Mode::Tool(index)));
                 #[cfg(not(test))]
                 {
@@ -406,6 +415,12 @@ mod imp {
 pub(crate) const TOOL_EYEDROPPER: u8 = 0;
 pub(crate) const TOOL_BUCKET: u8 = 1;
 pub(crate) const TOOL_CROP: u8 = 2;
+/// System cursors served through the same SetCursor path: crosshair and
+/// I-beam, for tools whose policy is Crosshair/Text without a custom glyph.
+pub(crate) const CURSOR_CROSSHAIR: u8 = 3;
+pub(crate) const CURSOR_IBEAM: u8 = 4;
+#[cfg(windows)]
+pub(crate) const CURSOR_COUNT: usize = 5;
 #[cfg(test)]
 thread_local! {
     static LAST_REQUEST: Cell<Option<(bool, u8)>> = const { Cell::new(None) };
@@ -464,6 +479,17 @@ pub(crate) fn tool_cursor_index(
         (crate::state::ToolId::Crop, CursorPolicy::Crosshair | CursorPolicy::SystemDefault) => {
             Some(TOOL_CROP)
         }
+        // Selection/Gradient/Shape resolve to a crosshair and Text to an
+        // I-beam in the reference. These policies are otherwise left to GPUI's
+        // element cursor, which the canvas pointer surface covers, so serve
+        // the system cursor through the same SetCursor path as the tool icons.
+        (
+            crate::state::ToolId::Selection
+            | crate::state::ToolId::Gradient
+            | crate::state::ToolId::Shape,
+            CursorPolicy::Crosshair,
+        ) => Some(CURSOR_CROSSHAIR),
+        (crate::state::ToolId::Text, CursorPolicy::Text) => Some(CURSOR_IBEAM),
         _ => None,
     }
 }
@@ -574,6 +600,36 @@ mod tests {
         );
         super::set_tool_cursor(None);
         assert_eq!(super::take_tool_cursor_request_for_test(), Some(None));
+    }
+
+    /// Crosshair-policy tools and Text must request a system cursor through
+    /// the same SetCursor path as the custom tool glyphs; the canvas pointer
+    /// surface covers the div that would otherwise carry the GPUI cursor
+    /// style, so without this the OS pointer stays an arrow.
+    #[test]
+    fn crosshair_and_text_tools_request_system_cursors() {
+        use crate::input_policy::CursorPolicy;
+        use crate::state::ToolId;
+        assert_eq!(
+            super::tool_cursor_index(ToolId::Selection, CursorPolicy::Crosshair),
+            Some(super::CURSOR_CROSSHAIR)
+        );
+        assert_eq!(
+            super::tool_cursor_index(ToolId::Gradient, CursorPolicy::Crosshair),
+            Some(super::CURSOR_CROSSHAIR)
+        );
+        assert_eq!(
+            super::tool_cursor_index(ToolId::Shape, CursorPolicy::Crosshair),
+            Some(super::CURSOR_CROSSHAIR)
+        );
+        assert_eq!(
+            super::tool_cursor_index(ToolId::Text, CursorPolicy::Text),
+            Some(super::CURSOR_IBEAM)
+        );
+        assert_eq!(
+            super::tool_cursor_index(ToolId::Move, CursorPolicy::SystemDefault),
+            None
+        );
     }
 
     #[cfg(windows)]

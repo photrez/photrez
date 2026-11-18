@@ -8,7 +8,7 @@
 //! document identity reaches this package: `photrez-core` owns the registry, the
 //! document store, and the byte accounting that bind them, and core may use
 //! `photrez-raster`, never the reverse. The application may not depend on this
-//! package: `scripts/check-package-boundaries.sh` keeps `photrez` on `photrez-core`.
+//! package: `deny.toml` keeps `photrez` on `photrez-core`.
 
 pub mod brush;
 pub mod kernel;

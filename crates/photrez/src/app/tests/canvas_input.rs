@@ -4,8 +4,8 @@ use crate::input_policy::PendingGesture;
 use crate::state::{SelectionShape, ToolId};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
-    point, px, Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    PlatformInput, Point,
+    Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput,
+    Point, point, px,
 };
 use photrez_core::document::content::LayerType;
 
@@ -224,8 +224,10 @@ pub(super) fn layer_rows(
 
 pub(super) fn select_layer(content: &Entity<App>, cx: &mut gpui_kit::App, row_id: u64) {
     content.update(cx, |app, cx| {
-        app.state_for_test()
-            .update(cx, |state, _| state.selected_layer = row_id);
+        app.state_for_test().update(cx, |state, _| {
+            state.selected_layer = row_id;
+            state.selected_layers = vec![row_id];
+        });
     });
 }
 

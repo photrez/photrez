@@ -15,24 +15,23 @@ impl App {
         use photrez_core::document::content::SelectionShape as CoreSelectionShape;
         let mut overlay = CanvasOverlay::default();
         let mut selection_inverted = false;
-        if let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone()) {
-            if let Some(selection) = self
+        if let Some(doc_id) = self.active_document.as_ref().map(|doc| doc.doc_id.clone())
+            && let Some(selection) = self
                 .sessions
                 .get(&doc_id)
                 .and_then(|session| session.loaded_document().content_snapshot())
                 .and_then(|content| content.selection.clone())
-            {
-                overlay.selection = Some(crate::display::canvas_bridge::SelectionOverlay {
-                    x: selection.x,
-                    y: selection.y,
-                    w: selection.width,
-                    h: selection.height,
-                    ellipse: matches!(selection.shape, Some(CoreSelectionShape::Ellipse)),
-                    angle: selection.angle,
-                    edit_mode: false,
-                });
-                selection_inverted = selection.inverted.unwrap_or(false);
-            }
+        {
+            overlay.selection = Some(crate::display::canvas_bridge::SelectionOverlay {
+                x: selection.x,
+                y: selection.y,
+                w: selection.width,
+                h: selection.height,
+                ellipse: matches!(selection.shape, Some(CoreSelectionShape::Ellipse)),
+                angle: selection.angle,
+                edit_mode: false,
+            });
+            selection_inverted = selection.inverted.unwrap_or(false);
         }
         let state = self.state.read(cx);
         if let Some(drag) = state.selection_drag {
@@ -46,10 +45,10 @@ impl App {
                 edit_mode: false,
             });
         }
-        if let Some(rotation) = self.selection_rotation_drag.as_ref() {
-            if let Some(selection) = overlay.selection.as_mut() {
-                selection.angle = rotation.preview_angle;
-            }
+        if let Some(rotation) = self.selection_rotation_drag.as_ref()
+            && let Some(selection) = overlay.selection.as_mut()
+        {
+            selection.angle = rotation.preview_angle;
         }
         if let Some(selection) = overlay.selection.as_mut() {
             selection.edit_mode = self.selection_edit_mode
@@ -68,71 +67,65 @@ impl App {
                 .selection
                 .as_ref()
                 .is_some_and(|selection| selection.edit_mode)
-            {
-                if let (Some(position), Some(doc_size)) = (
+                && let (Some(position), Some(doc_size)) = (
                     self.hover_pos,
                     self.active_document
                         .as_ref()
                         .map(|document| document.canvas.dimensions()),
+                )
+                && let Some(selection) = overlay.selection.as_ref()
+            {
+                let zoom = self
+                    .effective_camera()
+                    .map(|camera| camera.zoom as f64)
+                    .unwrap_or(1.0);
+                let (top_mid, normal) = crate::app::transform_geometry::selection_pin(
+                    selection.x,
+                    selection.y,
+                    selection.w,
+                    selection.h,
+                    selection.angle,
+                );
+                let pin = (
+                    top_mid.x + normal.x * 24.0 / zoom,
+                    top_mid.y + normal.y * 24.0 / zoom,
+                );
+                if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
+                    position,
+                    &self.canvas_bounds,
+                    doc_size,
+                    self.active_camera(),
                 ) {
-                    if let Some(selection) = overlay.selection.as_ref() {
-                        let zoom = self
-                            .effective_camera()
-                            .map(|camera| camera.zoom as f64)
-                            .unwrap_or(1.0);
-                        let (top_mid, normal) = crate::app::transform_geometry::selection_pin(
-                            selection.x,
-                            selection.y,
-                            selection.w,
-                            selection.h,
-                            selection.angle,
-                        );
-                        let pin = (
-                            top_mid.x + normal.x * 24.0 / zoom,
-                            top_mid.y + normal.y * 24.0 / zoom,
-                        );
-                        if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
-                            position,
-                            &self.canvas_bounds,
-                            doc_size,
-                            self.active_camera(),
-                        ) {
-                            let distance =
-                                ((x - pin.0).powi(2) + (y - pin.1).powi(2)).sqrt() * zoom;
-                            if distance < 12.0 {
-                                sprite_point = Some(position);
-                            }
-                        }
+                    let distance = ((x - pin.0).powi(2) + (y - pin.1).powi(2)).sqrt() * zoom;
+                    if distance < 12.0 {
+                        sprite_point = Some(position);
                     }
                 }
             }
-            if let (Some(position), Some(selection)) = (sprite_point, overlay.selection.as_ref()) {
-                if let Some(doc_size) = self
+            if let (Some(position), Some(selection)) = (sprite_point, overlay.selection.as_ref())
+                && let Some(doc_size) = self
                     .active_document
                     .as_ref()
                     .map(|document| document.canvas.dimensions())
-                {
-                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
-                        position,
-                        &self.canvas_bounds,
-                        doc_size,
-                        self.active_camera(),
-                    ) {
-                        let centre = crate::app::transform_geometry::Point {
-                            x: selection.x + selection.w / 2.0,
-                            y: selection.y + selection.h / 2.0,
-                        };
-                        let angle = crate::app::transform_geometry::angle_about(
-                            centre,
-                            crate::app::transform_geometry::Point { x, y },
-                        ) + 45.0;
-                        overlay.rotate_cursor =
-                            Some(crate::display::canvas_bridge::RotateCursorOverlay {
-                                position: [f32::from(position.x), f32::from(position.y)],
-                                angle: angle as f32,
-                            });
-                    }
-                }
+                && let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
+                    position,
+                    &self.canvas_bounds,
+                    doc_size,
+                    self.active_camera(),
+                )
+            {
+                let centre = crate::app::transform_geometry::Point {
+                    x: selection.x + selection.w / 2.0,
+                    y: selection.y + selection.h / 2.0,
+                };
+                let angle = crate::app::transform_geometry::angle_about(
+                    centre,
+                    crate::app::transform_geometry::Point { x, y },
+                ) + 45.0;
+                overlay.rotate_cursor = Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                    position: [f32::from(position.x), f32::from(position.y)],
+                    angle: angle as f32,
+                });
             }
         }
         // The Move tool paints the same rotate sprite on a rotate hover, so
@@ -144,58 +137,128 @@ impl App {
             && !self.space_pressed
             && !crate::app::cursor::native_rotate_available()
             && !state.overlay_owns_canvas()
-        {
-            if let (Some(position), Some(doc_size)) = (
+            && let (Some(position), Some(doc_size)) = (
                 self.hover_pos,
                 self.active_document
                     .as_ref()
                     .map(|document| document.canvas.dimensions()),
+            )
+            && let Ok((_, layer)) = self.selected_layer_for_cursor(cx)
+            && crate::app::transform_geometry::layer_can_transform(&layer)
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+            if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords_free(
+                position,
+                &self.canvas_bounds,
+                doc_size,
+                self.active_camera(),
             ) {
-                if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                    if crate::app::transform_geometry::layer_can_transform(&layer) {
-                        let zoom = self
-                            .effective_camera()
-                            .map(|camera| camera.zoom as f64)
-                            .unwrap_or(1.0);
-                        let (frame_w, frame_h) =
-                            crate::app::transform_geometry::layer_frame_size(&layer);
-                        if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords_free(
-                            position,
-                            &self.canvas_bounds,
-                            doc_size,
-                            self.active_camera(),
-                        ) {
-                            let hover = crate::app::transform_geometry::detect_handle(
-                                crate::app::transform_geometry::Point { x, y },
-                                &layer.transform,
-                                frame_w,
-                                frame_h,
-                                zoom,
-                            );
-                            if hover == Some(crate::app::transform_geometry::Handle::Rotate) {
-                                let centre = crate::app::transform_geometry::layer_center(
-                                    &layer.transform,
-                                    frame_w,
-                                    frame_h,
-                                );
-                                let angle = crate::app::transform_geometry::angle_about(
-                                    centre,
-                                    crate::app::transform_geometry::Point { x, y },
-                                ) + 45.0;
-                                overlay.rotate_cursor =
-                                    Some(crate::display::canvas_bridge::RotateCursorOverlay {
-                                        position: [f32::from(position.x), f32::from(position.y)],
-                                        angle: angle as f32,
-                                    });
-                            }
-                        }
-                    }
+                let hover = crate::app::transform_geometry::detect_handle(
+                    crate::app::transform_geometry::Point { x, y },
+                    &layer.transform,
+                    frame_w,
+                    frame_h,
+                    zoom,
+                );
+                if hover == Some(crate::app::transform_geometry::Handle::Rotate) {
+                    let centre = crate::app::transform_geometry::layer_center(
+                        &layer.transform,
+                        frame_w,
+                        frame_h,
+                    );
+                    let angle = crate::app::transform_geometry::angle_about(
+                        centre,
+                        crate::app::transform_geometry::Point { x, y },
+                    ) + 45.0;
+                    overlay.rotate_cursor =
+                        Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                            position: [f32::from(position.x), f32::from(position.y)],
+                            angle: angle as f32,
+                        });
                 }
             }
         }
-        if let Some(crop) = state.crop_rect {
+        if state.active_tool == crate::state::ToolId::Crop
+            && state.crop_rect.is_some()
+            && self.canvas_cursor_policy(cx) == crate::input_policy::CursorPolicy::Rotate
+            && self.pan.is_none()
+            && !self.space_pressed
+            && !crate::app::cursor::native_rotate_available()
+            && !state.overlay_owns_canvas()
+            && let (Some(position), Some(doc_size), Some(rect)) = (
+                self.hover_pos,
+                self.active_document
+                    .as_ref()
+                    .map(|document| document.canvas.dimensions()),
+                state.crop_rect,
+            )
+            && let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords_free(
+                position,
+                &self.canvas_bounds,
+                doc_size,
+                self.active_camera(),
+            )
+        {
+            let center = crate::app::transform_geometry::Point {
+                x: rect[0] + rect[2] / 2.0,
+                y: rect[1] + rect[3] / 2.0,
+            };
+            let angle = crate::app::transform_geometry::angle_about(
+                center,
+                crate::app::transform_geometry::Point { x, y },
+            ) + 45.0;
+            overlay.rotate_cursor = Some(crate::display::canvas_bridge::RotateCursorOverlay {
+                position: [f32::from(position.x), f32::from(position.y)],
+                angle: angle as f32,
+            });
+        }
+        let modern_crop_creation = self.pending_gesture.as_ref().filter(|gesture| {
+            gesture.tool == crate::state::ToolId::Crop
+                && gesture.crop_modern_create
+                && gesture.crop_modern_drag_started
+        });
+        if let (Some([x, y, width, height]), Some(bounds), Some(doc_size)) = (
+            modern_crop_creation.and_then(|gesture| gesture.crop_modern_preview),
+            self.canvas_bounds.get(),
+            self.active_document
+                .as_ref()
+                .map(|document| document.canvas.dimensions()),
+        ) && let Some((page_x, page_y, page_w, page_h)) =
+            crate::display::canvas_bridge::camera_placement(
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height),
+                doc_size.0 as f32,
+                doc_size.1 as f32,
+                self.active_camera(),
+            )
+        {
+            let origin_x = f64::from(f32::from(bounds.origin.x) + page_x);
+            let origin_y = f64::from(f32::from(bounds.origin.y) + page_y);
+            overlay.crop_create_preview = Some((
+                origin_x + x * f64::from(page_w) / f64::from(doc_size.0),
+                origin_y + y * f64::from(page_h) / f64::from(doc_size.1),
+                width * f64::from(page_w) / f64::from(doc_size.0),
+                height * f64::from(page_h) / f64::from(doc_size.1),
+            ));
+        }
+        if modern_crop_creation.is_none()
+            && let Some(crop) = state.crop_rect
+        {
             overlay.crop = Some((crop[0], crop[1], crop[2], crop[3]));
         }
+        overlay.crop_rotation =
+            if state.crop_interaction == crate::crop_geometry::CropInteraction::Classic {
+                state.crop_rotation
+            } else {
+                0.0
+            };
+        overlay.crop_delete_pixels = state.crop_delete_pixels;
+        overlay.crop_guides = state.crop_guides;
+        overlay.crop_preview_active = self.crop_preview_active_for_overlay(cx);
         overlay.guides = self.snap_guides.clone();
         if let Some(pending) = self
             .pending_gesture
@@ -279,57 +342,49 @@ impl App {
             && self.pending_gesture.is_none()
             && self.transform_drag.is_none()
             && self.move_marquee.is_none()
+            && let (Some(position), Some(_)) = (self.hover_pos, self.canvas_bounds.get())
         {
-            if let (Some(position), Some(_)) = (self.hover_pos, self.canvas_bounds.get()) {
-                let doc_size = self
-                    .active_document
-                    .as_ref()
-                    .map(|document| document.canvas.dimensions())
-                    .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
-                if let Some(doc_size) = doc_size {
-                    if let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
-                        position,
-                        &self.canvas_bounds,
-                        doc_size,
-                        self.active_camera(),
-                    ) {
-                        if let Some(core_id) = self.layer_hit_at(x, y) {
-                            let active_core = state
-                                .layers
-                                .iter()
-                                .find(|row| row.id == state.selected_layer)
-                                .and_then(|row| row.core_id.as_deref());
-                            if active_core != Some(core_id.as_str()) {
-                                if let Some(doc_id) = self
-                                    .active_document
-                                    .as_ref()
-                                    .map(|document| document.doc_id.clone())
-                                {
-                                    overlay.hover_highlight = self
-                                        .sessions
-                                        .get(&doc_id)
-                                        .and_then(|session| {
-                                            session.loaded_document().content_snapshot()
-                                        })
-                                        .and_then(|content| {
-                                            content
-                                                .layers
-                                                .iter()
-                                                .find(|layer| layer.id == core_id)
-                                                .map(|layer| {
-                                                    (
-                                                        layer.transform.x,
-                                                        layer.transform.y,
-                                                        layer.width * layer.transform.scale_x.abs(),
-                                                        layer.height
-                                                            * layer.transform.scale_y.abs(),
-                                                    )
-                                                })
-                                        });
-                                }
-                            }
-                        }
-                    }
+            let doc_size = self
+                .active_document
+                .as_ref()
+                .map(|document| document.canvas.dimensions())
+                .or_else(|| self.demo_canvas.as_ref().map(CanvasImage::dimensions));
+            if let Some(doc_size) = doc_size
+                && let Some((x, y)) = crate::app::canvas_input::canvas_doc_coords(
+                    position,
+                    &self.canvas_bounds,
+                    doc_size,
+                    self.active_camera(),
+                )
+                && let Some(core_id) = self.layer_hit_at(x, y)
+            {
+                let active_core = state
+                    .layers
+                    .iter()
+                    .find(|row| row.id == state.selected_layer)
+                    .and_then(|row| row.core_id.as_deref());
+                if active_core != Some(core_id.as_str())
+                    && let Some(doc_id) = self
+                        .active_document
+                        .as_ref()
+                        .map(|document| document.doc_id.clone())
+                {
+                    overlay.hover_highlight =
+                        self.sessions
+                            .get(&doc_id)
+                            .and_then(|session| session.loaded_document().content_snapshot())
+                            .and_then(|content| {
+                                content.layers.iter().find(|layer| layer.id == core_id).map(
+                                    |layer| {
+                                        (
+                                            layer.transform.x,
+                                            layer.transform.y,
+                                            layer.width * layer.transform.scale_x.abs(),
+                                            layer.height * layer.transform.scale_y.abs(),
+                                        )
+                                    },
+                                )
+                            });
                 }
             }
         }
@@ -343,16 +398,15 @@ impl App {
                 && !state.overlay_owns_canvas()
                 && self.pan.is_none()
                 && !self.space_pressed
-            {
-                if let (Some(tool_index), Some(position)) = (
+                && let (Some(tool_index), Some(position)) = (
                     crate::app::cursor::tool_cursor_index(state.active_tool, policy),
                     self.hover_pos,
-                ) {
-                    overlay.tool_cursor = Some(crate::display::canvas_bridge::ToolCursorOverlay {
-                        position: [f32::from(position.x), f32::from(position.y)],
-                        index: tool_index,
-                    });
-                }
+                )
+            {
+                overlay.tool_cursor = Some(crate::display::canvas_bridge::ToolCursorOverlay {
+                    position: [f32::from(position.x), f32::from(position.y)],
+                    index: tool_index,
+                });
             }
         }
         overlay

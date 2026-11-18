@@ -90,7 +90,7 @@
 //!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
 //!   does not derive it from adjustment values itself.
 
-use crate::app::{blend_label, BLEND_MODES};
+use crate::app::{BLEND_MODES, blend_label};
 use crate::components::ui;
 use crate::i18n::t;
 use crate::icons;
@@ -103,7 +103,7 @@ use photrez_core::protocol::LockKind;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window};
+use gpui_kit::{Context, Div, Entity, FontWeight, Hsla, Point, TestSupportExt, Window, div, px};
 
 /// LayerDock's column width: `shell-navigator` is 260 wide at x=1106 and the
 /// dock runs to the window edge.
@@ -247,7 +247,7 @@ pub fn render(
     let active = layers
         .iter()
         .zip(flags.iter())
-        .find(|(row, _)| row.id == selected)
+        .find(|(row, _)| row.id == selected && selected_layers.contains(&row.id))
         .and_then(|(row, flags)| row.core_id.clone().map(|id| (id, *flags)));
     v_flex()
         .w_full()
@@ -286,7 +286,11 @@ pub(crate) fn disabled_row_opacity() -> f32 {
 fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let (blend, opacity, active_document) = {
         let s = state.read(cx);
-        (s.layer_blend.clone(), s.layer_opacity, !s.layers.is_empty())
+        (
+            s.layer_blend.clone(),
+            s.layer_opacity,
+            !s.layers.is_empty() && !s.selected_layers.is_empty(),
+        )
     };
     let mut row = h_flex()
         .w_full()
@@ -659,11 +663,18 @@ fn lock_button(
 ///
 /// [`footer_button_states`] holds the per-button rules.
 fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
-    let (layers, selected, flags) = {
+    let (layers, selected, selected_layers, flags) = {
         let s = state.read(cx);
-        (s.layers.clone(), s.selected_layer, s.layer_flags.clone())
+        (
+            s.layers.clone(),
+            s.selected_layer,
+            s.selected_layers.clone(),
+            s.layer_flags.clone(),
+        )
     };
-    let position = layers.iter().position(|row| row.id == selected);
+    let position = layers
+        .iter()
+        .position(|row| row.id == selected && selected_layers.contains(&row.id));
     let background = position
         .and_then(|index| flags.get(index).copied())
         .is_some_and(|flags| flags.is_background);
@@ -882,6 +893,7 @@ mod tests {
             lock_position: false,
             lock_rotation: false,
             is_background: false,
+            is_text: false,
         }
     }
 
@@ -934,9 +946,11 @@ mod tests {
             ..flags()
         }));
         assert!(background.iter().all(|toggle| toggle.disabled));
-        assert!(background
-            .iter()
-            .all(|toggle| toggle.text == t("layers.renameToUnlock")));
+        assert!(
+            background
+                .iter()
+                .all(|toggle| toggle.text == t("layers.renameToUnlock"))
+        );
 
         let absent = lock_toggles(None);
         assert!(absent.iter().all(|toggle| toggle.disabled));
@@ -999,3 +1013,4 @@ mod tests {
 
 mod rows;
 use rows::layer_list;
+pub(crate) use rows::layer_thumb;

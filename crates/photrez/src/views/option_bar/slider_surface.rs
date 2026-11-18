@@ -11,10 +11,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{
-    point, px, size, AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId,
-    FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId,
-    IntoElement, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, WeakEntity, Window,
+    AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, FocusHandle,
+    GlobalElementId, Hitbox, HitboxBehavior, HitboxId, InspectorElementId, IntoElement,
+    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    WeakEntity, Window, point, px, size,
 };
 
 use crate::components::ui;
@@ -131,6 +131,15 @@ impl Element for BarSliderSurface {
                 }
                 window.release_pointer();
             }
+            if down_target == crate::state::SliderTarget::CropStraighten && event.click_count > 1 {
+                if let Some(handle) = down_focus.as_ref() {
+                    window.focus(handle, cx);
+                }
+                if let Some(app) = down_app.upgrade() {
+                    app.update(cx, |app, cx| app.set_crop_rotation(0.0, cx));
+                }
+                return;
+            }
             window.capture_pointer(down_hitbox.id);
             down_capture.set(Some(down_hitbox.id));
             if let Some(handle) = down_focus.as_ref() {
@@ -152,7 +161,15 @@ impl Element for BarSliderSurface {
         let move_target = self.target;
         let move_capture = Rc::clone(&self.capture);
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _cx| {
-            if phase != DispatchPhase::Bubble || !owns_capture(window, &move_capture) {
+            if phase != DispatchPhase::Bubble {
+                return;
+            }
+            if !owns_capture(window, &move_capture) {
+                if clear_lost_capture(window, &move_capture)
+                    && let Some(app) = move_app.upgrade()
+                {
+                    app.update(_cx, |app, cx| app.slider_pointer_up(cx));
+                }
                 return;
             }
             if let Some(app) = move_app.upgrade() {
@@ -170,7 +187,15 @@ impl Element for BarSliderSurface {
         let up_app = self.app.clone();
         let up_capture = Rc::clone(&self.capture);
         window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
-            if phase != DispatchPhase::Bubble || !owns_capture(window, &up_capture) {
+            if phase != DispatchPhase::Bubble {
+                return;
+            }
+            if !owns_capture(window, &up_capture) {
+                if clear_lost_capture(window, &up_capture)
+                    && let Some(app) = up_app.upgrade()
+                {
+                    app.update(cx, |app, cx| app.slider_pointer_up(cx));
+                }
                 return;
             }
             up_capture.set(None);
@@ -216,4 +241,12 @@ fn owns_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {
         return false;
     };
     window.captured_hitbox() == Some(captured)
+}
+
+fn clear_lost_capture(window: &Window, capture: &Cell<Option<HitboxId>>) -> bool {
+    if capture.get().is_none() || window.captured_hitbox().is_some() {
+        return false;
+    }
+    capture.set(None);
+    true
 }

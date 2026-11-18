@@ -12,8 +12,8 @@
 
 use gpui_kit::Context;
 
-use crate::app::transform_geometry::layer_aabb;
 use crate::app::App;
+use crate::app::transform_geometry::layer_aabb;
 
 type MarqueeSelection = (Vec<u64>, Option<(f64, f64, f64, f64)>);
 

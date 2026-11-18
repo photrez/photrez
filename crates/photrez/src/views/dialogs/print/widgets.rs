@@ -384,7 +384,7 @@ pub(super) fn unit_suffix(unit: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{paper_label, paper_name_label, paper_sizes_reported, PaperSizes};
+    use super::{PaperSizes, paper_label, paper_name_label, paper_sizes_reported};
 
     /// The "not listed on this printer" tail belongs to the empty answer alone.
     /// Every other answer leaves the claim out, because the app did not check it.

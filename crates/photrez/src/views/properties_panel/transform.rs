@@ -256,19 +256,48 @@ pub(super) fn section(
                             .iter()
                             .zip(ACTION_HANDLERS)
                             .map(|(&(svg, key), (id, action))| {
-                                wired_action_button(svg, id, &t(key), cx, *action)
+                                wired_action_button(svg, id, t(key), cx, *action)
                             }),
                     ),
                 )
                 .into_any_element(),
-                // Quick — icon-only buttons, so the labels live in `Tooltip`
-                // wrappers that a static view cannot show.
+                // Quick — wired icon-only buttons: center on the canvas'
+                // axes, fit the canvas, rotate 90°. Hover publishes the
+                // tooltip key through the shared live-tooltip state; a
+                // locked / position-locked / rotation-locked selection
+                // takes the dimmed look with no click affordance.
                 ui::prop_row(
                     "Quick", // i18n-exempt: not in catalog (the 0.1.0 release's label read "Quick Actions", so this is not byte-identical to it)
-                    h_flex()
-                        .flex_1()
-                        .gap(px(4.0))
-                        .children(QUICK_ICONS.iter().map(|&svg| icon_button(svg))),
+                    h_flex().flex_1().gap(px(4.0)).children({
+                        let (position_enabled, rotation_enabled) = match readout {
+                            Some(readout) => (
+                                !readout.locked && !readout.lock_position,
+                                !readout.locked && !readout.lock_rotation,
+                            ),
+                            None => (false, false),
+                        };
+                        let handlers: [ActionHandler; 5] = [
+                            |app, cx| app.align_selected_layers(1, cx),
+                            |app, cx| app.align_selected_layers(4, cx),
+                            |app, cx| app.fit_selected_layers_to_canvas(cx),
+                            |app, cx| app.rotate_selected_layers_90(false, cx),
+                            |app, cx| app.rotate_selected_layers_90(true, cx),
+                        ];
+                        QUICK_ACTIONS.iter().enumerate().zip(handlers).map(
+                            move |((index, &(id, svg, key)), handler)| {
+                                // The last two buttons rotate; the first
+                                // three position. Rotation buttons gate on
+                                // `lock_rotation`; the rest on
+                                // `lock_position`.
+                                let enabled = if index >= QUICK_ACTIONS.len() - 2 {
+                                    rotation_enabled
+                                } else {
+                                    position_enabled
+                                };
+                                quick_action_button(state, id, svg, t(key), enabled, cx, handler)
+                            },
+                        )
+                    }),
                 )
                 .into_any_element(),
             ]),

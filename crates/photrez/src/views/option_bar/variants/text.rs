@@ -18,6 +18,7 @@ pub(super) fn text_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     let (
         text_layer,

@@ -135,11 +135,12 @@ fn dirty_tab_save_as_stays_bound_to_the_tab_that_requested_close(
             Some(second_doc_id.as_str()),
             "completing Save As must preserve the unrelated active tab"
         );
-        assert!(app
-            .state_for_test()
-            .read(cx)
-            .tabs
-            .iter()
-            .all(|tab| { tab.doc_id != first_doc_id }));
+        assert!(
+            app.state_for_test()
+                .read(cx)
+                .tabs
+                .iter()
+                .all(|tab| { tab.doc_id != first_doc_id })
+        );
     });
 }

@@ -3,7 +3,7 @@
 //! serves the AUTHORITY methods through the REAL `PixelStoreRegistry`.
 
 use super::tile;
-use crate::pixel::store::{registry, PixelStoreRegistry};
+use crate::pixel::store::{PixelStoreRegistry, registry};
 use crate::protocol::{
     Command, CommandEnvelope, CommandResult, DocumentCore, HistoryQuery, LayerChange,
 };
@@ -400,15 +400,16 @@ fn native_engines_are_isolated_per_document() {
         "B"
     );
     // Cross-check: docA's engine has no knowledge of docB's layer.
-    assert!(reg
-        .docs
-        .get("docA")
-        .unwrap()
-        .history
-        .snapshot()
-        .layers
-        .iter()
-        .all(|l| l.name == "A"));
+    assert!(
+        reg.docs
+            .get("docA")
+            .unwrap()
+            .history
+            .snapshot()
+            .layers
+            .iter()
+            .all(|l| l.name == "A")
+    );
 }
 
 #[test]

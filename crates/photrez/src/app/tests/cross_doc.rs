@@ -5,7 +5,7 @@
 //! that every drop target calls with the payload GPUI would deliver.
 
 use super::*;
-use crate::app::cross_doc::{LayerDragPayload, LayerDropTarget};
+use crate::app::cross_doc::{InsertPosition, LayerDragPayload, LayerDropTarget};
 use gpui_kit::test::TestWindowExt;
 use photrez_core::document::content::{PtzDocumentContent, PtzLayer};
 
@@ -413,6 +413,173 @@ fn layer_drag_refuses_a_full_target_document(cx: &mut gpui_kit::TestAppContext) 
         assert_eq!(
             layer_count(&app, cx, &target_doc),
             crate::app::cross_doc::MAX_LAYERS
+        );
+    })
+    .expect("test window remains open");
+}
+
+fn layer_stack_ids(app: &Entity<App>, cx: &gpui_kit::App, doc_id: &str) -> Vec<String> {
+    content(app, cx, doc_id)
+        .layers
+        .iter()
+        .map(|layer| layer.id.clone())
+        .collect()
+}
+
+#[gpui_kit::test]
+fn same_document_drop_above_keeps_the_source_above_the_target_row(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, app, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let rows = super::canvas_input::layer_rows(&app, cx).0;
+        assert_eq!(rows.len(), 2);
+        let doc_id = app
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("fixture archive is the active document");
+        app.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &LayerDragPayload {
+                    source_doc_id: doc_id.clone(),
+                    core_id: rows[0].core_id.clone(),
+                    row_id: rows[0].id,
+                },
+                rows[1].id,
+                InsertPosition::Above,
+                false,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            layer_stack_ids(&app, cx, &doc_id),
+            vec!["top".to_string(), "bottom".to_string()],
+            "the above drop leaves the stack unchanged"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn same_document_drop_below_inserts_the_source_below_the_target_row(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, app, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let rows = super::canvas_input::layer_rows(&app, cx).0;
+        let doc_id = app
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("fixture archive is the active document");
+        app.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &LayerDragPayload {
+                    source_doc_id: doc_id.clone(),
+                    core_id: rows[0].core_id.clone(),
+                    row_id: rows[0].id,
+                },
+                rows[1].id,
+                InsertPosition::Below,
+                false,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            layer_stack_ids(&app, cx, &doc_id),
+            vec!["bottom".to_string(), "top".to_string()],
+            "the below drop lands the source under the target row"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn same_document_drop_above_works_when_the_source_sits_below_the_target_row(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, app, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with(false),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let rows = super::canvas_input::layer_rows(&app, cx).0;
+        let doc_id = app
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("fixture archive is the active document");
+        app.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &LayerDragPayload {
+                    source_doc_id: doc_id.clone(),
+                    core_id: rows[1].core_id.clone(),
+                    row_id: rows[1].id,
+                },
+                rows[0].id,
+                InsertPosition::Above,
+                false,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            layer_stack_ids(&app, cx, &doc_id),
+            vec!["bottom".to_string(), "top".to_string()],
+            "the source above a higher target removes and inserts at the target slot"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn drop_below_the_pinned_background_row_lands_above_it(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, app, _source) = super::canvas_input::mount_archive_app(
+        cx,
+        &directory,
+        super::commands::multi_layer_archive_with_background(),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let rows = super::canvas_input::layer_rows(&app, cx).0;
+        let doc_id = app
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("fixture archive is the active document");
+        app.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &LayerDragPayload {
+                    source_doc_id: doc_id.clone(),
+                    core_id: rows[0].core_id.clone(),
+                    row_id: rows[0].id,
+                },
+                rows[1].id,
+                InsertPosition::Below,
+                false,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert_eq!(
+            layer_stack_ids(&app, cx, &doc_id),
+            vec!["top".to_string(), "bottom".to_string()],
+            "the Background row keeps the bottom slot even for a below drop"
         );
     })
     .expect("test window remains open");

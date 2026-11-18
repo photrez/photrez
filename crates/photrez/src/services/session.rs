@@ -115,11 +115,11 @@ impl DocumentSession {
     /// A history step that lands back on the saved marker is clean; every
     /// other step counts as an edit.
     fn sync_dirty_to_marker(&mut self) -> Result<(), ServiceError> {
-        if let Some(saved) = self.saved_marker {
-            if self.current_marker() == Some(saved) {
-                self.revision = self.saved_revision;
-                return Ok(());
-            }
+        if let Some(saved) = self.saved_marker
+            && self.current_marker() == Some(saved)
+        {
+            self.revision = self.saved_revision;
+            return Ok(());
         }
         self.bump_revision().map(|_| ())
     }
@@ -484,18 +484,22 @@ mod tests {
             .expect("save completes");
         registry.mark_dirty("bounded-raster-doc").unwrap();
 
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         registry
             .cancel("bounded-raster-doc")
             .expect("cancel keeps session open");
         let session = registry.get("bounded-raster-doc").unwrap();
         assert!(session.is_dirty());
         assert!(!session.is_closed());
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         assert!(registry.get("bounded-raster-doc").is_some());
     }
 
@@ -557,9 +561,11 @@ mod tests {
         registry
             .open(replacement, "Fixture", Some(source_path))
             .expect("replacement session opens");
-        assert!(registry
-            .close_after_save("bounded-raster-doc", &receipt)
-            .is_err());
+        assert!(
+            registry
+                .close_after_save("bounded-raster-doc", &receipt)
+                .is_err()
+        );
         assert!(!registry.get("bounded-raster-doc").unwrap().is_closed());
     }
 }

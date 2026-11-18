@@ -14,12 +14,11 @@
 //! xtask dev-ui [-- <app args>]
 //!     Same as dev, with the dev-ui profile (app crate at opt-level 1).
 //!
+//! xtask mingw-dir
+//!     Print the MinGW directory the windows-gnu toolchain needs.
+//!
 //! xtask watch [bacon job]
 //!     Rebuild and restart on save through bacon (default job: run).
-//!
-//! xtask hot [--profile <name>]
-//!     Run `dx serve --hot-patch` with the linker directory on the child PATH.
-//!     State-preserving patches for render edits; layout changes need a restart.
 //!
 //! xtask set-version <semver>
 //!     Rewrite the app crate version in one place and confirm it through
@@ -45,8 +44,8 @@ fn main() {
             0
         }
         Some("doctor") => run::doctor(),
+        Some("mingw-dir") => dev::print_mingw_dir(),
         Some("watch") => run::watch(&args[1..]),
-        Some("hot") => run::hot(&args[1..]),
         Some("dev") => dev::run(&args[1..]),
         Some("dev-ui") => dev::run_ui(&args[1..]),
         Some("set-version") => version::cmd_set_version(&args[1..]),
@@ -71,12 +70,10 @@ fn print_help() {
          \x20     child PATH.\n\
          \x20 xtask dev-ui [-- <app args>]\n\
          \x20     Same as dev, with the dev-ui profile.\n\
+         \x20 xtask mingw-dir\n\
+         \x20     Print the MinGW directory the windows-gnu toolchain needs.\n\
          \x20 xtask watch [bacon job]\n\
          \x20     Rebuild and restart on save through bacon (job: run).\n\
-         \x20 xtask hot [--profile <name>]\n\
-         \x20     Run `dx serve --hot-patch` with the linker directory on the\n\
-         \x20     child PATH. State-preserving patches; layout changes need a\n\
-         \x20     restart.\n\
          \x20 xtask set-version <semver>\n\
          \x20     Rewrite the app crate version in one place and confirm it\n\
          \x20     through cargo metadata. A lower number is refused, and a\n\

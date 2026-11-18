@@ -2,8 +2,8 @@
 //! Tests for the native compute kernels.
 
 use crate::kernel::{
-    apply_basic_adjustment_impl, brush_stamp, composite_mask, flood_fill_impl, gradient_fill_impl,
-    trim_bbox, FillMaskRust,
+    FillMaskRust, apply_basic_adjustment_impl, brush_stamp, composite_mask, flood_fill_impl,
+    gradient_fill_impl, trim_bbox,
 };
 
 fn invert_inplace_impl(data: &mut [u8]) {

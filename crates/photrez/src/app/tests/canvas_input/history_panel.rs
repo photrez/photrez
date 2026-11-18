@@ -38,14 +38,16 @@ fn history_panel_lists_and_jumps_core_entries(cx: &mut gpui_kit::TestAppContext)
             first,
             "clicking the first stroke restores its pixels"
         );
-        assert!(content
-            .read(cx)
-            .state_for_test()
-            .read(cx)
-            .history
-            .iter()
-            .find(|row| row.current)
-            .is_some_and(|row| row.label != "Open"));
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .history
+                .iter()
+                .find(|row| row.current)
+                .is_some_and(|row| row.label != "Open")
+        );
 
         window.click("history-row-2", cx);
         window.render_frame(cx);

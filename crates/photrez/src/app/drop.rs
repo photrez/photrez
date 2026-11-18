@@ -63,12 +63,11 @@ impl App {
                         errors.push(error);
                     }
                 }
-                if let Some((base, center)) = image_placement {
-                    if let Err(error) =
+                if let Some((base, center)) = image_placement
+                    && let Err(error) =
                         self.drop_files_as_layers(&images, &doc_id, base, center, cx)
-                    {
-                        errors.push(error);
-                    }
+                {
+                    errors.push(error);
                 }
             }
             Err(_) => {

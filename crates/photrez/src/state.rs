@@ -47,6 +47,15 @@ pub enum LayerTab {
     History,
 }
 
+/// The right dock's arrangement: two columns side by side, or one column
+/// with the inspector above the Layers/History dock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RightDockLayout {
+    #[default]
+    SideBySide,
+    Stacked,
+}
+
 /// The open-document loading overlay: an indeterminate wait or real progress.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadingState {
@@ -170,6 +179,9 @@ pub struct LayerFlags {
     /// Background layers cannot be locked; the header disables its toggles and
     /// their tooltips say to rename instead.
     pub is_background: bool,
+    /// The core layer is a text layer; its row thumbnail carries the small
+    /// accent "T" badge the reference paints for text layers.
+    pub is_text: bool,
 }
 
 /// What the transform rows show for the selected layer: position, rotation, its
@@ -277,6 +289,8 @@ pub struct AppState {
     pub inspector_tab: InspectorTab,
     pub layer_tab: LayerTab,
     pub dock_open: bool,
+    /// The right dock's arrangement: side-by-side (default) or stacked.
+    pub right_dock_layout: RightDockLayout,
     pub has_document: bool,
     /// Layer rows shown in the Layers panel, top of the stack first.
     pub layers: Vec<LayerRow>,
@@ -315,6 +329,9 @@ pub struct AppState {
     pub open_menu: Option<MenuId>,
     /// The canvas context menu's window position, if open.
     pub context_menu: Option<(f32, f32)>,
+    /// The Layers row context menu: window position and the core id of the
+    /// clicked row. The menu resolves its items from live state at render.
+    pub layer_context_menu: Option<(f32, f32, String)>,
     /// The mounted shell dialog, if any.
     pub active_dialog: Option<DialogId>,
     /// The open-document loading overlay; `None` at rest.
@@ -505,9 +522,19 @@ pub struct AppState {
     pub nav_zoom_capture: std::rc::Rc<std::cell::Cell<Option<gpui_kit::HitboxId>>>,
     /// The crop tool's pending rectangle in document space (x, y, w, h).
     pub crop_rect: Option<[f64; 4]>,
+    /// A Classic crop frame hidden on the pasteboard for later restoration.
+    pub crop_hidden_preview: Option<crate::crop_geometry::CropSnapshot>,
     /// Mini undo/redo for the crop frame.
-    pub crop_history: Vec<[f64; 4]>,
-    pub crop_redo: Vec<[f64; 4]>,
+    pub crop_history: Vec<crate::crop_geometry::CropSnapshot>,
+    pub crop_redo: Vec<crate::crop_geometry::CropSnapshot>,
+    /// Modern moves the image under a fixed frame; Classic moves the frame.
+    pub crop_interaction: crate::crop_geometry::CropInteraction,
+    /// The Modern image offset in logical screen pixels.
+    pub crop_offset: (f64, f64),
+    /// Rotation in degrees for the crop preview.
+    pub crop_rotation: f64,
+    /// The active crop composition guide.
+    pub crop_guides: crate::crop_geometry::CropGuides,
     /// Crop bar mode (`cropMode`): the frame follows the drag, a ratio, or a
     /// physical size target.
     pub crop_mode: crate::crop_aspect::CropMode,
@@ -525,8 +552,7 @@ pub struct AppState {
     pub crop_size_field: usize,
     /// The field buffer while a Size/Custom value is being typed.
     pub crop_edit: Option<String>,
-    /// `true` while the buffer belongs to the Custom W:H pair, not the Size pair.
-    pub crop_edit_custom: bool,
+    pub crop_edit_field: crate::crop_geometry::CropField,
     /// The ratio dropdown panel.
     pub crop_ratio_open: bool,
     /// The Size unit list panel.
@@ -569,6 +595,9 @@ pub struct AppState {
     /// Laid-out bounds of the Paint Bucket tolerance slider (pointer mapping).
     pub tolerance_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+    /// Laid-out bounds of the Crop bar's straighten track, for pointer mapping.
+    pub crop_straighten_slider_bounds:
+        std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// Laid-out bounds of the Properties panel's opacity track (pointer mapping).
     pub opacity_slider_bounds:
         std::rc::Rc<std::cell::Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
@@ -586,6 +615,16 @@ pub struct AppState {
     /// The option bar's overflow (`MoreDropdown`) panel, independent of
     /// `open_select` so a preset list can open inside it.
     pub more_open: bool,
+    /// A layer drag is in flight (a cross-document move). Set on drag start,
+    /// cleared on drop anywhere the payload can land and on Escape; used by
+    /// the tab hover-to-switch timer, which only makes sense mid-drag.
+    pub layer_drag_active: bool,
+    /// The core id of the row a cross-document layer drag started from, so
+    /// its own row can take the dimmed "being dragged" look.
+    pub layer_drag_source: Option<String>,
+    /// The tab currently under the pointer during a cross-document layer
+    /// drag, used to highlight the drop target and dim the other tabs.
+    pub layer_drag_hover_tab: Option<String>,
     pub select_cursor: usize,
     pub select_count: usize,
     /// Laid-out bounds of the shape bar's stroke popover (click-away).

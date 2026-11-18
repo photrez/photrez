@@ -3,5 +3,5 @@
 # for it. `use_small_heuristics = "Default"` is the style the tree is already
 # formatted in (fn-call/chain width 60); flipping it to "Max" reformats ~11k
 # lines across `crates/core` alone, and flipping it to "Off" churns the rest.
-edition = "2021"
+edition = "2024"
 use_small_heuristics = "Default"

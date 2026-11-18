@@ -257,12 +257,9 @@ fn new_doc_select(
             .border_1()
             .border_color(color::FIELD_BORDER)
             .bg(color::PANEL)
-            .shadow(vec![BoxShadow::new(
-                px(0.0),
-                px(8.0),
-                hsla(0.0, 0.0, 0.0, 0.5),
-            )
-            .blur_radius(px(20.0))]);
+            .shadow(vec![
+                BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.5)).blur_radius(px(20.0)),
+            ]);
         for (value, text, selected) in options {
             let pick_state = state.clone();
             panel = panel.child(
@@ -661,12 +658,9 @@ pub(super) fn new_document_shell(
         .border_color(color::FIELD_BORDER)
         .bg(color::PANEL)
         .overflow_hidden()
-        .shadow(vec![BoxShadow::new(
-            px(0.0),
-            px(12.0),
-            hsla(0.0, 0.0, 0.0, 0.45),
-        )
-        .blur_radius(px(32.0))])
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(12.0), hsla(0.0, 0.0, 0.0, 0.45)).blur_radius(px(32.0)),
+        ])
         .on_click(stop)
         .child(chrome::titlebar_live(
             &t("dialogs.newDocument.title"),

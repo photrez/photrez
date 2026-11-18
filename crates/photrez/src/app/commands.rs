@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::{AppContext as _, Context, PathPromptOptions, Window};
 
 use super::{
-    ensure_ptz_path, App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument,
-    PrintDocument, SaveDocument, SaveDocumentAs, ToggleSidePanelsAction,
+    App, CloseDocument, ExportDocument, NewDocumentAction, OpenDocument, PrintDocument,
+    SaveDocument, SaveDocumentAs, ToggleSidePanelsAction, ensure_ptz_path,
 };
 use crate::display::canvas_bridge::CanvasImage;
 use crate::services::document::LoadedDocument;
@@ -111,6 +111,19 @@ impl App {
         cx.notify();
     }
 
+    /// The dock-layout toggle in the tab bar's utility cluster: flip the
+    /// right dock between side-by-side and stacked. The value drives
+    /// `right_dock_layout`; the View menu's own toggle stays on Hide/Show.
+    pub(crate) fn toggle_dock_layout(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, _| {
+            state.right_dock_layout = match state.right_dock_layout {
+                crate::state::RightDockLayout::SideBySide => crate::state::RightDockLayout::Stacked,
+                crate::state::RightDockLayout::Stacked => crate::state::RightDockLayout::SideBySide,
+            };
+        });
+        cx.notify();
+    }
+
     /// The status bar's History trigger: show the dock's History panel.
     /// This opens the dock as well, since a closed dock would show a panel
     /// the user cannot see.
@@ -178,8 +191,8 @@ impl App {
             state.has_document = false;
             state.document_id = None;
             state.document_name = "Baseline".to_owned(); // i18n-exempt: demo content
-                                                         // Nothing is on screen once the last document closes, so the
-                                                         // panels must not keep projecting its layers or history.
+            // Nothing is on screen once the last document closes, so the
+            // panels must not keep projecting its layers or history.
             state.layers.clear();
             state.selected_layers.clear();
             state.paint_target_core_id = None;
@@ -271,12 +284,11 @@ impl App {
                 .active_document
                 .as_ref()
                 .is_none_or(|document| document.doc_id != doc_id)
+                && let Err(error) = self.activate_document(&doc_id, cx)
             {
-                if let Err(error) = self.activate_document(&doc_id, cx) {
-                    self.pending_close = None;
-                    self.set_status_error(Some(format!("Save As failed: {error}")), cx);
-                    return;
-                }
+                self.pending_close = None;
+                self.set_status_error(Some(format!("Save As failed: {error}")), cx);
+                return;
             }
             self.prompt_save_as(cx);
             return;
@@ -408,11 +420,11 @@ impl App {
         }
         self.state.update(cx, |state, _| state.status_error = None);
         cx.notify();
-        if let Some(intent) = close_intent {
-            if self.pending_close.as_ref() == Some(intent) {
-                self.pending_close = None;
-                self.finish_close_intent(intent.clone(), cx);
-            }
+        if let Some(intent) = close_intent
+            && self.pending_close.as_ref() == Some(intent)
+        {
+            self.pending_close = None;
+            self.finish_close_intent(intent.clone(), cx);
         }
         Ok(())
     }
