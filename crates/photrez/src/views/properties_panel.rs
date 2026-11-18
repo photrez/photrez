@@ -165,12 +165,13 @@ pub fn render(
     transform_readout: Option<crate::state::LayerTransformReadout>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
-    let (has_document, has_layers, multi) = {
+    let (has_document, has_layers, multi, no_selection) = {
         let s = state.read(cx);
         (
             s.has_document,
             !s.layers.is_empty(),
             s.selected_layers.len() > 1,
+            s.selected_layers.is_empty(),
         )
     };
     let body = if !has_document {
@@ -178,7 +179,7 @@ pub fn render(
             .flex_1()
             .min_h(px(0.0))
             .child(no_image_open("properties-no-image"))
-    } else if !has_layers {
+    } else if !has_layers || no_selection {
         v_flex().child(canvas_properties(state, document_size, zoom_percent, cx))
     } else if multi {
         v_flex().child(multi_layers_section(state, cx))

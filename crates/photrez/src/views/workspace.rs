@@ -142,10 +142,14 @@ pub(crate) fn render(
         let s = state.read(cx);
         (
             s.active_tool,
-            s.layers
-                .iter()
-                .find(|row| row.id == s.selected_layer)
-                .map(|row| row.name.clone()),
+            if s.selected_layers.is_empty() {
+                None
+            } else {
+                s.layers
+                    .iter()
+                    .find(|row| row.id == s.selected_layer)
+                    .map(|row| row.name.clone())
+            },
         )
     };
     let document_size = canvas.map(|image| image.dimensions());

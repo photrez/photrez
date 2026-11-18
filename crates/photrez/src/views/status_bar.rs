@@ -146,12 +146,6 @@ const ZOOM: &str = "88%"; // i18n-exempt: numeric value
 // whenever nothing else (gradient drag, transform session, paint block) is
 // in flight.
 
-/// The selected layer's name. The status bar shows the same
-/// selected layer the Layers and Properties panels draw, so it must not keep a
-/// stale seed name: the seeded document's layer is the new-document
-/// "Background" layer.
-const LAYER: &str = "Background"; // i18n-exempt: new-document layer name
-
 /// The tool-tip sentence colour: the plain text colour (#CACACA) at 60% alpha.
 ///
 /// Not `color::TEXT_DIM_60`, which is text-**dim** at 60%. Over the
@@ -306,7 +300,9 @@ fn left_group(
         .map(|(width, height)| format!("{width} \u{d7} {height} px"))
         .unwrap_or_else(|| DOC_SIZE.to_string());
     let tool_label = t(tool_key(tool));
-    let layer = layer_name.unwrap_or(LAYER).to_string();
+    let layer = layer_name
+        .map(str::to_string)
+        .unwrap_or_else(|| t("status.noActiveLayer"));
     h_flex()
         .gap(px(GROUP_GAP))
         // The first cell is the only one without the left rule and its padding.

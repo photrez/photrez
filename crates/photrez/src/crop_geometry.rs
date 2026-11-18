@@ -1034,4 +1034,37 @@ mod tests {
         );
         assert_eq!(locked_ratio(CropMode::Ratio, None, Some((800, 600))), None);
     }
+
+    #[test]
+    fn locked_ratio_resize_preserves_aspect_for_every_handle() {
+        let handles = [
+            CropHandle::Nw,
+            CropHandle::N,
+            CropHandle::Ne,
+            CropHandle::E,
+            CropHandle::Se,
+            CropHandle::S,
+            CropHandle::Sw,
+            CropHandle::W,
+        ];
+        let frame = [10.0, 10.0, 100.0, 50.0];
+        let options = CropResizeOptions {
+            mode: CropMode::Ratio,
+            ratio: Some(2.0),
+            shift: false,
+            alt: false,
+        };
+        for handle in handles {
+            let (modern, _) = modern_resize(frame, handle, (10.0, 10.0), options, MIN_CROP_SIZE);
+            assert!(
+                (modern[2] / modern[3] - 2.0).abs() < 0.01,
+                "modern {handle:?}: {modern:?}"
+            );
+            let classic = classic_resize(frame, handle, (10.0, 10.0), options);
+            assert!(
+                (classic[2] / classic[3] - 2.0).abs() < 0.01,
+                "classic {handle:?}: {classic:?}"
+            );
+        }
+    }
 }
