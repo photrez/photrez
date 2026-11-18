@@ -62,6 +62,9 @@ ignore = [
     # the font crates the text renderer resolves through
     "RUSTSEC-2026-0192", # ttf-parser - via fontdb / cosmic-text / resvg
     "RUSTSEC-2026-0206", # rustybuzz - via usvg / resvg
+    # date/time stack: unmaintained notice with no patched release. Revisit
+    # when the pinned upstream drops chrono.
+    "RUSTSEC-2026-0543", # chrono - unmaintained, no safe upgrade
 ]
 
 [sources]
