@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The persisted `.ptz` model: the document content, the file envelope, the
 // nested per-layer payloads, the render-side projection bridge, the derived
 // document replica, the seed-payload validation, and the shared test fixtures.

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The canonical per-layer pixel buffer: row-major RGBA bytes plus the
 //! monotonic cache-validity epoch the host-side derived cache tracks.
 

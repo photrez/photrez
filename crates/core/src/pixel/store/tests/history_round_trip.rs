@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
-
 use super::reg;
 use crate::raster::paint::raster::{RasterDab, RasterTip, fnv1a};
 use crate::raster::tile::TilePatch;

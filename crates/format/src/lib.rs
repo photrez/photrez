@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The `.ptz` file contract: the `document.json` envelope, its writer and
 //! reader, the seed-payload validation, the shared test fixtures, and the image
 //! payload codecs.

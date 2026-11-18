@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Validation surface for the native seed payload contract: confirms `json`
 // parses into a `PtzDocumentContent` (the exact canonical document payload
 // shape this build pushes on restore). Returns an empty string on success or

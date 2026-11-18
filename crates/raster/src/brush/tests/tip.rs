@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Brush-tip tests: the diameter-space construction, the resampler contract,
 //! and the offline golden check against the captured reference tip rasters.
 

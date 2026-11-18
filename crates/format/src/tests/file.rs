@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 use crate::file::PtzDocument;
 use crate::fixtures::{LEGACY_TEXT_LAYER_MODEL, MIXED_LAYER_TYPES_MODEL, REAL_DUMPED_MODEL};
 use photrez_document::content::{PtzLayer, SelectionShape};

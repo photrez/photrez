@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Serialization cost of the `.ptz` `document.json`, measured through the
 //! PRODUCTION writer (`PtzDocument::to_json`).
 //!

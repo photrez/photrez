@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Parallel batch helpers over rayon: hit-test and transform over a whole point
 // buffer in one call, so a large selection pays one dispatch instead of one per
 // point.

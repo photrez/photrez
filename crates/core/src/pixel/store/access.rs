@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Registry access: document and layer lifecycle plus the read accessors.
 
 use super::PixelStoreRegistry;

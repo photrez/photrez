@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The persisted LAYER content: the layer type union, the blend-mode union, and
 // the layer record itself.
 //

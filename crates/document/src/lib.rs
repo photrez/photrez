@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The canonical Photrez document model: the persisted layer content, the
 //! nested per-layer parameters, the layer metadata value the engine stores in
 //! history, and the layer identity type.

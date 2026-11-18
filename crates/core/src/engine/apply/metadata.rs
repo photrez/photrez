@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Metadata command arms for DocumentCore::apply. The dispatcher in
 // document/apply.rs only selects the family; the bodies live here.
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Production canonical persistent-pixel-ownership data model:
 //! `StateNode -> TileRef -> Arc<[u8]>` (packed, tile-major) + an ARENA index
 //! (Weak, not strong), plus a byte-free copy-on-write seam over the layer's

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Read-only depth and tip reports for a document's unified pixel history.
 
 // The typed payload discriminant of a history entry, re-exported so a

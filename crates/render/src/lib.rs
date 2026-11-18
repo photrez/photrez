@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! CPU compositing: the document-to-pixels entry point plus the shape and text
 //! rasterizers behind it.
 //!

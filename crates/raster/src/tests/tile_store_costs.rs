@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Decision benchmarks: micro-costs of the proposed Rust tile store.
 // Bench-only module - no product logic lives here.
 // Rationale + results are tracked in the project decision log.

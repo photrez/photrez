@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The write/serialize half of the `.ptz` file envelope: the on-disk header and
 // the per-layer bitmap keys that must stay null.
 

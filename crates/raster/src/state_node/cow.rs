@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Production copy-on-write seam for the `state_node` data model. Holds the `Arena`
 //! re-anchor helper (`insert_weak_for`) and the `LayerState` COW seam used by
 //! `pixel/document_store.rs` (`cow_batch` / `set_current` / `current_state`). Kept separate

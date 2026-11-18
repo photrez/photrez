@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Native authority command surface: the per-document native `DocumentCore`
 //! serves the AUTHORITY methods through the REAL `PixelStoreRegistry`.
 

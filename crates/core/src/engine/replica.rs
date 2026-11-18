@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Per-document replica of the persisted `.ptz` content, kept in sync with
 // engine layer edits via reconciliation (not re-built from scratch each edit).
 // It is a DERIVED in-memory copy, never a second authority: the engine owns

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Duplicate-name planning for the engine's layer graph: the numbered
 // copy-suffix contract used by the DuplicateLayer arm and structural clone.
 

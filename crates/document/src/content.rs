@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The persisted document CONTENT model: layers, transforms, text, shape
 // params, and adjustments.
 //

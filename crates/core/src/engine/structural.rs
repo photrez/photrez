@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-command-arm bodies (duplicate / merge-down / merge-selected / flatten
 // / rasterize). Kept separate from the apply dispatcher so both stay under the
 // size cap; this is a sibling `impl DocumentCore` block (method

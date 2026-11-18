@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Replica bridge tests: the persisted-content replica reconciled against the
 // live engine layer set. These drive the real `DocumentCore` (the replica is
 // owned by the engine), so they need the whole engine surface.

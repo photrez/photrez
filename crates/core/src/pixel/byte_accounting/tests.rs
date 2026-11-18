@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tests for `byte_accounting`.
 //!
 //! Every expectation below is written from INDEPENDENT constants (a literal

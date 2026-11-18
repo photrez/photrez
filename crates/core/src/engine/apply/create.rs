@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Layer creation/mutation arms for DocumentCore::apply.
 
 use super::*;

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pixel write paths: patch commits, region writes, composite commits and the
 //! pixel undo/redo replay.
 

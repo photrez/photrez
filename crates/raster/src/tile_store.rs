@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Production tile-major packed TileStore. This is the
 //! canonical byte store for the pack/upload path: ONE contiguous packed buffer
 //! per layer, with per-tile `{ offset, w, h }` descriptors so extraction is a

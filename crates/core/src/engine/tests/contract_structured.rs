@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-sharing / no-aliasing pins for the COW layer set.
 use super::*;
 

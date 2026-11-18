@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Projection tests: the persisted-layer to `LayerMeta` value bridge.
 use crate::document::content::*;
 use crate::document::layer::{LayerMeta, Rect};

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Native compute kernels over RGBA planes. Canonical shape: buffer-in
 // (`&[u8]` / `&mut [u8]`), buffer-out (`Vec<u8>` or in-place). The flood-fill,

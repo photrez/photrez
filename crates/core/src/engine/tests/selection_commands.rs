@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Selection-arm state contract: every selection command bumps the document version
 // (an accepted transition) but leaves the history entry count unchanged, and the
 // canonical shadow selection tracks the engine selection.

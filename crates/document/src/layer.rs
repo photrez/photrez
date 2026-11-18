@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The document-owned layer metadata value, its optional dirty `Rect`, and the
 // `LayerChange` delta the engine emits for one applied command. The engine
 // stores these in the COW `LayerSet` and in history; the compositor reads them.

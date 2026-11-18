@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Proof-of-convergence for the pixel-path adjustment-bake family.
 //!
 //! Under native authority the command engine IS `DocumentPixelStore.history`

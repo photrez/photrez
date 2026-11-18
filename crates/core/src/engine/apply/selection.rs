@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Selection, transform, opacity, and brush arms for DocumentCore::apply.
 
 use super::*;

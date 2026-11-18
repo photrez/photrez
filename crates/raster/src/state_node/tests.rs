@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! State-node model tests (logical / reference bytes / refcount / COW identity).
 
 use super::*;

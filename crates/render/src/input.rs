@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The read-only pixel source the compositor draws from.
 //!
 //! `photrez-core` implements [`RenderInput`] for its pixel registry. Compositing

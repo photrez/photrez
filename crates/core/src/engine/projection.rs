@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Value bridge between the persisted `.ptz` layer model and the render-side
 // `LayerMeta`. Three directions live here:
 //   * down-projection (`to_render_layer`, test-only): the minimal layer the
