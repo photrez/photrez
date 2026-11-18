@@ -16,6 +16,7 @@
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-b7410e?style=flat-square&labelColor=1f1f23">
   <img alt="UI: GPUI" src="https://img.shields.io/badge/ui-GPUI-6b7280?style=flat-square&labelColor=1f1f23">
   <img alt="Windows, macOS and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-6b7280?style=flat-square&labelColor=1f1f23">
+  <a href="https://github.com/photrez/photrez/releases"><img alt="Downloads: 209" src="https://img.shields.io/github/downloads/photrez/photrez/total?style=flat-square&labelColor=1f1f23&label=downloads"></a>
   <a href="LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-6b7280?style=flat-square&labelColor=1f1f23"></a>
 </p>
 
@@ -171,6 +172,7 @@ Workspace checks:
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo build -p photrez
 ```
 
 ## Platform notes

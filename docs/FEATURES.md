@@ -33,7 +33,7 @@ because it has not been built yet.
 | Shipped | Paint Bucket with tolerance, contiguous toggle and selection-aware fill; Gradient with linear/radial types, presets, reverse, and a live distance/angle overlay during the drag. |
 | Shipped | Shape tool with ten kinds (rectangle, ellipse, line, triangle, star, block arrow, heart, diamond, speech bubble, hexagon) kept parametric, with fill and stroke popovers for colour and width. |
 | Shipped | Eyedropper samples the composited canvas and shows the hex value, with an optional auto-copy preference. |
-| Partial | Crop: crop frame with handle resize/move, ratio menu (free, custom, presets, recents, lock shape), Size mode at a 300 PPI base, delete-cropped-pixels and fill-background options, arrow-key nudge and per-crop mini undo. Still open: the advanced group (straighten, guides, classic mode) and its overflow menu. |
+| Partial | Crop with a Modern mode that tracks picture offset in screen pixels and renders nonzero offset and straighten rotation through a derived viewport raster; preview rebuilding is asynchronous. The bar supports handle resize, frame move, ratio presets and locking, Size mode at a 300 PPI base, delete-cropped-pixels and fill-background options, straighten and quarter-turn controls, five composition guides, arrow-key nudge and per-crop undo. Apply, Enter, the bar button and double-click share one region resolver; Classic mode moves the frame over a still picture. Gaps: low-zoom memory qualification, remaining lifecycle cases, snap and rotation ring, rotated Classic frame, hidden preview, and rendered shield or handle styling. |
 
 ## Layers and history
 
@@ -107,8 +107,8 @@ because it has not been built yet.
 | Shipped | Right dock with Properties, Adjustments, Layers and History panels plus the Navigator, filling the window at any size. |
 | Partial | The Navigator shows the page thumbnail and the viewport frame inside it, collapses to its header, fits the view from its header button, and carries a zoom row (minus, track, plus, percent) spanning 5 % to 400 %; with no document open the preview shows a no-image state and the row answers nothing. The track has no drag-free keyboard path and the row's range is narrower than the camera's own 1 % to 10000 % (`CAMERA_MIN_ZOOM` and `CAMERA_MAX_ZOOM` in `crates/photrez/src/display/canvas_bridge/camera.rs`); the `View` menu and `Ctrl+=` / `Ctrl+-` step zoom outside it. |
 | Shipped | Status bar reads canvas size, zoom percent, active tool, hint, selected layer and frame timing, marks the autosave state with its colour dot beside the words, and opens the dock's History panel from its History trigger. |
-| Shipped | Tool option bars reflow against their real width, and the Move, Selection and Brush bars open an overflow panel holding the controls they fold away. The Move bar's transform cells read the selected layer: X, Y and rotation are editable and commit through core history, W and H show its scaled frame, and a locked layer answers no edit. |
-| Not implemented | Crop advanced group: straighten, composition guides and the classic interaction mode. Neither the modes nor the overflow group that would host them exists for the crop bar, so the bar shows no overflow trigger at all rather than one that opens nothing. |
+| Shipped | Tool option bars reflow against their real width, and the Move, Selection, Brush and Crop bars open an overflow panel holding the controls they fold away. The Move bar's transform cells read the selected layer: X, Y and rotation are editable and commit through core history, W and H show its scaled frame, and a locked layer answers no edit. |
+| Shipped | The wide crop bar shows advanced controls inline; the narrow layout puts them under More. These controls include straighten angle, quarter-turn buttons, five composition guides (none, thirds, grid, diagonal, golden), and the Modern/Classic interaction selector. |
 | Shipped | The right dock's Properties transform rows read the selected layer: X, Y, W, H and R show its frame and commit through core history, Scale shows the percentage that produced that frame, and the link decides whether a size edit moves one axis or both. |
 | Shipped | Every track takes the keyboard: the Paint Bucket tolerance, the text stroke, the brush menu's size, hardness and strength, export quality, the three adjustment channels, the print scale and the Properties opacity track answer arrows, Home and End within their own range, each is a tab stop, and any of them focused from the keyboard carries the same inset accent band the option-bar toggles use. |
 | Shipped | Every field the app edits is in the tab order and shows the shared inset accent band when the keyboard reaches it: the New Document name and size boxes, the Resize Canvas size fields, the Rename prompt answer, the option bar's brush, text, shape and tolerance rows, the Move bar and selection geometry rows, the Properties transform rows, and the Print dialog's size and copies rows. Keystrokes follow real focus, so a digit typed after Tab lands in the focused row and replaces its seed, and the row the user left keeps the value it typed. |
@@ -126,10 +126,10 @@ because it has not been built yet.
 
 | Status | Capability |
 | --- | --- |
-| Shipped | English and Indonesian catalogs drive the interface; the language choice persists in settings and startup detects the OS locale. |
-| Partial | About 60 rendered strings are written as literals beside the catalog, each carrying a written exemption reason, so they stay in English whatever the language choice. Seven of them are strings this app introduced, so no earlier text exists to translate. Localizing any of them needs a new catalog key, and the equal-key-set rule below currently forbids adding one. |
-| Shipped | The `en` and `id` key sets are held equal by a test, so a key cannot exist in one language and not the other. Deliberately-untranslated literals carry an explicit exemption reason, and a guard rejects new hardcoded UI strings in CI. |
-| Not implemented | Languages beyond English and Indonesian. |
+| Shipped | English, Indonesian, and Banjar catalogs drive the interface; the language choice persists in settings and startup detects the OS locale. |
+| Partial | 140 rendered strings in the view and component trees are written as literals beside the catalog, each carrying a written exemption reason, so they stay in English whatever the language choice. Localizing any of them needs a new catalog key in every locale, and the catalog rule below names each new key. |
+| Shipped | The `en`, `id`, and `bjn` key sets are held equal by a test, so a key cannot exist in one language and not the other. Deliberately-untranslated literals carry an explicit exemption reason, and the pre-commit guard rejects new hardcoded UI strings in the view and component trees. |
+| Not implemented | Languages beyond English, Indonesian, and Banjar. |
 
 ## Packaging
 

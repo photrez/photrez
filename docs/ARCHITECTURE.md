@@ -25,7 +25,7 @@ Photrez is a native Rust desktop image editor built with GPUI.
 `photrez-render` depend on `photrez-document`, and `photrez-render` also depends on
 `photrez-raster`; `photrez-document` and `photrez-raster` are leaves. The core
 re-exports keep the application on one entry point, and
-`scripts/check-package-boundaries.sh` enforces that graph.
+`deny.toml` enforces that graph: each package may be a direct dependency only of the packages named in its `wrappers` entry.
 
 The application has no embedded browser, JavaScript runtime, or application IPC bridge.
 

@@ -45,6 +45,9 @@ Preserve geometry tables, reference measurements, API contracts, known gaps, and
 - Keep unit tests with their owner. Put integration tests in
   `crates/<package>/tests/` and test data under `tests/`.
 - Prefer `foo.rs` plus `foo/` over `foo/mod.rs`.
+- Split a source file when it holds a second responsibility that can move
+  into its own module. A file that still has one responsibility stays whole.
+  Line count is not a reason to split.
 - Do not use `#[path]` test indirection or root-level `*_tests.rs` files. Gate
   test-only modules with `#[cfg(test)]`.
 - Existing violations are migration debt. Fix them when the file is touched or
