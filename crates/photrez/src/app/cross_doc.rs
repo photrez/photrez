@@ -236,10 +236,10 @@ impl App {
             if let Some(from_row) = from_row {
                 self.reorder_layer_rows(from_row, to_row, cx);
             }
-        } else if let Some(active) = active {
-            if payload.core_id.is_some() {
-                self.apply_layer_drag(payload, LayerDropTarget::Panel { doc_id: active }, alt, cx);
-            }
+        } else if let Some(active) = active
+            && payload.core_id.is_some()
+        {
+            self.apply_layer_drag(payload, LayerDropTarget::Panel { doc_id: active }, alt, cx);
         }
     }
 

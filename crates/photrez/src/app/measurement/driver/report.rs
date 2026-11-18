@@ -27,13 +27,13 @@ pub(super) fn correlate<W: Copy + PartialEq>(
             start,
             end,
         } = *event
+            && start <= rendered_at
+            && rendered_at <= end
         {
-            if start <= rendered_at && rendered_at <= end {
-                if matching_draw.is_some() {
-                    return Correlation::Rejected("App render marker matches multiple Draw events");
-                }
-                matching_draw = Some((index, window_id, start, end));
+            if matching_draw.is_some() {
+                return Correlation::Rejected("App render marker matches multiple Draw events");
             }
+            matching_draw = Some((index, window_id, start, end));
         }
     }
     let Some((draw_index, draw_window, draw_start, draw_end)) = matching_draw else {

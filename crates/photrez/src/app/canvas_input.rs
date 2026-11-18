@@ -261,7 +261,7 @@ impl App {
                     cx.notify();
                     Ok(())
                 } else {
-                    let ratio = crate::app::crop::crop_resize_ratio(&self.state.read(cx));
+                    let ratio = crate::app::crop::crop_resize_ratio(self.state.read(cx));
                     let frame =
                         crate::crop_geometry::drag_create(pending.start, pending.last, ratio);
                     self.state.update(cx, |state, _| {
@@ -521,39 +521,34 @@ impl App {
         }
         if self.state.read(cx).active_tool == ToolId::Move
             && self.state.read(cx).show_transform_controls
-        {
-            if let (Some(position), Some((doc_w, doc_h))) = (
+            && let (Some(position), Some((doc_w, doc_h))) = (
                 self.hover_pos,
                 self.active_document
                     .as_ref()
                     .map(|document| document.canvas.dimensions()),
+            )
+            && let Some((x, y)) = canvas_doc_coords_free(
+                position,
+                &self.canvas_bounds,
+                (doc_w, doc_h),
+                self.active_camera(),
+            )
+            && let Ok((_, layer)) = self.selected_layer_for_cursor(cx)
+            && crate::app::transform_geometry::layer_can_transform(&layer)
+        {
+            let zoom = self
+                .effective_camera()
+                .map(|camera| camera.zoom as f64)
+                .unwrap_or(1.0);
+            let (frame_w, frame_h) = crate::app::transform_geometry::layer_frame_size(&layer);
+            if let Some(handle) = crate::app::transform_geometry::detect_handle(
+                crate::app::transform_geometry::Point { x, y },
+                &layer.transform,
+                frame_w,
+                frame_h,
+                zoom,
             ) {
-                if let Some((x, y)) = canvas_doc_coords_free(
-                    position,
-                    &self.canvas_bounds,
-                    (doc_w, doc_h),
-                    self.active_camera(),
-                ) {
-                    if let Ok((_, layer)) = self.selected_layer_for_cursor(cx) {
-                        if crate::app::transform_geometry::layer_can_transform(&layer) {
-                            let zoom = self
-                                .effective_camera()
-                                .map(|camera| camera.zoom as f64)
-                                .unwrap_or(1.0);
-                            let (frame_w, frame_h) =
-                                crate::app::transform_geometry::layer_frame_size(&layer);
-                            if let Some(handle) = crate::app::transform_geometry::detect_handle(
-                                crate::app::transform_geometry::Point { x, y },
-                                &layer.transform,
-                                frame_w,
-                                frame_h,
-                                zoom,
-                            ) {
-                                return cursor_for_handle(handle);
-                            }
-                        }
-                    }
-                }
+                return cursor_for_handle(handle);
             }
         }
         let selected = self.selected_layer(cx).ok();

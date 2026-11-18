@@ -502,10 +502,11 @@ impl App {
                 Err(_) => return false,
             },
         };
-        if let Some(preview) = &self.slider_preview {
-            if preview.doc_id == doc_id && preview.layer_id == layer_id {
-                return true;
-            }
+        if let Some(preview) = &self.slider_preview
+            && preview.doc_id == doc_id
+            && preview.layer_id == layer_id
+        {
+            return true;
         }
         let Some(session) = self.sessions.get(&doc_id) else {
             return false;

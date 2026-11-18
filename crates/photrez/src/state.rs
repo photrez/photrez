@@ -380,8 +380,10 @@ pub struct AppState {
     pub bg_color: [u8; 4],
     /// Crop bar `Delete`: discard pixels outside the crop (on by default).
     pub crop_delete_pixels: bool,
-    /// Crop bar `Fill BG`: bake the background colour under the crop.
+    /// Crop bar `Fill BG`: fill empty crop areas on Apply.
     pub crop_fill_background: bool,
+    pub crop_fill_color: [u8; 4],
+    pub crop_fill_use_background: bool,
     /// Test seam: the crop flags actually sent to core on the last Apply.
     #[cfg(test)]
     pub last_crop_flags: Option<(bool, Option<[u8; 4]>)>,
@@ -564,6 +566,10 @@ pub struct AppState {
     pub move_snap_focus: Option<gpui_kit::FocusHandle>,
     pub move_auto_select_focus: Option<gpui_kit::FocusHandle>,
     pub move_transform_focus: Option<gpui_kit::FocusHandle>,
+    /// Focus targets for the Crop Delete and Fill controls.
+    pub crop_delete_focus: Option<gpui_kit::FocusHandle>,
+    pub crop_fill_focus: Option<gpui_kit::FocusHandle>,
+    pub crop_fill_color_focus: Option<gpui_kit::FocusHandle>,
     /// One tabbable focus handle per New Document text field, indexed by
     /// `new_document_field_index` and installed at App construction.
     pub new_document_field_foci: Vec<gpui_kit::FocusHandle>,
@@ -647,6 +653,15 @@ impl AppState {
         self.print_unit_open = false;
         self.print_printer_open = false;
     }
+
+    pub(crate) const fn resolved_crop_fill_color(&self) -> [u8; 4] {
+        if self.crop_fill_use_background {
+            self.bg_color
+        } else {
+            self.crop_fill_color
+        }
+    }
+
     /// An overlay owns the pointer, so the canvas must not keep a hover cursor
     /// after the pointer stops moving.
     pub fn overlay_owns_canvas(&self) -> bool {

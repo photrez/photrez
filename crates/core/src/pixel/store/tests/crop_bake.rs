@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Destructive crop (`delete_cropped_pixels`) end to end: the metadata arm and
 //! the pixel bake land in ONE history entry, so a single undo restores both.
 
@@ -45,7 +44,7 @@ fn seeded_store_with(alpha: u8) -> PixelStoreRegistry {
             index: 0,
             x: Some(0.0),
             y: Some(0.0),
-            layer_type: None,
+            layer_type: Some(crate::document::content::LayerType::Raster),
             shape_params: None,
             text_data: None,
         }))
@@ -104,17 +103,8 @@ fn pixel_at(reg: &PixelStoreRegistry, x: u32, y: u32) -> [u8; 4] {
     ]
 }
 
-fn alpha_at(reg: &PixelStoreRegistry, x: u32, y: u32) -> u8 {
-    let layer = reg
-        .docs
-        .get("d")
-        .and_then(|s| s.layers.get("bg"))
-        .expect("layer pixels");
-    layer.pixels[((y * layer.width + x) * 4) as usize + 3]
-}
-
 #[test]
-fn destructive_crop_discards_pixels_outside_the_new_document() {
+fn destructive_crop_bakes_rasters_to_the_new_document_size() {
     let mut reg = seeded_store_with(255);
     reg.docs
         .get_mut("d")
@@ -122,11 +112,15 @@ fn destructive_crop_discards_pixels_outside_the_new_document() {
         .apply_command(envelope(crop(true)))
         .expect("crop applies");
 
+    let store = reg.docs.get("d").unwrap();
     assert_eq!(
-        reg.docs.get("d").unwrap().history.doc_size,
+        store.history.doc_size,
         Some((4.0, 4.0)),
         "document shrank to the crop rect"
     );
+    let pixels = store.layers.get("bg").unwrap();
+    assert_eq!((pixels.width, pixels.height), (4, 4));
+    assert_eq!(pixels.pixels.len(), 4 * 4 * 4);
     assert_eq!(
         pixel_at(&reg, 0, 0),
         [9, 9, 9, 255],
@@ -137,8 +131,278 @@ fn destructive_crop_discards_pixels_outside_the_new_document() {
         [9, 9, 9, 255],
         "last inside pixel survives"
     );
-    assert_eq!(alpha_at(&reg, 4, 0), 0, "first column outside is discarded");
-    assert_eq!(alpha_at(&reg, 0, 4), 0, "first row outside is discarded");
+    let layer = store.history.layers.get(0).unwrap();
+    assert_eq!(
+        (layer.x, layer.y, layer.scale_x, layer.scale_y),
+        (0.0, 0.0, 1.0, 1.0)
+    );
+    assert_eq!(layer.rotation, 0.0);
+}
+
+#[test]
+fn destructive_crop_history_trimming_keeps_undo_and_redo_pixels() {
+    let mut reg = seeded_store_with(255);
+    reg.docs.get_mut("d").unwrap().history.max_entries = 2;
+    reg.docs
+        .get_mut("d")
+        .unwrap()
+        .apply_command(envelope(crop(true)))
+        .expect("crop applies");
+
+    assert_eq!(reg.docs.get("d").unwrap().history.entries.len(), 2);
+    reg.docs
+        .get_mut("d")
+        .unwrap()
+        .apply_command(envelope(Command::Undo))
+        .expect("undo the crop");
+    let store = reg.docs.get("d").unwrap();
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    let pixels = store.layers.get("bg").unwrap();
+    assert_eq!((pixels.width, pixels.height), (8, 8));
+    assert_eq!(pixel_at(&reg, 5, 5), [9, 9, 9, 255]);
+
+    reg.docs
+        .get_mut("d")
+        .unwrap()
+        .apply_command(envelope(Command::Redo))
+        .expect("redo the crop");
+    let pixels = reg.docs.get("d").unwrap().layers.get("bg").unwrap();
+    assert_eq!((pixels.width, pixels.height), (4, 4));
+    assert_eq!(pixel_at(&reg, 3, 3), [9, 9, 9, 255]);
+}
+
+#[test]
+fn destructive_crop_rejects_corrupt_raster_pixels_before_history_changes() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    store
+        .get_layer_mut("bg")
+        .expect("layer pixels")
+        .pixels
+        .pop();
+    let version = store.history.version();
+
+    let error = store
+        .apply_command(envelope(crop(true)))
+        .expect_err("invalid raster bytes must reject the crop");
+
+    assert_eq!(error.code, "E_INVALID");
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    assert_eq!(store.history.version(), version);
+    assert_eq!(store.history.layers.get(0).unwrap().width, Some(8.0));
+
+    let fill_error = store
+        .apply_command(envelope(crop_with(false, Some([0, 0, 255, 255]))))
+        .expect_err("fill must reject corrupt Background pixels");
+    assert_eq!(fill_error.code, "E_INVALID");
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    assert_eq!(store.history.version(), version);
+}
+
+#[test]
+fn destructive_crop_rejects_missing_raster_pixels_before_history_changes() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    store.remove_layer("bg");
+    let version = store.history.version();
+
+    let error = store
+        .apply_command(envelope(crop(true)))
+        .expect_err("missing raster bytes must reject the crop");
+
+    assert_eq!(error.code, "E_INVALID");
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    assert_eq!(store.history.version(), version);
+    assert_eq!(store.history.layers.get(0).unwrap().width, Some(8.0));
+
+    let fill_error = store
+        .apply_command(envelope(crop_with(false, Some([0, 0, 255, 255]))))
+        .expect_err("fill must reject missing Background pixels");
+    assert_eq!(fill_error.code, "E_INVALID");
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    assert_eq!(store.history.version(), version);
+}
+
+#[test]
+fn crop_preflight_preserves_validation_and_noop_precedence() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    store
+        .get_layer_mut("bg")
+        .expect("layer pixels")
+        .pixels
+        .pop();
+    let version = store.history.version();
+    let entries = store.history.entries.len();
+
+    let error = store
+        .apply_command(envelope(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 4.0,
+            height: 4.0,
+            rotation: None,
+            target_width: Some(4.0),
+            target_height: None,
+            delete_cropped_pixels: true,
+            fill_background: None,
+        }))
+        .expect_err("the invalid target pair must be rejected before pixel staging");
+
+    assert_eq!(error.code, "E_INVALID");
+    assert_eq!(
+        error.message,
+        "applyCrop target size requires both targetWidth and targetHeight"
+    );
+    assert_eq!(store.history.version(), version);
+    assert_eq!(store.history.entries.len(), entries);
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+
+    let noop = store
+        .apply_command(envelope(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 4.0,
+            rotation: None,
+            target_width: None,
+            target_height: None,
+            delete_cropped_pixels: true,
+            fill_background: None,
+        }))
+        .expect("a non-positive crop remains a no-op before pixel staging");
+
+    assert!(noop.delta.changes.is_empty());
+    assert_eq!(store.history.entries.len(), entries);
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+}
+
+#[test]
+fn fill_rejects_a_non_raster_background_before_history_changes() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut background = store.history.layers.get(0).unwrap().clone();
+    background.layer_type = Some(crate::document::content::LayerType::Shape);
+    store.history.layers = store.history.layers.replaced(0, background);
+    let version = store.history.version();
+    let original_pixels = store.layers.get("bg").unwrap().pixels.clone();
+
+    let error = store
+        .apply_command(envelope(crop_with(false, Some([0, 0, 255, 255]))))
+        .expect_err("fill needs a raster Background");
+
+    assert_eq!(error.code, "E_INVALID");
+    assert_eq!(store.history.doc_size, Some((8.0, 8.0)));
+    assert_eq!(store.history.version(), version);
+    assert_eq!(
+        store.history.layers.get(0).unwrap().layer_type,
+        Some(crate::document::content::LayerType::Shape)
+    );
+    assert_eq!(store.layers.get("bg").unwrap().pixels, original_pixels);
+}
+
+#[test]
+fn destructive_fill_materializes_adjustment_once_and_undo_restores_it() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut background = store.history.layers.get(0).unwrap().clone();
+    background.basic_adjustment = Some(crate::document::layer_params::BasicAdjustment {
+        brightness: 100.0,
+        contrast: 0.0,
+        saturation: 0.0,
+    });
+    background.has_adjustments = Some(true);
+    store.history.layers = store.history.layers.replaced(0, background);
+
+    store
+        .apply_command(envelope(crop_with(true, Some([0, 0, 255, 255]))))
+        .expect("crop and fill apply");
+    assert_eq!(pixel_at(&reg, 0, 0), [132, 132, 132, 255]);
+    assert_eq!(
+        reg.docs
+            .get("d")
+            .unwrap()
+            .history
+            .layers
+            .get(0)
+            .unwrap()
+            .basic_adjustment,
+        None
+    );
+
+    reg.docs
+        .get_mut("d")
+        .unwrap()
+        .apply_command(envelope(Command::Undo))
+        .expect("undo crop and fill");
+    assert_eq!(pixel_at(&reg, 7, 7), [9, 9, 9, 255]);
+    assert_eq!(
+        reg.docs
+            .get("d")
+            .unwrap()
+            .history
+            .layers
+            .get(0)
+            .unwrap()
+            .basic_adjustment
+            .as_ref()
+            .unwrap()
+            .brightness,
+        100.0
+    );
+}
+
+#[test]
+fn destructive_fill_keeps_background_opacity_and_blend_metadata() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut background = store.history.layers.get(0).unwrap().clone();
+    background.opacity = 0.5;
+    background.blend_mode = Some(crate::document::content::BlendMode::Multiply);
+    store.history.layers = store.history.layers.replaced(0, background);
+
+    store
+        .apply_command(envelope(crop_with(true, Some([0, 0, 255, 255]))))
+        .expect("crop and fill apply");
+
+    let store = reg.docs.get("d").expect("doc open");
+    assert_eq!(pixel_at(&reg, 0, 0), [0, 0, 132, 255]);
+    let background = store.history.layers.get(0).unwrap();
+    assert_eq!(background.opacity, 0.5);
+    assert_eq!(
+        background.blend_mode,
+        Some(crate::document::content::BlendMode::Multiply)
+    );
+}
+
+#[test]
+fn destructive_crop_keeps_ordinary_raster_metadata() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut layer = store.history.layers.get(0).unwrap().clone();
+    layer.is_background = Some(false);
+    layer.lock_position = Some(false);
+    layer.lock_rotation = Some(false);
+    layer.visible = false;
+    layer.opacity = 0.75;
+    layer.blend_mode = Some(crate::document::content::BlendMode::Multiply);
+    store.history.layers = store.history.layers.replaced(0, layer);
+
+    store
+        .apply_command(envelope(crop(true)))
+        .expect("destructive crop applies");
+
+    let store = reg.docs.get("d").expect("doc open");
+    let layer = store.history.layers.get(0).unwrap();
+    assert!(!layer.visible);
+    assert_eq!(layer.opacity, 0.75);
+    assert_eq!(
+        layer.blend_mode,
+        Some(crate::document::content::BlendMode::Multiply)
+    );
+    assert_eq!(layer.is_background, Some(false));
+    let pixels = store.layers.get("bg").unwrap();
+    assert_eq!((pixels.width, pixels.height), (4, 4));
 }
 
 #[test]
@@ -176,7 +440,9 @@ fn one_undo_restores_the_metadata_and_the_discarded_pixels() {
         Some((4.0, 4.0)),
         "redo re-applies the crop"
     );
-    assert_eq!(alpha_at(&reg, 5, 5), 0, "redo discards them again");
+    let layer = reg.docs.get("d").unwrap().layers.get("bg").unwrap();
+    assert_eq!((layer.width, layer.height), (4, 4));
+    assert_eq!(pixel_at(&reg, 3, 3), [9, 9, 9, 255]);
 }
 
 #[test]
@@ -231,6 +497,31 @@ fn fill_background_shows_through_a_transparent_background() {
         pixel_at(&reg, 0, 0),
         [255, 0, 0, 255],
         "the fill is what the cropped canvas shows"
+    );
+}
+
+#[test]
+fn fill_bake_preserves_background_visibility() {
+    let mut reg = seeded_store_with(255);
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut background = store.history.layers.get(0).unwrap().clone();
+    background.visible = false;
+    store.history.layers = store.history.layers.replaced(0, background);
+
+    store
+        .apply_command(envelope(crop_with(false, Some([255, 0, 0, 255]))))
+        .expect("crop with fill");
+
+    assert_eq!(pixel_at(&reg, 0, 0), [255, 0, 0, 255]);
+    assert!(
+        !reg.docs
+            .get("d")
+            .unwrap()
+            .history
+            .layers
+            .get(0)
+            .unwrap()
+            .visible
     );
 }
 
@@ -296,6 +587,35 @@ fn the_fill_bake_keeps_the_content_at_the_cropped_columns() {
     );
 }
 
+#[test]
+fn fill_bake_keeps_a_locked_background_in_place() {
+    let mut reg = seeded_store_gradient();
+    let store = reg.docs.get_mut("d").expect("doc open");
+    let mut background = store.history.layers.get(0).unwrap().clone();
+    background.locked = Some(true);
+    store.history.layers = store.history.layers.replaced(0, background);
+
+    store
+        .apply_command(envelope(Command::ApplyCrop {
+            x: 2.0,
+            y: 0.0,
+            width: 4.0,
+            height: 4.0,
+            rotation: None,
+            target_width: None,
+            target_height: None,
+            delete_cropped_pixels: false,
+            fill_background: Some([0, 0, 255, 255]),
+        }))
+        .expect("crop with fill");
+
+    assert_eq!(pixel_at(&reg, 0, 0), [0, 9, 9, 255]);
+    assert_eq!(pixel_at(&reg, 3, 0), [30, 9, 9, 255]);
+    let background = reg.docs.get("d").unwrap().history.layers.get(0).unwrap();
+    assert_eq!(background.locked, Some(true));
+    assert_eq!((background.x, background.y), (0.0, 0.0));
+}
+
 /// A crop that reaches past the page edge fills the new area with the fill
 /// colour instead of smearing the edge of the background.
 #[test]
@@ -341,6 +661,29 @@ fn the_fill_bake_fills_the_area_past_the_page_edge() {
         [0, 0, 255, 255],
         "the area past the page edge shows the fill colour"
     );
+}
+
+#[test]
+fn fill_bake_fills_the_corners_outside_a_rotated_background() {
+    let mut reg = seeded_store_with(255);
+    reg.docs
+        .get_mut("d")
+        .unwrap()
+        .apply_command(envelope(Command::ApplyCrop {
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 8.0,
+            rotation: Some(45.0),
+            target_width: None,
+            target_height: None,
+            delete_cropped_pixels: false,
+            fill_background: Some([0, 0, 255, 255]),
+        }))
+        .expect("crop with fill");
+
+    assert_eq!(pixel_at(&reg, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(pixel_at(&reg, 3, 3), [9, 9, 9, 255]);
 }
 
 #[test]

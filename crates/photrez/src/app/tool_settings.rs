@@ -860,4 +860,13 @@ impl App {
             .update(cx, |state, _| state.text_stroke_popover_open = false);
         cx.notify();
     }
+
+    pub(crate) fn dismiss_text_stroke_popover(
+        &mut self,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_text_stroke_popover(cx);
+        window.focus(&self.canvas_focus_handle, cx);
+    }
 }

@@ -339,10 +339,10 @@ impl CheckerCache {
         }
         let width = (width as u32).min(MAX_CANVAS_DIM);
         let height = (height as u32).min(MAX_CANVAS_DIM);
-        if let Some((w, h, image)) = &self.entry {
-            if (*w, *h) == (width, height) {
-                return Some(Arc::clone(image));
-            }
+        if let Some((w, h, image)) = &self.entry
+            && (*w, *h) == (width, height)
+        {
+            return Some(Arc::clone(image));
         }
         let cell = CHECKER_CELL.max(1.) as u32;
         let mut bgra = vec![0u8; width as usize * height as usize * 4];
@@ -417,6 +417,69 @@ fn canvas_element_inner(
             let (page_x, page_y) =
                 page_origin(bounds.origin.x.into(), bounds.origin.y.into(), x, y);
             let scale = window.scale_factor();
+            let fill_corners_screen = overlay
+                .crop
+                .map(|crop| {
+                    crate::app::transform_geometry::rotated_rect_corners(
+                        crop.0,
+                        crop.1,
+                        crop.2,
+                        crop.3,
+                        overlay.crop_rotation,
+                    )
+                    .iter()
+                    .filter_map(|corner| {
+                        doc_point_to_window(
+                            page_x,
+                            page_y,
+                            w,
+                            h,
+                            doc_w,
+                            doc_h,
+                            [corner.x, corner.y],
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                })
+                .or_else(|| {
+                    overlay
+                        .crop_create_preview
+                        .and_then(|(x, y, width, height)| {
+                            let [left, top, right, bottom] =
+                                [x, y, x + width, y + height].map(|coordinate| coordinate as f32);
+                            (width > 0.0
+                                && height > 0.0
+                                && [left, top, right, bottom]
+                                    .iter()
+                                    .all(|coordinate| coordinate.is_finite()))
+                            .then(|| {
+                                vec![
+                                    point(px(left), px(top)),
+                                    point(px(right), px(top)),
+                                    point(px(right), px(bottom)),
+                                    point(px(left), px(bottom)),
+                                ]
+                            })
+                        })
+                });
+            if let (Some(corners_screen), Some([red, green, blue, alpha])) =
+                (fill_corners_screen, overlay.crop_fill_color)
+                && corners_screen.len() == 4
+            {
+                let mut fill_path = PathBuilder::fill();
+                fill_path.add_polygon(&corners_screen, true);
+                if let Ok(path) = fill_path.build() {
+                    let fill_color = gpui_kit::rgb(
+                        (u32::from(red) << 16) | (u32::from(green) << 8) | u32::from(blue),
+                    )
+                    .alpha(f32::from(alpha) / 255.0);
+                    let mut fill_mask = window.content_mask();
+                    fill_mask.bounds = bounds;
+                    window.with_content_mask(Some(fill_mask), |window| {
+                        window.paint_layer(bounds, |window| window.paint_path(path, fill_color));
+                    });
+                }
+            }
             if let Some(checker) = &checker {
                 let page_bounds = Bounds {
                     origin: point(px(page_x), px(page_y)),
@@ -470,11 +533,10 @@ fn canvas_element_inner(
                         Arc::clone(image),
                         0,
                         false,
-                    ) {
-                        if !reported_error {
-                            eprintln!("photrez: canvas image paint failed: {error:#}");
-                            reported_error = true;
-                        }
+                    ) && !reported_error
+                    {
+                        eprintln!("photrez: canvas image paint failed: {error:#}");
+                        reported_error = true;
                     }
                 }
             }
@@ -733,62 +795,60 @@ fn canvas_element_inner(
                     }
                 }
             }
-            if let Some(highlight) = overlay.hover_highlight {
-                if let Some(rect) =
+            if let Some(highlight) = overlay.hover_highlight
+                && let Some(rect) =
                     doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, highlight)
-                {
-                    window.paint_quad(outline(
-                        rect,
-                        color::ACCENT.opacity(0.8),
-                        BorderStyle::Solid,
-                    ));
-                }
+            {
+                window.paint_quad(outline(
+                    rect,
+                    color::ACCENT.opacity(0.8),
+                    BorderStyle::Solid,
+                ));
             }
-            if let Some(cursor) = overlay.brush_cursor {
-                if doc_w > 0. && doc_h > 0. {
-                    if let Some(center) =
-                        doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, cursor.center)
-                    {
-                        let cx: f32 = center.x.into();
-                        let cy: f32 = center.y.into();
-                        let rx = (cursor.radii[0] * (w / doc_w) as f64) as f32;
-                        let ry = (cursor.radii[1] * (h / doc_h) as f64) as f32;
-                        let (sin, cos) = cursor.rotation.sin_cos();
-                        let (sin, cos) = (sin as f32, cos as f32);
-                        let ring = |width: f32| {
-                            let mut path = PathBuilder::stroke(px(width));
-                            for step in 0..=48 {
-                                let t = step as f32 / 48.0 * std::f32::consts::TAU;
-                                let (st, ct) = t.sin_cos();
-                                let local_x = rx * ct;
-                                let local_y = ry * st;
-                                let x = cx + local_x * cos - local_y * sin;
-                                let y = cy + local_x * sin + local_y * cos;
-                                if step == 0 {
-                                    path.move_to(point(px(x), px(y)));
-                                } else {
-                                    path.line_to(point(px(x), px(y)));
-                                }
-                            }
-                            path.close();
-                            path.build().ok()
-                        };
-                        if let Some(path) = ring(1.5) {
-                            window.paint_path(path, hsla(0., 0., 0., 0.5));
+            if let Some(cursor) = overlay.brush_cursor
+                && doc_w > 0.
+                && doc_h > 0.
+                && let Some(center) =
+                    doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, cursor.center)
+            {
+                let cx: f32 = center.x.into();
+                let cy: f32 = center.y.into();
+                let rx = (cursor.radii[0] * (w / doc_w) as f64) as f32;
+                let ry = (cursor.radii[1] * (h / doc_h) as f64) as f32;
+                let (sin, cos) = cursor.rotation.sin_cos();
+                let (sin, cos) = (sin as f32, cos as f32);
+                let ring = |width: f32| {
+                    let mut path = PathBuilder::stroke(px(width));
+                    for step in 0..=48 {
+                        let t = step as f32 / 48.0 * std::f32::consts::TAU;
+                        let (st, ct) = t.sin_cos();
+                        let local_x = rx * ct;
+                        let local_y = ry * st;
+                        let x = cx + local_x * cos - local_y * sin;
+                        let y = cy + local_x * sin + local_y * cos;
+                        if step == 0 {
+                            path.move_to(point(px(x), px(y)));
+                        } else {
+                            path.line_to(point(px(x), px(y)));
                         }
-                        if let Some(path) = ring(1.0) {
-                            window.paint_path(path, hsla(0., 0., 1., 1.));
-                        }
-                        if cursor.crosshair {
-                            let mut cross = PathBuilder::stroke(px(1.0));
-                            cross.move_to(point(px(cx - 4.0), px(cy)));
-                            cross.line_to(point(px(cx + 4.0), px(cy)));
-                            cross.move_to(point(px(cx), px(cy - 4.0)));
-                            cross.line_to(point(px(cx), px(cy + 4.0)));
-                            if let Ok(path) = cross.build() {
-                                window.paint_path(path, hsla(0., 0., 1., 1.));
-                            }
-                        }
+                    }
+                    path.close();
+                    path.build().ok()
+                };
+                if let Some(path) = ring(1.5) {
+                    window.paint_path(path, hsla(0., 0., 0., 0.5));
+                }
+                if let Some(path) = ring(1.0) {
+                    window.paint_path(path, hsla(0., 0., 1., 1.));
+                }
+                if cursor.crosshair {
+                    let mut cross = PathBuilder::stroke(px(1.0));
+                    cross.move_to(point(px(cx - 4.0), px(cy)));
+                    cross.line_to(point(px(cx + 4.0), px(cy)));
+                    cross.move_to(point(px(cx), px(cy - 4.0)));
+                    cross.line_to(point(px(cx), px(cy + 4.0)));
+                    if let Ok(path) = cross.build() {
+                        window.paint_path(path, hsla(0., 0., 1., 1.));
                     }
                 }
             }
@@ -799,43 +859,42 @@ fn canvas_element_inner(
                     cursor.index,
                 );
             }
-            if let Some(line) = overlay.gradient_line {
-                if let (Some(start), Some(end)) = (
+            if let Some(line) = overlay.gradient_line
+                && let (Some(start), Some(end)) = (
                     doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, line.start),
                     doc_point_to_window(page_x, page_y, w, h, doc_w, doc_h, line.end),
-                ) {
-                    let s = (f32::from(start.x), f32::from(start.y));
-                    let e = (f32::from(end.x), f32::from(end.y));
-                    let white = hsla(0., 0., 1., 1.);
-                    if line.radial && doc_w > 0. {
-                        let dx = line.end[0] - line.start[0];
-                        let dy = line.end[1] - line.start[1];
-                        let radius = ((dx * dx + dy * dy).sqrt() * (w / doc_w) as f64) as f32;
-                        painted_circle(window, s, radius, Some(3.0), hsla(0., 0., 0., 0.4));
-                        painted_dashed_circle(
-                            window,
-                            s,
-                            radius,
-                            1.5,
-                            4.0,
-                            4.0,
-                            color::ACCENT.opacity(0.9),
-                        );
-                    }
-                    painted_dashed_line(window, s, e, 3.0, 1.0e6, 0.0, hsla(0., 0., 0., 0.5));
-                    painted_dashed_line(window, s, e, 2.0, 6.0, 3.0, color::ACCENT);
-                    painted_circle(window, s, 6.0, None, color::ACCENT);
-                    painted_circle(window, s, 6.0, Some(2.0), white);
-                    painted_circle(window, e, 5.0, None, white);
-                    painted_circle(window, e, 5.0, Some(2.5), color::ACCENT);
+                )
+            {
+                let s = (f32::from(start.x), f32::from(start.y));
+                let e = (f32::from(end.x), f32::from(end.y));
+                let white = hsla(0., 0., 1., 1.);
+                if line.radial && doc_w > 0. {
+                    let dx = line.end[0] - line.start[0];
+                    let dy = line.end[1] - line.start[1];
+                    let radius = ((dx * dx + dy * dy).sqrt() * (w / doc_w) as f64) as f32;
+                    painted_circle(window, s, radius, Some(3.0), hsla(0., 0., 0., 0.4));
+                    painted_dashed_circle(
+                        window,
+                        s,
+                        radius,
+                        1.5,
+                        4.0,
+                        4.0,
+                        color::ACCENT.opacity(0.9),
+                    );
                 }
+                painted_dashed_line(window, s, e, 3.0, 1.0e6, 0.0, hsla(0., 0., 0., 0.5));
+                painted_dashed_line(window, s, e, 2.0, 6.0, 3.0, color::ACCENT);
+                painted_circle(window, s, 6.0, None, color::ACCENT);
+                painted_circle(window, s, 6.0, Some(2.0), white);
+                painted_circle(window, e, 5.0, None, white);
+                painted_circle(window, e, 5.0, Some(2.5), color::ACCENT);
             }
-            if let Some(marquee) = overlay.move_marquee {
-                if let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, marquee)
-                {
-                    window.paint_quad(fill(rect, color::ACCENT.opacity(0.15)));
-                    window.paint_quad(outline(rect, color::ACCENT, BorderStyle::Dashed));
-                }
+            if let Some(marquee) = overlay.move_marquee
+                && let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, marquee)
+            {
+                window.paint_quad(fill(rect, color::ACCENT.opacity(0.15)));
+                window.paint_quad(outline(rect, color::ACCENT, BorderStyle::Dashed));
             }
             if let Some(frame) = overlay.transform {
                 let mut path = PathBuilder::stroke(px(if overlay.transform_controls {
@@ -902,10 +961,8 @@ fn canvas_element_inner(
                             drew = true;
                         }
                     }
-                    if drew {
-                        if let Ok(path) = brackets.build() {
-                            window.paint_path(path, color::ACCENT);
-                        }
+                    if drew && let Ok(path) = brackets.build() {
+                        window.paint_path(path, color::ACCENT);
                     }
                 }
                 let handle_edge = 8.0f32;
@@ -973,167 +1030,159 @@ fn canvas_element_inner(
                     );
                 }
             }
-            if let Some(crop) = overlay.crop {
-                if let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, crop) {
-                    let mask = if overlay.crop_delete_pixels {
-                        gpui_kit::rgb(0x161618).alpha(0.98)
-                    } else {
-                        gpui_kit::rgb(0x000000).alpha(0.5)
+            if let Some(crop) = overlay.crop
+                && let Some(rect) = doc_rect_to_window(page_x, page_y, w, h, doc_w, doc_h, crop)
+            {
+                let mask = if overlay.crop_delete_pixels {
+                    gpui_kit::rgb(0x161618).alpha(0.98)
+                } else {
+                    gpui_kit::rgb(0x000000).alpha(0.5)
+                };
+                let rotation = overlay.crop_rotation;
+                let corners_doc = crate::app::transform_geometry::rotated_rect_corners(
+                    crop.0, crop.1, crop.2, crop.3, rotation,
+                );
+                let corners_screen: Vec<_> = corners_doc
+                    .iter()
+                    .filter_map(|corner| {
+                        doc_point_to_window(
+                            page_x,
+                            page_y,
+                            w,
+                            h,
+                            doc_w,
+                            doc_h,
+                            [corner.x, corner.y],
+                        )
+                    })
+                    .collect();
+                if corners_screen.len() == 4 {
+                    let viewport = [
+                        bounds.origin,
+                        point(bounds.origin.x + bounds.size.width, bounds.origin.y),
+                        bounds.bottom_right(),
+                        point(bounds.origin.x, bounds.origin.y + bounds.size.height),
+                    ];
+                    let hole = [
+                        corners_screen[0],
+                        corners_screen[3],
+                        corners_screen[2],
+                        corners_screen[1],
+                    ];
+                    let mut shield = PathBuilder::fill();
+                    shield.add_polygon(&viewport, true);
+                    shield.add_polygon(&hole, true);
+                    if let Ok(path) = shield.build() {
+                        let mut shield_mask = window.content_mask();
+                        shield_mask.bounds = bounds;
+                        window.with_content_mask(Some(shield_mask), |window| {
+                            window.paint_layer(bounds, |window| window.paint_path(path, mask));
+                        });
+                    }
+                }
+                if rotation == 0.0 {
+                    window.paint_quad(outline(rect, hsla(0., 0., 0., 0.55), BorderStyle::Solid));
+                    let inner = Bounds {
+                        origin: point(rect.origin.x + px(1.), rect.origin.y + px(1.)),
+                        size: size(rect.size.width - px(2.), rect.size.height - px(2.)),
                     };
-                    let rotation = overlay.crop_rotation;
-                    let corners_doc = crate::app::transform_geometry::rotated_rect_corners(
-                        crop.0, crop.1, crop.2, crop.3, rotation,
-                    );
-                    let corners_screen: Vec<_> = corners_doc
-                        .iter()
-                        .filter_map(|corner| {
-                            doc_point_to_window(
-                                page_x,
-                                page_y,
-                                w,
-                                h,
-                                doc_w,
-                                doc_h,
-                                [corner.x, corner.y],
-                            )
-                        })
-                        .collect();
-                    if corners_screen.len() == 4 {
-                        let viewport = [
-                            bounds.origin,
-                            point(bounds.origin.x + bounds.size.width, bounds.origin.y),
-                            bounds.bottom_right(),
-                            point(bounds.origin.x, bounds.origin.y + bounds.size.height),
-                        ];
-                        let hole = [
-                            corners_screen[0],
-                            corners_screen[3],
-                            corners_screen[2],
-                            corners_screen[1],
-                        ];
-                        let mut shield = PathBuilder::fill();
-                        shield.add_polygon(&viewport, true);
-                        shield.add_polygon(&hole, true);
-                        if let Ok(path) = shield.build() {
-                            let mut shield_mask = window.content_mask();
-                            shield_mask.bounds = bounds;
-                            window.with_content_mask(Some(shield_mask), |window| {
-                                window.paint_layer(bounds, |window| window.paint_path(path, mask));
-                            });
+                    window.paint_quad(outline(inner, hsla(0., 0., 1., 0.9), BorderStyle::Solid));
+                } else if corners_screen.len() == 4 {
+                    for (width, color) in
+                        [(2.0, hsla(0., 0., 0., 0.55)), (1.0, hsla(0., 0., 1., 0.9))]
+                    {
+                        let mut frame = PathBuilder::stroke(px(width));
+                        frame.add_polygon(&corners_screen, true);
+                        if let Ok(path) = frame.build() {
+                            window.paint_path(path, color);
                         }
                     }
+                }
+                let screen_center = point(
+                    rect.origin.x + rect.size.width / 2.0,
+                    rect.origin.y + rect.size.height / 2.0,
+                );
+                let rotate_screen = |position: Point<Pixels>| {
                     if rotation == 0.0 {
-                        window.paint_quad(outline(
-                            rect,
-                            hsla(0., 0., 0., 0.55),
-                            BorderStyle::Solid,
-                        ));
-                        let inner = Bounds {
-                            origin: point(rect.origin.x + px(1.), rect.origin.y + px(1.)),
-                            size: size(rect.size.width - px(2.), rect.size.height - px(2.)),
-                        };
-                        window.paint_quad(outline(
-                            inner,
-                            hsla(0., 0., 1., 0.9),
-                            BorderStyle::Solid,
-                        ));
-                    } else if corners_screen.len() == 4 {
-                        for (width, color) in
-                            [(2.0, hsla(0., 0., 0., 0.55)), (1.0, hsla(0., 0., 1., 0.9))]
-                        {
-                            let mut frame = PathBuilder::stroke(px(width));
-                            frame.add_polygon(&corners_screen, true);
-                            if let Ok(path) = frame.build() {
-                                window.paint_path(path, color);
-                            }
-                        }
+                        return position;
                     }
-                    let screen_center = point(
-                        rect.origin.x + rect.size.width / 2.0,
-                        rect.origin.y + rect.size.height / 2.0,
+                    let rotated = crate::app::transform_geometry::rotate_point(
+                        crate::app::transform_geometry::Point {
+                            x: f64::from(position.x),
+                            y: f64::from(position.y),
+                        },
+                        crate::app::transform_geometry::Point {
+                            x: f64::from(screen_center.x),
+                            y: f64::from(screen_center.y),
+                        },
+                        rotation,
                     );
-                    let rotate_screen = |position: Point<Pixels>| {
+                    point(px(rotated.x as f32), px(rotated.y as f32))
+                };
+                let segments = crate::crop_geometry::crop_guide_segments(
+                    f64::from(f32::from(rect.size.width)),
+                    f64::from(f32::from(rect.size.height)),
+                    overlay.crop_guides,
+                );
+                if !segments.is_empty() {
+                    let mut path = PathBuilder::stroke(px(1.0));
+                    for (start, end) in segments {
+                        path.move_to(rotate_screen(point(
+                            rect.origin.x + px(start[0] as f32),
+                            rect.origin.y + px(start[1] as f32),
+                        )));
+                        path.line_to(rotate_screen(point(
+                            rect.origin.x + px(end[0] as f32),
+                            rect.origin.y + px(end[1] as f32),
+                        )));
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color::WHITE_30);
+                    }
+                }
+                let handle_edge = 8.0f32;
+                let center_x = rect.origin.x + rect.size.width / 2.;
+                let center_y = rect.origin.y + rect.size.height / 2.;
+                let xs = [rect.origin.x, center_x, rect.origin.x + rect.size.width];
+                let ys = [rect.origin.y, center_y, rect.origin.y + rect.size.height];
+                for (column, x) in xs.iter().enumerate() {
+                    for (row, y) in ys.iter().enumerate() {
+                        if column == 1 && row == 1 {
+                            continue;
+                        }
+                        let center = point(*x, *y);
                         if rotation == 0.0 {
-                            return position;
-                        }
-                        let rotated = crate::app::transform_geometry::rotate_point(
-                            crate::app::transform_geometry::Point {
-                                x: f64::from(position.x),
-                                y: f64::from(position.y),
-                            },
-                            crate::app::transform_geometry::Point {
-                                x: f64::from(screen_center.x),
-                                y: f64::from(screen_center.y),
-                            },
-                            rotation,
-                        );
-                        point(px(rotated.x as f32), px(rotated.y as f32))
-                    };
-                    let segments = crate::crop_geometry::crop_guide_segments(
-                        f64::from(f32::from(rect.size.width)),
-                        f64::from(f32::from(rect.size.height)),
-                        overlay.crop_guides,
-                    );
-                    if !segments.is_empty() {
-                        let mut path = PathBuilder::stroke(px(1.0));
-                        for (start, end) in segments {
-                            path.move_to(rotate_screen(point(
-                                rect.origin.x + px(start[0] as f32),
-                                rect.origin.y + px(start[1] as f32),
-                            )));
-                            path.line_to(rotate_screen(point(
-                                rect.origin.x + px(end[0] as f32),
-                                rect.origin.y + px(end[1] as f32),
-                            )));
-                        }
-                        if let Ok(path) = path.build() {
-                            window.paint_path(path, color::WHITE_30);
-                        }
-                    }
-                    let handle_edge = 8.0f32;
-                    let center_x = rect.origin.x + rect.size.width / 2.;
-                    let center_y = rect.origin.y + rect.size.height / 2.;
-                    let xs = [rect.origin.x, center_x, rect.origin.x + rect.size.width];
-                    let ys = [rect.origin.y, center_y, rect.origin.y + rect.size.height];
-                    for (column, x) in xs.iter().enumerate() {
-                        for (row, y) in ys.iter().enumerate() {
-                            if column == 1 && row == 1 {
-                                continue;
+                            let bounds = Bounds {
+                                origin: point(
+                                    center.x - px(handle_edge / 2.),
+                                    center.y - px(handle_edge / 2.),
+                                ),
+                                size: size(px(handle_edge), px(handle_edge)),
+                            };
+                            window.paint_quad(fill(bounds, hsla(0., 0., 1., 0.9)));
+                            window.paint_quad(outline(
+                                bounds,
+                                hsla(0., 0., 0., 0.35),
+                                BorderStyle::Solid,
+                            ));
+                        } else {
+                            let half = px(handle_edge / 2.);
+                            let square = [
+                                point(center.x - half, center.y - half),
+                                point(center.x + half, center.y - half),
+                                point(center.x + half, center.y + half),
+                                point(center.x - half, center.y + half),
+                            ]
+                            .map(rotate_screen);
+                            let mut fill_path = PathBuilder::fill();
+                            fill_path.add_polygon(&square, true);
+                            if let Ok(path) = fill_path.build() {
+                                window.paint_path(path, hsla(0., 0., 1., 0.9));
                             }
-                            let center = point(*x, *y);
-                            if rotation == 0.0 {
-                                let bounds = Bounds {
-                                    origin: point(
-                                        center.x - px(handle_edge / 2.),
-                                        center.y - px(handle_edge / 2.),
-                                    ),
-                                    size: size(px(handle_edge), px(handle_edge)),
-                                };
-                                window.paint_quad(fill(bounds, hsla(0., 0., 1., 0.9)));
-                                window.paint_quad(outline(
-                                    bounds,
-                                    hsla(0., 0., 0., 0.35),
-                                    BorderStyle::Solid,
-                                ));
-                            } else {
-                                let half = px(handle_edge / 2.);
-                                let square = [
-                                    point(center.x - half, center.y - half),
-                                    point(center.x + half, center.y - half),
-                                    point(center.x + half, center.y + half),
-                                    point(center.x - half, center.y + half),
-                                ]
-                                .map(rotate_screen);
-                                let mut fill_path = PathBuilder::fill();
-                                fill_path.add_polygon(&square, true);
-                                if let Ok(path) = fill_path.build() {
-                                    window.paint_path(path, hsla(0., 0., 1., 0.9));
-                                }
-                                let mut stroke = PathBuilder::stroke(px(1.0));
-                                stroke.add_polygon(&square, true);
-                                if let Ok(path) = stroke.build() {
-                                    window.paint_path(path, hsla(0., 0., 0., 0.35));
-                                }
+                            let mut stroke = PathBuilder::stroke(px(1.0));
+                            stroke.add_polygon(&square, true);
+                            if let Ok(path) = stroke.build() {
+                                window.paint_path(path, hsla(0., 0., 0., 0.35));
                             }
                         }
                     }

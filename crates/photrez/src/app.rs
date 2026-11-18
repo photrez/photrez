@@ -691,10 +691,11 @@ impl Render for App {
         {
             self.release_color_picker_pointer(window);
         }
-        if self.dialog_was_open && !dialog_open {
-            if let Some(handle) = self.shell_focus_before_dialog.take() {
-                handle.focus(window, cx);
-            }
+        if self.dialog_was_open
+            && !dialog_open
+            && let Some(handle) = self.shell_focus_before_dialog.take()
+        {
+            handle.focus(window, cx);
         }
         self.dialog_was_open = dialog_open;
         if !dialog_open {

@@ -81,7 +81,7 @@ pub fn summarize_csv_str(csv: &str, skip_ms: f64) -> Result<DisplaySummary, Pres
             None => {
                 return Err(PresentmonError::Header(
                     "missing TimeInMs or TimeInSeconds column".to_string(),
-                ))
+                ));
             }
         },
     };
@@ -150,8 +150,7 @@ pub fn summarize_csv_str(csv: &str, skip_ms: f64) -> Result<DisplaySummary, Pres
 mod tests {
     use super::*;
 
-    const FIXTURE: &str =
-        "Application,ProcessID,TimeInMs,MsBetweenPresents,MsBetweenDisplayChange\n\
+    const FIXTURE: &str = "Application,ProcessID,TimeInMs,MsBetweenPresents,MsBetweenDisplayChange\n\
 measure-frames.exe,1,3000.0,57.4,33.27\n\
 measure-frames.exe,1,3100.0,17.6,16.9\n\
 measure-frames.exe,1,3200.0,17.6,16.8\n\
@@ -179,8 +178,7 @@ measure-frames.exe,1,3500.0,17.6,150.0\n";
 
     #[test]
     fn utf8_bom_before_the_header_is_ignored() {
-        let csv =
-            "\u{feff}Application,ProcessID,TimeInMs,MsBetweenPresents,MsBetweenDisplayChange\n\
+        let csv = "\u{feff}Application,ProcessID,TimeInMs,MsBetweenPresents,MsBetweenDisplayChange\n\
 measure-frames.exe,1,3100.0,17.6,16.7\n";
         let summary = summarize_csv_str(csv, 0.0).expect("BOM header");
         assert_eq!(summary.sample_count, 1);
@@ -192,8 +190,7 @@ measure-frames.exe,1,3100.0,17.6,16.7\n";
     /// same way, or the displayed gate cannot be run on a real capture.
     #[test]
     fn presentmon_2_column_names_and_seconds_timeline_summarize_alike() {
-        let csv_2x =
-            "Application,ProcessID,TimeInSeconds,msBetweenPresents,msBetweenDisplayChange\n\
+        let csv_2x = "Application,ProcessID,TimeInSeconds,msBetweenPresents,msBetweenDisplayChange\n\
 measure-frames.exe,1,3.0000,57.4,33.27\n\
 measure-frames.exe,1,3.1000,17.6,16.9\n\
 measure-frames.exe,1,3.2000,17.6,16.8\n\

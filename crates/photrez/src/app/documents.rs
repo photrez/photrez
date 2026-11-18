@@ -154,11 +154,10 @@ impl App {
                 .active_document
                 .as_ref()
                 .is_some_and(|document| document.doc_id != doc_id)
+                && let Err(error) = self.activate_document(doc_id, cx)
             {
-                if let Err(error) = self.activate_document(doc_id, cx) {
-                    self.set_status_error(Some(format!("Tab: {error}")), cx);
-                    return false;
-                }
+                self.set_status_error(Some(format!("Tab: {error}")), cx);
+                return false;
             }
             self.pending_close = Some(CloseIntent::Tab {
                 doc_id: doc_id.to_string(),

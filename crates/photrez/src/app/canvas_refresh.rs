@@ -39,6 +39,7 @@ pub(super) struct CropPreviewKey {
     frame: Option<[u64; 4]>,
     offset: [u64; 2],
     rotation: u64,
+    target_size: Option<(u32, u32)>,
 }
 
 #[derive(Clone, Copy)]
@@ -46,6 +47,7 @@ struct CropPreviewTransform {
     frame: Option<[f64; 4]>,
     offset: (f64, f64),
     rotation: f64,
+    target_size: Option<(f64, f64)>,
 }
 
 impl From<crate::crop_geometry::CropSnapshot> for CropPreviewTransform {
@@ -54,6 +56,7 @@ impl From<crate::crop_geometry::CropSnapshot> for CropPreviewTransform {
             frame: Some(crop.frame),
             offset: crop.offset,
             rotation: crop.rotation,
+            target_size: None,
         }
     }
 }
@@ -102,6 +105,18 @@ fn region_refresh_fits(region_area: u64) -> bool {
     region_area <= MAX_REGION_REFRESH_PIXELS
 }
 
+fn source_raster_scale(scale: f64) -> f64 {
+    scale.clamp(0.01, 1.0)
+}
+
+fn crop_preview_raster_scale(width: u32, height: u32, zoom: f64) -> f64 {
+    if u64::from(width) * u64::from(height) >= LARGE_CANVAS_PIXELS {
+        source_raster_scale(zoom)
+    } else {
+        1.0
+    }
+}
+
 fn crop_preview_pixels(
     content: &PtzDocumentContent,
     input: &ProjectionInput,
@@ -114,6 +129,7 @@ fn crop_preview_pixels(
         frame,
         offset,
         rotation,
+        target_size,
     } = crop.into();
     if !window_scale.is_finite() || window_scale <= 0.0 {
         return None;
@@ -134,6 +150,14 @@ fn crop_preview_pixels(
         || !offset.0.is_finite()
         || !offset.1.is_finite()
         || !rotation.is_finite()
+        || target_size.is_some_and(|(width, height)| {
+            !width.is_finite()
+                || !height.is_finite()
+                || width <= 0.0
+                || height <= 0.0
+                || width > f64::from(crate::display::canvas_bridge::MAX_CANVAS_DIM)
+                || height > f64::from(crate::display::canvas_bridge::MAX_CANVAS_DIM)
+        })
     {
         return None;
     }
@@ -151,6 +175,31 @@ fn crop_preview_pixels(
     let document_height_edge = scaled_document_edge(document_height, 1.0)?;
     let round_screen = |coordinate: f64| (coordinate + 0.5).floor();
     let rotation = if frame.is_some() { rotation } else { 0.0 };
+    let crop_transform = if let Some(frame) = frame {
+        let rect = crate::crop_geometry::crop_apply_region(
+            crate::crop_geometry::CropInteraction::Modern,
+            frame,
+            offset,
+            crate::crop_geometry::CropViewport {
+                pan_x: f64::from(camera.x),
+                pan_y: f64::from(camera.y),
+                zoom,
+            },
+        );
+        if !rect.into_iter().all(f64::is_finite) {
+            return None;
+        }
+        let width = rect[2].round().max(1.0);
+        let height = rect[3].round().max(1.0);
+        let output_size = target_size.unwrap_or((width, height));
+        Some(photrez_core::engine::CropTransform {
+            rect: [rect[0].round(), rect[1].round(), width, height],
+            rotation: crate::crop_geometry::modern_apply_rotation(rotation),
+            output_size,
+        })
+    } else {
+        None
+    };
     let pivot = frame.map(|[frame_x, frame_y, frame_width, frame_height]| {
         let frame_screen = (
             round_screen(frame_x * zoom + f64::from(camera.x)),
@@ -208,50 +257,153 @@ fn crop_preview_pixels(
         .iter()
         .map(|point| point.1)
         .fold(f64::NEG_INFINITY, f64::max);
-    let region_start =
-        |min: f64, edge: u32| ((min - 1.0).floor() as i64).clamp(0, i64::from(edge)) as u32;
-    let region_end =
-        |max: f64, edge: u32| ((max + 1.0).ceil() as i64).clamp(0, i64::from(edge)) as u32;
-    let x = region_start(min_x, document_width_edge);
-    let y = region_start(min_y, document_height_edge);
-    let right = region_end(max_x, document_width_edge);
-    let bottom = region_end(max_y, document_height_edge);
-    let mut pixels = vec![0; rgba_byte_len(width, height)?];
-    if right <= x || bottom <= y {
-        return Some((width, height, pixels));
-    }
+    let (source, crop_sampler) = if let Some(crop_transform) = crop_transform {
+        let crop_output_width = scaled_document_edge(crop_transform.output_size.0, 1.0)?;
+        let crop_output_height = scaled_document_edge(crop_transform.output_size.1, 1.0)?;
+        let raster_scale = crop_preview_raster_scale(crop_output_width, crop_output_height, zoom);
+        if !raster_scale.is_finite() || raster_scale <= 0.0 {
+            return None;
+        }
+        let crop_raster_width = scaled_document_edge(crop_transform.output_size.0, raster_scale)?;
+        let crop_raster_height = scaled_document_edge(crop_transform.output_size.1, raster_scale)?;
+        let output_corners = corners.map(|point| {
+            let point = crop_transform.map_point(point);
+            (point.0 * raster_scale, point.1 * raster_scale)
+        });
+        if !output_corners
+            .iter()
+            .all(|(x, y)| x.is_finite() && y.is_finite())
+        {
+            return None;
+        }
+        let output_min_x = output_corners
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::INFINITY, f64::min);
+        let output_min_y = output_corners
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::INFINITY, f64::min);
+        let output_max_x = output_corners
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let output_max_y = output_corners
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let origin_x = (output_min_x - 1.0).floor();
+        let origin_y = (output_min_y - 1.0).floor();
+        let region_width = viewport_edge(((output_max_x + 1.0).ceil() - origin_x) as f32)?;
+        let region_height = viewport_edge(((output_max_y + 1.0).ceil() - origin_y) as f32)?;
 
-    let region = photrez_core::render::compositor::CompositeRegion {
-        x,
-        y,
-        width: right - x,
-        height: bottom - y,
+        let mut transformed_content = content.clone();
+        transformed_content.width = f64::from(region_width);
+        transformed_content.height = f64::from(region_height);
+        for layer in &mut transformed_content.layers {
+            if !layer.locked {
+                layer.transform = photrez_core::engine::crop_layer_transform(
+                    &layer.transform,
+                    (layer.width, layer.height),
+                    crop_transform,
+                );
+            }
+            layer.transform.x = layer.transform.x * raster_scale - origin_x;
+            layer.transform.y = layer.transform.y * raster_scale - origin_y;
+            layer.transform.scale_x *= raster_scale;
+            layer.transform.scale_y *= raster_scale;
+        }
+        let source = photrez_core::render::compositor::composite_layers_in_region_with_font_data(
+            &transformed_content,
+            input,
+            Some(crate::INTER),
+            photrez_core::render::compositor::CompositeRegion {
+                x: 0,
+                y: 0,
+                width: region_width,
+                height: region_height,
+            },
+        )
+        .ok()?;
+        (
+            source,
+            Some((
+                crop_transform,
+                raster_scale,
+                origin_x,
+                origin_y,
+                crop_raster_width,
+                crop_raster_height,
+            )),
+        )
+    } else {
+        let region_start =
+            |min: f64, edge: u32| ((min - 1.0).floor() as i64).clamp(0, i64::from(edge)) as u32;
+        let region_end =
+            |max: f64, edge: u32| ((max + 1.0).ceil() as i64).clamp(0, i64::from(edge)) as u32;
+        let x = region_start(min_x, document_width_edge);
+        let y = region_start(min_y, document_height_edge);
+        let right = region_end(max_x, document_width_edge);
+        let bottom = region_end(max_y, document_height_edge);
+        if right <= x || bottom <= y {
+            return Some((width, height, vec![0; rgba_byte_len(width, height)?]));
+        }
+        let source = photrez_core::render::compositor::composite_layers_in_region_with_font_data(
+            content,
+            input,
+            Some(crate::INTER),
+            photrez_core::render::compositor::CompositeRegion {
+                x,
+                y,
+                width: right - x,
+                height: bottom - y,
+            },
+        )
+        .ok()?;
+        (source, None)
     };
-    let source = photrez_core::render::compositor::composite_layers_in_region_with_font_data(
-        content,
-        input,
-        Some(crate::INTER),
-        region,
-    )
-    .ok()?;
+    let mut pixels = vec![0; rgba_byte_len(width, height)?];
     for y in 0..height {
         for x in 0..width {
             let screen_x = (f64::from(x) + 0.5) / scale;
             let screen_y = (f64::from(y) + 0.5) / scale;
             let (document_x, document_y) = inverse(screen_x, screen_y);
-            if document_x < 0.0
-                || document_y < 0.0
-                || document_x >= document_width
-                || document_y >= document_height
+            if crop_sampler.is_none()
+                && (document_x < 0.0
+                    || document_y < 0.0
+                    || document_x >= document_width
+                    || document_y >= document_height)
             {
                 continue;
             }
+            let (sample_x, sample_y) =
+                if let Some((crop, raster_scale, origin_x, origin_y, crop_width, crop_height)) =
+                    crop_sampler
+                {
+                    let point = crop.map_point((document_x, document_y));
+                    let (mut sample_x, mut sample_y) =
+                        (point.0 * raster_scale, point.1 * raster_scale);
+                    if point.0 >= 0.0
+                        && point.1 >= 0.0
+                        && point.0 < crop.output_size.0
+                        && point.1 < crop.output_size.1
+                    {
+                        sample_x = (sample_x - 0.5).clamp(0.0, f64::from(crop_width - 1)) + 0.5;
+                        sample_y = (sample_y - 0.5).clamp(0.0, f64::from(crop_height - 1)) + 0.5;
+                    }
+                    (sample_x - origin_x, sample_y - origin_y)
+                } else {
+                    (
+                        document_x - f64::from(source.region.x),
+                        document_y - f64::from(source.region.y),
+                    )
+                };
             let sample = sample_rgba_bilinear(
                 &source.pixels,
                 source.region.width,
                 source.region.height,
-                document_x - f64::from(source.region.x),
-                document_y - f64::from(source.region.y),
+                sample_x,
+                sample_y,
             );
             let index = (y as usize * width as usize + x as usize) * 4;
             pixels[index..index + 4].copy_from_slice(&sample);
@@ -378,7 +530,7 @@ fn projection_work(
     if right <= left || bottom <= top {
         return None;
     }
-    let scale = (f64::from(page_w) / doc_w).clamp(0.01, 1.0);
+    let scale = source_raster_scale(f64::from(page_w) / doc_w);
     let doc_left = ((f64::from(left - page_x) / f64::from(page_w)) * doc_w)
         .floor()
         .max(0.0);
@@ -399,8 +551,8 @@ fn projection_work(
         return None;
     }
 
-    let scaled_w = (doc_w * scale).max(1.0);
-    let scaled_h = (doc_h * scale).max(1.0);
+    let scaled_w = f64::from(scaled_document_edge(doc_w, scale)?);
+    let scaled_h = f64::from(scaled_document_edge(doc_h, scale)?);
     let region = photrez_core::render::compositor::CompositeRegion {
         x: (doc_left * scale).floor().clamp(0.0, scaled_w - 1.0) as u32,
         y: (doc_top * scale).floor().clamp(0.0, scaled_h - 1.0) as u32,
@@ -464,7 +616,13 @@ impl App {
         } else {
             0.0
         };
-        if state.crop_offset == (0.0, 0.0) && rotation == 0.0 {
+        let target_size =
+            if frame.is_some() && state.crop_mode == crate::crop_aspect::CropMode::Size {
+                state.crop_size_target
+            } else {
+                None
+            };
+        if state.crop_offset == (0.0, 0.0) && rotation == 0.0 && target_size.is_none() {
             return None;
         }
         let document = self.active_document.as_ref()?;
@@ -497,6 +655,7 @@ impl App {
             frame: frame.map(|frame| frame.map(f64::to_bits)),
             offset: [state.crop_offset.0.to_bits(), state.crop_offset.1.to_bits()],
             rotation: rotation.to_bits(),
+            target_size,
         })
     }
 
@@ -564,6 +723,9 @@ impl App {
                             frame: key.frame.map(|frame| frame.map(f64::from_bits)),
                             offset: (f64::from_bits(key.offset[0]), f64::from_bits(key.offset[1])),
                             rotation: f64::from_bits(key.rotation),
+                            target_size: key
+                                .target_size
+                                .map(|(width, height)| (f64::from(width), f64::from(height))),
                         },
                     )
                     .and_then(|(width, height, pixels)| image_from_rgba(width, height, pixels).ok())
@@ -833,10 +995,12 @@ impl App {
     /// Buffers are keyed by layer epoch; an edit that leaves a layer's pixels
     /// untouched reuses the shared buffer instead of copying it.
     fn projection_cache_for(&mut self, doc_id: &str, version: u64) -> Option<Arc<ProjectionCache>> {
-        if let Some(cache) = &self.projection_cache {
-            if cache.doc_id == doc_id && cache.version == version {
-                return Some(Arc::clone(cache));
-            }
+        if let Some(cache) = self
+            .projection_cache
+            .as_ref()
+            .filter(|cache| cache.doc_id == doc_id && cache.version == version)
+        {
+            return Some(Arc::clone(cache));
         }
         let session = self.sessions.get(doc_id)?;
         let loaded = session.loaded_document();
@@ -1229,6 +1393,39 @@ mod tests {
     }
 
     #[test]
+    fn crop_preview_source_scale_switches_at_large_output_threshold() {
+        assert_eq!(crop_preview_raster_scale(2499, 1000, 0.5), 1.0);
+        assert_eq!(crop_preview_raster_scale(2500, 1000, 0.5), 0.5);
+        assert_eq!(crop_preview_raster_scale(2501, 1000, 0.5), 0.5);
+        assert_eq!(crop_preview_raster_scale(2500, 1000, 1.5), 1.0);
+    }
+
+    #[test]
+    fn source_raster_scale_clamps_to_camera_zoom_limits() {
+        let below_minimum = Camera::new(0.0, 0.0, 0.005).expect("valid camera");
+        assert_eq!(below_minimum.zoom, 0.01);
+        assert_eq!(source_raster_scale(0.005), 0.01);
+        assert_eq!(source_raster_scale(f64::from(below_minimum.zoom)), 0.01);
+        assert_eq!(source_raster_scale(0.0099), 0.01);
+        assert_eq!(source_raster_scale(0.01), 0.01);
+        assert_eq!(source_raster_scale(0.0101), 0.0101);
+        assert_eq!(source_raster_scale(1.01), 1.0);
+    }
+
+    #[test]
+    fn viewport_projection_uses_the_minimum_source_scale() {
+        let (mut content, input) = crop_preview_fixture();
+        content.width = 4096.0;
+        content.height = 4096.0;
+        let camera =
+            Camera::centred_at(800.0, 600.0, 4096.0, 4096.0, 0.01).expect("minimum zoom camera");
+        let (_, _, _, _, image) = projection_work(content, Arc::new(input), (800.0, 600.0), camera)
+            .expect("minimum-scale projection");
+        let size = image.size(0);
+        assert_eq!((size.width.0 as u32, size.height.0 as u32), (41, 41));
+    }
+
+    #[test]
     fn crop_preview_transforms_the_composited_pixels_in_viewport_space() {
         let (content, input) = crop_preview_fixture();
         let camera = Camera::new(0.0, 0.0, 1.0).expect("valid camera");
@@ -1301,6 +1498,7 @@ mod tests {
                     frame: None,
                     offset: (1.0, 0.0),
                     rotation,
+                    target_size: None,
                 },
             )
             .expect("no-frame preview")
@@ -1354,26 +1552,122 @@ mod tests {
         assert_ne!(preview.2.as_slice(), input.layers[0].pixels.as_slice());
     }
 
-    #[test]
-    fn rotated_crop_preview_matches_the_executed_apply_output() {
-        use photrez_core::document::layer::LayerMeta;
-        use photrez_core::engine::DocumentCore;
+    fn assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+        rotation: f64,
+        zoom: f64,
+        window_scale: f32,
+        target_size: Option<(f64, f64)>,
+        transformed_locked_layers: bool,
+        document_size: Option<(f64, f64)>,
+    ) {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output_with_fill(
+            rotation,
+            zoom,
+            window_scale,
+            target_size,
+            transformed_locked_layers,
+            document_size,
+            None,
+        );
+    }
 
-        let (mut content, input) = crop_preview_fixture();
+    fn assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output_with_fill(
+        rotation: f64,
+        zoom: f64,
+        window_scale: f32,
+        target_size: Option<(f64, f64)>,
+        transformed_locked_layers: bool,
+        document_size: Option<(f64, f64)>,
+        fill_background: Option<[u8; 4]>,
+    ) {
+        use photrez_core::document::content::{LayerType, Transform2D};
+        use photrez_core::pixel::store::PixelStoreRegistry;
+
+        let (mut content, mut input) = crop_preview_fixture();
+        if let Some((width, height)) = document_size {
+            content.width = width;
+            content.height = height;
+        }
+        let mut upper = content.layers[0].clone();
+        upper.id = "preview-upper".to_owned();
+        upper.name = "Preview upper".to_owned();
+        upper.opacity = 0.75;
+        upper.blend_mode = photrez_core::document::content::BlendMode::Multiply;
+        upper.basic_adjustment = Some(photrez_core::document::layer_params::BasicAdjustment {
+            brightness: 8.0,
+            contrast: -5.0,
+            saturation: 15.0,
+        });
+        upper.has_adjustments = Some(true);
+        upper.transform.x = -1.0;
+        upper.transform.y = 1.0;
+        let (upper_scale_x, upper_scale_y, upper_rotation, upper_flip_h, upper_flip_v) =
+            if transformed_locked_layers {
+                (0.75, 1.25, 17.0, true, false)
+            } else {
+                (1.0, 1.0, 0.0, false, false)
+            };
+        upper.transform.scale_x = upper_scale_x;
+        upper.transform.scale_y = upper_scale_y;
+        upper.transform.rotation = upper_rotation;
+        upper.transform.flip_h = upper_flip_h;
+        upper.transform.flip_v = upper_flip_v;
+        content.layers.insert(0, upper);
+        let mut upper_pixels = vec![0; 3 * 3 * 4];
+        upper_pixels[4..8].copy_from_slice(&[10, 220, 30, 128]);
+        upper_pixels[16..20].copy_from_slice(&[240, 20, 180, 128]);
+        upper_pixels[20..24].copy_from_slice(&[30, 60, 240, 255]);
+        input.layers.push(ProjectionLayer {
+            id: "preview-upper".to_owned(),
+            width: 3,
+            height: 3,
+            epoch: 2,
+            pixels: Arc::new(upper_pixels),
+        });
+        if transformed_locked_layers {
+            let mut locked = content.layers[0].clone();
+            locked.id = "preview-locked".to_owned();
+            locked.name = "Preview locked".to_owned();
+            locked.locked = true;
+            locked.opacity = 1.0;
+            locked.blend_mode = photrez_core::document::content::BlendMode::Normal;
+            locked.basic_adjustment = None;
+            locked.has_adjustments = Some(false);
+            locked.transform.x = 1.0;
+            locked.transform.y = -1.0;
+            locked.transform.scale_x = 0.8;
+            locked.transform.scale_y = 1.1;
+            locked.transform.rotation = -13.0;
+            locked.transform.flip_h = false;
+            locked.transform.flip_v = true;
+            content.layers.insert(0, locked);
+            let locked_pixels: Vec<u8> = (0..9_u8)
+                .flat_map(|index| [20 + index * 17, 240, 180, 255])
+                .collect();
+            input.layers.push(ProjectionLayer {
+                id: "preview-locked".to_owned(),
+                width: 3,
+                height: 3,
+                epoch: 3,
+                pixels: Arc::new(locked_pixels),
+            });
+        }
         let frame = [0.0, 0.0, 3.0, 3.0];
         let offset = (1.0, 0.0);
-        let rotation = 90.0;
-        let camera = Camera::new(0.0, 0.0, 1.0).expect("valid camera");
+        let viewport = if zoom == 1.0 { (3.0, 3.0) } else { (8.0, 6.0) };
+        let camera = Camera::centred_at(viewport.0, viewport.1, 3.0, 3.0, zoom as f32)
+            .expect("valid camera");
         let preview = crop_preview_pixels(
             &content,
             &input,
-            (3.0, 3.0),
-            1.0,
+            viewport,
+            window_scale,
             camera,
-            crate::crop_geometry::CropSnapshot {
-                frame,
+            CropPreviewTransform {
+                frame: Some(frame),
                 offset,
                 rotation,
+                target_size,
             },
         )
         .expect("rotated crop preview");
@@ -1384,81 +1678,409 @@ mod tests {
             crate::crop_geometry::CropViewport {
                 pan_x: 0.0,
                 pan_y: 0.0,
-                zoom: 1.0,
+                zoom,
             },
         );
 
-        let mut core = DocumentCore::new();
-        core.seed_layers(
-            vec![LayerMeta {
-                id: "preview".to_owned(),
-                name: "Preview".to_owned(),
-                visible: true,
-                opacity: 1.0,
-                resource_id: 1,
-                x: 0.0,
-                y: 0.0,
-                scale_x: 1.0,
-                scale_y: 1.0,
-                rotation: 0.0,
-                width: Some(3.0),
-                height: Some(3.0),
-                ..LayerMeta::default()
-            }],
-            0,
+        let mut pixel_store = PixelStoreRegistry::new();
+        pixel_store.open_document(&content.id);
+        for layer in &input.layers {
+            pixel_store
+                .add_layer(
+                    &content.id,
+                    &layer.id,
+                    layer.width,
+                    layer.height,
+                    layer.pixels.as_ref().clone(),
+                )
+                .expect("seed raster pixels");
+        }
+        pixel_store
+            .seed_document(&content.id, content.clone())
+            .expect("seed document content");
+        pixel_store
+            .apply_command(
+                &content.id,
+                CommandEnvelope {
+                    contract_version: CONTRACT_VERSION,
+                    expected_version: None,
+                    command: Command::ApplyCrop {
+                        x: region[0].round(),
+                        y: region[1].round(),
+                        width: region[2].round(),
+                        height: region[3].round(),
+                        rotation: Some(crate::crop_geometry::modern_apply_rotation(rotation)),
+                        target_width: target_size.map(|size| size.0),
+                        target_height: target_size.map(|size| size.1),
+                        delete_cropped_pixels: true,
+                        fill_background,
+                    },
+                },
+            )
+            .expect("pixel-store ApplyCrop command");
+        let applied = pixel_store
+            .document_content(&content.id)
+            .expect("applied document content");
+        let output_size = target_size.unwrap_or((3.0, 3.0));
+        assert_eq!((applied.width, applied.height), output_size);
+        assert_eq!(
+            applied.layers.len(),
+            (if transformed_locked_layers { 3 } else { 2 })
+                + usize::from(fill_background.is_some())
         );
-        core.apply(CommandEnvelope {
-            contract_version: CONTRACT_VERSION,
-            expected_version: None,
-            command: Command::ApplyCrop {
-                x: region[0].round(),
-                y: region[1].round(),
-                width: region[2].round(),
-                height: region[3].round(),
-                rotation: Some(crate::crop_geometry::modern_apply_rotation(rotation)),
-                target_width: None,
-                target_height: None,
-                delete_cropped_pixels: false,
-                fill_background: None,
-            },
-        })
-        .expect("core ApplyCrop command");
-        let applied = core.snapshot();
-        assert_eq!((applied.width, applied.height), (Some(3.0), Some(3.0)));
-        let layer = applied
+        for layer in applied
             .layers
             .iter()
-            .find(|layer| layer.id == "preview")
-            .expect("applied raster layer");
-        content.width = 3.0;
-        content.height = 3.0;
-        content.layers[0].transform = photrez_core::document::content::Transform2D {
-            x: layer.x,
-            y: layer.y,
-            scale_x: layer.scale_x,
-            scale_y: layer.scale_y,
-            rotation: layer.rotation,
-            flip_h: layer.flip_h.unwrap_or(false),
-            flip_v: layer.flip_v.unwrap_or(false),
-        };
+            .filter(|layer| layer.layer_type == LayerType::Raster && !layer.locked)
+        {
+            assert_eq!(
+                layer.transform,
+                Transform2D {
+                    x: 0.0,
+                    y: 0.0,
+                    scale_x: 1.0,
+                    scale_y: 1.0,
+                    rotation: 0.0,
+                    flip_h: false,
+                    flip_v: false,
+                },
+                "unlocked raster layers use identity transforms after baking"
+            );
+            assert_eq!((layer.width, layer.height), output_size);
+            assert_eq!(layer.basic_adjustment, None);
+            assert_ne!(
+                layer.has_adjustments,
+                Some(true),
+                "baked raster must not keep an adjustment: {}",
+                layer.id
+            );
+        }
+        let upper = applied
+            .layers
+            .iter()
+            .find(|layer| layer.id == "preview-upper")
+            .expect("upper raster layer");
+        assert_eq!(upper.opacity, 0.75);
+        assert_eq!(
+            upper.blend_mode,
+            photrez_core::document::content::BlendMode::Multiply
+        );
+        assert_eq!(upper.basic_adjustment, None);
+        assert_eq!(upper.has_adjustments, Some(false));
+        if transformed_locked_layers {
+            let locked = applied
+                .layers
+                .iter()
+                .find(|layer| layer.id == "preview-locked")
+                .expect("locked raster layer");
+            assert_eq!(locked.basic_adjustment, None);
+            assert_eq!(locked.has_adjustments, Some(false));
+        }
+        if transformed_locked_layers {
+            let locked = applied
+                .layers
+                .iter()
+                .find(|layer| layer.id == "preview-locked")
+                .expect("locked raster layer");
+            assert_eq!(
+                locked.transform,
+                Transform2D {
+                    x: 1.0,
+                    y: -1.0,
+                    scale_x: 0.8,
+                    scale_y: 1.1,
+                    rotation: -13.0,
+                    flip_h: false,
+                    flip_v: true,
+                }
+            );
+            assert_eq!((locked.width, locked.height), (3.0, 3.0));
+        }
         let output = photrez_core::render::compositor::composite_layers_in_region_with_font_data(
-            &content,
-            &input,
+            applied,
+            &pixel_store,
             Some(crate::INTER),
             photrez_core::render::compositor::CompositeRegion {
                 x: 0,
                 y: 0,
-                width: 3,
-                height: 3,
+                width: output_size.0 as u32,
+                height: output_size.1 as u32,
             },
         )
         .expect("composite after ApplyCrop");
-        assert_eq!(
-            (preview.0, preview.1),
-            (output.region.width, output.region.height)
+        if zoom == 1.0 && window_scale == 1.0 && target_size.is_none() && !transformed_locked_layers
+        {
+            let preview_with_fill: Vec<u8> = fill_background.map_or_else(
+                || preview.2.clone(),
+                |fill| {
+                    assert_eq!(frame, [0.0, 0.0, 3.0, 3.0]);
+                    assert_eq!(viewport, (3.0, 3.0));
+                    let normal = photrez_core::document::content::BlendMode::Normal;
+                    preview
+                        .2
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .flat_map(|pixel| {
+                            photrez_core::render::compositor::composite_rgba_over(
+                                fill,
+                                [pixel[0], pixel[1], pixel[2], pixel[3]],
+                                1.0,
+                                &normal,
+                            )
+                        })
+                        .collect()
+                },
+            );
+            assert_eq!(
+                (preview.0, preview.1),
+                (output.region.width, output.region.height)
+            );
+            assert_eq!(preview_with_fill, output.pixels, "rotation {rotation}");
+            if rotation == 90.0 {
+                assert_eq!(&preview.2[12..16], &[7, 0, 0, 255]);
+            }
+        } else {
+            let frame_screen = (
+                (frame[0] * zoom + f64::from(camera.x) + 0.5).floor(),
+                (frame[1] * zoom + f64::from(camera.y) + 0.5).floor(),
+                (frame[2] * zoom + 0.5).floor(),
+                (frame[3] * zoom + 0.5).floor(),
+            );
+            let pivot_screen = (
+                frame_screen.0 + frame_screen.2 / 2.0,
+                frame_screen.1 + frame_screen.3 / 2.0,
+            );
+            let pivot_document = (
+                (pivot_screen.0 - f64::from(camera.x) - offset.0) / zoom,
+                (pivot_screen.1 - f64::from(camera.y) - offset.1) / zoom,
+            );
+            let radians = rotation.to_radians();
+            let (sin, cos) = radians.sin_cos();
+            let crop_transform = photrez_core::engine::CropTransform {
+                rect: [
+                    region[0].round(),
+                    region[1].round(),
+                    region[2].round().max(1.0),
+                    region[3].round().max(1.0),
+                ],
+                rotation: crate::crop_geometry::modern_apply_rotation(rotation),
+                output_size,
+            };
+            let mut compared_samples = 0;
+            let mut edge_samples = 0;
+            let mut visible_samples = 0;
+            let mut locked_layer_samples = 0;
+            let mut flipped_layer_samples = 0;
+            for y in 0..preview.1 {
+                for x in 0..preview.0 {
+                    let (dx, dy) = (
+                        (f64::from(x) + 0.5) / f64::from(window_scale) - pivot_screen.0,
+                        (f64::from(y) + 0.5) / f64::from(window_scale) - pivot_screen.1,
+                    );
+                    let document_point = (
+                        pivot_document.0 + (dx * cos + dy * sin) / zoom,
+                        pivot_document.1 + (-dx * sin + dy * cos) / zoom,
+                    );
+                    let output_point = crop_transform.map_point(document_point);
+                    if output_point.0 < 0.0
+                        || output_point.1 < 0.0
+                        || output_point.0 >= f64::from(output.region.width)
+                        || output_point.1 >= f64::from(output.region.height)
+                    {
+                        continue;
+                    }
+                    compared_samples += 1;
+                    if output_point.0 < 0.5
+                        || output_point.1 < 0.5
+                        || output_point.0 >= output_size.0 - 0.5
+                        || output_point.1 >= output_size.1 - 0.5
+                    {
+                        edge_samples += 1;
+                    }
+                    let expected = sample_rgba_bilinear(
+                        &output.pixels,
+                        output.region.width,
+                        output.region.height,
+                        output_point.0,
+                        output_point.1,
+                    );
+                    if expected[3] > 0 {
+                        visible_samples += 1;
+                    }
+                    if expected[1] == 240 && expected[2] == 180 {
+                        locked_layer_samples += 1;
+                    }
+                    if expected[2] > expected[0] && expected[2] > expected[1] {
+                        flipped_layer_samples += 1;
+                    }
+                    let index = (y as usize * preview.0 as usize + x as usize) * 4;
+                    assert_eq!(
+                        &preview.2[index..index + 4],
+                        expected,
+                        "rotation {rotation}, zoom {zoom}, pixel ({x}, {y})"
+                    );
+                }
+            }
+            assert!(
+                compared_samples > 0,
+                "preview must compare at least one applied pixel"
+            );
+            assert!(
+                visible_samples > 0,
+                "preview must compare non-transparent applied pixels"
+            );
+            if transformed_locked_layers {
+                assert!(locked_layer_samples > 0, "the locked layer must contribute");
+                assert!(
+                    flipped_layer_samples > 0,
+                    "the flipped layer must contribute"
+                );
+            }
+            if rotation == 30.5 && zoom == 1.5 && target_size.is_none() {
+                assert!(
+                    edge_samples > 0,
+                    "the comparison must sample the output edge"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output() {
+        for rotation in [90.0, 30.5] {
+            assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+                rotation, 1.0, 1.0, None, false, None,
+            );
+        }
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            30.5, 1.5, 1.0, None, false, None,
         );
-        assert_eq!(preview.2, output.pixels);
-        assert_eq!(&preview.2[12..16], &[7, 0, 0, 255]);
+    }
+
+    #[test]
+    fn large_document_crop_preview_matches_the_executed_apply_output() {
+        for rotation in [0.0, 30.5] {
+            assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+                rotation,
+                0.5,
+                1.0,
+                None,
+                false,
+                Some((25_000.0, 100.0)),
+            );
+        }
+    }
+
+    #[test]
+    fn large_document_crop_preview_window_scale_only_changes_sampling() {
+        let (mut content, mut input) = crop_preview_fixture();
+        const EDGE: u32 = 8;
+        let pixels: Vec<u8> = (0..EDGE)
+            .flat_map(|y| {
+                (0..EDGE).flat_map(move |x| {
+                    [
+                        (3 + x * 23 + y * 7) as u8,
+                        (5 + x * 11 + y * 19) as u8,
+                        (7 + x * 17 + y * 13) as u8,
+                        255,
+                    ]
+                })
+            })
+            .collect();
+        content.width = 25_000.0;
+        content.height = 100.0;
+        content.layers[0].width = f64::from(EDGE);
+        content.layers[0].height = f64::from(EDGE);
+        input.layers[0].width = EDGE;
+        input.layers[0].height = EDGE;
+        input.layers[0].pixels = Arc::new(pixels);
+
+        let camera = Camera::new(0.0, 0.0, 0.5).expect("valid camera");
+        let crop = CropPreviewTransform {
+            frame: Some([0.0, 0.0, 8.0, 8.0]),
+            offset: (0.0, 0.0),
+            rotation: 0.0,
+            target_size: Some((2500.0, 1000.0)),
+        };
+        let low_dpi = crop_preview_pixels(&content, &input, (4.0, 4.0), 1.0, camera, crop)
+            .expect("low-DPI preview");
+        let high_dpi = crop_preview_pixels(&content, &input, (4.0, 4.0), 2.0, camera, crop)
+            .expect("high-DPI preview");
+        assert_eq!((low_dpi.0, low_dpi.1), (4, 4));
+        assert_eq!((high_dpi.0, high_dpi.1), (8, 8));
+
+        for y in 1..high_dpi.1 - 1 {
+            for x in 1..high_dpi.0 - 1 {
+                let expected = sample_rgba_bilinear(
+                    &low_dpi.2,
+                    low_dpi.0,
+                    low_dpi.1,
+                    (f64::from(x) + 0.5) / 2.0,
+                    (f64::from(y) + 0.5) / 2.0,
+                );
+                let index = (y as usize * high_dpi.0 as usize + x as usize) * 4;
+                for (actual, expected) in high_dpi.2[index..index + 4].iter().zip(expected) {
+                    assert!(
+                        actual.abs_diff(expected) <= 1,
+                        "DPI sample ({x}, {y}): actual {actual}, expected {expected}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn crop_preview_matches_apply_at_low_zoom() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            0.0, 0.5, 1.0, None, false, None,
+        );
+    }
+
+    #[test]
+    fn crop_preview_matches_apply_with_delete_and_background_fill() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output_with_fill(
+            0.0,
+            1.0,
+            1.0,
+            None,
+            false,
+            None,
+            Some([24, 48, 72, 255]),
+        );
+    }
+
+    #[test]
+    fn rotated_crop_preview_matches_apply_at_low_zoom() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            30.5, 0.5, 1.0, None, false, None,
+        );
+    }
+
+    #[test]
+    fn crop_preview_matches_apply_at_non_unit_window_scale() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            90.0, 1.0, 2.0, None, false, None,
+        );
+    }
+
+    #[test]
+    fn crop_preview_matches_apply_for_size_target() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            0.0,
+            1.0,
+            1.0,
+            Some((6.0, 6.0)),
+            false,
+            None,
+        );
+    }
+
+    #[test]
+    fn crop_preview_matches_apply_for_transformed_and_locked_layers() {
+        assert_rotated_offset_multilayer_crop_preview_matches_the_executed_apply_output(
+            0.0, 1.0, 1.0, None, true, None,
+        );
     }
 
     #[test]
@@ -1685,6 +2307,86 @@ mod tests {
             &preview.2[pixel..pixel + 4],
             &[255, 0, 0, 255],
             "the image pivot follows the frame rounded into screen pixels"
+        );
+    }
+
+    #[test]
+    #[ignore = "perf: run serially (--ignored --nocapture); parallel load inflates p95"]
+    fn crop_preview_low_zoom_memory_and_performance() {
+        const DOC_EDGE: u32 = 4096;
+        const VIEWPORT: (f32, f32) = (800.0, 600.0);
+        const SOURCE_REGION: (u32, u32) = (803, 603);
+        const SAMPLES: usize = 9;
+
+        let (mut content, mut input) = crop_preview_fixture();
+        content.width = f64::from(DOC_EDGE);
+        content.height = f64::from(DOC_EDGE);
+        content.layers[0].width = f64::from(DOC_EDGE);
+        content.layers[0].height = f64::from(DOC_EDGE);
+        let layer_bytes = rgba_byte_len(DOC_EDGE, DOC_EDGE).expect("fixture byte length");
+        input.layers[0].width = DOC_EDGE;
+        input.layers[0].height = DOC_EDGE;
+        input.layers[0].pixels = Arc::new(vec![255; layer_bytes]);
+
+        let camera = Camera::centred_at(
+            VIEWPORT.0,
+            VIEWPORT.1,
+            DOC_EDGE as f32,
+            DOC_EDGE as f32,
+            0.05,
+        )
+        .expect("minimum zoom camera");
+        let offset = (0.5, -0.25);
+        let inverse = |screen: f32, origin: f32, delta: f64| {
+            (f64::from(screen) - f64::from(origin) - delta) / f64::from(camera.zoom)
+        };
+        assert!(inverse(0.0, camera.x, offset.0) <= 0.0);
+        assert!(inverse(VIEWPORT.0, camera.x, offset.0) >= f64::from(DOC_EDGE));
+        assert!(inverse(0.0, camera.y, offset.1) <= 0.0);
+        assert!(inverse(VIEWPORT.1, camera.y, offset.1) >= f64::from(DOC_EDGE));
+
+        let crop = crate::crop_geometry::CropSnapshot {
+            frame: [1024.0, 1024.0, 2048.0, 2048.0],
+            offset,
+            rotation: 0.0,
+        };
+        let composite_bytes =
+            rgba_byte_len(SOURCE_REGION.0, SOURCE_REGION.1).expect("source byte length");
+        let output_bytes =
+            rgba_byte_len(VIEWPORT.0 as u32, VIEWPORT.1 as u32).expect("viewport byte length");
+        let known_rgba_peak = layer_bytes + composite_bytes + output_bytes;
+        let render = || {
+            let (width, height, pixels) =
+                crop_preview_pixels(&content, &input, VIEWPORT, 1.0, camera, crop)
+                    .expect("low-zoom crop preview");
+            assert_eq!((width, height), (800, 600));
+            let center = ((height as usize / 2 * width as usize) + width as usize / 2) * 4;
+            assert_eq!(&pixels[center..center + 4], &[255; 4]);
+            image_from_rgba(width, height, pixels).expect("preview image")
+        };
+
+        std::hint::black_box(render());
+        let mut samples = Vec::with_capacity(SAMPLES);
+        for _ in 0..SAMPLES {
+            let start = std::time::Instant::now();
+            std::hint::black_box(render());
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        let mut sorted = samples.clone();
+        sorted.sort_by(f64::total_cmp);
+        let p50 = sorted[sorted.len() / 2];
+        let p95 = sorted[(sorted.len() * 95 / 100).min(sorted.len() - 1)];
+        println!(
+            "CROP_LOW_ZOOM doc={DOC_EDGE}x{DOC_EDGE} layers=1 viewport={}x{} scale=1.0 zoom={:.2} source_region={}x{} input_rgba={:.2}MiB composite_rgba={:.2}MiB output_rgba={:.2}MiB known_rgba_peak={:.2}MiB samples_ms={samples:?} p50={p50:.3} p95={p95:.3}",
+            VIEWPORT.0 as u32,
+            VIEWPORT.1 as u32,
+            camera.zoom,
+            SOURCE_REGION.0,
+            SOURCE_REGION.1,
+            layer_bytes as f64 / (1024.0 * 1024.0),
+            composite_bytes as f64 / (1024.0 * 1024.0),
+            output_bytes as f64 / (1024.0 * 1024.0),
+            known_rgba_peak as f64 / (1024.0 * 1024.0),
         );
     }
 }

@@ -84,6 +84,8 @@ impl Default for AppState {
             bg_color: [255, 255, 255, 255],
             crop_delete_pixels: true,
             crop_fill_background: true,
+            crop_fill_color: [255, 255, 255, 255],
+            crop_fill_use_background: true,
             #[cfg(test)]
             last_crop_flags: None,
             color_picker: None,
@@ -193,6 +195,9 @@ impl Default for AppState {
             move_snap_focus: None,
             move_auto_select_focus: None,
             move_transform_focus: None,
+            crop_delete_focus: None,
+            crop_fill_focus: None,
+            crop_fill_color_focus: None,
             new_document_field_foci: Vec::new(),
             resize_field_foci: Vec::new(),
             rename_field_focus: None,

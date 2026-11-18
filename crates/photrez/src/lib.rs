@@ -35,7 +35,7 @@ pub mod views;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-use gpui_kit::{px, size, App, AppContext, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui_kit::{App, AppContext, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -147,7 +147,7 @@ fn parse_startup_args(args: impl IntoIterator<Item = OsString>) -> StartupArgs {
 #[allow(unsafe_code)] // SAFETY: one SystemParametersInfoW call that writes the ANIMATIONINFO it is given a pointer to.
 fn system_animations_enabled() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, ANIMATIONINFO, SPI_GETANIMATION,
+        ANIMATIONINFO, SPI_GETANIMATION, SystemParametersInfoW,
     };
     let mut info = ANIMATIONINFO {
         cbSize: std::mem::size_of::<ANIMATIONINFO>() as u32,
@@ -168,7 +168,6 @@ fn system_animations_enabled() -> bool {
 fn system_animations_enabled() -> bool {
     true
 }
-
 
 /// Wires catalogs, sets startup locale, then initializes GPUI Kit.
 /// Shared by production startup, tests, and measurement hosts.

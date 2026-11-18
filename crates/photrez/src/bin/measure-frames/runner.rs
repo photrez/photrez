@@ -8,8 +8,8 @@ use super::{probe, timing};
 use photrez::display::canvas_bridge::union_rect;
 
 use super::{
-    clone_rgba, dot_position, emit, fail, machine_line, paint_disc, round2, round6, since, Runner,
-    WaitMode, STROKE,
+    Runner, STROKE, WaitMode, clone_rgba, dot_position, emit, fail, machine_line, paint_disc,
+    round2, round6, since,
 };
 
 impl Runner {
@@ -246,28 +246,28 @@ impl Runner {
             }
         }
 
-        if self.cfg.patch_union {
-            if let Some((u_x, u_y, u_w, u_h)) = pending_union.take() {
-                let frame_start = Instant::now();
-                let dirty = copy_region(&trail, self.width, u_x, u_y, u_w, u_h);
-                self.push_dirty(
-                    cx,
-                    u_x,
-                    u_y,
-                    u_w,
-                    u_h,
-                    dirty,
-                    frame_start,
-                    &mut stroke_pace,
-                    WaitMode::Frame,
-                )
+        if self.cfg.patch_union
+            && let Some((u_x, u_y, u_w, u_h)) = pending_union.take()
+        {
+            let frame_start = Instant::now();
+            let dirty = copy_region(&trail, self.width, u_x, u_y, u_w, u_h);
+            self.push_dirty(
+                cx,
+                u_x,
+                u_y,
+                u_w,
+                u_h,
+                dirty,
+                frame_start,
+                &mut stroke_pace,
+                WaitMode::Frame,
+            )
+            .await;
+            latencies.push(since(&stroke_pace, frame_start));
+            let commit_start = Instant::now();
+            self.commit_patches(cx, commit_start, &mut stroke_pace)
                 .await;
-                latencies.push(since(&stroke_pace, frame_start));
-                let commit_start = Instant::now();
-                self.commit_patches(cx, commit_start, &mut stroke_pace)
-                    .await;
-                commits.push(since(&stroke_pace, commit_start));
-            }
+            commits.push(since(&stroke_pace, commit_start));
         }
 
         // Paint-prove: the page after the stroke must differ from the baseline.
@@ -331,10 +331,10 @@ impl Runner {
         if self.cfg.red == "upload" && upload_full_ms > 16.7 {
             verdicts.push(format!("upload_full_ms {upload_full_ms:.2} > 16.7"));
         }
-        if let Some(first) = opening_first_ms {
-            if first > 82.0 {
-                verdicts.push(format!("opening_first_ms {first:.2} > 82.0"));
-            }
+        if let Some(first) = opening_first_ms
+            && first > 82.0
+        {
+            verdicts.push(format!("opening_first_ms {first:.2} > 82.0"));
         }
         if upload_dirty_ms > 16.7 {
             verdicts.push(format!("upload_dirty_ms {upload_dirty_ms:.2} > 16.7"));

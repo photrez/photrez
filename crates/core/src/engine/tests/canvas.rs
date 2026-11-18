@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Canvas-size command-arm tests: CropCanvas / ApplyCrop / ResizeCanvas. These pin
 // the native-authority contract for the three document-size arms so a regression
 // (silent no-op semantics, locked-layer skip, selection clear, shadow dim sync,
@@ -815,6 +814,71 @@ fn undo_of_metadata_keeps_delta_dims_none() {
     );
     assert_eq!(undo.delta.width, None);
     assert_eq!(undo.delta.height, None);
+}
+
+#[test]
+fn canvas_commands_keep_dimension_deltas_when_history_is_capped() {
+    let mut e = DocumentCore::new();
+    e.seed_layers(vec![mk("A", 100.0, 200.0, 50.0, 50.0)], 0);
+    e.max_entries = 1;
+    e.apply(env(Command::Rename {
+        id: "A".into(),
+        name: "Before crop".into(),
+    }))
+    .unwrap();
+    assert_eq!(e.entries.len(), 1);
+
+    let crop = e
+        .apply(env(Command::ApplyCrop {
+            x: 10.0,
+            y: 20.0,
+            width: 500.0,
+            height: 400.0,
+            rotation: None,
+            target_width: None,
+            target_height: None,
+            delete_cropped_pixels: false,
+            fill_background: None,
+        }))
+        .unwrap();
+
+    assert_eq!(e.entries.len(), 1, "the crop replaces the oldest entry");
+    assert_eq!(crop.delta.width, Some(500.0));
+    assert_eq!(crop.delta.height, Some(400.0));
+
+    let crop_canvas = e
+        .apply(env(Command::CropCanvas {
+            x: 0.0,
+            y: 0.0,
+            width: 640.0,
+            height: 480.0,
+        }))
+        .unwrap();
+    assert_eq!(e.entries.len(), 1);
+    assert_eq!(crop_canvas.delta.width, Some(640.0));
+    assert_eq!(crop_canvas.delta.height, Some(480.0));
+
+    let resize = e
+        .apply(env(Command::ResizeCanvas {
+            width: 800.0,
+            height: 600.0,
+        }))
+        .unwrap();
+    assert_eq!(e.entries.len(), 1);
+    assert_eq!(resize.delta.width, Some(800.0));
+    assert_eq!(resize.delta.height, Some(600.0));
+
+    let noop = e
+        .apply(env(Command::CropCanvas {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 20.0,
+        }))
+        .unwrap();
+    assert_eq!(e.entries.len(), 1);
+    assert_eq!(noop.delta.width, None);
+    assert_eq!(noop.delta.height, None);
 }
 
 #[test]

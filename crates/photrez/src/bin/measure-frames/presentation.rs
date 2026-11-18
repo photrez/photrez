@@ -4,7 +4,7 @@ use super::timing;
 use super::timing::Pacing;
 use photrez::display::canvas_bridge::CanvasImage;
 
-use super::{emit, fail, machine_line, probe, round2, round6, Runner, WaitMode};
+use super::{Runner, WaitMode, emit, fail, machine_line, probe, round2, round6};
 
 impl Runner {
     /// Diagnostic floor: repaint the same window without ever mutating the

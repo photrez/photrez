@@ -212,6 +212,8 @@ pub(crate) struct CanvasOverlay {
     pub crop_create_preview: Option<(f64, f64, f64, f64)>,
     /// Classic Crop frame rotation; Modern keeps its frame axis-aligned.
     pub crop_rotation: f64,
+    /// Fill color drawn behind canvas content inside the Crop frame.
+    pub crop_fill_color: Option<[u8; 4]>,
     /// Fill style for the area outside the crop frame.
     pub crop_delete_pixels: bool,
     /// Composition guides drawn inside the crop frame.

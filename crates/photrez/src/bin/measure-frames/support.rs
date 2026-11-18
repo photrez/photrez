@@ -148,11 +148,13 @@ mod tests {
                 "{label} layer has no transparent pixel to composite through"
             );
         }
-        assert!(bottom
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .all(|pixel| pixel[3] == 255));
+        assert!(
+            bottom
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         assert_eq!(&bottom[0..4], &[0, 0, 255, 255]);
         assert_eq!(&bottom[(511 * 4)..512 * 4], &[255, 0, 128, 255]);
     }

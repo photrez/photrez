@@ -115,11 +115,11 @@ impl DocumentSession {
     /// A history step that lands back on the saved marker is clean; every
     /// other step counts as an edit.
     fn sync_dirty_to_marker(&mut self) -> Result<(), ServiceError> {
-        if let Some(saved) = self.saved_marker {
-            if self.current_marker() == Some(saved) {
-                self.revision = self.saved_revision;
-                return Ok(());
-            }
+        if let Some(saved) = self.saved_marker
+            && self.current_marker() == Some(saved)
+        {
+            self.revision = self.saved_revision;
+            return Ok(());
         }
         self.bump_revision().map(|_| ())
     }
