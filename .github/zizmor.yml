@@ -16,6 +16,9 @@ rules:
   unpinned-uses:
     ignore:
       - release.yml
+      # The rust-toolchain action is hash-pinned; the branch comment is kept
+      # for readers and is not a resolvable tag.
+      - .github/actions/pinned-toolchain/action.yml
   overly-broad-permissions:
     ignore:
       - release.yml
