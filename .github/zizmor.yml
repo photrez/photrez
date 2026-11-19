@@ -9,19 +9,19 @@ rules:
     ignore:
       # The release build keeps its own cache prefix, so a pull request run
       # cannot write the cache that the publishing job restores.
-      - release.yml
+      - .github/workflows/release.yml
   # cargo-dist owns release.yml. Its generated actions and container images are
   # version-pinned by the tool, and the release workflow needs write access to
   # publish artifacts.
   unpinned-uses:
     ignore:
-      - release.yml
+      - .github/workflows/release.yml
       # The rust-toolchain action is hash-pinned; the branch comment is kept
       # for readers and is not a resolvable tag.
       - .github/actions/pinned-toolchain/action.yml
   overly-broad-permissions:
     ignore:
-      - release.yml
+      - .github/workflows/release.yml
   template-injection:
     ignore:
-      - release.yml
+      - .github/workflows/release.yml
