@@ -1,0 +1,47 @@
+# Fast release-pipeline checks that need no Rust build. They catch broken shell
+# syntax, stale manifests and missing notice files before the full release job.
+name: Packaging lint
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/**", "scripts/**", ".husky/**", "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "THIRD_PARTY.md"]
+  pull_request:
+    paths: [".github/workflows/**", "scripts/**", ".husky/**", "Cargo.toml", "Cargo.lock", "LICENSE", "NOTICE", "THIRD_PARTY.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/pinned-toolchain
+
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          for f in scripts/*.sh .husky/pre-commit; do
+            [ -f "$f" ] || continue
+            sh -n "$f"
+          done
+
+      - name: Manifests and lockfile
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: Release notice files
+        run: |
+          set -euo pipefail
+          for f in LICENSE NOTICE THIRD_PARTY.md; do
+            test -s "$f" || { echo "missing required notice: $f" >&2; exit 1; }
+          done

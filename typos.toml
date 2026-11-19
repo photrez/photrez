@@ -1,0 +1,27 @@
+# Typos check for the English prose in the repository.
+#
+# The message catalogs are excluded: they are Indonesian, and a checker that
+# expects English flags every translated word. The lists below hold the terms
+# this repository uses on purpose.
+
+[files]
+extend-exclude = [
+  ".git",
+  "target",
+  "crates/photrez/locales/*.yml",
+  "crates/photrez/locales/*.json",
+  "crates/photrez/tests/fixtures/i18n/*/translation.json",
+]
+
+[default]
+extend-ignore-re = [
+  'PN',
+  '\bmis[-_]',
+  '\bflate\d*',
+  '\bwriteable\b',
+]
+extend-ignore-identifiers-re = [
+  '\besy\b',
+  '\bba\b',
+]
+

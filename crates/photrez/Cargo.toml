@@ -4,10 +4,14 @@ version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 publish = false
+repository = "https://github.com/photrez/photrez"
 rust-version.workspace = true
 # Bare `cargo run -p photrez` must open the app, not demand a bin selection
 # between the product binary and the measurement binaries.
 default-run = "photrez"
+
+[package.metadata.dist]
+dist = true
 
 [features]
 input-measurement = []

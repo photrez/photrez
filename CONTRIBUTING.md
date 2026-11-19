@@ -12,55 +12,77 @@ Thanks for helping improve Photrez! We welcome contributions that help make Phot
 
 ## Development Setup
 
-Install the Rust toolchain specified by [`rust-toolchain.toml`](rust-toolchain.toml), then use the workspace commands below from the repository root. Run `cargo xtask doctor` once on a fresh clone: it prints the `rustc` and `cargo` versions, the linker directory, and whether `bacon` is on `PATH`, and writes nothing.
+### Toolchain
+
+Install the Rust toolchain named by [`rust-toolchain.toml`](rust-toolchain.toml).
+It pins the compiler version and the components, so a fresh clone and a CI run
+evaluate the same `rustc`, `clippy` and `rustfmt`.
+
+Run `cargo xtask doctor` once on a fresh clone. It prints the `rustc` and
+`cargo` versions, the active toolchain host, the linker directory, the
+Windows SDK compiler and whether `bacon` is on `PATH`. It writes nothing.
+
+### System packages
+
+GPUI needs the X11, Wayland, fontconfig and Vulkan client libraries. On
+Debian or Ubuntu, install them before the first build:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev \
+  libwayland-dev libx11-dev libfontconfig1-dev libfreetype6-dev \
+  libvulkan-dev
+```
+
+On macOS, install the Xcode command line tools with `xcode-select --install`.
+On Windows, see the toolchain table below.
+
+### Windows toolchains
+
+Windows has two Rust toolchains. Use MSVC: `rustup` installs it by default and
+CI builds and tests it. The GNU toolchain builds too, but CI does not cover it.
+
+| Toolchain | What you need | Status |
+| --- | --- | --- |
+| `x86_64-pc-windows-msvc` | Visual Studio Build Tools with the "Desktop development with C++" workload | Recommended. `rustup` installs this host by default on Windows, and CI builds and tests this toolchain. `cargo xtask dev` needs no extra `PATH` entry. |
+| `x86_64-pc-windows-gnu` | MSYS2 with `mingw-w64-x86_64-gcc` | Supported for local work. CI does not run this toolchain. `cargo xtask dev` adds the MinGW directory to the child `PATH`. |
+
+Two Windows-specific notes:
+
+- **Keep one MinGW on `PATH`, MSYS2's first.** Git for Windows ships its own
+  `mingw64\bin` with the same MinGW runtime DLL names as MSYS2. When Git's
+  directory comes first, `cc1.exe` loads the wrong DLLs and dies silently, so
+  `windres` reports only "preprocessing failed". Put `C:\msys64\mingw64\bin`
+  before `...\Git\mingw64\bin`, or remove Git's copy. This applies to the GNU
+  toolchain only.
+- **Release builds need the Windows SDK.** `gpui-fast-windows` compiles HLSL
+  shaders with `fxc.exe` from the Windows SDK. A debug build does not need it.
+  The SDK ships with Visual Studio and also installs standalone
+  (`winget install Microsoft.WindowsSDK.10.0.26100`).
+
+### Build and run
+
+Standard Cargo is the default build tool, and the dev loop does not depend on
+a particular Cargo binary. Run these from the repository root:
 
 ```bash
 cargo build
 cargo dev             # Run the app with the dev profile
 cargo ui              # UI iteration profile
-cargo xtask dev       # Same as cargo dev, with the GNU linker directory on PATH
-cargo xtask watch     # Rebuild and restart the app on save (hot reload loop)
+cargo xtask dev       # Same as cargo dev, with the MinGW directory on PATH on GNU hosts
+cargo xtask watch     # Rebuild and restart the app on save
 bacon                 # Save-triggered cargo check -p photrez
 ```
 
-Standard Cargo is the default build tool. Any Cargo build works here as long
-as the GNU linker directory can be found; the dev loop does not depend on a
-particular Cargo binary. If your machine's `PATH` lacks that directory, use
-`cargo xtask dev` instead; it prepends it to the child process only. Our
-internal machines may run a Cargo build with shared dependencies for faster
-rebuilds and disk self-cleaning; it is run as an isolated binary with
-auto-update disabled and the same PATH scaffold. Contributors do not need it.
+On the GNU toolchain, a build also needs the MinGW directory on `PATH`.
+`cargo xtask dev` prepends it to the child process only. Our internal
+machines run a separate Cargo build with shared dependencies for faster
+rebuilds and disk self-cleaning; contributors do not need it.
 
-### Workspace tasks
+### Rebuild and restart on save
 
-`cargo xtask` is the task crate for this workspace. It needs only `cargo`,
-`rustc`, and the repository itself, so it works on a fresh clone with no
-extra install. It holds only the tasks plain cargo cannot do on its own:
-running the app with the linker directory on `PATH`, watching rebuilds
-through `bacon`, probing the environment, and bumping the version. Check,
-clippy, fmt, test and doc stay plain cargo commands below.
-
-```bash
-cargo xtask dev       # build and run, linker directory on child PATH
-cargo xtask dev-ui    # same, dev-ui profile (app crate at opt-level 1)
-cargo xtask watch     # rebuild and restart on save through bacon
-cargo xtask doctor    # toolchain, bacon and linker probe
-cargo xtask set-version <semver>  # single-source the app version
-```
-
-The matching aliases in `.cargo/config.toml` are `cargo dev`, `cargo ui`,
-`cargo verify` (clippy with warnings denied) and `cargo doctor`. Extra
-arguments after `dev` and `dev-ui` are forwarded to the app after `--`.
-
-### Hot reload (rebuild and restart on save)
-
-Two loops are available for the dev build, both native and both built with
-the `hot-reload` feature on the `photrez` crate (debug builds only, never
-release). Plain `cargo dev` and `cargo ui` also pass that feature.
-
-1. **Rebuild and restart (bacon).** The `bacon.toml` jobs rebuild and
-   restart the app on save. State is lost on each restart, but no extra
-   tool is needed beyond `bacon`.
+A compiled Rust app cannot reload modules in place, so the fast loop is
+rebuild and restart on save. The `bacon.toml` file defines it:
 
 ```bash
 bacon run       # rebuild and restart the app on save (dev profile)
@@ -68,39 +90,60 @@ bacon run-ui    # same, dev-ui profile
 cargo xtask watch
 ```
 
-2. **In-process patch (dx).** `gpui-fast` can hot-patch Rust code in the
-   running process through Subsecond, so edits to `render` code apply
-   without losing app state. The app must be launched through the Dioxus
-   CLI dev server:
+Both `run` jobs set `background = false` and `on_change_strategy =
+"kill_then_restart"`, so the app restarts as soon as a save lands. State is
+lost on each restart. While `bacon` runs, plain `cargo check`, `cargo test`
+and `cargo clippy` stay the source of truth for correctness. Install `bacon`
+once with `cargo install --locked bacon`. Plain `bacon` with no argument runs
+the default `check` job.
+
+### Workspace tasks
+
+`cargo xtask` is the task crate for this workspace. It needs only `cargo`,
+`rustc`, and the repository itself, so it works on a fresh clone with no
+extra install. It holds only the tasks plain cargo cannot do on its own:
+running the app with the MinGW directory on `PATH` on GNU hosts, watching
+rebuilds through `bacon`, probing the environment, bumping the version, and
+running the workspace gate as one command.
 
 ```bash
-cargo xtask hot                          # keep state on render edits
-cargo xtask hot --profile dev-ui         # UI iteration profile
-dx serve --hot-patch --features hot-reload --package photrez --bin photrez --windows --skip-assets
+cargo xtask dev       # build and run, MinGW directory on child PATH on GNU hosts
+cargo xtask dev-ui    # same, dev-ui profile (app crate at opt-level 1)
+cargo xtask watch     # rebuild and restart on save through bacon
+cargo xtask doctor    # toolchain, bacon and linker probe
+cargo xtask ci        # format, clippy, core and workspace tests, docs
+cargo xtask set-version <semver>  # single-source the app version
 ```
 
-The `cargo xtask hot` form sets the linker directory on the child PATH, so
-`windres` finds its `gcc`. The raw `dx` form is shown for reference and
-needs that PATH set by hand. Install `dx` once with `cargo install
-dioxus-cli`. Edits to layout or data structures (for example a new field on
-a struct) still need a full restart, and custom `Element` phases are not
-patched yet. When `dx` is not running, the app logs a warning and carries
-on normally.
+The matching aliases in `.cargo/config.toml` are `cargo dev`, `cargo ui`,
+`cargo verify` (clippy with warnings denied) and `cargo doctor`. Extra
+arguments after `dev` and `dev-ui` are forwarded to the app after `--`.
 
-Both `run` jobs set `background = false` and `on_change_strategy =
-"kill_then_restart"`, so the app restarts as soon as a save lands. While
-`bacon` runs, plain `cargo check`, `cargo test` and `cargo clippy` stay the
-source of truth for correctness. Install `bacon` once with `cargo install
---locked bacon`. Plain `bacon` with no argument runs the default `check`
-job.
+### Checks
 
 Before opening a pull request, run the workspace gates:
 
 ```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo xtask ci        # the same gates CI runs, in one command
+cargo build -p photrez
 ```
+
+The last command builds the shipped executable: the workspace tests only build
+test harnesses, so the app binary is linked here. CI runs the same gates and
+also installs `cargo-nextest` 0.9.152 for the workspace test job. Setting
+`.config/nextest.toml` pins that version locally; install it with:
+
+```bash
+cargo install cargo-nextest --locked --version 0.9.152
+cargo nextest run --workspace --profile ci
+cargo test --doc --workspace   # nextest does not run doctests
+```
+
+Nextest runs each test in its own process and caps app tests at four workers,
+which keeps GPUI windows from exhausting the runner. The separate
+`packaging-lint` workflow checks shell syntax, manifests, and release notice
+files without a Rust build. The pre-push hook runs the gates this machine can
+run, including the documentation build and the repository scripts.
 
 ## Pull Request Guidelines
 
@@ -129,7 +172,7 @@ Examples:
 
 ### Public surface
 
-Describe changes in product and technical terms. Public documents must not link to files outside this repository or describe a runtime the project no longer ships. The public-surface staleness check is `sh scripts/check-public-terminology.sh --staleness`.
+Describe changes in product and technical terms. Public documents must not link to files outside this repository or describe a runtime the project no longer ships.
 
 ## Code Standards
 
@@ -146,24 +189,17 @@ command refuses a version shape it does not accept, refuses a lower release numb
 restores the manifest byte for byte when `cargo metadata` reports something other than what it wrote. It prints
 the version it read back.
 
-A tag that starts with `v` runs `.github/workflows/release.yml`. The `check-tag` job compares the tag with
-`cargo pkgid -p photrez` and stops when they disagree. Each platform job then builds with
-`cargo build --release -p photrez`, packs that binary with `LICENSE`, `NOTICE` and `THIRD_PARTY.md`, and runs the
-archive check below on its own output. The `finalize` job writes `SHA256SUMS`, uploads it, re-downloads the
-release and verifies the sums, then sets the release notes from the changelog section that matches the tag; it
-refuses a section that is missing or still marked unreleased. Photrez is not code-signed, so those checksums are
-the integrity check a user can perform.
+A `v`-prefixed version tag runs `.github/workflows/release.yml`. The workflow is generated by
+`dist generate` from `dist-workspace.toml`; do not hand-edit it. `dist` builds an archive for each configured
+target, adds `LICENSE`, `NOTICE` and `THIRD_PARTY.md`, and generates a `.sha256` for every archive plus a
+combined `SHA256SUMS`. The release title and notes come from `CHANGELOG.md`. Photrez is not code-signed, so
+those checksums are the integrity check a user can perform.
 
-Check a build before you publish it:
+Check the plan before publishing:
 
 ```
-sh scripts/check-release-archive.sh <archive> <windows|macos|linux>
-sh scripts/check-release-archive.sh --binary <path> <windows|macos|linux>
-sh scripts/check-release-archive.sh --imports <listing> <windows|macos|linux>
+dist plan --tag v<version>
 ```
 
-The first command confirms the archive is a real build, carries the three licence files and holds exactly one
-runtime. The other two list the dynamic libraries the shipped binary asks for and refuse a runtime this product
-no longer contains: `--binary` reads a binary on its own machine, and `--imports` reads a listing captured on
-another platform, so a macOS or Linux answer can be reviewed anywhere. Each of them exits non-zero and names the
-cause.
+The plan lists the archives and checksum files the tag will produce. `dist build --tag v<version>` runs the
+same packaging locally.

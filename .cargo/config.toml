@@ -1,16 +1,13 @@
-# Unify all build output into ONE root target dir. Cargo discovers this config
-# from any subdirectory, so every workspace member shares it and a second
-# (multi-GB) target tree can never be created under a member folder.
-[build]
-target-dir = "target"
-
-# Shared-dependency reuse is enabled. Build intermediates live under
-# `~/.cargo/targets/`; on this machine that path is a junction to a folder on
-# the project drive, so C: does not grow while sharing stays on.
-
-# GNU ld is the documented default linker for x86_64-pc-windows-gnu; rust-lld
-# ships with the toolchain and links this workspace. `-Clinker-features=+lld`
-# is still unstable, so name the bundled linker directly instead.
+# The build output lives in ONE place: the workspace root's `target/`. Cargo
+# already puts it there for a virtual workspace, so no `build.target-dir` is
+# set. Naming one would only earn a warning from the cargo fork that owns its
+# own build directory (`~/.cargo/targets/<project>-<hash>/`) and mirrors the
+# binaries into `./target` anyway.
+#
+# The default linker for x86_64-pc-windows-gnu is the gcc driver, which pulls
+# the MinGW runtime DLLs in at link time. The bundled rust-lld avoids that;
+# `-Clinker-features=+lld` is still unstable, so name the linker directly.
+# gpui-pre's windres still needs the MinGW directory.
 # revert: delete this table.
 [target.x86_64-pc-windows-gnu]
 linker = "rust-lld"
@@ -22,9 +19,9 @@ linker = "rust-lld"
 # Alias names must not collide with built-in commands (`check`, `test`, ...);
 # the workspace tasks live under `cargo xtask` for that reason.
 [alias]
-dev = ["run", "-p", "photrez", "--features", "hot-reload"]
+dev = ["run", "-p", "photrez"]
 # UI iteration profile: same dev settings, app crate at opt-level 1.
-ui = ["run", "--profile", "dev-ui", "-p", "photrez", "--features", "hot-reload"]
+ui = ["run", "--profile", "dev-ui", "-p", "photrez"]
 verify = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
 # Environment probe: rustc, cargo, bacon and linker availability.
 doctor = ["xtask", "doctor"]

@@ -76,6 +76,11 @@ inherits = "dev"
 opt-level = 3
 debug = "line-tables-only"
 
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 
 
 

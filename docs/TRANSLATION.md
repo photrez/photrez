@@ -1,6 +1,6 @@
 # Photrez Translation Guide
 
-Photrez ships English (`en`), Indonesian (`id`), and Banjar (`bjn`). Each locale has one catalog file under `crates/photrez/locales`. The files are embedded at compile time through [rust-i18n](https://github.com/longbridge/rust-i18n).
+Photrez has one catalog file per locale under `crates/photrez/locales`. The file name is the locale code. The files are embedded at compile time through [rust-i18n](https://github.com/longbridge/rust-i18n). The Settings list discovers these catalogs automatically.
 
 ## Catalog shape
 
@@ -23,21 +23,34 @@ One file per locale. The file name is the locale code. The keys are flat and dot
 ## Add or change a key
 
 1. Add the key to `crates/photrez/locales/en.json` with the English text.
-2. Run `node scripts/i18n-sync.mjs`. The script adds the key to every other locale with an empty value and prints which key each locale now owes.
-3. Translate the empty value in each locale file. The empty value fails the `no_translation_is_empty` test, so an untranslated key cannot reach a build unnoticed.
+2. Add the same key with a translated value to every other locale file. The key-set and empty-value tests reject a missing or empty translation.
+3. Run `cargo test -p photrez --lib i18n::tests`.
 
 ## Add a language
 
-1. Run `node scripts/i18n-sync.mjs --add <code>`. The script writes `crates/photrez/locales/<code>.json` with every key and an empty value.
-2. Register the locale in `crates/photrez/src/i18n.rs` (`Locale` and startup detection).
-3. Add the code to `available-locales` in `crates/photrez/Cargo.toml`.
-4. Translate the file, then run `cargo test -p photrez i18n::tests --lib`.
+1. Copy an existing catalog to `crates/photrez/locales/<code>.json`. Use the locale code as the file name.
+2. Add the locale code to `available-locales` in `crates/photrez/Cargo.toml`. This list is metadata; the Settings list discovers locales from the embedded catalogs.
+3. Translate `locale.name` and every other value. No Rust locale registration is needed.
+4. Run `cargo test -p photrez --lib i18n::tests`.
+
+The Settings list reads embedded app catalogs through
+`rust_i18n::available_locales!()`. It uses each catalog's `locale.name`, keeps
+English first, and sorts the other locale codes. The Cargo metadata list
+configures extraction only; it does not drive runtime discovery.
 
 The chosen locale is stored under `photrez.locale`. Unknown locale tags fall back to English.
 
 ## Runtime lookups
 
-`crate::i18n::t`, `t_args`, and `t_plural` resolve a key in the active locale, then in English. GPUI takes owned `String` values, and many keys are chosen at runtime, so the code calls these helpers instead of the `rust_i18n::t!` macro. A key that no locale carries renders as the key itself.
+Call sites use `rust_i18n::t!` after `use rust_i18n::t;`. The macro resolves a
+key in the active locale, then in English. A key that no locale carries renders
+as the key itself. GPUI takes owned `String` values, so call sites append
+`.into_owned()` or `.to_string()` to the macro's `Cow<str>` result.
+
+`crate::i18n::t_args` and `crate::i18n::t_plural` stay as helpers. The `t!` macro
+needs its arguments at compile time, and rust-i18n has no plural support.
+Plural lookups choose `{base}_one` only when the count is `1` and `{base}_other`
+otherwise. They do not implement locale-specific plural categories.
 
 ## Toolkit strings
 
@@ -55,9 +68,11 @@ The app uses the toolkit's button, icon, scroll, sizing and theme pieces. None o
 
 ## Gates
 
-- `cargo test -p photrez i18n::tests --lib` checks that every locale carries every key, that no value is empty, that the placeholders match across the locales, and that the catalog still matches the shipped release.
-- CI runs `cargo test -p photrez i18n::tests::every_literal_lookup_resolves --lib`. That gate checks that every key the code asks for exists in every locale.
-- The pre-commit hook runs `scripts/check-public-terminology.sh --i18n` over the staged files under `crates/photrez/src/views` and `crates/photrez/src/components`. It rejects a user-visible string literal that is not a catalog key, unless the line carries `// i18n-exempt: <reason>`.
+- `cargo test -p photrez --lib i18n::tests` checks every discovered locale for
+  missing keys, empty values, placeholder mismatches, and missing locale names.
+  Release-reference comparisons remain limited to the original `en`, `id`, and
+  `bjn` catalogs.
+- CI runs `cargo test -p photrez i18n::tests::every_literal_lookup_resolves --lib`. That gate checks that every literal key passed to `t_args` or `t_plural` exists in every locale.
 
 ## Translation rules
 

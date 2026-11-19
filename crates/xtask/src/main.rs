@@ -20,18 +20,22 @@
 //! xtask watch [bacon job]
 //!     Rebuild and restart on save through bacon (default job: run).
 //!
+//! xtask ci
+//!     Run the workspace gate: format, clippy, core and workspace tests, docs.
+//!
 //! xtask set-version <semver>
 //!     Rewrite the app crate version in one place and confirm it through
 //!     cargo metadata. A lower release number is refused, and a refused
 //!     read-back restores the manifest bytes it replaced.
 //! ```
 //!
-//! Check, clippy, fmt, test and doc stay plain cargo commands (see
-//! CONTRIBUTING.md); there is no wrapper for them here. The app aliases in
+//! `ci` wraps the same check, clippy, test and doc commands the runner uses.
+//! The app aliases in
 //! `.cargo/config.toml` (`cargo dev`, `cargo ui`) and these subcommands are
 //! the entry points for humans and agents alike; they read the manifests they
 //! change and write nothing outside the working tree.
 
+mod ci;
 mod dev;
 mod run;
 mod version;
@@ -43,6 +47,7 @@ fn main() {
             print_help();
             0
         }
+        Some("ci") => ci::run_ci(),
         Some("doctor") => run::doctor(),
         Some("mingw-dir") => dev::print_mingw_dir(),
         Some("watch") => run::watch(&args[1..]),
@@ -78,8 +83,10 @@ fn print_help() {
          \x20     Rewrite the app crate version in one place and confirm it\n\
          \x20     through cargo metadata. A lower number is refused, and a\n\
          \x20     refused read-back restores the manifest bytes it replaced.\n\
+         \x20 xtask ci\n\
+         \x20     Run the workspace gate: format, clippy, core and workspace\n\
+         \x20     tests, and docs.\n\
          \n\
-         Check, clippy, fmt, test and doc stay plain cargo commands.\n\
-         See CONTRIBUTING.md for the full list."
+         See CONTRIBUTING.md for the full command list."
     );
 }

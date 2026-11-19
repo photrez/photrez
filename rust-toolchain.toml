@@ -1,5 +1,7 @@
 [toolchain]
 channel = "1.98.1"
-components = ["rustfmt", "clippy"]
+# rust-src gives rust-analyzer the standard library sources. rust-analyzer
+# gives an editor the language server without a separate install.
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
 profile = "minimal"
 
