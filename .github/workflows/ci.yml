@@ -178,6 +178,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev libx11-dev libfontconfig1-dev libfreetype6-dev \
+            libvulkan-dev
+
+      - uses: ./.github/actions/pinned-toolchain
+
       - name: Message catalog coverage (literal lookups)
         shell: bash
         run: cargo test -p photrez i18n::tests::every_literal_lookup_resolves --lib
