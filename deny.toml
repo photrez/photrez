@@ -76,11 +76,16 @@ ignore = [
     # the font crates the text renderer resolves through
     "RUSTSEC-2026-0192", # ttf-parser - via fontdb / cosmic-text / resvg
     "RUSTSEC-2026-0206", # rustybuzz - via usvg / resvg
+    # Newly reported in this toolchain snapshot; revisit with the next upstream bump.
+    "RUSTSEC-2026-0543", # chrono - unmaintained, via the gpui framework tree
+    "RUSTSEC-2026-0548", # zip - ZipStreamReader header mismatch, no patched release locked
 ]
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The GPUI pointer fix is pinned by revision in Cargo.toml and Cargo.lock.
+allow-git = ["https://github.com/photrez/gpui-fast"]
 
 
