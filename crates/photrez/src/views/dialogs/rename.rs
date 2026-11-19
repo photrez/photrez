@@ -1,4 +1,5 @@
 //! The Rename dialog: the live buffer, Enter to commit and Escape to cancel.
+use rust_i18n::t;
 
 use super::*;
 
@@ -35,7 +36,7 @@ pub(super) fn rename_body(
                 .bg(color::FIELD)
                 .text_size(px(12.0))
                 .text_color(color::TEXT)
-                .aria_label(t("layers.renameLayer").to_string())
+                .aria_label(String::from(t!("layers.renameLayer")).to_string())
                 .child(format!("{content}|")),
             &field_focus,
         ))
@@ -70,7 +71,7 @@ pub(super) fn rename_body(
                                 app.cancel_rename_layer(cx);
                             }),
                         )
-                        .child(t("common.cancel").to_string()),
+                        .child(String::from(t!("common.cancel")).to_string()),
                 )
                 .child(
                     div()

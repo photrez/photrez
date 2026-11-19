@@ -1,6 +1,7 @@
 use super::*;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use rust_i18n::t;
 
 /// The overflow button: a 24px square with a 3px corner radius.
 pub(super) fn more_dropdown_button(cx: &Context<crate::app::App>) -> Button {
@@ -27,8 +28,8 @@ pub(super) fn more_dropdown_button(cx: &Context<crate::app::App>) -> Button {
                 .hover(|style| style.text_color(color::WHITE))
                 .child(Icon::default().data(icons::MORE).size(px(ICON_LG))),
         )
-        .accessibility_label(t("tools.options.moreOptions"))
-        .tooltip(t("tools.options.moreOptions"))
+        .accessibility_label(String::from(t!("tools.options.moreOptions")))
+        .tooltip(String::from(t!("tools.options.moreOptions")))
 }
 
 /// The field background at 30% opacity: the tint of the overflow group

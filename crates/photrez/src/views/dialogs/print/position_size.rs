@@ -1,6 +1,7 @@
 //! The Print dialog's Position and Size section: the unit select, the paper
 //! picker, margins, centring, the scale controls, the printed size fields and
 //! the resolution badge.
+use rust_i18n::t;
 
 use super::*;
 use crate::app::PRINT_PAPERS;
@@ -65,7 +66,7 @@ pub(super) fn position_size(
                         .text_size(px(12.0))
                         .font_weight(FontWeight(500.))
                         .text_color(color::TEXT)
-                        .child(t("dialogs.print.positionAndSize")),
+                        .child(String::from(t!("dialogs.print.positionAndSize"))),
                 ),
         )
         .child(
@@ -130,7 +131,7 @@ pub(super) fn position_size(
                 .items_center()
                 .gap(px(8.0))
                 .h(px(ROW_H))
-                .child(label(&t("dialogs.print.paperSize")))
+                .child(label(&String::from(t!("dialogs.print.paperSize"))))
                 .child(div().flex_1().child(field(
                     "print-paper",
                     paper_label(paper, &sizes),
@@ -156,7 +157,7 @@ pub(super) fn position_size(
                     .pb(px(4.0))
                     .text_size(px(10.5))
                     .text_color(color::TEXT_DIM)
-                    .child(t("dialogs.print.printerOffers").to_string())
+                    .child(String::from(t!("dialogs.print.printerOffers")).to_string())
                     .children(entries.iter().map(|(name, width_mm, height_mm)| {
                         div().child(paper_name_label(name, *width_mm, *height_mm))
                     }))
@@ -182,7 +183,7 @@ pub(super) fn position_size(
                     .w_full()
                     .text_size(px(10.5))
                     .text_color(color::TEXT_DIM)
-                    .child(t("dialogs.print.paperListUnavailable").to_string())
+                    .child(String::from(t!("dialogs.print.paperListUnavailable")).to_string())
                     .into_any_element(),
             ),
         };
@@ -235,7 +236,7 @@ pub(super) fn position_size(
                 .items_center()
                 .gap(px(8.0))
                 .h(px(ROW_H))
-                .child(label(&t("dialogs.print.margins")))
+                .child(label(&String::from(t!("dialogs.print.margins"))))
                 .child(div().flex_1())
                 .child(
                     div()
@@ -252,7 +253,7 @@ pub(super) fn position_size(
         let center_state = state.clone();
         inspector = inspector.child(checkbox(
             "print-center",
-            &t("dialogs.print.centerOnPage"),
+            &String::from(t!("dialogs.print.centerOnPage")),
             center,
             cx,
             move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -275,13 +276,13 @@ pub(super) fn position_size(
                         .text_size(px(11.5))
                         .font_weight(FontWeight(600.))
                         .text_color(color::TEXT)
-                        .child(t("dialogs.print.scaledPrintSize")),
+                        .child(String::from(t!("dialogs.print.scaledPrintSize"))),
                 )
                 .child({
                     let fit_state = state.clone();
                     div().w(px(120.0)).child(checkbox(
                         "print-scale-fit",
-                        &t("dialogs.print.scaleToFit"),
+                        &String::from(t!("dialogs.print.scaleToFit")),
                         scale_to_fit,
                         cx,
                         move |_app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -331,7 +332,7 @@ pub(super) fn position_size(
             .test_support()
             .flex_1()
             .h(px(14.0))
-            .aria_label(t("dialogs.print.scale"));
+            .aria_label(String::from(t!("dialogs.print.scale")));
         scale_track = crate::views::option_bar::slider_surface::track_focus_and_keys(
             scale_track,
             &scale_focus,
@@ -357,7 +358,7 @@ pub(super) fn position_size(
                         .w(px(42.0))
                         .text_size(px(11.0))
                         .text_color(color::TEXT_DIM)
-                        .child(t("dialogs.print.scale")),
+                        .child(String::from(t!("dialogs.print.scale"))),
                 )
                 .child(scale_track)
                 .child(
@@ -481,7 +482,7 @@ pub(super) fn position_size(
                 .bg(badge_fill.opacity(0.4))
                 .text_size(px(11.0))
                 .text_color(badge_tint)
-                .child(t("dialogs.print.printResolution").to_string())
+                .child(String::from(t!("dialogs.print.printResolution")).to_string())
                 // i18n-exempt: the badge copy is a literal, not a catalog key
                 .child(format!("{print_ppi} PPI \u{2014} {badge_text}")),
         );
