@@ -29,7 +29,6 @@ use gpui_kit::{
 };
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, ToolId};
 use crate::tokens::color;
@@ -475,6 +474,7 @@ pub struct CropParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::t;
 
     /// `brush_params` selects the right icon/label/size/hardness for brush vs
     /// eraser, and the constants it references are pinned.

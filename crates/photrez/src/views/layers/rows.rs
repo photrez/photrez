@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 use gpui_kit::{Bounds, Pixels, relative};
 use std::cell::Cell;
@@ -168,7 +169,7 @@ pub(super) fn layer_list(
                     .font_family(ui::FONT_UI)
                     .font_weight(FontWeight(500.))
                     .text_color(color::TEXT)
-                    .child(t("layers.noLayersYet")),
+                    .child(String::from(t!("layers.noLayersYet"))),
             )
             .child(
                 div()
@@ -180,7 +181,7 @@ pub(super) fn layer_list(
                     .line_height(relative(1.3))
                     .text_center()
                     .text_color(color::TEXT_DIM)
-                    .child(t("layers.addAnImage")),
+                    .child(String::from(t!("layers.addAnImage"))),
             );
     }
     v_flex()
@@ -470,9 +471,9 @@ fn layer_row(
                 state,
                 format!("layer-eye-{id}"),
                 if visible {
-                    t("layers.hideLayer")
+                    String::from(t!("layers.hideLayer"))
                 } else {
-                    t("layers.showLayer")
+                    String::from(t!("layers.showLayer"))
                 },
                 None,
                 cx,
@@ -589,7 +590,7 @@ fn layer_row(
             el.child(tooltip(
                 state,
                 format!("layer-adjustments-{id}"),
-                t("layers.layerAdjustmentsApplied"),
+                String::from(t!("layers.layerAdjustmentsApplied")),
                 None,
                 cx,
                 div()
@@ -721,7 +722,7 @@ fn move_button(
     tooltip(
         state,
         format!("layer-{direction}-{row_id}"),
-        t(tooltip_key),
+        String::from(t!(tooltip_key)),
         None,
         cx,
         button,

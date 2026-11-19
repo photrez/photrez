@@ -1,5 +1,6 @@
 //! The Print dialog's row widgets and unit maths. The dialog's `render` reads
 //! `AppState` once and lays out both columns; these are the pieces it lays with.
+use rust_i18n::t;
 
 use super::*;
 
@@ -357,10 +358,10 @@ pub(super) fn paper_label(index: usize, sizes: &PaperSizes) -> String {
 
 pub(super) fn unit_label(unit: &str) -> String {
     match unit {
-        "cm" => t("dialogs.print.centimeters"),
-        "in" => t("dialogs.print.inches"),
-        "px" => t("dialogs.print.pixels"),
-        _ => t("dialogs.print.millimeters"),
+        "cm" => String::from(t!("dialogs.print.centimeters")),
+        "in" => String::from(t!("dialogs.print.inches")),
+        "px" => String::from(t!("dialogs.print.pixels")),
+        _ => String::from(t!("dialogs.print.millimeters")),
     }
 }
 

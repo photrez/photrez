@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 /// The stroke popover's 224px width.
 const STROKE_POPOVER_W: f32 = 224.0;
@@ -62,7 +63,7 @@ pub(super) fn shape_stroke_pill(
                         .child(if active {
                             format!("{width:.0}px")
                         } else {
-                            t("common.off")
+                            String::from(t!("common.off"))
                         }),
                 ),
         ))
@@ -112,9 +113,9 @@ fn stroke_popover(
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let on_off = if enabled {
-        t("common.on")
+        String::from(t!("common.on"))
     } else {
-        t("common.off")
+        String::from(t!("common.off"))
     };
     let body = div()
         .flex()
@@ -126,7 +127,7 @@ fn stroke_popover(
                 .items_center()
                 .justify_between()
                 .gap(px(GAP))
-                .child(dim_span(&t("common.color")))
+                .child(dim_span(&String::from(t!("common.color"))))
                 .child(stroke_color_button(state, color_value, enabled, cx)),
         )
         .child(
@@ -134,7 +135,7 @@ fn stroke_popover(
                 .items_center()
                 .justify_between()
                 .gap(px(GAP))
-                .child(dim_span(&t("common.width")))
+                .child(dim_span(&String::from(t!("common.width"))))
                 .child(stroke_width_field(state, width, editing, focus, cx)),
         );
     div()
@@ -170,7 +171,7 @@ fn stroke_popover(
                         .text_size(px(TEXT_SM))
                         .font_weight(FontWeight(600.))
                         .text_color(color::WHITE)
-                        .child(t("tools.options.strokeOutline")),
+                        .child(String::from(t!("tools.options.strokeOutline"))),
                 )
                 .child(option_checkbox_action(
                     "opt-stroke-enable",

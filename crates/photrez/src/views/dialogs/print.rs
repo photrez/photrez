@@ -7,6 +7,7 @@
 //! footer with Show Paper White plus Cancel/Print. This view keeps that
 //! structure and binds the controls to `AppState`; printing itself still goes
 //! through the platform service.
+use rust_i18n::t;
 
 use super::*;
 use gpui_kit::AnyElement;
@@ -121,8 +122,8 @@ pub(super) fn render(
 
     let color_state = state.clone();
     let color_header = header_row(
-        &t("dialogs.print.colorManagement"),
-        &t("dialogs.print.systemManaged"),
+        &String::from(t!("dialogs.print.colorManagement")),
+        &String::from(t!("dialogs.print.systemManaged")),
     )
     .id("print-color-header")
     .test_support()
@@ -139,16 +140,16 @@ pub(super) fn render(
     if color_open {
         for (name, value) in [
             (
-                t("dialogs.print.docProfile"),
+                String::from(t!("dialogs.print.docProfile")),
                 "sRGB IEC61966-2.1".to_string(),
             ),
             (
-                t("dialogs.print.colorHandling"),
-                t("dialogs.print.printerManagesColors"),
+                String::from(t!("dialogs.print.colorHandling")),
+                String::from(t!("dialogs.print.printerManagesColors")),
             ),
             (
-                t("dialogs.print.renderingIntent"),
-                t("dialogs.print.perceptual"),
+                String::from(t!("dialogs.print.renderingIntent")),
+                String::from(t!("dialogs.print.perceptual")),
             ),
         ] {
             inspector = inspector.child(
@@ -188,7 +189,7 @@ pub(super) fn render(
     );
 
     let cancel = dialog_action_button(
-        &t("common.cancel"),
+        &String::from(t!("common.cancel")),
         false,
         "print-cancel",
         cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -199,7 +200,7 @@ pub(super) fn render(
     )
     .into_any_element();
     let confirm = dialog_action_button(
-        &t("dialogs.print.printBtn"),
+        &String::from(t!("dialogs.print.printBtn")),
         true,
         "print-confirm",
         cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -240,7 +241,7 @@ pub(super) fn render(
                 .child(confirm),
         );
 
-    let title = t("dialogs.print.title");
+    let title = String::from(t!("dialogs.print.title"));
     let close_state = state.clone();
     let close = chrome::dialog_close_button(cx.listener(
         move |_app, _: &gpui_kit::ClickEvent, _window, cx| {

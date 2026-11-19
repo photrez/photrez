@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 /// The typography branch of the single-layer inspector: font, size/weight,
 /// style/align, box mode, spacing and colour/stroke, in the panel's order.
@@ -90,16 +91,19 @@ pub(super) fn typography_section(
         .py(px(PAD_Y))
         .border_b(px(1.0))
         .border_color(color::DIVIDER)
-        .child(section_header(icons::TYPE, &t("properties.typography")))
+        .child(section_header(
+            icons::TYPE,
+            &String::from(t!("properties.typography")),
+        ))
         .child(
             v_flex().mt(px(HEADER_GAP)).gap(px(8.0)).w_full().children([
                 ui::prop_row(
-                    &t("properties.font"),
+                    &String::from(t!("properties.font")),
                     ui::select_field("Arial", None), // i18n-exempt: technical token
                 )
                 .into_any_element(),
                 ui::prop_row(
-                    &t("properties.sizeAndWeight"),
+                    &String::from(t!("properties.sizeAndWeight")),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -113,7 +117,7 @@ pub(super) fn typography_section(
                 )
                 .into_any_element(),
                 ui::prop_row(
-                    &t("properties.styleAndAlign"),
+                    &String::from(t!("properties.styleAndAlign")),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -205,12 +209,12 @@ pub(super) fn typography_section(
                 )
                 .into_any_element(),
                 ui::prop_row(
-                    &t("properties.boxMode"),
+                    &String::from(t!("properties.boxMode")),
                     ui::select_field("Auto Width (Point)", None), // i18n-exempt: technical token
                 )
                 .into_any_element(),
                 ui::prop_row(
-                    &t("properties.spacing"),
+                    &String::from(t!("properties.spacing")),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -229,7 +233,7 @@ pub(super) fn typography_section(
                 )
                 .into_any_element(),
                 ui::prop_row(
-                    &t("properties.colorAndStroke"),
+                    &String::from(t!("properties.colorAndStroke")),
                     h_flex()
                         .flex_1()
                         .gap(px(SLOT_GAP))
@@ -284,7 +288,7 @@ pub(super) fn typography_section(
                                         } else {
                                             color::TEXT_DIM
                                         })
-                                        .child(t("properties.stroke")),
+                                        .child(String::from(t!("properties.stroke"))),
                                 ),
                         ),
                 )

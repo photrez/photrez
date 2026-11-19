@@ -1,5 +1,6 @@
 //! The Shape bar: kind options, their labels and indices, and the fill, stroke
 //! and radius controls.
+use rust_i18n::t;
 
 use super::*;
 
@@ -112,7 +113,7 @@ pub(super) fn shape_items(
             Some(icons::RECTANGLE),
             None,
             if kind == ShapeTool::Rect {
-                t("tools.options.shapes.rect")
+                String::from(t!("tools.options.shapes.rect"))
             } else {
                 shape_label(kind).to_string()
             },
@@ -138,7 +139,7 @@ pub(super) fn shape_items(
                 el.child(tooltip(
                     state,
                     "opt-fill-color",
-                    t("tools.options.fillColor"),
+                    String::from(t!("tools.options.fillColor")),
                     None,
                     cx,
                     fill_swatch(fill_color, cx),
@@ -149,7 +150,7 @@ pub(super) fn shape_items(
     .child(tooltip(
         state,
         "opt-shape-stroke",
-        t("tools.options.strokeOptions"),
+        String::from(t!("tools.options.strokeOptions")),
         None,
         cx,
         stroke_control(

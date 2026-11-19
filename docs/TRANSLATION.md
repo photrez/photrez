@@ -44,8 +44,8 @@ The chosen locale is stored under `photrez.locale`. Unknown locale tags fall bac
 
 Call sites use `rust_i18n::t!` after `use rust_i18n::t;`. The macro resolves a
 key in the active locale, then in English. A key that no locale carries renders
-as the key itself. GPUI takes owned `String` values, so call sites append
-`.into_owned()` or `.to_string()` to the macro's `Cow<str>` result.
+as the key itself. GPUI takes owned `String` values, so call sites wrap the
+macro's `Cow<str>` result in `String::from(...)`.
 
 `crate::i18n::t_args` and `crate::i18n::t_plural` stay as helpers. The `t!` macro
 needs its arguments at compile time, and rust-i18n has no plural support.

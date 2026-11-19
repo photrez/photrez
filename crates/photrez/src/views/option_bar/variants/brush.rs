@@ -1,5 +1,6 @@
 //! The Brush and Eraser bars: preset labels, the size and hardness controls, and
 //! the More dropdown.
+use rust_i18n::t;
 
 use super::*;
 
@@ -74,12 +75,12 @@ pub(super) fn brush_items(
     let row = row
         .child(tool_pill(
             icons::with_stroke(p.icon, STROKE_PILL),
-            t(p.label),
+            String::from(t!(p.label)),
         ))
         .child(divider())
         .child(brush_field(
             "opt-brush-size",
-            &t("tools.options.size"),
+            &String::from(t!("tools.options.size")),
             PAINT_INPUT_W,
             format!("{size:.0}"),
             "px",
@@ -93,7 +94,7 @@ pub(super) fn brush_items(
         .child(divider())
         .child(brush_field(
             "opt-brush-hardness",
-            &t("tools.options.hard"),
+            &String::from(t!("tools.options.hard")),
             PAINT_INPUT_W_SM,
             format!("{:.0}", hardness * 100.0),
             "%",
@@ -103,7 +104,7 @@ pub(super) fn brush_items(
         ))
         .child(brush_field(
             "opt-brush-opacity",
-            &t("tools.options.strength"),
+            &String::from(t!("tools.options.strength")),
             PAINT_INPUT_W_SM,
             format!("{:.0}", opacity * 100.0),
             "%",
@@ -115,7 +116,7 @@ pub(super) fn brush_items(
             el.child(divider())
                 .child(brush_field(
                     "opt-brush-flow",
-                    &t("tools.options.flow"),
+                    &String::from(t!("tools.options.flow")),
                     PAINT_INPUT_W_SM,
                     format!("{:.0}", flow * 100.0),
                     "%",
@@ -125,7 +126,7 @@ pub(super) fn brush_items(
                 ))
                 .child(brush_field(
                     "opt-brush-smoothing",
-                    &t("tools.options.smooth"),
+                    &String::from(t!("tools.options.smooth")),
                     PAINT_INPUT_W_SM,
                     format!("{smoothing:.0}"),
                     "%",
@@ -136,7 +137,7 @@ pub(super) fn brush_items(
                 .child(tooltip(
                     state,
                     "opt-brush-preset",
-                    t("tools.options.brushPresets"),
+                    String::from(t!("tools.options.brushPresets")),
                     None,
                     cx,
                     live_select(
@@ -228,7 +229,7 @@ pub(super) fn brush_more_dropdown(
             .occlude()
             .child(brush_field(
                 "opt-brush-flow",
-                &t("tools.options.flow"),
+                &String::from(t!("tools.options.flow")),
                 PAINT_INPUT_W_SM,
                 format!("{:.0}", flow * 100.0),
                 "%",
@@ -238,7 +239,7 @@ pub(super) fn brush_more_dropdown(
             ))
             .child(brush_field(
                 "opt-brush-smoothing",
-                &t("tools.options.smooth"),
+                &String::from(t!("tools.options.smooth")),
                 PAINT_INPUT_W_SM,
                 format!("{smoothing:.0}"),
                 "%",
@@ -249,7 +250,7 @@ pub(super) fn brush_more_dropdown(
             .child(tooltip(
                 state,
                 "opt-brush-preset",
-                t("tools.options.brushPresets"),
+                String::from(t!("tools.options.brushPresets")),
                 None,
                 cx,
                 live_select(

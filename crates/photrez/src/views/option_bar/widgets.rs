@@ -1,6 +1,6 @@
 use super::*;
 use crate::app::tool_settings::ToolFlag;
-use crate::i18n::t;
+use rust_i18n::t;
 
 mod stroke;
 mod text;
@@ -396,7 +396,7 @@ pub(super) fn reverse_button(cx: &gpui_kit::Context<crate::app::App>) -> impl In
         .font_weight(FontWeight(600.))
         .text_color(ZINC)
         .child(div().text_size(px(TEXT_MD)).child("\u{21c4}")) // i18n-exempt: glyph or symbol
-        .child(div().child(t("tools.options.reverse")))
+        .child(div().child(String::from(t!("tools.options.reverse"))))
 }
 
 // ── Shape ──────────────────────────────────────────────────────────────────────
@@ -427,7 +427,7 @@ pub(super) fn fill_toggle(enabled: bool, cx: &Context<crate::app::App>) -> impl 
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_shape_fill(cx);
         }))
-        .child(t("tools.fill"))
+        .child(String::from(t!("tools.fill")))
 }
 
 /// The shape bar's 22px fill colour swatch: the selected shape's fill in edit
@@ -473,7 +473,7 @@ pub(super) fn shape_arrow_toggle(enabled: bool, cx: &Context<crate::app::App>) -
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.toggle_tool_flag(crate::app::tool_settings::ToolFlag::ShapeArrowHead, cx);
         }))
-        .child(t("tools.options.shapes.arrow"))
+        .child(String::from(t!("tools.options.shapes.arrow")))
 }
 
 /// The shape bar's corner-radius field. Clicking starts an inline edit; valid
@@ -506,7 +506,7 @@ pub(super) fn radius_field(
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
             app.begin_shape_radius_field(window, cx);
         }))
-        .child(dim_span(&t("properties.cornerRadius")))
+        .child(dim_span(&String::from(t!("properties.cornerRadius"))))
         .child(
             div()
                 .w(px(RADIUS_INPUT_W))
@@ -723,7 +723,7 @@ pub(super) fn crop_fill_swatch_group() -> Stateful<Div> {
         )
 }
 
-/// `t("common.apply", "Apply")` — accent action:
+/// `String::from(t!("common.apply", "Apply"))` — accent action:
 /// 24px tall, 10px padding, 4px radius, bold white text and a subtle shadow, with the fill at
 /// 15%. Live via the Crop bar, so [`ACTION_PX`] is consumed (the dead-code
 /// allow on it was dropped in mod.rs).
@@ -758,10 +758,10 @@ pub(super) fn apply_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Into
                 Err(error) => app.set_status_error(Some(format!("Crop: {error}")), cx),
             }
         }))
-        .child(t("common.apply"))
+        .child(String::from(t!("common.apply")))
 }
 
-/// `t("common.cancel", "Cancel")` — secondary
+/// `String::from(t!("common.cancel", "Cancel"))` — secondary
 /// action. The resting `option-crop` baseline paints the border-only ghost:
 /// the interior stays the bar's `#1b1b1b` (27) where the field background
 /// would read 37. The border and the `#A1A1AA` label paint; the fill does not.
@@ -783,5 +783,5 @@ pub(super) fn cancel_button(cx: &gpui_kit::Context<crate::app::App>) -> impl Int
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             app.cancel_crop(cx);
         }))
-        .child(t("common.cancel"))
+        .child(String::from(t!("common.cancel")))
 }

@@ -1,5 +1,6 @@
 //! What the Print dialog says about the printer and the resolution a page will
 //! actually land at.
+use rust_i18n::t;
 
 use super::*;
 
@@ -13,7 +14,9 @@ pub(in crate::views::dialogs) fn printer_notice(
 ) -> Option<String> {
     match error {
         Some(message) => Some(message.to_string()),
-        None if printer_count == 0 => Some(t("dialogs.print.noPrinters").to_string()),
+        None if printer_count == 0 => {
+            Some(String::from(t!("dialogs.print.noPrinters")).to_string())
+        }
         None => None,
     }
 }

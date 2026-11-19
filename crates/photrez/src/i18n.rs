@@ -2,8 +2,9 @@
 //!
 //! Owns: the locale entity and lookup helpers for dynamic keys.
 //!
-//! Call sites use [`t`] / [`t_args`] / [`t_plural`] for dynamic keys; [`set_locale`]
-//! swaps the active locale; [`initial_locale`] is the startup detection order.
+//! Call sites use `rust_i18n::t!` for literal keys; [`t`], [`t_args`] and
+//! [`t_plural`] stay for dynamic keys and plurals. [`set_locale`] swaps the
+//! active locale; [`initial_locale`] is the startup detection order.
 
 use crate::services::settings::SettingsStore;
 use std::sync::LazyLock;

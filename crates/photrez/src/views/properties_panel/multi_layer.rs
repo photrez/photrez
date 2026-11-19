@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 /// The multi-selection branch: header card, combined bounds, align/distribute
 /// and the batch actions, mirroring `PropertiesPanel`'s multi inspector.
@@ -22,7 +23,7 @@ pub(super) fn multi_layers_section(
         section_block()
             .child(section_header(
                 icons::LAYERS,
-                &t("properties.multipleLayers"),
+                &String::from(t!("properties.multipleLayers")),
             ))
             .child(
                 h_flex()
@@ -84,14 +85,17 @@ pub(super) fn multi_layers_section(
     if let Some((x, y, w, h)) = bounds {
         panel = panel.child(
             section_block()
-                .child(section_header(icons::MOVE, &t("properties.combinedBounds")))
+                .child(section_header(
+                    icons::MOVE,
+                    &String::from(t!("properties.combinedBounds")),
+                ))
                 .child(
                     v_flex()
                         .mt(px(8.0))
                         .gap(px(8.0))
                         .w_full()
                         .child(ui::prop_row(
-                            &t("properties.position"),
+                            &String::from(t!("properties.position")),
                             h_flex()
                                 .flex_1()
                                 .gap(px(SLOT_GAP))
@@ -104,7 +108,7 @@ pub(super) fn multi_layers_section(
                                 )),
                         ))
                         .child(ui::prop_row(
-                            &t("tools.options.size"),
+                            &String::from(t!("tools.options.size")),
                             h_flex()
                                 .flex_1()
                                 .gap(px(SLOT_GAP))
@@ -129,7 +133,7 @@ pub(super) fn multi_layers_section(
         section_block()
             .child(section_header(
                 icons::GRID_3,
-                &t("properties.alignToCanvas"),
+                &String::from(t!("properties.alignToCanvas")),
             ))
             .child(
                 h_flex()
@@ -150,7 +154,7 @@ pub(super) fn multi_layers_section(
             section_block()
                 .child(section_header(
                     icons::SPLIT_H,
-                    &t("properties.distributeSpacing"),
+                    &String::from(t!("properties.distributeSpacing")),
                 ))
                 .child(
                     h_flex()
@@ -160,14 +164,14 @@ pub(super) fn multi_layers_section(
                         .child(multi_text_button(
                             "prop-distribute-h",
                             icons::DISTRIBUTE_H,
-                            &t("properties.distributeH"),
+                            &String::from(t!("properties.distributeH")),
                             cx,
                             |app, cx| app.distribute_selected_layers(true, cx),
                         ))
                         .child(multi_text_button(
                             "prop-distribute-v",
                             icons::DISTRIBUTE_V,
-                            &t("properties.distributeV"),
+                            &String::from(t!("properties.distributeV")),
                             cx,
                             |app, cx| app.distribute_selected_layers(false, cx),
                         )),
@@ -179,7 +183,7 @@ pub(super) fn multi_layers_section(
         section_block()
             .child(section_header(
                 icons::SLIDERS,
-                &t("properties.batchActions"),
+                &String::from(t!("properties.batchActions")),
             ))
             .child(
                 v_flex()
@@ -189,7 +193,7 @@ pub(super) fn multi_layers_section(
                     .child(canvas_action_button(
                         "prop-merge-selected",
                         icons::LAYERS,
-                        &t("properties.mergeSelectedLayers"),
+                        &String::from(t!("properties.mergeSelectedLayers")),
                         ActionTone::Field,
                         cx,
                         |app, _window, cx| app.merge_selected_layers(cx),
@@ -201,7 +205,7 @@ pub(super) fn multi_layers_section(
                             .child(canvas_action_button(
                                 "prop-duplicate",
                                 icons::COPY,
-                                &t("layers.duplicateLayer"),
+                                &String::from(t!("layers.duplicateLayer")),
                                 ActionTone::Field,
                                 cx,
                                 |app, _window, cx| app.duplicate_selected_layer_id(cx).map(|_| ()),
@@ -209,7 +213,7 @@ pub(super) fn multi_layers_section(
                             .child(canvas_action_button(
                                 "prop-delete",
                                 icons::TRASH,
-                                &t("layers.deleteLayer"),
+                                &String::from(t!("layers.deleteLayer")),
                                 ActionTone::Destructive,
                                 cx,
                                 |app, _window, cx| {
