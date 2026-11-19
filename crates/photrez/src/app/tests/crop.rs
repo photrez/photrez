@@ -6519,3 +6519,38 @@ fn switching_documents_resets_the_crop_frame_and_history(cx: &mut gpui_kit::Test
     })
     .expect("test window remains open");
 }
+
+#[gpui_kit::test]
+fn apply_crop_clears_layer_selection(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        window.render_frame(cx);
+        assert!(
+            !content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .selected_layers
+                .is_empty()
+        );
+
+        content.update(cx, |app, cx| {
+            app.state
+                .update(cx, |state, _| state.crop_rect = Some([0.0, 0.0, 2.0, 1.0]));
+            app.apply_crop(cx).expect("crop applies");
+        });
+        window.render_frame(cx);
+
+        let state = content.read(cx).state_for_test();
+        let state = state.read(cx);
+        assert!(state.selected_layers.is_empty());
+        assert_eq!(state.selected_layer, 0);
+        assert!(state.multi_bounds.is_none());
+
+        assert!(window.try_find("canvas-size").is_some());
+        assert!(window.try_find("prop-x").is_none());
+    })
+    .expect("test window remains open");
+}

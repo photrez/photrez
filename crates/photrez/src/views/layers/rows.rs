@@ -198,7 +198,7 @@ pub(super) fn layer_list(
                 layer,
                 RowView {
                     flags: flags.get(index).copied(),
-                    active: !selected_layers.is_empty() && layer.id == selected,
+                    active: selected_layers.contains(&layer.id) && layer.id == selected,
                     selected: selected_layers.contains(&layer.id),
                     up_target: index.checked_sub(1).map(|up| layers[up].id),
                     down_target: layers.get(index + 1).map(|down| down.id),

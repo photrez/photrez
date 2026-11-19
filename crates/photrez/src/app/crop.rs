@@ -608,6 +608,15 @@ impl App {
         )?;
         self.crop_straighten_document_id = None;
         self.state.update(cx, |state, _| {
+            let paint_target = state
+                .layers
+                .iter()
+                .find(|row| row.id == state.selected_layer)
+                .and_then(|row| row.core_id.clone());
+            state.paint_target_core_id = paint_target.or(state.paint_target_core_id.clone());
+            state.selected_layers.clear();
+            state.selected_layer = 0;
+            state.multi_bounds = None;
             state.crop_rect = None;
             state.crop_hidden_preview = None;
             state.crop_history.clear();
