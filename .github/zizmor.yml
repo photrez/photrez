@@ -10,10 +10,10 @@ rules:
       # The release build keeps its own cache prefix, so a pull request run
       # cannot write the cache that the publishing job restores.
       - release.yml
-  overly-broad-permissions:
+  excessive-permissions:
     ignore:
       # Publishing artifacts needs write access at the workflow level.
-      - .github/workflows/release.yml
+      - release.yml
   template-injection:
     ignore:
       # The generated release expressions come from tag names and dist inputs.
