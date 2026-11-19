@@ -9,17 +9,17 @@ rules:
     ignore:
       # The release build keeps its own cache prefix, so a pull request run
       # cannot write the cache that the publishing job restores.
-      - .github/workflows/release.yml
-  # cargo-dist owns release.yml. Its generated actions and container images are
-  # version-pinned by the tool, and the release workflow needs write access to
-  # publish artifacts.
-  # cargo-dist generates release.yml with symbolic action and image refs.
-  # Keep the rule enabled elsewhere and suppress it for this generated file.
-  unpinned-uses:
-    disable: true
+      - release.yml
   overly-broad-permissions:
     ignore:
-      - .github/workflows/release.yml
+      # Publishing artifacts needs write access at the workflow level.
+      - release.yml
   template-injection:
     ignore:
-      - .github/workflows/release.yml
+      # The generated release expressions come from tag names and dist inputs.
+      - release.yml
+  # cargo-dist generates release.yml with symbolic action and container refs.
+  unpinned-uses:
+    disable: true
+  unpinned-images:
+    disable: true
