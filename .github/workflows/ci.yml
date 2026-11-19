@@ -138,7 +138,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: crate-ci/typos@aa7e5314d3f3fc71e2522f80fca1e6ffcc3ce7db
+      - uses: crate-ci/typos@e7647d64ee8a549495fb66a978c44f5286858859
 
   # ─── SECURITY: dependency audit (informational, non-blocking) ───
   # For a small OSS project the audit runs as a warning, not a hard gate: a
