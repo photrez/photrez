@@ -13,12 +13,10 @@ rules:
   # cargo-dist owns release.yml. Its generated actions and container images are
   # version-pinned by the tool, and the release workflow needs write access to
   # publish artifacts.
+  # cargo-dist generates release.yml with symbolic action and image refs.
+  # Keep the rule enabled elsewhere and suppress it for this generated file.
   unpinned-uses:
-    ignore:
-      - .github/workflows/release.yml
-      # The rust-toolchain action is hash-pinned; the branch comment is kept
-      # for readers and is not a resolvable tag.
-      - .github/actions/pinned-toolchain/action.yml
+    disable: true
   overly-broad-permissions:
     ignore:
       - .github/workflows/release.yml
