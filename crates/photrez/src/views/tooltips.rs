@@ -1,113 +1,18 @@
-//! The resting tooltip overlay, as captured on the tool rail.
-//!
-//! # One component, three labels — proven by the crops
-//!
-//! The three baselines are the *same* component with different strings; the
-//! width is never set anywhere, it is whatever the label measures plus the
-//! chrome around it. The three manifest boxes share a height to the pixel and
-//! differ only in width, which is what a label-driven box looks like from the
-//! outside:
-//!
-//! ```text
-//! tooltip-rail-tool          94x26 @  50,59   "Move Tool"                 + V
-//! tooltip-rail-variant-tool 243x26 @  50,97   "Rectangle Select (Right-  + M
-//!                                                 click for options)"
-//! tooltip-rail-swatch       104x26 @  42,743  "Foreground Color"          (none)
-//! ```
-//!
-//! So there is one `tooltip` function and three `(label, shortcut)` pairs,
-//! and every number below was read out of the recorded `tooltip-*` captures with
-//! throwaway scan passes (crops —
-//! crop 0,0 is the tooltip's own top-left corner, offset by the recorded
-//! `box`, which is fractional: `y=58.75` etc.; this view renders the rounded
-//! origins from the table above and GPUI cannot place a border on a half
-//! pixel anyway).
-//!
-//! # The 26px height is *not* content-driven here
-//!
-//! No height was recorded: 8px x / 4px y padding + a border + the 11px label's line
-//! box give the recorded 26.5. GPUI computes its
-//! own line box for Inter 11px, so leaving the height to the text would put
-//! the border row wherever DirectWrite's metrics say — one engine-derivation
-//! away from the baseline. The height is therefore pinned at 26 ([`TOOLTIP_H`])
-//! with the content vertically centred, which lands the ink where the probe
-//! found it: cap-height rows 10..17 of a box whose top border sits at crop
-//! row ~1. The one thing that *was* measured rather than assumed inside that
-//! box is the kbd chip: the probe reads it 15px tall (crop rows 7..21,
-//! border to border) — `9px text on a zero-leading line + 2+2 vertical padding
-//! + 1+1 border` — so `KBD_H` is pinned to that and centred like everything else.
-//!
-//! # Colours, all measured
-//!
-//! * border, authored as white at 10% → probes read **#333333** on all four
-//!   sides, the universal border colour every bordered
-//!   element loses to ([`color::BORDER`]; `tokens.rs` documents it at length).
-//! * panel fill → #1e1e1e interior, [`color::PANEL`].
-//! * label, in the plain text colour → peak ink #cacaca, [`color::TEXT`].
-//! * kbd fill, white at 10% → #353535 flat fill, which is [`color::WHITE_10`]
-//!   composited over the panel; kbd text, white at 50% → glyph plateaus at
-//!   #9a9a9a = white at 50% over that fill (local `WHITE_50`, no token
-//!   exists); kbd border, white at 5% → #333333 again, same override.
-//! * shadow `0 4px 12px rgba(0,0,0,0.5)` → one [`BoxShadow`], transcribed
-//!   stop for stop, the same way `tool_rail.rs` spells its medium shadow out.
-//!
-//! # No arrow — checked, not assumed
-//!
-//! Tooltip components often carry a notch pointing at the
-//! trigger; the project-wide gap list calls that out as inexpressible in
-//! GPUI. This one does not need it: the probe's corner ramp is a plain 4px
-//! circular arc on all four corners of all three crops, with no
-//! protrusion on the placement side (or any side). The tooltip is a bare box;
-//! the gap does not apply here.
-//!
-//! # Positioning: `fixed` + portal has no GPUI mapping
-//!
-//! The recorded behaviour computed viewport coordinates on hover and moved the node to
-//! `document.body` with `position: fixed`. Neither concept exists in a GPUI
-//! child element, so — following the convention `context_menus.rs` set for
-//! the same problem — [`render`] returns a transparent full-client-area
-//! absolute frame with the tooltip pinned at its manifest origin inside.
-//! Consequences, stated rather than worked around:
-//!
-//! * the caller must mount this **late** in the element tree: GPUI has no
-//!   `z_index`, and late-in-tree is the only ordering that paints on top;
-//! * the coordinates are the captured ones, not anchor arithmetic —
-//!   anchoring needs the trigger's rect at hover time, which is interaction;
-//! * the 100ms opacity transition and the fully transparent pre-measure state
-//!   are unrenderable and unneeded: the baseline settles at full opacity
-//!   (`settle: 700` outlasts the 100ms fade), so this paints fully opaque
-//!   unconditionally.
-//!
-//! # Not reused from `ui.rs`
-//!
-//! All four shared helpers were considered and none fits: [`ui::caption`] is
-//! 10px/500 in the caption grey, [`ui::value_sans`] is 11px but **600 white**,
-//! [`ui::value_mono`] adds a monospace face, [`ui::field_chrome`] is the 24px
-//! field box. The tooltip label is 11px Inter *regular* in the text colour —
-//! no existing run matches it, so `label_run` and `kbd` are local. If a
-//! second component turns up wanting an 11px regular `#cacaca` run, those two
-//! are the consolidation candidates (into `ui.rs` here, `tokens.rs` for
-//! `WHITE_50`).
-//!
-//! # i18n
-//!
-//! Labels are the English fallbacks the capture ran with:
-//! `t("tools.move", "Move Tool")`, the selection variant resolved through
-//! `VARIANT_I18N_KEYS` → `t("tools.rectSelect", "Rectangle Select")` plus
-//! `t("tools.rightClickOptions", " (Right-click for options)")`, and
-//! `t("tools.foregroundColor", "Foreground Color")`. The kbd's letter-casing is
-//! a no-op on "V"/"M" and needs no GPUI equivalent.
-
+//! Resting tooltip overlay: one label-driven box, three shot variants.
+//! Height is pinned at 26px; GPUI's own line box would move the border row.
+//! Borders resolve to BORDER (#333333); the tooltip is a bare box with no arrow or notch.
+//! The absolute frame must be appended late; coordinates are captured origins, not anchor arithmetic.
+//! Labels come from catalog keys; the kbd chip is local because no shared run matches 11px regular text.
 use gpui_kit::base::h_flex;
 use gpui_kit::prelude::*;
 use gpui_kit::{BoxShadow, Context, Div, Entity, FontWeight, Hsla, div, hsla, px};
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::shot;
 use crate::state::{AppState, SelectionShape};
 use crate::tokens::color;
 use gpui_kit::TestSupportExt;
+use rust_i18n::t;
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
 
@@ -210,29 +115,29 @@ fn spec() -> Spec {
 /// anchor table is unit-testable.
 fn spec_for(id: Option<&str>) -> Spec {
     match id {
-        // `t("tools.rectSelect", "Rectangle Select")` for the rect variant
+        // `t!("tools.rectSelect")` for the rect variant
         // (`selectionShape` defaults to "rect"), plus the variants suffix.
         Some("tooltip-rail-variant-tool") => Spec {
             x: 50.0,
             y: 97.0,
             label: format!(
                 "{} ({})",
-                t("tools.rectSelect"),
-                t("tools.rightClickOptions")
+                t!("tools.rectSelect"),
+                t!("tools.rightClickOptions")
             ),
             shortcut: Some("M"),
         },
         Some("tooltip-rail-swatch") => Spec {
             x: 42.0,
             y: 743.0,
-            label: t("tools.foregroundColor"),
+            label: t!("tools.foregroundColor").into_owned(),
             shortcut: None,
         },
         // "tooltip-rail-tool" and unset/unknown: the default state.
         _ => Spec {
             x: 50.0,
             y: 59.0,
-            label: t("tools.move"),
+            label: t!("tools.move").into_owned(),
             shortcut: Some("V"),
         },
     }
@@ -293,7 +198,7 @@ fn live_spec(
 ) -> Option<(f32, String, Option<&'static str>)> {
     let name = id.strip_prefix(RAIL_TOOLTIP_PREFIX)?;
     if name == "fg" {
-        return Some((SWATCH_TIP_Y, t("tools.foregroundColor"), None));
+        return Some((SWATCH_TIP_Y, t!("tools.foregroundColor").into_owned(), None));
     }
     let index = crate::views::tool_rail::tool_index(name)?;
     let (label, shortcut) = if name == "selection" {
@@ -302,12 +207,12 @@ fn live_spec(
             SelectionShape::Ellipse => "tools.ellipseSelect",
         };
         (
-            format!("{} ({})", t(key), t("tools.rightClickOptions")),
+            format!("{} ({})", t!(key), t!("tools.rightClickOptions")),
             "M",
         )
     } else {
         let (key, shortcut) = crate::views::tool_rail::tool_tooltip(name)?;
-        (t(key).to_string(), shortcut)
+        (t!(key).to_string(), shortcut)
     };
     Some((
         RAIL_TIP_Y + RAIL_ROW_PITCH * index as f32,

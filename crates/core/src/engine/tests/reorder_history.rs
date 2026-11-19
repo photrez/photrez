@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Canonical-seed up-projection + walker survivor/order pins.
 use super::commands::env;
 use super::*;

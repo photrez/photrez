@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Golden file for the `.ptz` `document.json` writer.
 //!
 //! This tracked golden records the input fixtures and the bytes produced by

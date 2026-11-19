@@ -96,6 +96,12 @@ fn crop_drag_shows_a_preview_and_escape_clears_it(cx: &mut gpui_kit::TestAppCont
     let (window, content, _source) = mount_fixture_app(cx, &directory);
     cx.update_window(window.into(), |_, window, cx| {
         set_tool(&content, cx, ToolId::Crop, 1.0);
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.bg_color = [24, 48, 72, 255];
+                state.crop_fill_background = true;
+            });
+        });
         window.render_frame(cx);
         let (w, h, _) = pixels(&content, cx);
         let doc = (w, h);
@@ -130,6 +136,11 @@ fn crop_drag_shows_a_preview_and_escape_clears_it(cx: &mut gpui_kit::TestAppCont
         assert!(
             overlay.crop.is_none(),
             "the committed frame chrome is hidden"
+        );
+        assert_eq!(
+            overlay.crop_fill_color,
+            Some([24, 48, 72, 255]),
+            "Fill BG follows the live Modern creation frame"
         );
         assert!(
             content.read(cx).active_core_selection_for_test().is_none(),
@@ -4197,6 +4208,197 @@ fn modern_crop_preview_rejects_stale_work_and_clears_when_inactive(
 }
 
 #[gpui_kit::test]
+fn modern_crop_preview_tracks_size_target_key_and_ignores_non_size_stale_target(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    let (release_size_a, gate_size_a) = futures::channel::oneshot::channel();
+    let (release_size_b, gate_size_b) = futures::channel::oneshot::channel();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(4, 4, cx).expect("blank document");
+            app.state_for_test().update(cx, |state, _| {
+                state.active_tool = ToolId::Crop;
+                state.crop_interaction = crate::crop_geometry::CropInteraction::Modern;
+                state.crop_mode = crate::crop_aspect::CropMode::Size;
+                state.crop_size_target = Some((4, 4));
+                state.crop_rect = Some([0.0, 0.0, 4.0, 4.0]);
+                state.crop_offset = (0.0, 0.0);
+                state.crop_rotation = 0.0;
+            });
+            app.crop_preview_test_gate = Some(gate_size_a);
+        });
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+
+    let key_size_a = content.update(cx, |app, _| {
+        assert!(app.crop_preview_displayed_key.is_none());
+        assert!(app.crop_preview_test_gate.is_none());
+        app.crop_preview_running
+            .clone()
+            .expect("identity Size transform schedules preview")
+    });
+    content.update(cx, |app, cx| {
+        app.state_for_test()
+            .update(cx, |state, _| state.crop_size_target = Some((3, 2)));
+        app.crop_preview_test_gate = Some(gate_size_b);
+        cx.notify();
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    content.update(cx, |app, _| {
+        assert_eq!(app.crop_preview_running.as_ref(), Some(&key_size_a));
+        assert!(app.crop_preview_test_gate.is_some());
+        assert!(app.crop_preview_displayed_key.is_none());
+    });
+
+    release_size_a
+        .send(())
+        .expect("first Size preview remains gated");
+    cx.run_until_parked();
+    let key_size_b = content.update(cx, |app, _| {
+        let running = app
+            .crop_preview_running
+            .clone()
+            .expect("changed Size target schedules a replacement");
+        assert_ne!(running, key_size_a);
+        assert!(app.crop_preview_test_gate.is_none());
+        assert!(app.crop_preview_displayed_key.is_none());
+        running
+    });
+    release_size_b
+        .send(())
+        .expect("replacement Size preview remains gated");
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert_eq!(app.crop_preview_running, None);
+            assert_eq!(app.crop_preview_displayed_key.as_ref(), Some(&key_size_b));
+            assert!(app.canvas_overlay(cx).crop_preview_active);
+        });
+    })
+    .expect("test window remains open");
+
+    let (release_ratio, gate_ratio) = futures::channel::oneshot::channel();
+    let (_release_unused, gate_unused) = futures::channel::oneshot::channel();
+    content.update(cx, |app, cx| {
+        app.crop_preview_test_gate = Some(gate_ratio);
+        app.state_for_test().update(cx, |state, _| {
+            state.crop_mode = crate::crop_aspect::CropMode::Ratio;
+            state.crop_offset = (5.0, -3.0);
+            state.crop_rotation = 17.0;
+        });
+        cx.notify();
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+    let ratio_key = content.update(cx, |app, cx| {
+        let running = app
+            .crop_preview_running
+            .clone()
+            .expect("non-Size crop transform schedules preview");
+        assert_ne!(running, key_size_b);
+        assert_eq!(app.crop_preview_displayed_key.as_ref(), Some(&key_size_b));
+        assert!(!app.canvas_overlay(cx).crop_preview_active);
+        running
+    });
+
+    content.update(cx, |app, cx| {
+        app.crop_preview_test_gate = Some(gate_unused);
+        app.state_for_test()
+            .update(cx, |state, _| state.crop_size_target = Some((6, 7)));
+        cx.notify();
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    content.update(cx, |app, _| {
+        assert_eq!(app.crop_preview_running.as_ref(), Some(&ratio_key));
+        assert!(app.crop_preview_test_gate.is_some());
+    });
+
+    release_ratio
+        .send(())
+        .expect("non-Size preview remains gated");
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        content.update(cx, |app, cx| {
+            assert_eq!(app.crop_preview_running, None);
+            assert_eq!(app.crop_preview_displayed_key.as_ref(), Some(&ratio_key));
+            assert!(app.crop_preview_test_gate.is_some());
+            assert!(app.canvas_overlay(cx).crop_preview_active);
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn modern_crop_preview_does_not_retry_a_failed_key(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    let (release_failure, gate_failure) = futures::channel::oneshot::channel();
+    let (_release_retry, gate_retry) = futures::channel::oneshot::channel();
+
+    cx.update_window(window.into(), |_, window, cx| {
+        content.update(cx, |app, cx| {
+            app.create_document(4, 4, cx).expect("blank document");
+            app.state_for_test().update(cx, |state, _| {
+                state.active_tool = ToolId::Crop;
+                state.crop_interaction = crate::crop_geometry::CropInteraction::Modern;
+                state.crop_rect = Some([0.0, 0.0, 0.0, 4.0]);
+                state.crop_offset = (5.0, -3.0);
+                state.crop_rotation = 17.0;
+            });
+            app.crop_preview_test_gate = Some(gate_failure);
+        });
+        window.render_frame(cx);
+        window.render_frame(cx);
+    })
+    .expect("test window remains open");
+    cx.run_until_parked();
+
+    let failed_key = content.update(cx, |app, _| {
+        app.crop_preview_running
+            .clone()
+            .expect("invalid frame preview is running")
+    });
+    content.update(cx, |app, _| app.crop_preview_test_gate = Some(gate_retry));
+    release_failure
+        .send(())
+        .expect("failed preview remains gated");
+    cx.run_until_parked();
+
+    content.update(cx, |app, _| {
+        assert_eq!(app.crop_preview_failed.as_ref(), Some(&failed_key));
+        assert_eq!(app.crop_preview_running, None);
+        assert!(app.crop_preview_test_gate.is_some());
+    });
+    cx.update_window(window.into(), |_, window, cx| window.render_frame(cx))
+        .expect("test window remains open");
+    content.update(cx, |app, _| {
+        assert_eq!(app.crop_preview_failed.as_ref(), Some(&failed_key));
+        assert_eq!(app.crop_preview_running, None);
+        assert!(app.crop_preview_test_gate.is_some());
+    });
+}
+
+#[gpui_kit::test]
 fn modern_crop_without_a_frame_keeps_its_offset_preview_during_creation(
     cx: &mut gpui_kit::TestAppContext,
 ) {
@@ -4356,6 +4558,23 @@ fn crop_bar_checkboxes_toggle_real_state(cx: &mut gpui_kit::TestAppContext) {
         let state = content.read(cx).state_for_test();
         assert!(state.read(cx).crop_delete_pixels, "Delete ships checked");
         assert!(state.read(cx).crop_fill_background, "Fill BG ships checked");
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.bg_color = [24, 48, 72, 128];
+                state.crop_rect = Some([0.0, 0.0, 2.0, 1.0]);
+            });
+            assert_eq!(
+                app.canvas_overlay(cx).crop_fill_color,
+                Some([24, 48, 72, 128])
+            );
+            app.state.update(cx, |state, _| {
+                state.bg_color = [96, 48, 24, 255];
+            });
+            assert_eq!(
+                app.canvas_overlay(cx).crop_fill_color,
+                Some([96, 48, 24, 255])
+            );
+        });
 
         window.click("opt-crop-delete", cx);
         window.render_frame(cx);
@@ -4376,6 +4595,347 @@ fn crop_bar_checkboxes_toggle_real_state(cx: &mut gpui_kit::TestAppContext) {
                 .read(cx)
                 .crop_fill_background,
             "clicking Fill BG clears the flag"
+        );
+        content.update(cx, |app, cx| {
+            assert_eq!(app.canvas_overlay(cx).crop_fill_color, None);
+        });
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.crop_fill_background = true;
+                state.active_tool = ToolId::Move;
+            });
+            assert_eq!(app.canvas_overlay(cx).crop_fill_color, None);
+            app.state.update(cx, |state, _| {
+                state.active_tool = ToolId::Crop;
+                state.crop_rect = None;
+            });
+            assert_eq!(app.canvas_overlay(cx).crop_fill_color, None);
+        });
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn crop_delete_and_fill_are_keyboard_reachable_and_operable(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        content.update(cx, |app, cx| {
+            app.state
+                .update(cx, |state, _| state.crop_fill_use_background = false);
+        });
+        window.render_frame(cx);
+        assert_eq!(window.find("opt-crop-delete").label(), Some("Delete"));
+        assert_eq!(window.find("opt-crop-delete").checked(), Some(true));
+        assert_eq!(window.find("opt-crop-fill").label(), Some("Fill BG"));
+        assert_eq!(window.find("opt-crop-fill").checked(), Some(true));
+        window.focus_next(cx);
+        window.render_frame(cx);
+
+        let mut delete_focused = false;
+        for _ in 0..64 {
+            if window.find("opt-crop-delete").focused() == Some(true) {
+                delete_focused = true;
+                break;
+            }
+            window.press("tab", cx);
+            window.render_frame(cx);
+        }
+        assert!(delete_focused, "Tab reaches Delete");
+        window.press("space", cx);
+        window.render_frame(cx);
+        assert!(
+            !content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .crop_delete_pixels,
+            "Space toggles Delete"
+        );
+        assert_eq!(window.find("opt-crop-delete").checked(), Some(false));
+
+        let mut fill_focused = false;
+        for _ in 0..64 {
+            if window.find("opt-crop-fill").focused() == Some(true) {
+                fill_focused = true;
+                break;
+            }
+            window.press("tab", cx);
+            window.render_frame(cx);
+        }
+        assert!(fill_focused, "Tab reaches Fill");
+        window.press("space", cx);
+        window.render_frame(cx);
+        assert!(
+            !content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .crop_fill_background,
+            "Space toggles Fill"
+        );
+        assert_eq!(window.find("opt-crop-fill").checked(), Some(false));
+
+        window.press("space", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .crop_fill_background,
+            "Space enables Fill"
+        );
+
+        let mut use_bg_focused = false;
+        for _ in 0..64 {
+            if window.find("opt-crop-fill-use-bg").focused() == Some(true) {
+                use_bg_focused = true;
+                break;
+            }
+            window.press("tab", cx);
+            window.render_frame(cx);
+        }
+        assert!(use_bg_focused, "Tab reaches Use BG");
+        window.press("space", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .crop_fill_use_background,
+            "Space selects Use BG"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn crop_fill_picker_preserves_source_on_cancel_and_apply(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        let original_fg = content.read(cx).state_for_test().read(cx).fg_color;
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.bg_color = [24, 48, 72, 255];
+                state.crop_fill_color = [96, 48, 24, 255];
+                state.crop_fill_use_background = true;
+                state.crop_rect = Some([0.0, 0.0, 2.0, 1.0]);
+            });
+        });
+        window.render_frame(cx);
+        assert!(window.find("opt-crop-fill-color").visible());
+        assert!(window.find("opt-crop-fill-use-bg").visible());
+        assert!(window.find("opt-crop-fill-color").label().is_some());
+        assert!(window.find("opt-crop-fill-use-bg").label().is_some());
+
+        window.click("opt-crop-fill-color", cx);
+        window.render_frame(cx);
+        window.click("color-picker-sv", cx);
+        window.render_frame(cx);
+        window.press("escape", cx);
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(state.crop_fill_use_background);
+            assert_eq!(state.crop_fill_color, [96, 48, 24, 255]);
+        }
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_overlay(cx).crop_fill_color),
+            Some([24, 48, 72, 255])
+        );
+
+        window.click("opt-crop-fill-color", cx);
+        window.render_frame(cx);
+        window.input("00FF00", cx);
+        window.press("enter", cx);
+        window.render_frame(cx);
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(!state.crop_fill_use_background);
+            assert_eq!(state.crop_fill_color, [0, 255, 0, 255]);
+            assert_eq!(state.fg_color, original_fg);
+        }
+        content.update(cx, |app, cx| {
+            app.state
+                .update(cx, |state, _| state.bg_color = [8, 16, 32, 255]);
+            assert_eq!(
+                app.canvas_overlay(cx).crop_fill_color,
+                Some([0, 255, 0, 255])
+            );
+        });
+
+        window.click("opt-crop-fill-use-bg", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .crop_fill_use_background
+        );
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_overlay(cx).crop_fill_color),
+            Some([8, 16, 32, 255])
+        );
+
+        window.click("opt-crop-fill", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-crop-fill-color").is_none(),
+            "the fill color controls hide when Fill BG is off"
+        );
+        {
+            let state = content.read(cx).state_for_test().read(cx);
+            assert!(state.crop_fill_use_background);
+            assert_eq!(state.crop_fill_color, [0, 255, 0, 255]);
+        }
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn crop_fill_picker_dismissal_routes_focus_to_the_expected_target(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        let canvas_focus = content.read(cx).canvas_focus_handle.clone();
+        window.render_frame(cx);
+        window.focus_next(cx);
+        window.render_frame(cx);
+
+        let mut trigger_focused = false;
+        for _ in 0..64 {
+            if window.find("opt-crop-fill-color").focused() == Some(true) {
+                trigger_focused = true;
+                break;
+            }
+            window.press("tab", cx);
+            window.render_frame(cx);
+        }
+        assert!(trigger_focused, "Tab reaches the Crop Fill color button");
+        assert_eq!(
+            window.find("opt-crop-fill-color").label(),
+            Some("Crop fill color")
+        );
+        let trigger_focus = window.focused(cx).expect("the color button has focus");
+
+        window.press("enter", cx);
+        window.render_frame(cx);
+        assert!(window.find("color-picker-layer").visible());
+        assert_eq!(
+            window.find("color-picker-layer").focused(),
+            Some(true),
+            "opening the picker transfers focus to its surface"
+        );
+
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window.focused(cx),
+            Some(trigger_focus.clone()),
+            "dismissing the picker restores focus to its trigger"
+        );
+
+        window.press("enter", cx);
+        window.render_frame(cx);
+        assert!(window.find("color-picker-layer").visible());
+        window.press("enter", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("color-picker").is_none());
+        assert_eq!(
+            window.focused(cx),
+            Some(trigger_focus.clone()),
+            "committing with Enter restores focus to the Crop Fill button"
+        );
+
+        window.press("enter", cx);
+        window.render_frame(cx);
+        window.click("color-picker-ok", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("color-picker").is_none());
+        assert_eq!(
+            window.focused(cx),
+            Some(trigger_focus.clone()),
+            "committing with OK restores focus to the Crop Fill button"
+        );
+
+        window.press("enter", cx);
+        window.render_frame(cx);
+        window.click_at(
+            "color-picker-layer",
+            Point {
+                x: gpui_kit::px(40.),
+                y: gpui_kit::px(700.),
+            },
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.try_find("color-picker").is_none());
+        assert_eq!(
+            window.focused(cx),
+            Some(canvas_focus),
+            "an outside click keeps focus on the clicked canvas"
+        );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn crop_fill_picker_restores_source_on_document_change(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        let previous_doc_id = content
+            .read(cx)
+            .active_document
+            .as_ref()
+            .expect("the fixture document is active")
+            .doc_id
+            .clone();
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.bg_color = [24, 48, 72, 255];
+                state.crop_fill_color = [96, 48, 24, 255];
+                state.crop_fill_use_background = true;
+                state.crop_rect = Some([0.0, 0.0, 2.0, 1.0]);
+            });
+        });
+        window.render_frame(cx);
+        window.click("opt-crop-fill-color", cx);
+        window.render_frame(cx);
+        window.click("color-picker-sv", cx);
+        window.render_frame(cx);
+
+        window.press("ctrl-n", cx);
+        window.render_frame(cx);
+        window.click("new-doc-create", cx);
+        window.render_frame(cx);
+
+        let new_doc_id = content
+            .read(cx)
+            .active_document
+            .as_ref()
+            .expect("the new document is active")
+            .doc_id
+            .clone();
+        assert_ne!(new_doc_id, previous_doc_id);
+        assert!(window.try_find("color-picker").is_none());
+        let state = content.read(cx).state_for_test().read(cx);
+        assert!(state.color_picker.is_none());
+        assert!(state.crop_fill_use_background);
+        assert_eq!(state.crop_fill_color, [96, 48, 24, 255]);
+        assert_eq!(
+            content.update(cx, |app, cx| app.canvas_overlay(cx).crop_fill_color),
+            Some([24, 48, 72, 255])
         );
     })
     .expect("test window remains open");
@@ -4403,6 +4963,57 @@ fn apply_crop_passes_the_checkbox_flags_to_core(cx: &mut gpui_kit::TestAppContex
             "checked boxes send delete + fill"
         );
 
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        window.render_frame(cx);
+        let custom_fill = [12, 34, 56, 255];
+        content.update(cx, |app, cx| {
+            app.state.update(cx, |state, _| {
+                state.crop_fill_background = true;
+                state.crop_fill_use_background = false;
+                state.crop_fill_color = custom_fill;
+                state.crop_interaction = crate::crop_geometry::CropInteraction::Classic;
+                state.crop_rect = Some([-2.0, 0.0, 4.0, 1.0]);
+            });
+            app.apply_crop(cx).expect("custom fill crop applies");
+        });
+        assert_eq!(
+            content.read(cx).state_for_test().read(cx).last_crop_flags,
+            Some((true, Some(custom_fill))),
+            "Apply sends the selected custom fill colour"
+        );
+        let applied_fill: [u8; 4] = content.update(cx, |app, _| {
+            let doc_id = app
+                .active_document
+                .as_ref()
+                .expect("the fixture document remains active")
+                .doc_id
+                .clone();
+            let loaded = app
+                .sessions
+                .get(&doc_id)
+                .expect("the fixture session remains loaded")
+                .loaded_document();
+            let content = loaded
+                .content_snapshot()
+                .expect("the applied document has content");
+            let background = content
+                .layers
+                .iter()
+                .find(|layer| layer.is_background == Some(true))
+                .expect("Fill BG keeps a Background layer");
+            let pixels = loaded
+                .registry
+                .get_layer(&doc_id, &background.id)
+                .expect("the Background pixels remain available");
+            pixels.pixels[..4]
+                .try_into()
+                .expect("one RGBA pixel has four channels")
+        });
+        assert_eq!(
+            applied_fill, custom_fill,
+            "the area beyond the page uses the selected custom fill colour"
+        );
+
         // Unchecking both must reach core as (false, None). Apply returns to
         // Move, so re-select Crop first.
         set_tool(&content, cx, ToolId::Crop, 1.0);
@@ -4420,6 +5031,41 @@ fn apply_crop_passes_the_checkbox_flags_to_core(cx: &mut gpui_kit::TestAppContex
             Some((false, None)),
             "unchecked boxes send non-destructive, no fill"
         );
+    })
+    .expect("test window remains open");
+}
+
+#[gpui_kit::test]
+fn apply_crop_clears_layer_selection(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Crop, 1.0);
+        window.render_frame(cx);
+        assert!(
+            !content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .selected_layers
+                .is_empty()
+        );
+
+        content.update(cx, |app, cx| {
+            app.state
+                .update(cx, |state, _| state.crop_rect = Some([0.0, 0.0, 2.0, 1.0]));
+            app.apply_crop(cx).expect("crop applies");
+        });
+        window.render_frame(cx);
+
+        let state = content.read(cx).state_for_test();
+        let state = state.read(cx);
+        assert!(state.selected_layers.is_empty());
+        assert_eq!(state.selected_layer, 0);
+        assert!(state.multi_bounds.is_none());
+
+        assert!(window.try_find("canvas-size").is_some());
+        assert!(window.try_find("prop-x").is_none());
     })
     .expect("test window remains open");
 }

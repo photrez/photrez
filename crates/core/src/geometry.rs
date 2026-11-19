@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Geometry batch — consolidated Rust hot math (transform, snap, hit-test).
 // Every geometry operation lives in this one file since v0.2.0, so the call
 // sites have a single place to look.

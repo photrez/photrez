@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Adjustment, brush-stamp and composite kernels over RGBA planes. Split out
 //! of the flood/gradient kernel module so each file stays under the 500-line
 //! guard.

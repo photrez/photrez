@@ -31,7 +31,7 @@ pub(super) fn recovery_body(
             row = row.child(
                 div()
                     .text_color(color::TEXT_DIM)
-                    .child(t("dialogs.recovery.alreadyOpen").to_string()),
+                    .child(t!("dialogs.recovery.alreadyOpen").to_string()),
             );
         }
         list = list.child(row);
@@ -44,7 +44,7 @@ pub(super) fn recovery_body(
                 .text_size(px(12.0))
                 .line_height(px(17.0))
                 .text_color(color::TEXT_DIM)
-                .child(t("dialogs.recovery.description")),
+                .child(t!("dialogs.recovery.description")),
         )
         .child(list)
 }
@@ -52,7 +52,7 @@ pub(super) fn recovery_body(
 pub(super) fn recovery_actions(
     cx: &gpui_kit::Context<crate::app::App>,
 ) -> Vec<gpui_kit::AnyElement> {
-    let discard = recovery_button("recovery-discard", &t("common.discard"), false, cx)
+    let discard = recovery_button("recovery-discard", &t!("common.discard"), false, cx)
         .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
             cx.stop_propagation();
             app.discard_autosaves(cx);
@@ -60,7 +60,7 @@ pub(super) fn recovery_actions(
         .into_any_element();
     let decline = recovery_button(
         "recovery-decline",
-        &t("dialogs.recovery.decline"),
+        &t!("dialogs.recovery.decline"),
         false,
         cx,
     )
@@ -69,12 +69,17 @@ pub(super) fn recovery_actions(
         app.decline_autosaves(cx);
     }))
     .into_any_element();
-    let restore = recovery_button("recovery-restore", &t("dialogs.recovery.restore"), true, cx)
-        .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
-            cx.stop_propagation();
-            app.restore_autosaves(cx);
-        }))
-        .into_any_element();
+    let restore = recovery_button(
+        "recovery-restore",
+        &t!("dialogs.recovery.restore"),
+        true,
+        cx,
+    )
+    .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
+        cx.stop_propagation();
+        app.restore_autosaves(cx);
+    }))
+    .into_any_element();
     vec![discard, decline, restore]
 }
 

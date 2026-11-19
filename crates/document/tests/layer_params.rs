@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 use photrez_document::layer_params::*;
 
 /// A layer payload written before most of its fields existed must parse.

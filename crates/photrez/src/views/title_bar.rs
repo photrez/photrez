@@ -1,78 +1,8 @@
-//! The window title bar, including its closed-state menu bar.
-//!
-//! # Scope: resting state only
-//!
-//! Baselines: `shell-titlebar.png` (1366x46) and `shell-menubar.png` (8 triggers).
-//! Static captures omit:
-//! * menu popups (their stacking order of 100, keyboard navigation)
-//! * the system menu on Alt+Space
-//! * the drag-region attribute and double-click-to-maximize
-//! * window state (a maximized window swaps the maximize icon)
-//!
-//! Hover states are included as part of the component contract.
-//!
-//! # Three fidelity gaps
-//!
-//! ## 1. Letter-spacing (GPUI gap; measured)
-//!
-//! The menu bar's labels are 12px with wide tracking: 0.025em of
-//! letter-spacing = 0.3px after every glyph, including the last. GPUI has no
-//! letter-spacing field: `LineLayout`/`ShapedGlyph` and `Styled` carry none.
-//!
-//! Inline triggers accumulate width deficits. The baseline origins are the
-//! recorded `menu-*` boxes for this bar (dropdown x equals trigger
-//! x); the native column below is this bar's own rendered origins.
-//!
-//! ```text
-//! trigger    original  native    delta   glyphs
-//! File         58.00      58    0.00       4
-//! Edit         99.88      99   -0.88       4
-//! Image       144.00     142   -2.00       5
-//! Layer       201.47     198   -3.47       5
-//! View        253.94     249   -4.94       4
-//! Window      303.44     298   -5.44       6
-//! Help        372.44     367   -5.44       4
-//! Settings    421.20     415   -6.20       -
-//! ```
-//!
-//! Ink starts 10.0px inside each trigger ([`title::MENU_PX`]); File
-//! at x=58 with delta 0 rules out an earlier offset.
-//!
-//! Before Settings, 32 glyphs show 0.194px/glyph drift. Wide tracking adds
-//! 0.3px/glyph (−9.6px total); GPUI's shaper adds +0.106px/glyph against the recorded run,
-//! character-dependent (Window/Help level; Image/Layer differ). Net drift is
-//! −0.19px, not −0.3px; restoring tracking overshoots by roughly +3px.
-//!
-//! A prior +9px compensation overshot (`HARD 0.127%`; target `−6px / HARD
-//! 0.099%`): fractional `px()` padding rounds 10.6→11, adding ~0.8px per
-//! trigger before tracking. Keep the plain 10px padding; retries must use the rendered
-//! localized label (`t(MENU_LABEL_KEYS[menu])`), not fractional padding.
-//!
-//! The remaining −6px (`HARD 0.099%`, one hard pixel) is cosmetic and local.
-//! Per-glyph error compounds in content-width rows (menus/tabs); centered title
-//! and wordmark tracking shift only 0.15px.
-//!
-//! ## 2. Logo rendering
-//!
-//! `Icon` uses `paint_svg`, which keeps alpha but tints monochrome SVGs with
-//! `text_color`. The Photrez mark's two linear gradients, mask and
-//! `feDropShadow` would flatten; `img(ImageSource::Render(..))` uses
-//! `render_single_frame` and keeps full colour.
-//!
-//! ## 3. Icon hover tint (uncompensated; unverified)
-//!
-//! As in `tool_rail`, `Icon` resolves tint before hover styles: undo/redo/window
-//! icons do not brighten, only their button backgrounds. No measurement covers
-//! title-bar hover.
-//!
-//! # Per-platform window controls
-//!
-//! The native title bar is hidden, so this bar owns the controls using each
-//! platform's convention: AppKit traffic lights on macOS, no controls on
-//! server-decorated Linux, and Windows `WindowControlArea` hit regions.
-//! `window_controls::window_controls` implements the branch;
-//! `title_bar::render` passes `&mut Window` so it can query decorations.
-
+//! Window title bar with closed-state menu bar; resting state plus hover styling.
+//! Menu labels use 12px with 0.3px tracking; GPUI has none, leaving about -6px drift (cosmetic).
+//! Keep 10px trigger padding; fractional compensation overshot and must not be retried.
+//! The logo uses `render_single_frame` to keep its gradients, mask and shadow.
+//! Icon hover tint is unresolved; window controls branch by platform.
 use std::sync::{Arc, OnceLock};
 
 use gpui_kit::base::h_flex;
@@ -90,10 +20,10 @@ use gpui_kit::{
 };
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, MenuId};
 use crate::tokens::{color, title};
+use rust_i18n::t;
 
 /// The eight top-level menus, in left-to-right trigger order,
 /// as catalog keys resolved with [`t`] at the trigger.
@@ -312,7 +242,7 @@ fn menu_trigger(
         .relative()
         .self_stretch()
         .items_center()
-        .child(trigger.child(t(key)))
+        .child(trigger.child(t!(key)))
 }
 
 fn menu_id(key: &str) -> Option<MenuId> {
@@ -521,7 +451,7 @@ mod tests {
                 "menus.settings",
             ]
         );
-        assert_eq!(t(MENUS[0]), "File");
-        assert_eq!(t(MENUS[7]), "Settings");
+        assert_eq!(t!(MENUS[0]), "File");
+        assert_eq!(t!(MENUS[7]), "Settings");
     }
 }

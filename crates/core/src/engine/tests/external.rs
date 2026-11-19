@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // External (host-handoff) metadata undo/redo: what the engine can restore on
 // its own, and where the `after` slot comes from.
 //

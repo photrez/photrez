@@ -74,10 +74,6 @@ impl App {
                     lock_position: layer.lock_position.unwrap_or(false),
                     lock_rotation: layer.lock_rotation.unwrap_or(false),
                     is_background: layer.is_background.unwrap_or(false),
-                    is_text: matches!(
-                        layer.layer_type,
-                        photrez_core::document::content::LayerType::Text
-                    ),
                 })
                 .collect();
             let selected_core_for_props = selected_core.clone();

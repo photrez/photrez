@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // apply() command-arm dispatch for DocumentCore. Kept separate from the engine
 // so both stay under the size cap; this is a sibling impl DocumentCore block
 // (method visibility is per-impl, not per module).
 use super::*;
 use crate::document::content::SelectionState;
 
-mod batch;
 mod create;
 mod metadata;
 mod selection;
@@ -124,13 +122,6 @@ impl DocumentCore {
             | Command::SetBlendMode { .. }
             | Command::SetLayerParams { .. }
             | Command::SetAdjustment { .. }) => self.apply_metadata_arm(cmd)?,
-            cmd @ (Command::GroupTransformLayers { .. }
-            | Command::SetLayersVisible { .. }
-            | Command::SetLayersLocked { .. }
-            | Command::SetLayersOpacity { .. }
-            | Command::SetLayersBlendMode { .. }
-            | Command::DeleteLayers { .. }
-            | Command::DuplicateLayers { .. }) => self.apply_batch_arm(cmd)?,
             cmd @ (Command::SetSelection { .. }
             | Command::ClearSelection
             | Command::SelectAll
@@ -152,9 +143,6 @@ impl DocumentCore {
             }
             Command::Flatten { merged_id } => self.apply_flatten(&merged_id)?,
             Command::RasterizeLayer { id, pixels } => self.apply_rasterize(&id, pixels.as_ref())?,
-            Command::ApplyBasicAdjustment { id, pixels } => {
-                self.apply_adjustment(&id, pixels.as_ref())?
-            }
             // -- Canvas-size command arms (Crop Canvas / Apply Crop / Resize Canvas) --
             // Each delegates to a private helper in document/canvas.rs that
             // performs begin_forward -> mutate doc_size + (optional) layers ->
@@ -168,10 +156,10 @@ impl DocumentCore {
                 width,
                 height,
             } => {
-                let entries_before = self.entries.len();
+                let next_seq_before = self.next_seq;
                 let changes = self.apply_crop_canvas(x, y, width, height)?;
                 // A silent no-op creates no entry; a real crop carries the new size.
-                if self.entries.len() > entries_before {
+                if self.next_seq != next_seq_before {
                     delta_dims = self.doc_size;
                 }
                 changes
@@ -187,7 +175,7 @@ impl DocumentCore {
                 delete_cropped_pixels,
                 fill_background,
             } => {
-                let entries_before = self.entries.len();
+                let next_seq_before = self.next_seq;
                 let changes = self.apply_apply_crop(
                     x,
                     y,
@@ -199,16 +187,16 @@ impl DocumentCore {
                     delete_cropped_pixels,
                     fill_background,
                 )?;
-                if self.entries.len() > entries_before {
+                if self.next_seq != next_seq_before {
                     delta_dims = self.doc_size;
                 }
                 changes
             }
             Command::ResizeCanvas { width, height } => {
-                let entries_before = self.entries.len();
+                let next_seq_before = self.next_seq;
                 let changes = self.apply_resize_canvas(width, height)?;
                 // Resize emits an empty layer delta; these dims are its only signal.
-                if self.entries.len() > entries_before {
+                if self.next_seq != next_seq_before {
                     delta_dims = self.doc_size;
                 }
                 changes

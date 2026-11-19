@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The runtime document engine: the authoritative `DocumentCore` state and its
 // history stream, the command families that change it, the structural-sharing layer
 // set, the document snapshot DTO, the duplicate-name planner, and the projection
@@ -26,10 +25,10 @@ use std::sync::Arc;
 use self::history::*;
 use self::layer_set::*;
 
+pub use canvas::{CropTransform, crop_layer_transform};
 pub use snapshot::{DocumentSnapshot, LayerSnapshot};
 pub use state::DocumentCore;
 
-pub(crate) mod adjustment_bake;
 mod apply;
 mod canvas;
 pub(crate) mod crop_bake;
@@ -169,12 +168,13 @@ impl DocumentCore {
         self.version += 1;
         self.version
     }
-    /// Fold a destructive step's pixel half into the metadata entry at `idx`.
+    /// Fold a destructive step's pixel half into the metadata entry at `seq`.
     /// The engine owns no pixel buffer; `DocumentPixelStore` computes the
     /// before/after nodes while it bakes and hands them back here, so one
     /// command undoes metadata AND pixels as a single history step.
-    pub(crate) fn attach_pixel_deltas(&mut self, idx: usize, deltas: Vec<PixelDelta>) {
-        let Some(entry) = self.entries.get_mut(idx) else {
+    pub(crate) fn attach_pixel_deltas(&mut self, seq: u64, deltas: Vec<PixelDelta>) {
+        // Linear scan is bounded by max_entries; add a sequence index if profiling shows cost.
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.seq == seq) else {
             return;
         };
         let EntryPayload::Native { pixel_deltas, .. } = &mut entry.payload else {

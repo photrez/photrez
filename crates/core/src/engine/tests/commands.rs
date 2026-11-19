@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Metadata-arm unit tests: the 6 new Command variants + the TransformLayer
 // flip extension. Each arm mutates the engine LayerSet via COW and projects the
 // changed field onto the render layer so the delta/shadow carry it. The last test

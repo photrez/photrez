@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Differential proof for the hoisted tip-column mapping in `raster_shadow`.
 //!
 //! The optimised loop precomputes the per-column tip lookup and hoists the

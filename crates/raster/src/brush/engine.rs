@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Brush dab producer: the stroke spacing/carry state machine behind the brush
 // tip mask. It defines the dab-interpolation and spacing rules
 // (`BrushStrokeEngine::update` + `brush_dab_spacing`) in f64 throughout, so a

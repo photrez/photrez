@@ -155,13 +155,7 @@ impl App {
     fn report_layer_op(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         match result {
             Ok(()) => self.set_status_error(None, cx),
-            Err(error) => {
-                // Layers context-menu operations report failures here; the
-                // status bar is easy to miss, so a refusal also posts a warn
-                // toast with the reason.
-                self.set_status_error(Some(error.clone()), cx);
-                self.show_toast(error, crate::state::ToastSeverity::Warn, cx);
-            }
+            Err(error) => self.set_status_error(Some(error), cx),
         }
         cx.notify();
     }
@@ -187,28 +181,9 @@ impl App {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Result<String, String> {
-        let ids: Vec<String> = self.selected_core_ids(cx);
-        let ids: Vec<String> = if ids.is_empty() {
-            let (_, layer) = self.selected_layer(cx)?;
-            vec![layer.id]
-        } else {
-            ids
-        };
-        let doc_id = self.active_doc_id()?;
-        let new_ids: Vec<String> = ids.iter().map(|_| next_layer_id()).collect();
-        let content = self
-            .sessions
-            .get(&doc_id)
-            .and_then(|session| session.loaded_document().content_snapshot())
-            .ok_or_else(|| "loaded content is missing".to_string())?;
-        let layers = content.layers.clone();
-        for (src_id, new_id) in ids.iter().zip(new_ids.iter()) {
-            let Some(layer) = layers.iter().find(|l| &l.id == src_id).cloned() else {
-                continue;
-            };
-            if !matches!(layer.layer_type, LayerType::Raster) {
-                continue;
-            }
+        let (doc_id, layer) = self.selected_layer(cx)?;
+        let new_id = next_layer_id();
+        let seed = if matches!(layer.layer_type, LayerType::Raster) {
             let canonical = self
                 .sessions
                 .get(&doc_id)
@@ -218,44 +193,34 @@ impl App {
                         .registry
                         .get_layer(&doc_id, &layer.id)
                 })
-                .ok_or_else(|| "a selected layer has no pixel store".to_string())?;
-            self.seed_layer(
-                &doc_id,
-                new_id,
-                canonical.width,
-                canonical.height,
-                canonical.pixels.clone(),
-            )?;
+                .ok_or_else(|| "the selected layer has no pixel store".to_string())?;
+            Some((canonical.width, canonical.height, canonical.pixels.clone()))
+        } else {
+            None
+        };
+        if let Some((width, height, pixels)) = seed {
+            self.seed_layer(&doc_id, &new_id, width, height, pixels)?;
         }
         self.apply_structural(
             &doc_id,
-            Command::DuplicateLayers {
-                ids,
-                new_ids: new_ids.clone(),
+            Command::DuplicateLayer {
+                id: layer.id,
+                new_id: new_id.clone(),
             },
             cx,
         )?;
         self.state.update(cx, |state, _| {
-            let new_rows: Vec<u64> = new_ids
+            if let Some(row) = state
+                .layers
                 .iter()
-                .filter_map(|new_id| {
-                    state
-                        .layers
-                        .iter()
-                        .find(|row| row.core_id.as_deref() == Some(new_id.as_str()))
-                        .map(|row| row.id)
-                })
-                .collect();
-            if !new_rows.is_empty() {
-                state.selected_layer = new_rows[0];
-                state.selected_layers = new_rows;
+                .find(|row| row.core_id.as_deref() == Some(new_id.as_str()))
+            {
+                state.selected_layer = row.id;
+                state.selected_layers = vec![row.id];
             }
         });
-        let Some(first) = new_ids.into_iter().next() else {
-            return Err("the duplicate selection was empty".to_string());
-        };
         cx.notify();
-        Ok(first)
+        Ok(new_id)
     }
 
     /// Reset the selected layer's transform to identity at the current origin.
@@ -529,7 +494,6 @@ impl App {
             expected_version: None,
             command,
         };
-
         let applied = self
             .sessions
             .get_mut(doc_id)
@@ -570,73 +534,24 @@ impl App {
         Ok((doc_id, layer))
     }
 
-    /// The tid group a row action applies to: the whole selection when the
-    /// clicked core id belongs to a selected row, otherwise the row alone.
-    /// The clicked row leads, so shared values (visibility target, lock
-    /// target) come from the clicked row, like the reference row handlers.
-    fn tid_group_for_core(&self, core_id: &str, cx: &Context<Self>) -> Option<Vec<String>> {
-        let state = self.state.read(cx);
-        let clicked_row_id = state
-            .layers
-            .iter()
-            .find(|row| row.core_id.as_deref() == Some(core_id))
-            .map(|row| row.id)?;
-        if !state.selected_layers.contains(&clicked_row_id) {
-            return Some(vec![core_id.to_string()]);
-        }
-        let mut out = Vec::with_capacity(state.selected_layers.len());
-        out.push(core_id.to_string());
-        for row in state.layers.iter() {
-            if row.id == clicked_row_id || !state.selected_layers.contains(&row.id) {
-                continue;
-            }
-            if let Some(core) = row.core_id.clone()
-                && core != out[0]
-            {
-                out.push(core);
-            }
-        }
-        Some(out)
-    }
-
     pub(crate) fn toggle_layer_visibility(&mut self, core_id: String, cx: &mut Context<Self>) {
         let result = (|| {
-            let ids = self
-                .tid_group_for_core(&core_id, cx)
-                .ok_or_else(|| "the layer is no longer projected".to_string())?;
-            let (doc_id, clicked) = self.layer_by_core_id(&ids[0])?;
-            let visible = !clicked.visible;
+            let (doc_id, layer) = self.layer_by_core_id(&core_id)?;
             self.apply_core_command(
                 &doc_id,
-                Command::SetLayersVisible { ids, visible },
-                true,
-                cx,
-            )
-        })();
-        self.report_layer_op(result, cx);
-    }
-
-    /// Toggle the base lock. If the clicked layer belongs to a multi
-    /// selection, the whole group flips in one history entry.
-    pub(crate) fn toggle_layer_locked(&mut self, core_id: String, cx: &mut Context<Self>) {
-        let result = (|| {
-            let ids = self
-                .tid_group_for_core(&core_id, cx)
-                .ok_or_else(|| "the layer is no longer projected".to_string())?;
-            let (doc_id, clicked) = self.layer_by_core_id(&ids[0])?;
-            let locked = !clicked.locked;
-            self.apply_core_command(
-                &doc_id,
-                Command::SetLayersLocked {
-                    ids,
-                    kind: LockKind::Base,
-                    locked,
+                Command::SetVisible {
+                    id: layer.id,
+                    visible: !layer.visible,
                 },
                 true,
                 cx,
             )
         })();
         self.report_layer_op(result, cx);
+    }
+
+    pub(crate) fn toggle_layer_locked(&mut self, core_id: String, cx: &mut Context<Self>) {
+        self.toggle_layer_lock(core_id, LockKind::Base, cx);
     }
 
     /// Flip one of the four lock flags on a layer.
@@ -722,66 +637,23 @@ impl App {
 
     pub(crate) fn delete_selected_layer(&mut self, cx: &mut Context<Self>) {
         let result = (|| {
-            let ids = self.selected_core_ids(cx);
-            if ids.is_empty() {
-                return Err("no layer is selected".to_string());
-            }
-            let (doc_id, _) = self.selected_layer(cx)?;
-            let backgrounds = self
-                .sessions
-                .get(&doc_id)
-                .and_then(|session| session.loaded_document().content_snapshot())
-                .map(|content| {
-                    content
-                        .layers
-                        .iter()
-                        .filter(|layer| layer.is_background == Some(true))
-                        .map(|layer| layer.id.clone())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let targets: Vec<String> = ids
-                .iter()
-                .filter(|id| !backgrounds.contains(id))
-                .cloned()
-                .collect();
-            if targets.is_empty() {
-                // A single remaining layer may be deleted: the document
-                // becomes empty and the panels fall back to Canvas. The
-                // row/footer controls stay disabled for this case; only a
-                // delete the caller asked for reaches this branch.
-                let count = self
-                    .sessions
-                    .get(&doc_id)
-                    .and_then(|session| session.loaded_document().content_snapshot())
-                    .map(|content| content.layers.len())
-                    .unwrap_or(usize::MAX);
-                if count != 1 {
-                    return Err("the background layer cannot be deleted".to_string());
-                }
-                return self.apply_core_command(&doc_id, Command::DeleteLayers { ids }, true, cx);
-            }
-            self.apply_core_command(&doc_id, Command::DeleteLayers { ids: targets }, true, cx)
+            let (doc_id, layer) = self.selected_layer(cx)?;
+            self.apply_core_command(&doc_id, Command::DeleteLayer { id: layer.id }, true, cx)
         })();
         self.report_layer_op(result, cx);
     }
 
     /// Step the selected layer's opacity by `delta`, clamped to `0..=1`.
-    /// Applies the same clamped value to every selected layer. The Move
-    /// option bar's steps and the panel's +/- buttons all use this path.
     pub(crate) fn adjust_selected_opacity(&mut self, delta: f64, cx: &mut Context<Self>) {
         let result = (|| {
             let (doc_id, layer) = self.selected_layer(cx)?;
             let opacity = (layer.opacity + delta).clamp(0.0, 1.0);
-            let ids = self.selected_core_ids(cx);
-            let ids = if ids.is_empty() {
-                vec![layer.id.clone()]
-            } else {
-                ids
-            };
             self.apply_core_command(
                 &doc_id,
-                Command::SetLayersOpacity { ids, opacity },
+                Command::SetOpacity {
+                    id: layer.id,
+                    opacity,
+                },
                 true,
                 cx,
             )
@@ -789,45 +661,27 @@ impl App {
         self.report_layer_op(result, cx);
     }
 
-    /// Set the selected layers' opacity outright. Locked members answer
-    /// nothing; with nothing unlocked the command is not sent. The
-    /// Properties panel's track drags and the option bar's percent writes
-    /// reach this.
+    /// Set the selected layer's opacity outright. The Properties panel's track
+    /// drags to this; a locked layer answers nothing.
     pub(crate) fn set_selected_layer_opacity(
         &mut self,
         opacity: f64,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let (doc_id, layer) = self.selected_layer(cx)?;
-        // The primary controls the readout; skip it when locked.
         if layer.locked {
             return Ok(());
         }
         let opacity = opacity.clamp(0.0, 1.0);
-        let ids = self.selected_core_ids(cx);
-        let ids = if ids.is_empty() {
-            vec![layer.id.clone()]
-        } else {
-            // Locked members answer nothing; the primary was refused above.
-            self.sessions
-                .get(&doc_id)
-                .and_then(|session| session.loaded_document().content_snapshot())
-                .map(|content| {
-                    content
-                        .layers
-                        .iter()
-                        .filter(|layer| ids.contains(&layer.id) && !layer.locked)
-                        .map(|layer| layer.id.clone())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or(ids)
-        };
-        if ids.is_empty() {
+        if (layer.opacity - opacity).abs() < 1e-9 {
             return Ok(());
         }
         self.apply_core_command(
             &doc_id,
-            Command::SetLayersOpacity { ids, opacity },
+            Command::SetOpacity {
+                id: layer.id,
+                opacity,
+            },
             true,
             cx,
         )
@@ -853,9 +707,7 @@ impl App {
         self.report_layer_op(result, cx);
     }
 
-    /// Set the selected layers' blend modes at once; all members receive the
-    /// mode and all members answer even when locked (blend is not
-    /// locked-gated).
+    /// Set the selected layer's blend mode outright; the dropdown's pick.
     pub(crate) fn set_selected_blend(&mut self, index: usize, cx: &mut Context<Self>) {
         let result = (|| {
             let mode = BLEND_MODES
@@ -863,13 +715,12 @@ impl App {
                 .cloned()
                 .ok_or_else(|| "unknown blend mode".to_string())?;
             let (doc_id, layer) = self.selected_layer(cx)?;
-            let ids = self.selected_core_ids(cx);
-            let ids = if ids.is_empty() {
-                vec![layer.id.clone()]
-            } else {
-                ids
-            };
-            self.apply_core_command(&doc_id, Command::SetLayersBlendMode { ids, mode }, true, cx)
+            self.apply_core_command(
+                &doc_id,
+                Command::SetBlendMode { id: layer.id, mode },
+                true,
+                cx,
+            )
         })();
         self.report_layer_op(result, cx);
     }

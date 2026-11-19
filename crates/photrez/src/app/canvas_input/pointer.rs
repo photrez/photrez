@@ -364,7 +364,9 @@ impl App {
                 {
                     return;
                 }
-                if self.begin_transform_drag((x, y), zoom, cx) {
+                if self.state.read(cx).show_transform_controls
+                    && self.begin_transform_drag((x, y), zoom, cx)
+                {
                     return;
                 }
                 // A press that misses every layer starts the layer marquee;

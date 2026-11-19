@@ -1,0 +1,25 @@
+rules:
+  dangerous-triggers:
+    ignore:
+      # The pull request title lint runs on the base branch so the action can
+      # read the title of a fork pull request. It checks out no pull request
+      # code, so the trigger has nothing to execute.
+      - lint-pr.yml
+  cache-poisoning:
+    ignore:
+      # The release build keeps its own cache prefix, so a pull request run
+      # cannot write the cache that the publishing job restores.
+      - release.yml
+  excessive-permissions:
+    ignore:
+      # Publishing artifacts needs write access at the workflow level.
+      - release.yml
+  template-injection:
+    ignore:
+      # The generated release expressions come from tag names and dist inputs.
+      - release.yml
+  # cargo-dist generates release.yml with symbolic action and container refs.
+  unpinned-uses:
+    disable: true
+  unpinned-images:
+    disable: true

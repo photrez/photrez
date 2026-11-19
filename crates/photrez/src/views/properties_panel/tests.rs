@@ -1,22 +1,16 @@
 use super::*;
 
 #[test]
-fn selected_layer_subtitle_pins_the_shape() {
-    // The live Selected Layer card's subtitle carries the projected layer's
-    // kind and source size; the properties and adjustments panels share this
-    // shape.
-    assert_eq!(
-        selected_layer_subtitle("Image", 800, 600),
-        "Image layer \u{b7} 800 \u{d7} 600 px"
-    );
-    assert_eq!(
-        selected_layer_subtitle("Shape", 1080, 1080),
-        "Shape layer \u{b7} 1080 \u{d7} 1080 px"
-    );
-    assert_eq!(
-        selected_layer_subtitle("Text", 200, 48),
-        "Text layer \u{b7} 200 \u{d7} 48 px"
-    );
+fn static_layer_values_pinned() {
+    // The pins carry the new-document data model as measured from a created
+    // 800x600 document (one full-canvas
+    // "Background" image layer at 0,0 with locked position/rotation) — not
+    // the older "Layer 1 · 100x100" seed.
+    // ASCII escapes must render to the expected characters.
+    assert_eq!(LAYER_NAME, "Background");
+    assert!(LAYER_SUBTITLE.contains('\u{b7}'));
+    assert!(LAYER_SUBTITLE.contains('\u{d7}'));
+    assert_eq!(LAYER_SUBTITLE, "Image layer \u{b7} 800 \u{d7} 600 px");
 }
 
 #[test]
@@ -43,31 +37,20 @@ fn transform_rows_read_the_layer_or_fall_back_to_the_baseline() {
 fn action_table_matches_the_pinned_rows() {
     assert_eq!(ACTIONS.len(), 3);
     assert_eq!(ACTIONS[0].0, icons::FLIP_H);
-    assert_eq!(t(ACTIONS[0].1), "Flip H");
+    assert_eq!(t!(ACTIONS[0].1), "Flip H");
     assert_eq!(ACTIONS[1].0, icons::FLIP_V);
-    assert_eq!(t(ACTIONS[1].1), "Flip V");
+    assert_eq!(t!(ACTIONS[1].1), "Flip V");
     assert_eq!(ACTIONS[2].0, icons::ROTATE_CCW);
-    assert_eq!(t(ACTIONS[2].1), "Reset");
+    assert_eq!(t!(ACTIONS[2].1), "Reset");
 }
 
 #[test]
-fn quick_actions_match_the_pinned_rows_and_test_ids() {
-    assert_eq!(QUICK_ACTIONS.len(), 5);
-    assert_eq!(QUICK_ACTIONS[0].0, "prop-quick-center-h");
-    assert_eq!(QUICK_ACTIONS[0].1, icons::ALIGN_H);
-    assert_eq!(t(QUICK_ACTIONS[0].2), "Center horizontally on canvas");
-    assert_eq!(QUICK_ACTIONS[1].0, "prop-quick-center-v");
-    assert_eq!(QUICK_ACTIONS[1].1, icons::ALIGN_V);
-    assert_eq!(t(QUICK_ACTIONS[1].2), "Center vertically on canvas");
-    assert_eq!(QUICK_ACTIONS[2].0, "prop-quick-fit-canvas");
-    assert_eq!(QUICK_ACTIONS[2].1, icons::MAXIMIZE);
-    assert_eq!(t(QUICK_ACTIONS[2].2), "Fit to canvas (scale + center)");
-    assert_eq!(QUICK_ACTIONS[3].0, "prop-quick-rotate-ccw");
-    assert_eq!(QUICK_ACTIONS[3].1, icons::ROTATE_CCW);
-    assert_eq!(t(QUICK_ACTIONS[3].2), "Rotate 90\u{b0} counterclockwise");
-    assert_eq!(QUICK_ACTIONS[4].0, "prop-quick-rotate-cw");
-    assert_eq!(QUICK_ACTIONS[4].1, icons::ROTATE_CW);
-    assert_eq!(t(QUICK_ACTIONS[4].2), "Rotate 90\u{b0} clockwise");
+fn quick_icons_match_the_pinned_glyphs() {
+    assert_eq!(QUICK_ICONS.len(), 4);
+    assert_eq!(QUICK_ICONS[0], icons::ALIGN_H);
+    assert_eq!(QUICK_ICONS[1], icons::ALIGN_V);
+    assert_eq!(QUICK_ICONS[2], icons::SWAP);
+    assert_eq!(QUICK_ICONS[3], icons::BOX);
 }
 
 /// A canvas action row lifts to its own border tier on hover, and the delete

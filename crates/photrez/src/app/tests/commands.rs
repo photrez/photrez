@@ -573,11 +573,6 @@ fn multi_layer_archive_layers(
         });
         if id == "top" && top_adjusted {
             layer["hasAdjustments"] = serde_json::json!(true);
-            layer["basicAdjustment"] = serde_json::json!({
-                "brightness": 25.0,
-                "contrast": 0.0,
-                "saturation": 0.0
-            });
         }
         if id == "bottom" && bottom_background {
             layer["isBackground"] = serde_json::json!(true);

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Raster primitives: the canonical per-layer pixel buffer, the packed
 //! tile-major store, the per-layer copy-on-write `StateNode` seam, the compute
 //! kernels, the paint rasterizer and brush geometry that prepare a stamp, and

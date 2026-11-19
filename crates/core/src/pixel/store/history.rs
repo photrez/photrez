@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! History paths on the registry: the cursor, the depth/tip reports, and the
 //! external / snapshot entries that share the document's unified cursor.
 

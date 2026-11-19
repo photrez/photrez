@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Byte accounting for the canonical pixel store: how many pixel bytes it
 //! actually holds, and how many of them are retained once and referenced by more
 //! than one committed state.

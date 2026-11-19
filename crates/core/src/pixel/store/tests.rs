@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tests for `pixel::store`, split across sibling modules. Uses `use super::*` for the production items it
 //! exercises.
 
@@ -8,7 +7,6 @@ use crate::raster::paint::raster::{RasterDab, RasterTip};
 use crate::raster::reference::assert_byte_eq;
 use crate::raster::tile::TilePatch;
 
-mod apply_adjustment;
 mod crop_bake;
 mod history_round_trip;
 mod history_unification;

@@ -29,10 +29,10 @@ use gpui_kit::{
 };
 
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, ToolId};
 use crate::tokens::color;
+use rust_i18n::t;
 
 pub(crate) mod controls;
 mod move_group;
@@ -338,18 +338,14 @@ pub(super) fn show_main_controls() -> bool {
     bar_content_width() >= 880.0
 }
 
-/// Shown only below 880px of bar content: the overflow button. The reference's
-/// `@max-[880px]` is a strict less-than, so exactly 880 keeps the inline
-/// layout (measured at viewport 1489/1555, content == 880).
+/// Shown only below 880px of bar content: the overflow button.
 pub(super) fn show_more_dropdown() -> bool {
-    bar_content_width() < 880.0
+    bar_content_width() <= 880.0
 }
 
-/// Hidden only below 900px of bar content: the field captions and the
-/// Align/Flip captions. The reference's `@max-[900px]` is a strict less-than, so
-/// exactly 900 shows the captions (measured at viewport 1509/1575).
+/// Hidden below 900px of bar content: the field captions and the Align/Flip captions.
 pub(super) fn show_field_labels() -> bool {
-    bar_content_width() >= 900.0
+    bar_content_width() > 900.0
 }
 
 /// Shown only at 960px of bar content or wider: the selection and group captions.
@@ -413,21 +409,9 @@ pub fn render(
 ) -> impl IntoElement {
     set_bar_width(width);
     let active_tool = state.read(cx).active_tool;
-    let (row, more) = fade_in_row(
-        state,
-        &active_tool,
-        committed_selection,
-        transform_readout,
-        cx,
-    );
-    // Every tool bar renders its controls through the real chrome; the
-    // additive live strip is gone. The row fills the bar and clips its own
-    // overflow, so the overflow trigger mounts after it and stays at the
-    // bar's right edge, reachable at every width.
-    let mut bar = h_flex()
-        .w_full()
-        .id("option-bar-root")
-        .test_support()
+    // Every tool bar now renders its controls through the real chrome; the
+    // additive live strip is gone.
+    h_flex()
         .h(px(BAR_H))
         .flex_shrink_0()
         .items_center()
@@ -437,11 +421,13 @@ pub fn render(
         .bg(color::TOOLBAR)
         .px(px(BAR_PX))
         .font_family(ui::FONT_UI)
-        .child(row);
-    if let Some(trigger) = more {
-        bar = bar.child(trigger);
-    }
-    bar
+        .child(fade_in_row(
+            state,
+            &active_tool,
+            committed_selection,
+            transform_readout,
+            cx,
+        ))
 }
 
 // ── Crop ─────────────────────────────────────────────────────────────────────
@@ -486,7 +472,7 @@ mod tests {
         let p = brush_params(false);
         assert!(p.icon == icons::BRUSH, "brush must use the BRUSH icon");
         assert_eq!(p.label, PILL_LABEL_BRUSH_KEY);
-        assert_eq!(t(p.label), "Brush Tool");
+        assert_eq!(t!(p.label), "Brush Tool");
         assert_eq!(p.size, "20");
         assert_eq!(p.hardness, "80");
         assert_eq!(p.slider_pct, BRUSH_SLIDER_PCT);
@@ -498,7 +484,7 @@ mod tests {
         let p = brush_params(true);
         assert!(p.icon == icons::ERASER, "eraser must use the ERASER icon");
         assert_eq!(p.label, PILL_LABEL_ERASER_KEY);
-        assert_eq!(t(p.label), "Eraser Tool");
+        assert_eq!(t!(p.label), "Eraser Tool");
         assert_eq!(p.size, "32");
         assert_eq!(p.hardness, "100");
         assert_eq!(p.slider_pct, ERASER_SLIDER_PCT);
@@ -524,10 +510,10 @@ mod tests {
         let p = crop_params();
         // Pill label + ratio dropdown face.
         assert_eq!(p.pill_label, PILL_LABEL_CROP_KEY);
-        assert_eq!(t(p.pill_label), "Crop Tool");
+        assert_eq!(t!(p.pill_label), "Crop Tool");
         assert_eq!(p.ratio_prefix, "tools.options.aspectRatio");
-        assert_eq!(t("tools.options.aspectRatio"), "Aspect Ratio");
-        assert_eq!(t(p.ratio_value), "Free", "resting cropMode is 'free'");
+        assert_eq!(t!("tools.options.aspectRatio"), "Aspect Ratio");
+        assert_eq!(t!(p.ratio_value), "Free", "resting cropMode is 'free'");
         assert_eq!(p.delete_id, "opt-crop-delete");
         assert_eq!(p.delete_label, "Delete");
         assert!(p.delete_checked, "Delete ships checked");
@@ -536,8 +522,8 @@ mod tests {
         assert!(p.fill_checked, "Fill BG ships checked");
         // Swatch + action buttons.
         assert_eq!(p.use_bg_label, "Use BG");
-        assert_eq!(t(p.cancel_label), "Cancel");
-        assert_eq!(t(p.apply_label), "Apply");
+        assert_eq!(t!(p.cancel_label), "Cancel");
+        assert_eq!(t!(p.apply_label), "Apply");
     }
 }
 
@@ -633,14 +619,16 @@ mod bar_width_tests {
         assert!(show_paint_size_slider());
 
         // Outer widths are 2 * BAR_PAD_X wider than the content box the
-        // container query sees. The reference's @max-[880px] is a strict
-        // less-than, so exactly 880 keeps the inline layout only.
+        // container query sees.
         set_bar_width(880.0 + 2.0 * BAR_PAD_X);
-        assert!(!show_more_dropdown(), "exactly 880 has no overflow button");
-        assert!(show_main_controls(), "exactly 880 shows the inline group");
+        assert!(show_more_dropdown(), "880 is still the narrow layout");
+        assert!(
+            show_main_controls(),
+            "both boundary groups render at exactly 880 (Tailwind min/max are inclusive)"
+        );
 
         set_bar_width(900.0 + 2.0 * BAR_PAD_X);
-        assert!(show_field_labels(), "exactly 900 shows the captions");
+        assert!(!show_field_labels(), "exactly 900 keeps labels hidden");
         assert!(show_paint_size_slider(), "exactly 900 shows the slider");
 
         // The captured 1536 px viewport: 885 px outer bar, 861 px content box.

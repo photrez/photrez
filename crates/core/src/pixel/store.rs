@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Canonical pixel owner, namespaced by document id. This is the long-term owner
 //! (replacing the flat process-global `PIXEL_STORE`). Lifecycle is driven from
 //! the host's pixel commands: open/close/add/remove/resize manage

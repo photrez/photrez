@@ -1,25 +1,59 @@
 #!/bin/sh
 set -e
 
+# windres (in the gpui-pre build script) needs the MinGW directory on PATH on
+# the windows-gnu toolchain. The xtask owns that lookup.
+mingw_dir=$(cargo xtask mingw-dir) || mingw_dir=""
+if [ -n "$mingw_dir" ]; then
+  PATH="$mingw_dir:$PATH"
+  export PATH
+fi
+
+# These are the gates this machine can run. `cargo deny check bans` is the
+# package graph. CI also runs the licence, advisory, and source checks, plus
+# the measurement-driver feature lint, the workflow lint, and the scan of the
+# changed files. Those need a database, a base ref, or a tool this hook does
+# not run.
+
 echo "============================================="
 echo "   Running Pre-Push Verification Pipeline   "
 echo "============================================="
 
 echo ""
-echo "[1/4] Running cargo fmt --check..."
+echo "[1/7] Running cargo fmt --check..."
 cargo fmt --check
 
 echo ""
-echo "[2/4] Running core Clippy..."
-cargo clippy -p photrez-core -- -D warnings
+echo "[2/7] Running workspace Clippy..."
+cargo clippy --workspace --all-targets -- -D warnings
 
 echo ""
-echo "[3/4] Checking package boundaries..."
-sh scripts/check-package-boundaries.sh
+echo "[3/7] Checking the package graph..."
+cargo deny check bans
 
 echo ""
-echo "[4/4] Running workspace tests..."
+echo "[4/7] Checking the public surfaces..."
+echo ""
+echo "[5/7] Building the documentation..."
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
+
+echo ""
+echo "[6/7] Running workspace tests..."
 cargo test --workspace
 
 echo ""
+echo "[7/7] Building the app..."
+cargo build -p photrez
+
+echo ""
 echo "All pre-push checks passed. Proceeding with push."
+
+
+
+
+
+
+
+
+
+

@@ -36,7 +36,6 @@ use crate::services::window_state::{self, WindowGeometry};
 use crate::state::{AppState, ToolId};
 use crate::views::workspace;
 
-mod apply_adjustment;
 mod autosave;
 pub(crate) mod brush_menu;
 mod color_picker;
@@ -53,10 +52,7 @@ mod drop;
 mod edge_scroll;
 mod history;
 mod layer_marquee;
-mod layer_menu;
-mod layer_nav;
 mod layer_projection;
-mod layer_tab;
 mod layers;
 mod loading;
 mod locale;
@@ -73,8 +69,6 @@ mod select;
 mod selection;
 mod slider;
 mod startup;
-mod status;
-mod tab_hover;
 mod test_accessors;
 mod text;
 mod toasts;
@@ -255,11 +249,6 @@ pub struct App {
     /// watched in render rather than in each of them.
     shell_focus_before_dialog: Option<gpui_kit::FocusHandle>,
     dialog_was_open: bool,
-    /// Focus targets for the Layers and History tabs. Both are
-    /// tab stops with the `LayersPanel` key context, so Arrow keys cycle
-    /// between them from either strip.
-    pub(crate) layers_tab_focus: gpui_kit::FocusHandle,
-    pub(crate) history_tab_focus: gpui_kit::FocusHandle,
     /// A New Document dialog opened by a shortcut; the next render focuses it
     /// because a window-global action has no `Window` to focus with.
     pending_new_document_focus: bool,
@@ -444,11 +433,6 @@ pub struct App {
     projection_pixel_copies: Cell<usize>,
     /// The 60 s auto-save loop; dropping the task cancels it.
     autosave_task: Option<gpui_kit::Task<()>>,
-    /// Hover-to-switch while dragging a layer across document tabs: a
-    /// one-shot 500 ms timer, dropped (cancelled) on any exit.
-    tab_hover_task: Option<gpui_kit::Task<()>>,
-    /// The tab the hover timer is armed for, if any.
-    tab_hover_doc: Option<String>,
     /// The app-cache directory holding the autosave store, resolved once so
     /// the timer, the recovery prompt and the quit flush all use one answer.
     autosave_cache_root: Option<PathBuf>,
@@ -804,8 +788,6 @@ impl Render for App {
             Rc::clone(&self.navigator_bounds),
             &self.layer_thumbs,
             &self.canvas_focus_handle,
-            &self.layers_tab_focus,
-            &self.history_tab_focus,
             &self.rename_focus,
             &self.resize_focus,
             &self.new_document_focus,
@@ -822,7 +804,6 @@ impl Render for App {
             committed_selection,
             transform_readout,
             frame,
-            self.status_tip(cx),
             cx,
         )
     }

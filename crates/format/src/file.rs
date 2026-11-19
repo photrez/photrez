@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The `.ptz` `document.json` payload: the typed document Rust WRITES on save.
 //
 // `document::content` holds the document CONTENT model (layers, transforms,

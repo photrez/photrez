@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // DocumentCore state: the fields, construction, and the read/seed accessors. The
 // behavior half (forward/backward history helpers, layer restore) lives in the
 // parent `engine` module; both are sibling `impl DocumentCore` blocks.
@@ -54,11 +53,6 @@ pub struct DocumentCore {
     /// `pending_crop_bake`): the host-rendered bitmap that materializes the
     /// rasterized layer's canonical buffer.
     pub(crate) pending_rasterize: Option<crate::engine::rasterize_bake::RasterizePlan>,
-    /// Pixel half of a basic-adjustment bake, drained by `DocumentPixelStore`
-    /// immediately after the command is applied. Unlike `pending_rasterize`,
-    /// the before/after `StateNode` pair is attached into the metadata
-    /// entry's `pixel_deltas`, so undoing the bake restores the pixels.
-    pub(crate) pending_adjustment_bake: Option<crate::engine::adjustment_bake::ApplyAdjustmentPlan>,
     // Engine-local selection state (selection is core document state). Selection is NOT an
     // undoable transition in the command stream; it rides whole-document snapshots and is
     // reconciled onto the canonical shadow when one is seeded.
@@ -100,7 +94,6 @@ impl Default for DocumentCore {
             pending_pixels: Vec::new(),
             pending_crop_bake: None,
             pending_rasterize: None,
-            pending_adjustment_bake: None,
             replica: None,
             selection: None,
             doc_size: None,

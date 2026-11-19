@@ -2,8 +2,9 @@
 //!
 //! Owns: the locale entity and lookup helpers for dynamic keys.
 //!
-//! Call sites use [`t`] / [`t_args`] / [`t_plural`] for dynamic keys; [`set_locale`]
-//! swaps the active locale; [`initial_locale`] is the startup detection order.
+//! Call sites use `rust_i18n::t!` for lookups. [`t_args`] and [`t_plural`]
+//! handle runtime arguments and plurals; [`set_locale`] swaps the active locale;
+//! [`initial_locale`] is the startup detection order.
 
 use crate::services::settings::SettingsStore;
 use std::sync::LazyLock;
@@ -136,11 +137,6 @@ fn lookup_template(key: &str) -> Option<String> {
     translate_key(&active, key).or_else(|| translate_key("en", key))
 }
 
-/// Resolves `key` in the active locale, then `en`, then returns `key`.
-pub fn t(key: &str) -> String {
-    lookup_template(key).unwrap_or_else(|| key.to_owned())
-}
-
 /// Resolves `key` in a fixed locale (tests and fixtures).
 pub fn t_in(locale: Locale, key: &str) -> String {
     translate_key(locale.code(), key)
@@ -148,8 +144,8 @@ pub fn t_in(locale: Locale, key: &str) -> String {
         .unwrap_or_else(|| key.to_owned())
 }
 
-/// [`t`] for values that name `%{placeholders}`. A render mismatch degrades
-/// to the key.
+/// Like `t`, but for values that name `%{placeholders}`. A render mismatch
+/// degrades to the key.
 pub fn t_args(key: &str, args: &[(&str, &str)]) -> String {
     let Some(template) = lookup_template(key) else {
         return key.to_owned();

@@ -67,7 +67,7 @@ pub(super) fn selected_layer_section(name: &str, layer_type: &str, width: u32, h
         .border_color(color::BORDER)
         .child(section_header(
             icons::with_stroke(icons::LAYERS, 1.75),
-            &t("adjustments.selectedLayer"),
+            &t!("adjustments.selectedLayer"),
             None,
         ))
         .child(
@@ -159,7 +159,7 @@ pub(super) fn basic_section(
         .border_color(color::BORDER)
         .child(section_header(
             icons::with_stroke(icons::SUN, 1.75),
-            &t("adjustments.basic"),
+            &t!("adjustments.basic"),
             Some(reset),
         ))
         .child(
@@ -168,7 +168,7 @@ pub(super) fn basic_section(
                 .gap(px(8.0))
                 .w_full()
                 .child(slider_row(
-                    &t("adjustments.bright"),
+                    &t!("adjustments.bright"),
                     ui::SliderKind::Brightness,
                     bright,
                     crate::state::SliderTarget::AdjustmentBrightness,
@@ -177,7 +177,7 @@ pub(super) fn basic_section(
                     cx,
                 ))
                 .child(slider_row(
-                    &t("adjustments.contrast"),
+                    &t!("adjustments.contrast"),
                     ui::SliderKind::Contrast,
                     contrast,
                     crate::state::SliderTarget::AdjustmentContrast,
@@ -186,7 +186,7 @@ pub(super) fn basic_section(
                     cx,
                 ))
                 .child(slider_row(
-                    &t("adjustments.saturate"),
+                    &t!("adjustments.saturate"),
                     ui::SliderKind::Saturation,
                     saturate,
                     crate::state::SliderTarget::AdjustmentSaturation,
@@ -202,7 +202,7 @@ pub(super) fn basic_section(
                         // Line height 1.375.
                         .line_height(relative(1.375))
                         .text_color(color::TEXT_DIM)
-                        .child(t("adjustments.dragToPreview")),
+                        .child(t!("adjustments.dragToPreview")),
                 )
                 .when(!has_pixels, |col| {
                     col.child(status_hint(
@@ -500,7 +500,7 @@ fn in_development_card(id: &'static str) -> impl IntoElement {
                                 .font_family(ui::FONT_UI)
                                 .font_weight(FontWeight(700.))
                                 .text_color(color::TEXT_DIM)
-                                .child(t("adjustments.inDevelopment").to_uppercase()),
+                                .child(t!("adjustments.inDevelopment").to_uppercase()),
                         ),
                 )
                 .child(
@@ -509,7 +509,7 @@ fn in_development_card(id: &'static str) -> impl IntoElement {
                         .font_family(ui::FONT_UI)
                         .line_height(relative(1.625))
                         .text_color(color::TEXT_DIM)
-                        .child(t("adjustments.defaultInDevDesc")),
+                        .child(t!("adjustments.defaultInDevDesc")),
                 ),
         )
 }

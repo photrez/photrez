@@ -43,11 +43,11 @@ pub(super) fn resize_canvas_body(
                 .mb(px(4.0))
                 .text_size(px(11.0))
                 .text_color(color::TEXT_DIM)
-                .child(t("dialogs.resizeCanvas.description").to_string()),
+                .child(t!("dialogs.resizeCanvas.description").to_string()),
         )
         .child(resize_field(
             "resize-width",
-            &t("dialogs.resizeCanvas.width"),
+            &t!("dialogs.resizeCanvas.width"),
             &width,
             field == 0,
             0,
@@ -59,7 +59,7 @@ pub(super) fn resize_canvas_body(
         .child(resize_aspect_lock(locked, cx))
         .child(resize_field(
             "resize-height",
-            &t("dialogs.resizeCanvas.height"),
+            &t!("dialogs.resizeCanvas.height"),
             &height,
             field == 1,
             1,
@@ -267,6 +267,6 @@ fn resize_aspect_lock(locked: bool, cx: &gpui_kit::Context<crate::app::App>) -> 
                         color::TEXT_DIM
                     }),
             )
-            .child(t("dialogs.resizeCanvas.keepProportions").to_string()),
+            .child(t!("dialogs.resizeCanvas.keepProportions").to_string()),
     )
 }

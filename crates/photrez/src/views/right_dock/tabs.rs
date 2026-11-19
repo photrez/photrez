@@ -14,7 +14,6 @@ pub(super) fn tab_bar(
     write: fn(&mut AppState, &str),
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
-    handles: Option<&[gpui_kit::FocusHandle]>,
 ) -> Div {
     let bar = div()
         .w_full()
@@ -28,9 +27,8 @@ pub(super) fn tab_bar(
         .bg(color::PANEL);
 
     let mut row = h_flex().h_full().min_w(px(0.0)).items_center();
-    for (index, &id) in tabs.iter().enumerate() {
-        let handle = handles.and_then(|handles| handles.get(index).cloned());
-        row = row.child(tab_button(id, id == active, write, state, cx, handle));
+    for &id in tabs {
+        row = row.child(tab_button(id, id == active, write, state, cx));
     }
     bar.child(row)
 }
@@ -134,7 +132,6 @@ fn tab_button(
     write: fn(&mut AppState, &str),
     state: &Entity<AppState>,
     cx: &Context<crate::app::App>,
-    focus_handle: Option<gpui_kit::FocusHandle>,
 ) -> impl IntoElement {
     let label = tab_label(id);
     // Each button captures its own copy of the state handle; the handler runs
@@ -150,21 +147,18 @@ fn tab_button(
         .flex_shrink_0()
         .id(id)
         .test_support()
-        .on_click(on_click);
-    if let Some(handle) = focus_handle {
-        btn = btn.track_focus(&handle).key_context("LayersPanel");
-    }
-    btn = btn.child(
-        h_flex()
-            .id(format!("{id}-label"))
-            .test_support()
-            .px(px(TAB_PAD_X))
-            .text_size(px(TAB_TEXT))
-            .font_family(ui::FONT_UI)
-            .font_weight(FontWeight(500.))
-            .text_color(if active { color::TEXT } else { color::TEXT_DIM })
-            .child(label),
-    );
+        .on_click(on_click)
+        .child(
+            h_flex()
+                .id(format!("{id}-label"))
+                .test_support()
+                .px(px(TAB_PAD_X))
+                .text_size(px(TAB_TEXT))
+                .font_family(ui::FONT_UI)
+                .font_weight(FontWeight(500.))
+                .text_color(if active { color::TEXT } else { color::TEXT_DIM })
+                .child(label),
+        );
     if active {
         btn = btn.child(
             div()

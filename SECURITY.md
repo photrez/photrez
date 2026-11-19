@@ -2,6 +2,17 @@
 
 Photrez is a native Rust desktop application using GPUI. Its security boundary is the native window and event loop, local file I/O, and platform integrations. The product has no network listener or embedded browser.
 
+## Supported Versions
+
+| Version | Fixes |
+| --- | --- |
+| Latest release | Yes |
+| `main` | Yes, best effort |
+| Older releases | No, upgrade first |
+
+A report against an older release still counts if the problem is present in
+the latest release or on `main`.
+
 ## Supported Scope
 
 Security reports are accepted for:
@@ -16,7 +27,10 @@ Security reports are accepted for:
 
 ## Reporting a Vulnerability
 
-Please report vulnerabilities privately before public disclosure. If GitHub private vulnerability reporting is enabled for the repository, use that channel. Otherwise, contact the maintainers privately before opening a public issue with exploit details.
+Please report vulnerabilities privately before public disclosure. Use GitHub's
+private vulnerability reporting: "Security" in this repository, then "Report a
+vulnerability". Do not open a public issue with exploit details before a fix
+or a mitigation is available.
 
 Include:
 

@@ -257,6 +257,11 @@ impl App {
                 0.0
             };
         overlay.crop_delete_pixels = state.crop_delete_pixels;
+        overlay.crop_fill_color = ((overlay.crop.is_some()
+            || overlay.crop_create_preview.is_some())
+            && state.active_tool == crate::state::ToolId::Crop
+            && state.crop_fill_background)
+            .then_some(state.resolved_crop_fill_color());
         overlay.crop_guides = state.crop_guides;
         overlay.crop_preview_active = self.crop_preview_active_for_overlay(cx);
         overlay.guides = self.snap_guides.clone();

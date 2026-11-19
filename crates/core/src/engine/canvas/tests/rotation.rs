@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Rotation normalization pins for the Apply Crop arm.
 
 use super::super::normalize_rotation;

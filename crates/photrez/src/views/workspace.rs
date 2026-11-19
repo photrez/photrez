@@ -29,13 +29,6 @@ const RAIL_W: f32 = 52.0;
 const DOCK_W: f32 = 533.0;
 /// Right dock width at the wide breakpoint: 272+1+260 widens to 300+298.
 const DOCK_W_WIDE: f32 = 598.0;
-/// The dock stacks below this breakpoint (the reference's `lg`): one 272px
-/// column, the inspector above the layer dock, like the stacked layout.
-const NARROW_LAYOUT_W: f32 = 1024.0;
-/// The stacked dock's width: one 272px column.
-const STACKED_W: f32 = 272.0;
-/// The stacked dock at the wide breakpoint: 300px.
-const STACKED_W_WIDE: f32 = 300.0;
 /// Document tabs height: 38px.
 const TABBAR_H: f32 = 38.0;
 /// Option bar height: 38px.
@@ -46,26 +39,7 @@ const HINT_W: f32 = 216.0;
 /// overlay origin and the hint strip's offsets give it back.
 const RING: f32 = 3.0;
 
-/// Render the full shell for one frame.
-///
-/// Geometry of the shell regions:
-///
-/// ```text
-/// <photrez-app>           BG (#171717)
-///   AppTitleBar          (46px)
-///   <main> flex_1 min_h_0
-///     LeftToolRail        52px
-///     <center col> flex_1 min_w_0
-///       DocumentTabs      (38px)
-///       OptionBar         (38px)
-///       Canvas            flex_1  <- 668px at 820px window
-///     RightDock           533px (only when dock_open)
-///   BottomStatusBar        (24px)
-/// ```
-///
-/// `state` is the live state entity, not a snapshot: the tool rail and the
-/// dock's tab bars write their selection back into it, and every field the
-/// shell reads here is `Copy`, so one read per frame is enough.
+/// Render one frame from live `state`; every field read here is `Copy`, so one read per frame is enough.
 #[allow(clippy::too_many_arguments)] // the shell composes one frame from the whole app state
 pub(crate) fn render(
     state: &Entity<AppState>,
@@ -78,8 +52,6 @@ pub(crate) fn render(
     navigator_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     focus_handle: &gpui_kit::FocusHandle,
-    layers_tab_focus: &gpui_kit::FocusHandle,
-    history_tab_focus: &gpui_kit::FocusHandle,
     rename_focus: &gpui_kit::FocusHandle,
     resize_focus: &gpui_kit::FocusHandle,
     new_document_focus: &gpui_kit::FocusHandle,
@@ -96,7 +68,6 @@ pub(crate) fn render(
     committed_selection: Option<photrez_core::document::content::SelectionState>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
     frame: status_bar::FrameMetrics,
-    status_tip: String,
     cx: &mut Context<crate::app::App>,
 ) -> impl IntoElement {
     // One read of the live state; every field the shell branches on is `Copy`.
@@ -111,7 +82,6 @@ pub(crate) fn render(
         selection_shape,
         open_menu,
         context_menu,
-        layer_context_menu,
         brush_menu,
         active_dialog,
         loading,
@@ -134,7 +104,6 @@ pub(crate) fn render(
             s.selection_shape,
             s.open_menu,
             s.context_menu,
-            s.layer_context_menu.clone(),
             s.brush_menu,
             s.active_dialog,
             s.loading,
@@ -147,32 +116,21 @@ pub(crate) fn render(
         )
     };
     // The shell is responsive at the same breakpoints as the captured layout:
-    // a viewport 1536 layout px or wider widens both dock columns; below 1024
-    // the dock stacks into a single 272px column, matching the reference's
-    // below-lg single-column layout.
+    // a viewport 1536 layout px or wider widens both dock columns.
     let wide_layout = window.viewport_size().width >= px(1536.0);
-    let narrow_layout = window.viewport_size().width < px(NARROW_LAYOUT_W);
-    let stacked =
-        state.read(cx).right_dock_layout == crate::state::RightDockLayout::Stacked || narrow_layout;
-    let dock_w = if stacked {
-        if wide_layout {
-            STACKED_W_WIDE
-        } else {
-            STACKED_W
-        }
-    } else if wide_layout {
-        DOCK_W_WIDE
-    } else {
-        DOCK_W
-    };
+    let dock_w = if wide_layout { DOCK_W_WIDE } else { DOCK_W };
     let (active_tool, selected_layer_name) = {
         let s = state.read(cx);
         (
             s.active_tool,
-            s.layers
-                .iter()
-                .find(|row| row.id == s.selected_layer)
-                .map(|row| row.name.clone()),
+            if s.selected_layers.is_empty() {
+                None
+            } else {
+                s.layers
+                    .iter()
+                    .find(|row| row.id == s.selected_layer)
+                    .map(|row| row.name.clone())
+            },
         )
     };
     let document_size = canvas.map(|image| image.dimensions());
@@ -242,7 +200,6 @@ pub(crate) fn render(
                                             state,
                                             &tabs,
                                             active_tab.as_deref(),
-                                            window,
                                             cx,
                                         )),
                                     )
@@ -250,17 +207,15 @@ pub(crate) fn render(
                                 .when(has_document && chrome_visible, |el| {
                                     el.child(
                                         // OptionBar — 38px
-                                        div().h(px(OPTIONBAR_H)).items_stretch().child(
-                                            option_bar::render(
-                                                state,
-                                                f32::from(window.viewport_size().width)
-                                                    - RAIL_W
-                                                    - if dock_open { dock_w } else { 0.0 },
-                                                committed_selection,
-                                                transform_readout,
-                                                cx,
-                                            ),
-                                        ),
+                                        div().h(px(OPTIONBAR_H)).child(option_bar::render(
+                                            state,
+                                            f32::from(window.viewport_size().width)
+                                                - RAIL_W
+                                                - if dock_open { dock_w } else { 0.0 },
+                                            committed_selection,
+                                            transform_readout,
+                                            cx,
+                                        )),
                                     )
                                 })
                                 .child(
@@ -354,13 +309,10 @@ pub(crate) fn render(
                                         camera,
                                         zoom_percent,
                                         wide_layout,
-                                        stacked,
                                         Rc::clone(&canvas_bounds),
                                         Rc::clone(&navigator_bounds),
                                         layer_thumbs,
                                         transform_readout,
-                                        layers_tab_focus,
-                                        history_tab_focus,
                                         cx,
                                     )),
                             )
@@ -377,7 +329,6 @@ pub(crate) fn render(
                 selected_layer_name.as_deref(),
                 autosave_status,
                 frame,
-                status_tip,
                 state,
                 cx,
             )))
@@ -401,40 +352,14 @@ pub(crate) fn render(
             ))
         })
         .when_some(context_menu, |el, position| {
-            let (vw, vh) = (
-                f32::from(window.viewport_size().width),
-                f32::from(window.viewport_size().height),
-            );
-            let (x, y) = menus::clamp_popup(
-                position.0,
-                position.1,
-                context_menus::CTX_W,
-                menus::CANVAS_MENU_H,
-                vw,
-                vh,
-            );
             el.child(menus::render_context(
                 state,
-                (x, y),
+                position,
                 has_pixel_selection,
                 has_copyable_selection,
                 has_selection_clipboard,
                 cx,
             ))
-        })
-        .when_some(layer_context_menu, |el, (x, y, core_id)| {
-            let multi = state.read(cx).selected_layers.len() > 1;
-            let (vw, vh) = (
-                f32::from(window.viewport_size().width),
-                f32::from(window.viewport_size().height),
-            );
-            let h = if multi {
-                menus::LAYER_MENU_MULTI_H
-            } else {
-                menus::LAYER_MENU_SINGLE_H
-            };
-            let (x, y) = menus::clamp_popup(x, y, context_menus::CTX_W, h, vw, vh);
-            el.child(menus::render_layer_context(state, (x, y), core_id, cx))
         })
         .when_some(brush_menu, |el, _| {
             el.child(brush_menu::render(state, window, cx))
@@ -668,14 +593,6 @@ fn canvas_hitbox(
                 app.canvas_hover_end(cx);
             }
         }))
-        .on_mouse_up(
-            gpui_kit::MouseButton::Left,
-            cx.listener(
-                |app: &mut crate::app::App, _: &gpui_kit::MouseUpEvent, _window, cx| {
-                    app.clear_layer_drag_and_hover(cx);
-                },
-            ),
-        )
         .on_scroll(
             cx.listener(|app: &mut crate::app::App, event, _window, cx| {
                 app.canvas_scroll(event, cx)

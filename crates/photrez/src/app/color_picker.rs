@@ -28,7 +28,7 @@ impl App {
     pub(crate) fn cancel_color_picker_for_document_change(&mut self, cx: &mut Context<Self>) {
         let session = self.state.update(cx, |state, _| state.color_picker.take());
         if let Some(session) = session {
-            self.apply_color(session.target, session.original, cx);
+            self.restore_color_picker(&session, cx);
         }
     }
 
@@ -47,6 +47,19 @@ impl App {
                 .as_ref()
                 .and_then(|shape| parse_hex(&shape.fill.color))
                 .unwrap_or(state.fg_color),
+            ColorTarget::CropFill => state.resolved_crop_fill_color(),
+        }
+    }
+
+    fn restore_color_picker(&mut self, session: &ColorPickerSession, cx: &mut Context<Self>) {
+        if let Some((color, use_background)) = session.crop_fill_original {
+            self.state.update(cx, |state, _| {
+                state.crop_fill_color = color;
+                state.crop_fill_use_background = use_background;
+            });
+            cx.notify();
+        } else {
+            self.apply_color(session.target, session.original, cx);
         }
     }
 
@@ -58,11 +71,26 @@ impl App {
     ) {
         self.release_color_picker_pointer(window);
         let original = self.current_color(target, cx);
+        let (return_focus, crop_fill_original) = {
+            let state = self.state.read(cx);
+            (
+                if target == ColorTarget::CropFill {
+                    state.crop_fill_color_focus.clone()
+                } else {
+                    None
+                }
+                .or_else(|| window.focused(cx)),
+                (target == ColorTarget::CropFill)
+                    .then_some((state.crop_fill_color, state.crop_fill_use_background)),
+            )
+        };
         self.state.update(cx, |state, _| {
             state.color_picker = Some(ColorPickerSession {
                 target,
                 hsv: rgb_to_hsv(original),
                 original,
+                return_focus,
+                crop_fill_original,
                 hex: to_hex(original),
             });
         });
@@ -85,9 +113,15 @@ impl App {
         };
         self.state.update(cx, |state, _| state.color_picker = None);
         if !commit {
-            self.apply_color(session.target, session.original, cx);
+            self.restore_color_picker(&session, cx);
         }
-        window.focus(&self.canvas_focus_handle, cx);
+        window.focus(
+            session
+                .return_focus
+                .as_ref()
+                .unwrap_or(&self.canvas_focus_handle),
+            cx,
+        );
         cx.notify();
     }
 
@@ -187,7 +221,13 @@ impl App {
                 self.release_color_picker_pointer(window);
                 self.state.update(cx, |state, _| state.color_picker = None);
                 self.apply_color(session.target, color, cx);
-                window.focus(&self.canvas_focus_handle, cx);
+                window.focus(
+                    session
+                        .return_focus
+                        .as_ref()
+                        .unwrap_or(&self.canvas_focus_handle),
+                    cx,
+                );
                 cx.notify();
             }
             None => self.set_status_error(Some("Color: enter #RRGGBB".to_string()), cx),
@@ -202,6 +242,14 @@ impl App {
     }
 
     fn apply_color(&mut self, target: ColorTarget, color: [u8; 4], cx: &mut Context<Self>) {
+        if target == ColorTarget::CropFill {
+            self.state.update(cx, |state, _| {
+                state.crop_fill_color = color;
+                state.crop_fill_use_background = false;
+            });
+            cx.notify();
+            return;
+        }
         if target == ColorTarget::Text {
             // Edit mode edits the layer; draw mode is the paint foreground.
             // Repeated pointer events over one spot must not stack history
@@ -267,6 +315,7 @@ impl App {
             ColorTarget::Text => {}
             ColorTarget::TextStroke => {}
             ColorTarget::ShapeFill => {}
+            ColorTarget::CropFill => {}
         });
         cx.notify();
     }

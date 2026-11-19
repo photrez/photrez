@@ -1,6 +1,8 @@
 use super::catalog_snapshot::load;
 use super::*;
 
+use rust_i18n::t;
+
 /// The 0.1.0 release shipped one catalog per locale. The reference copies
 /// live under tests/fixtures/i18n, beside the other test fixtures.
 fn reference_path(code: &str) -> std::path::PathBuf {
@@ -498,10 +500,10 @@ fn active_locale_switches_text() {
         .expect("the catalogs differ somewhere");
 
     set_locale(Locale::En);
-    assert_eq!(t(&differing), en.entries[&differing]);
+    assert_eq!(t!(&differing), en.entries[&differing]);
 
     set_locale(Locale::Id);
-    assert_eq!(t(&differing), id.entries[&differing]);
+    assert_eq!(t!(&differing), id.entries[&differing]);
 
     set_locale(previous);
 }
@@ -571,7 +573,7 @@ fn plural_selection_is_real() {
 /// the one that switches locales.
 #[test]
 fn lookup_failures_degrade_to_the_key() {
-    assert_eq!(t("no.such.key"), "no.such.key");
+    assert_eq!(t!("no.such.key"), "no.such.key");
     // `status.layers_other` names %{count} in both locales
     assert_eq!(t_args("status.layers_other", &[]), "status.layers_other");
     assert_eq!(t_args("no.such.key", &[("count", "1")]), "no.such.key");

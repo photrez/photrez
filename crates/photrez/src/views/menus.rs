@@ -1,104 +1,16 @@
-//! The menu bar's popup menus: their appearance.
-//!
-//! # Where they sit, and the frame convention
-//!
-//! Every popup is **224px wide** with its top edge at **y=36** — 10px inside
-//! the 46px title bar, which is the same `title::MENU_PX` the triggers use. The x is
-//! the *trigger's own left edge* as rendered by `title_bar.rs`, so a popup
-//! sits directly below the label it belongs to:
-//!
-//! ```text
-//!   menu-file      224x242 @  58,36      menu-edit    224x252 @  99,36
-//!   menu-image     224x38  @ 142,36      menu-layer   224x224 @ 198,36
-//!   menu-view      224x308 @ 249,36      menu-window  224x103 @ 298,36
-//!   menu-help      224x38  @ 367,36      menu-settings 224x38  @ 415,36
-//! ```
-//!
-//! Those heights are measured, not computed from the recorded entry list, and
-//! they do not all agree with it — see "What the measurements added" below.
-//!
-//! The popups are drawn inside a **transparent absolute 1366x820 frame** with
-//! each menu pinned at its capture origin. That is the convention
-//! `context_menus.rs`, `toasts.rs` and `tooltips.rs` already use, and it exists
-//! for one reason: GPUI has no `z_index`, so paint order is tree order, and the
-//! only way to draw over the shell is to cover the viewport and be appended
-//! late. `workspace.rs` gates this module on `shot::starts_with("menu-")` so a
-//! plain launch renders the default shell unchanged.
-//!
-//! # Row geometry, measured in `menu-file.png`
-//!
-//! ```text
-//!   shell border   1px  #333333   color::BORDER    rows y=1 and y=242
-//!   separator      1px  #2e2e2e   color::DIVIDER   full-bleed, no inset
-//!   row            28px           label left, shortcut right
-//!   separator block 4px margins + 1px line       = 9px
-//!   recent row     28px           11px label, dim text at 60%, File only
-//! ```
-//!
-//! The separator/border split is worth stating because both are "a border" in
-//! the design: separators resolve to
-//! `color::DIVIDER`, whereas the shell's edge is `color::BORDER`. Scanning for
-//! `#333333` alone reports zero separators, which reads as "this view forgot
-//! them" when it is only the wrong constant.
-//!
-//! The spacing arithmetic cross-checks the row height: the gaps between
-//! successive text bands are 29.5, 35.5, 28, 38.5 and 35.5px, and 28 = one
-//! row while 37 = row + separator. So rows are 28px and a separator block is
-//! 9px — the same figures `context_menus.rs` measured independently for
-//! the pointer-anchored menus, which is reassuring given the two chrome
-//! sources differ.
-//!
-//! # What the measurements added that the entry lists do not say
-//!
-//! * `MENU_DEFINITIONS` lists **6 items and 3 separators** for File, but
-//!   the scan finds **four** full-bleed separator rows (y=66, 131, 168,
-//!   205) and a dim text band at y=219..226 that no entry in the list
-//!   accounts for. Both belong to the recent-files section, which the
-//!   File popup alone
-//!   renders: a 1px divider with 4px margins,
-//!   then — because the capture has no recent files — the
-//!   empty-state placeholder, a 28px row of 11px text in dim text at
-//!   60% reading "No Recent Files". That row is
-//!   the 28px the entry-list arithmetic misses: 5 + 6x28 + 4x9 + 28 +
-//!   5 = 242, the measured box height (the 243rd pixel row is the
-//!   half-pixel crop origin at y=35.5). The placeholder's ink reads
-//!   #43..#55 — `#7a7a7a` at 60% over `#1e1e1e` — dim enough that a
-//!   hard-ink scan walks past it, which is why the first probes filed
-//!   the 28px as "unexplained panel".
-//! * **`Image`, `Help` and `Settings` are 38px tall** — a header and one item,
-//!   not a full menu. Their popups are a single row, so this view renders them
-//!   from the same builder rather than special-casing an "empty" menu.
-//!
-//! The trigger-to-ink padding was measured at exactly 10px, matching
-//! `title::MENU_PX`, so the popup's y=36 origin is the same constant rather
-//! than a coincidence.
-//!
-//! # Gaps
-//!
-//! * No `z_index` — the frame convention above is the substitute, and it is
-//!   only correct while the caller appends late.
-//! * Colour transitions, keyboard-focus rings and keyboard navigation are
-//!   interaction. The hovered row is painted by the shared row hover style,
-//!   with the pressed state on id-bearing rows. Seeded captures still use
-//!   `focus_bg` to paint their first row without a live pointer.
-//! * A global border colour would beat any per-element white border; these
-//!   menus ask for the divider value, which does resolve,
-//!   so `color::DIVIDER` is correct here rather than a fallback.
-//! * Icon edges carry LCD subpixel colour GPUI cannot reproduce (it tints an
-//!   alpha mask and smooths type, not SVG), so position will be right and
-//!   colour will differ.
-//! * No letter-spacing: GPUI's shaper runs +/-0.2px per glyph off the recorded run, as
-//!   two. Shortcuts are right-aligned, which hides this at the label end.
-
+//! Menu bar popups: 224px wide, top at y=36, origins at each trigger's left edge.
+//! Rendered in one transparent absolute frame appended late; GPUI has no z-index.
+//! Shell border is BORDER (#333333); separators are DIVIDER (#2e2e2e), full-bleed.
+//! Rows are 28px and separators 9px; popup heights are captured, not computed from entry lists.
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{Div, Entity, Hsla, TestSupportExt, div, px};
 
 use crate::components::ui;
-use crate::i18n::{t, t_args};
 use crate::shot;
 use crate::state::{AppState, DialogId, MenuId};
 use crate::tokens::{color, title};
+use rust_i18n::t;
 
 /// The transparent frame the popups live in: the whole client area, so a menu
 /// hangs at its capture origin no matter where the tree puts this module.
@@ -312,7 +224,7 @@ fn recent_files_row(
                     .text_size(px(RECENT_TEXT))
                     .font_family(ui::FONT_UI)
                     .text_color(color::TEXT_DIM)
-                    .child(t("menus.items.noRecentFiles")),
+                    .child(t!("menus.items.noRecentFiles")),
             )
             .into_any_element();
     }
@@ -374,7 +286,7 @@ fn file_menu(
 ) -> Div {
     let new_document = match hover_first {
         Some(fill) => ui::menu_row(
-            &t("menus.items.newDocument"),
+            &t!("menus.items.newDocument"),
             Some("Ctrl+N"),
             false,
             Some(fill),
@@ -382,7 +294,7 @@ fn file_menu(
         .into_any_element(),
         None => command_row(
             state,
-            &t("menus.items.newDocument"),
+            &t!("menus.items.newDocument"),
             Some("Ctrl+N"),
             "menu-new-document",
             cx,
@@ -393,7 +305,7 @@ fn file_menu(
         new_document,
         command_row(
             state,
-            &t("menus.items.openImage"),
+            &t!("menus.items.openImage"),
             Some("Ctrl+O"),
             "menu-file-open",
             cx,
@@ -402,7 +314,7 @@ fn file_menu(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.save"),
+            &t!("menus.items.save"),
             Some("Ctrl+S"),
             "menu-file-save",
             cx,
@@ -410,7 +322,7 @@ fn file_menu(
         ),
         command_row(
             state,
-            &t("menus.items.saveAs"),
+            &t!("menus.items.saveAs"),
             Some("Ctrl+Shift+S"),
             "menu-file-save-as",
             cx,
@@ -419,7 +331,7 @@ fn file_menu(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.export"),
+            &t!("menus.items.export"),
             Some("Ctrl+Alt+E"),
             "menu-file-export",
             cx,
@@ -428,7 +340,7 @@ fn file_menu(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.print"),
+            &t!("menus.items.print"),
             Some("Ctrl+P"),
             "menu-file-print",
             cx,
@@ -470,11 +382,9 @@ fn command_row_enabled(
         row.active(|style| style.bg(ui::MENU_ROW_HOVER_FILL))
             .on_click(cx.listener(
                 move |app, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
-                    cx.stop_propagation();
                     state.update(cx, |state, _| {
                         state.open_menu = None;
                         state.context_menu = None;
-                        state.layer_context_menu = None;
                     });
                     run(app, cx);
                 },
@@ -483,43 +393,6 @@ fn command_row_enabled(
     } else {
         // A disabled row is inert but still part of the menu: the press must not
         // bubble to the overlay's click-away, as an input-transparent row would.
-        row.on_click(cx.listener(
-            |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
-                cx.stop_propagation();
-            },
-        ))
-        .into_any_element()
-    }
-}
-
-fn command_row_window(
-    state: &Entity<AppState>,
-    label: &str,
-    shortcut: Option<&str>,
-    id: &'static str,
-    enabled: bool,
-    cx: &Context<crate::app::App>,
-    run: impl Fn(&mut crate::app::App, &mut gpui_kit::Window, &mut Context<crate::app::App>) + 'static,
-) -> gpui_kit::AnyElement {
-    let state = state.clone();
-    let row = ui::menu_row(label, shortcut, !enabled, None)
-        .id(id)
-        .test_support();
-    if enabled {
-        row.active(|style| style.bg(ui::MENU_ROW_HOVER_FILL))
-            .on_click(cx.listener(
-                move |app, _: &gpui_kit::ClickEvent, window, cx: &mut Context<crate::app::App>| {
-                    cx.stop_propagation();
-                    state.update(cx, |state, _| {
-                        state.open_menu = None;
-                        state.context_menu = None;
-                        state.layer_context_menu = None;
-                    });
-                    run(app, window, cx);
-                },
-            ))
-            .into_any_element()
-    } else {
         row.on_click(cx.listener(
             |_, _: &gpui_kit::ClickEvent, _window, cx: &mut Context<crate::app::App>| {
                 cx.stop_propagation();
@@ -545,7 +418,7 @@ fn edit_menu(
     menu_shell(menu_entries(vec![
         command_row_enabled(
             state,
-            &t("menus.items.undo"),
+            &t!("menus.items.undo"),
             Some("Ctrl+Z"),
             "menu-edit-undo",
             can_undo,
@@ -554,7 +427,7 @@ fn edit_menu(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.redo"),
+            &t!("menus.items.redo"),
             Some("Ctrl+Shift+Z"),
             "menu-edit-redo",
             can_redo,
@@ -564,7 +437,7 @@ fn edit_menu(
         ui::menu_separator().into_any_element(),
         command_row_enabled(
             state,
-            &t("menus.items.cut"),
+            &t!("menus.items.cut"),
             Some("Ctrl+X"),
             "menu-edit-cut",
             has_copyable_selection,
@@ -573,7 +446,7 @@ fn edit_menu(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.copy"),
+            &t!("menus.items.copy"),
             Some("Ctrl+C"),
             "menu-edit-copy",
             has_copyable_selection,
@@ -582,7 +455,7 @@ fn edit_menu(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.paste"),
+            &t!("menus.items.paste"),
             Some("Ctrl+V"),
             "menu-edit-paste",
             has_clipboard,
@@ -592,7 +465,7 @@ fn edit_menu(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.selectAll"),
+            &t!("menus.items.selectAll"),
             Some("Ctrl+A"),
             "menu-edit-select-all",
             cx,
@@ -600,7 +473,7 @@ fn edit_menu(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.deselect"),
+            &t!("menus.items.deselect"),
             Some("Ctrl+D"),
             "menu-edit-deselect",
             has_selection,
@@ -609,7 +482,7 @@ fn edit_menu(
         ),
         command_row(
             state,
-            &t("menus.items.invertSelection"),
+            &t!("menus.items.invertSelection"),
             Some("Ctrl+Shift+I"),
             "menu-edit-invert",
             cx,
@@ -621,7 +494,7 @@ fn edit_menu(
 fn image_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let state_for_click = state.clone();
     menu_shell(menu_entries(vec![ui::menu_row_action(
-        &t("menus.items.resizeCanvas"),
+        &t!("menus.items.resizeCanvas"),
         None,
         "menu-resize-canvas",
         cx.listener(
@@ -641,7 +514,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     menu_shell(menu_entries(vec![
         command_row(
             state,
-            &t("menus.items.newLayer"),
+            &t!("menus.items.newLayer"),
             Some("Ctrl+Shift+N"),
             "menu-layer-new",
             cx,
@@ -649,7 +522,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.duplicateLayer"),
+            &t!("menus.items.duplicateLayer"),
             Some("Ctrl+J"),
             "menu-layer-duplicate",
             cx,
@@ -657,7 +530,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.deleteLayer"),
+            &t!("menus.items.deleteLayer"),
             None,
             "menu-layer-delete",
             cx,
@@ -665,7 +538,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.selectAllLayers"),
+            &t!("menus.items.selectAllLayers"),
             Some("Ctrl+Alt+A"),
             "menu-layer-select-all",
             cx,
@@ -674,7 +547,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.mergeDown"),
+            &t!("menus.items.mergeDown"),
             Some("Ctrl+E"),
             "menu-layer-merge",
             cx,
@@ -682,7 +555,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.stampVisible"),
+            &t!("menus.items.stampVisible"),
             Some("Ctrl+Shift+Alt+E"),
             "menu-layer-stamp",
             cx,
@@ -691,7 +564,7 @@ fn layer_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.flattenImage"),
+            &t!("menus.items.flattenImage"),
             Some("Ctrl+Shift+E"),
             "menu-layer-flatten",
             cx,
@@ -707,7 +580,7 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     menu_shell(menu_entries(vec![
         command_row(
             state,
-            &t("menus.items.zoomIn"),
+            &t!("menus.items.zoomIn"),
             Some("Ctrl++"),
             "menu-view-zoom-in",
             cx,
@@ -715,7 +588,7 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.zoomOut"),
+            &t!("menus.items.zoomOut"),
             Some("Ctrl+-"),
             "menu-view-zoom-out",
             cx,
@@ -723,7 +596,7 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.actualSize"),
+            &t!("menus.items.actualSize"),
             Some("Ctrl+1"),
             "menu-view-actual",
             cx,
@@ -731,7 +604,7 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.fitCanvas"),
+            &t!("menus.items.fitCanvas"),
             Some("Ctrl+0"),
             "menu-view-fit",
             cx,
@@ -739,7 +612,7 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ),
         command_row(
             state,
-            &t("menus.items.zoomToSelection"),
+            &t!("menus.items.zoomToSelection"),
             Some("Ctrl+Alt+0"),
             "menu-view-zoom-selection",
             cx,
@@ -748,18 +621,18 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.snap"),
+            &t!("menus.items.snap"),
             Some("Shift+Ctrl+;"),
             "menu-view-snap",
             cx,
             |app, cx| app.toggle_snap(cx),
         ),
-        ui::menu_row(&t("menus.items.snapToLayers"), None, false, None).into_any_element(),
-        ui::menu_row(&t("menus.items.snapToCanvas"), None, false, None).into_any_element(),
+        ui::menu_row(&t!("menus.items.snapToLayers"), None, false, None).into_any_element(),
+        ui::menu_row(&t!("menus.items.snapToCanvas"), None, false, None).into_any_element(),
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.toggleSidePanels"),
+            &t!("menus.items.toggleSidePanels"),
             Some("Ctrl+Shift+P"),
             "menu-view-side-panels",
             cx,
@@ -767,22 +640,22 @@ fn view_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
                 app.toggle_side_panels_action(&crate::app::ToggleSidePanelsAction, cx);
             },
         ),
-        ui::menu_row(&t("menus.items.useStackedSideDock"), None, false, None).into_any_element(),
+        ui::menu_row(&t!("menus.items.useStackedSideDock"), None, false, None).into_any_element(),
     ]))
 }
 
 fn window_menu() -> Div {
     menu_shell(menu_entries(vec![
-        ui::menu_row(&t("menus.items.minimize"), None, false, None),
-        ui::menu_row(&t("menus.items.maximize"), None, false, None),
+        ui::menu_row(&t!("menus.items.minimize"), None, false, None),
+        ui::menu_row(&t!("menus.items.maximize"), None, false, None),
         ui::menu_separator(),
-        ui::menu_row(&t("menus.items.closeWindow"), Some("Alt+F4"), false, None),
+        ui::menu_row(&t!("menus.items.closeWindow"), Some("Alt+F4"), false, None),
     ]))
 }
 
 fn help_menu(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     menu_shell(vec![dialog_row(
-        &t("menus.items.about"),
+        &t!("menus.items.about"),
         None,
         "menu-about",
         DialogId::About,
@@ -798,10 +671,10 @@ fn settings_menu(
 ) -> Div {
     let row = match hover_first {
         Some(fill) => {
-            ui::menu_row(&t("menus.items.preferences"), None, false, Some(fill)).into_any_element()
+            ui::menu_row(&t!("menus.items.preferences"), None, false, Some(fill)).into_any_element()
         }
         None => dialog_row(
-            &t("menus.items.preferences"),
+            &t!("menus.items.preferences"),
             None,
             "menu-preferences",
             DialogId::Settings,
@@ -841,28 +714,6 @@ fn dialog_row(
     ui::menu_row_action(label, shortcut, id, listener).into_any_element()
 }
 
-pub(crate) const CANVAS_MENU_H: f32 = 308.0;
-pub(crate) const LAYER_MENU_SINGLE_H: f32 = 401.0;
-pub(crate) const LAYER_MENU_MULTI_H: f32 = 345.0;
-
-/// Keep a context popup inside the window: shift it left/up when it would
-/// cross a window edge. The popups have no edge logic of their own, so a
-/// right-click near the right or bottom edge opened a menu whose shortcut
-/// column or last rows were clipped away (case C04).
-pub(crate) fn clamp_popup(x: f32, y: f32, w: f32, h: f32, vw: f32, vh: f32) -> (f32, f32) {
-    let x = if x + w > vw {
-        (vw - w).max(0.0)
-    } else {
-        x.max(0.0)
-    };
-    let y = if y + h > vh {
-        (vh - h).max(0.0)
-    } else {
-        y.max(0.0)
-    };
-    (x, y)
-}
-
 /// The canvas context menu: the reachable edit/view/layer commands at the
 /// right-click position. Any command closes both menu surfaces.
 pub fn render_context(
@@ -884,7 +735,7 @@ pub fn render_context(
     let popup = crate::views::context_menus::shell(menu_entries(vec![
         command_row_enabled(
             state,
-            &t("menus.items.cut"),
+            &t!("menus.items.cut"),
             Some("Ctrl+X"),
             "ctx-cut",
             has_copyable_selection,
@@ -893,7 +744,7 @@ pub fn render_context(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.copy"),
+            &t!("menus.items.copy"),
             Some("Ctrl+C"),
             "ctx-copy",
             has_copyable_selection,
@@ -902,7 +753,7 @@ pub fn render_context(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.paste"),
+            &t!("menus.items.paste"),
             Some("Ctrl+V"),
             "ctx-paste",
             has_clipboard,
@@ -912,7 +763,7 @@ pub fn render_context(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.selectAll"),
+            &t!("menus.items.selectAll"),
             Some("Ctrl+A"),
             "ctx-select-all",
             cx,
@@ -920,7 +771,7 @@ pub fn render_context(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.deselect"),
+            &t!("menus.items.deselect"),
             Some("Ctrl+D"),
             "ctx-deselect",
             has_selection,
@@ -929,7 +780,7 @@ pub fn render_context(
         ),
         command_row(
             state,
-            &t("menus.items.invertSelection"),
+            &t!("menus.items.invertSelection"),
             Some("Ctrl+Shift+I"),
             "ctx-invert",
             cx,
@@ -938,7 +789,7 @@ pub fn render_context(
         ui::menu_separator().into_any_element(),
         command_row(
             state,
-            &t("menus.items.actualSize"),
+            &t!("menus.items.actualSize"),
             Some("Ctrl+1"),
             "ctx-actual-size",
             cx,
@@ -946,7 +797,7 @@ pub fn render_context(
         ),
         command_row(
             state,
-            &t("menus.items.fitCanvas"),
+            &t!("menus.items.fitCanvas"),
             Some("Ctrl+0"),
             "ctx-fit-canvas",
             cx,
@@ -954,7 +805,7 @@ pub fn render_context(
         ),
         command_row_enabled(
             state,
-            &t("menus.items.zoomToSelection"),
+            &t!("menus.items.zoomToSelection"),
             Some("Ctrl+Alt+0"),
             "ctx-zoom-selection",
             has_selection,
@@ -964,11 +815,7 @@ pub fn render_context(
     ]))
     .absolute()
     .left(px(position.0))
-    .top(px(position.1))
-    .id("canvas-context-popup")
-    .test_support()
-    .block_mouse_except_scroll()
-    .on_click(|_, _, cx: &mut gpui_kit::App| cx.stop_propagation());
+    .top(px(position.1));
     div()
         .id("context-menu-overlay")
         .test_support()
@@ -976,280 +823,8 @@ pub fn render_context(
         .inset(px(0.0))
         .on_click(
             cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                cx.stop_propagation();
                 close_state.update(cx, |state, _| state.context_menu = None);
                 app.close_context_menu(cx);
-            }),
-        )
-        .child(popup)
-}
-
-/// The Layers row context menu: same shell and row chrome as the canvas
-/// menu, with the item list the rows document. Built from live state at
-/// render; the clicked layer anchors the list.
-pub fn render_layer_context(
-    state: &Entity<AppState>,
-    position: (f32, f32),
-    core_id: String,
-    cx: &Context<crate::app::App>,
-) -> impl IntoElement {
-    let (layers, flags, selected) = {
-        let s = state.read(cx);
-        (
-            s.layers.clone(),
-            s.layer_flags.clone(),
-            s.selected_layers.clone(),
-        )
-    };
-    let multi = selected.len() > 1;
-    let index = layers
-        .iter()
-        .position(|row| row.core_id.as_deref() == Some(core_id.as_str()));
-    let clicked_flags = index
-        .map(|i| flags[i])
-        .unwrap_or_else(|| crate::state::LayerFlags {
-            visible: true,
-            locked: true,
-            has_adjustments: false,
-            lock_transparency: false,
-            lock_position: false,
-            lock_rotation: false,
-            is_background: true,
-            is_text: false,
-        });
-    let background = clicked_flags.is_background;
-    let locked = clicked_flags.locked;
-    let visible = clicked_flags.visible;
-    let too_few = layers.len() <= 1;
-    let next_background = index
-        .filter(|i| i + 1 < layers.len())
-        .map(|i| flags[i + 1].is_background)
-        .unwrap_or(false);
-    let entries: Vec<gpui_kit::AnyElement> =
-        {
-            let mut rows: Vec<gpui_kit::AnyElement> = Vec::new();
-            rows.push(command_row(
-                state,
-                &t("layers.newLayer"),
-                Some("Ctrl+Shift+N"),
-                "ctx-layer-new",
-                cx,
-                |app, cx| app.add_empty_layer(cx),
-            ));
-            let duplicate_label = if multi {
-                let count = selected.len().to_string();
-                t_args("layers.duplicateCount", &[("count", count.as_str())])
-            } else {
-                t("menus.items.duplicateLayer")
-            };
-            rows.push(command_row(
-                state,
-                &duplicate_label,
-                Some("Ctrl+J"),
-                "ctx-layer-duplicate",
-                cx,
-                |app, cx| {
-                    let result = app.duplicate_selected_layer(cx);
-                    app.report_layer_op_for_view(result, cx);
-                },
-            ));
-            if !multi {
-                let rename_id = core_id.clone();
-                rows.push(command_row_window(
-                    state,
-                    &t("layers.renameLayer"),
-                    None,
-                    "ctx-layer-rename",
-                    !locked,
-                    cx,
-                    move |app, window, cx| app.begin_rename_layer(rename_id.clone(), window, cx),
-                ));
-            }
-            rows.push(ui::menu_separator().into_any_element());
-            let visibility_label = if visible {
-                t("layers.hideLayer")
-            } else {
-                t("layers.showLayer")
-            };
-            rows.push(command_row(
-                state,
-                &visibility_label,
-                None,
-                "ctx-layer-toggle-visibility",
-                cx,
-                {
-                    let core_id = core_id.clone();
-                    move |app, cx| app.toggle_layer_visibility(core_id.clone(), cx)
-                },
-            ));
-            let lock_label = if locked {
-                t("layers.unlockLayer")
-            } else {
-                t("layers.lockLayer")
-            };
-            rows.push(command_row(
-                state,
-                &lock_label,
-                None,
-                "ctx-layer-toggle-lock",
-                cx,
-                {
-                    let core_id = core_id.clone();
-                    move |app, cx| app.toggle_layer_locked(core_id.clone(), cx)
-                },
-            ));
-            rows.push(ui::menu_separator().into_any_element());
-            if !multi {
-                rows.push(command_row_enabled(
-                    state,
-                    &t("layers.moveLayerUp"),
-                    None,
-                    "ctx-layer-move-up",
-                    index.is_some_and(|i| i > 0 && !background),
-                    cx,
-                    {
-                        let core_id = core_id.clone();
-                        let state_for_rows = state.clone();
-                        move |app, cx| {
-                            let (from_row, to_row) = {
-                                let s = state_for_rows.read(cx);
-                                let pos = s.layers.iter().position(|row| {
-                                    row.core_id.as_deref() == Some(core_id.as_str())
-                                });
-                                match pos {
-                                    Some(i) if i > 0 => (s.layers[i].id, s.layers[i - 1].id),
-                                    _ => return,
-                                }
-                            };
-                            app.reorder_layer_rows(from_row, to_row, cx);
-                        }
-                    },
-                ));
-                rows.push(command_row_enabled(
-                    state,
-                    &t("layers.moveLayerDown"),
-                    None,
-                    "ctx-layer-move-down",
-                    index.is_some_and(|i| i < layers.len().saturating_sub(1) && !next_background),
-                    cx,
-                    {
-                        let core_id = core_id.clone();
-                        let state_for_rows = state.clone();
-                        move |app, cx| {
-                            let (from_row, to_row) = {
-                                let s = state_for_rows.read(cx);
-                                let pos = s.layers.iter().position(|row| {
-                                    row.core_id.as_deref() == Some(core_id.as_str())
-                                });
-                                match pos {
-                                    Some(i) if i + 1 < s.layers.len() => {
-                                        (s.layers[i].id, s.layers[i + 1].id)
-                                    }
-                                    _ => return,
-                                }
-                            };
-                            app.reorder_layer_rows(from_row, to_row, cx);
-                        }
-                    },
-                ));
-                rows.push(command_row_enabled(
-                    state,
-                    &t("menus.items.mergeDown"),
-                    Some("Ctrl+E"),
-                    "ctx-layer-merge-down",
-                    index.is_some_and(|i| i < layers.len().saturating_sub(1) && !next_background),
-                    cx,
-                    |app, cx| {
-                        let result = app.merge_selected_layer_down(cx);
-                        app.report_layer_op_for_view(result, cx);
-                    },
-                ));
-            } else {
-                let count = selected.len().to_string();
-                let merge_label = t_args("layers.mergeCount", &[("count", count.as_str())]);
-                rows.push(command_row(
-                    state,
-                    &merge_label,
-                    Some("Ctrl+E"),
-                    "ctx-layer-merge-selected",
-                    cx,
-                    |app, cx| {
-                        let result = app.merge_selected_layers(cx);
-                        app.report_layer_op_for_view(result, cx);
-                    },
-                ));
-            }
-            rows.push(command_row_enabled(
-                state,
-                &t("menus.items.flattenImage"),
-                Some("Ctrl+Shift+E"),
-                "ctx-layer-flatten",
-                !too_few,
-                cx,
-                |app, cx| {
-                    let result = app.flatten_document(cx);
-                    app.report_layer_op_for_view(result, cx);
-                },
-            ));
-            if !multi {
-                rows.push(command_row_enabled(
-                    state,
-                    &t("layers.applyAdjustment"),
-                    None,
-                    "ctx-layer-apply-adjustment",
-                    clicked_flags.has_adjustments,
-                    cx,
-                    |app, cx| app.apply_basic_adjustment_for_view(cx),
-                ));
-            }
-            rows.push(ui::menu_separator().into_any_element());
-            if multi {
-                let count = selected.len().to_string();
-                let delete_label = t_args("layers.deleteCount", &[("count", count.as_str())]);
-                rows.push(command_row(
-                    state,
-                    &delete_label,
-                    Some("Delete"),
-                    "ctx-layer-delete",
-                    cx,
-                    |app, cx| {
-                        app.delete_selected_layer(cx);
-                    },
-                ));
-            } else {
-                rows.push(command_row_enabled(
-                    state,
-                    &t("layers.deleteLayer"),
-                    Some("Delete"),
-                    "ctx-layer-delete",
-                    !(background || layers.len() <= 1),
-                    cx,
-                    |app, cx| {
-                        app.delete_selected_layer(cx);
-                    },
-                ));
-            }
-            rows
-        };
-    let close_state = state.clone();
-    let popup = crate::views::context_menus::shell(menu_entries(entries))
-        .absolute()
-        .left(px(position.0))
-        .top(px(position.1))
-        .id("layer-context-popup")
-        .test_support()
-        .block_mouse_except_scroll()
-        .on_click(|_, _, cx: &mut gpui_kit::App| cx.stop_propagation());
-    div()
-        .id("layer-context-menu-overlay")
-        .test_support()
-        .absolute()
-        .inset(px(0.0))
-        .on_click(
-            cx.listener(move |app, _: &gpui_kit::ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                close_state.update(cx, |state, _| state.layer_context_menu = None);
-                app.close_layer_context_menu(cx);
             }),
         )
         .child(popup)
@@ -1285,30 +860,6 @@ mod tests {
 
     /// The hovered-row fill is a measured pin (`#232323` = 35/255): change the
     /// value and the `menu-*-hover-item` strip comparison reddens.
-    #[test]
-    fn clamp_popup_keeps_menu_inside_window() {
-        // An interior click position is untouched.
-        assert_eq!(
-            clamp_popup(40.0, 60.0, 210.0, 300.0, 1366.0, 816.0),
-            (40.0, 60.0)
-        );
-        // A right-edge click pulls the menu left until the full width fits.
-        assert_eq!(
-            clamp_popup(1255.0, 180.0, 210.0, 401.0, 1366.0, 816.0),
-            (1156.0, 180.0)
-        );
-        // A bottom-edge click pulls the menu up until the full height fits.
-        assert_eq!(
-            clamp_popup(40.0, 700.0, 210.0, 401.0, 1366.0, 816.0),
-            (40.0, 415.0)
-        );
-        // Negative origins are pinned to the corner.
-        assert_eq!(
-            clamp_popup(-20.0, -30.0, 210.0, 401.0, 1366.0, 816.0),
-            (0.0, 0.0)
-        );
-    }
-
     #[test]
     fn hover_row_fill_is_232323() {
         assert_eq!((HOVER_ROW_FILL.l * 255.0).round() as u8, 35);

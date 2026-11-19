@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Shared `.ptz` `document.json` fixtures, used by both the core writer tests
 // (`ptz/file.rs`) and the app's save-stream tests (`services/save_stream.rs`).
 //

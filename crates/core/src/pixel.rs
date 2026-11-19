@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pixel ownership: the document-namespaced registry and what binds pixels to a
 //! document.
 //!

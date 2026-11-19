@@ -27,8 +27,8 @@ pub(super) fn more_dropdown_button(cx: &Context<crate::app::App>) -> Button {
                 .hover(|style| style.text_color(color::WHITE))
                 .child(Icon::default().data(icons::MORE).size(px(ICON_LG))),
         )
-        .accessibility_label(t("tools.options.moreOptions"))
-        .tooltip(t("tools.options.moreOptions"))
+        .accessibility_label(t!("tools.options.moreOptions"))
+        .tooltip(t!("tools.options.moreOptions"))
 }
 
 /// The field background at 30% opacity: the tint of the overflow group
@@ -40,16 +40,16 @@ const FIELD_30: Hsla = Hsla {
     a: 0.30,
 };
 
-/// The overflow dropdown: a trigger that toggles the bar-wide overflow
-/// state and, while open, the panel painted under it. The trigger mounts as
-/// the row's trailing in-flow child; the row clips its own overflow, so at
-/// every width the trigger sits inside the canvas column at the bar's right
-/// edge and stays reachable. The panel goes through `gpui_kit::deferred` +
-/// [`SelectPanelSurface`], the shape every working option-bar dropdown uses:
-/// the deferred pass paints it after the canvas, so its `occlude()` removes
-/// the canvas hitbox from the dispatch path and a row press cannot also
-/// start a canvas gesture; and the surface publishes the panel rect, which is
-/// what tells a click-away from an inside-panel click.
+/// The shared overflow dropdown: a trigger that toggles the bar-wide overflow
+/// state and, while open, the panel painted under it.
+///
+/// The panel goes through `gpui_kit::deferred` + [`SelectPanelSurface`], the
+/// shape every working option-bar dropdown uses: the deferred pass paints it
+/// after the canvas, so its `occlude()` removes the canvas hitbox from the
+/// dispatch path and a row press cannot also start a canvas gesture; and the
+/// surface publishes the panel rect, which is what tells a click-away from an
+/// inside-panel click. Anchored to the bar's right edge, a folded trigger near
+/// the column edge keeps the whole panel inside the clipped canvas column.
 pub(super) fn more_dropdown_overflow(
     open: bool,
     state: &gpui_kit::Entity<AppState>,
@@ -59,12 +59,8 @@ pub(super) fn more_dropdown_overflow(
     let trigger = more_dropdown_button(cx).on_click(
         cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| app.toggle_more_menu(window, cx)),
     );
-    // The panel is painted through `deferred`, i.e. after the normal tree, so
-    // it would cover a modal that opened while it was still open. Hide it for
-    // the lifetime of any dialog; the trigger itself stays put.
-    let modal_open = state.read(cx).active_dialog.is_some();
     let mut wrapper = div().relative().flex_shrink_0().child(trigger);
-    if open && !modal_open {
+    if open {
         let panel = div()
             .id("opt-more-panel")
             .test_support()

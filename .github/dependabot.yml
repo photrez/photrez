@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # A new release is not pulled in on the day it appears. The default
+    # cooldown is three days; seven gives a compromised version time to be
+    # withdrawn.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "github-actions"
     # Keeps configured workflow actions current.
@@ -12,3 +17,5 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7

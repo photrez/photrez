@@ -255,14 +255,7 @@ pub fn run() {
                 displays.get(index).map(|display| display.id()),
             ),
             None => (
-                // Open maximized on first run, matching the legacy layout's
-                // maximized window. Keep the baseline centred rect as the
-                // restore bounds so unmaximizing returns to a usable size
-                // rather than the whole display. A saved geometry still wins,
-                // so a window the user resized last session is restored.
-                WindowBounds::Maximized(
-                    WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx).get_bounds(),
-                ),
+                WindowBounds::centered(size(px(CLIENT_W), px(CLIENT_H)), cx),
                 None,
             ),
         };

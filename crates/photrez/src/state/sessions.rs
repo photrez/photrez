@@ -15,6 +15,8 @@ pub enum ColorTarget {
     /// The text bar's stroke popover; edits the selected text layer in edit
     /// mode and the next-text stroke colour otherwise.
     TextStroke,
+    /// The Crop bar's fill swatch; edits custom fill without changing paint colours.
+    CropFill,
 }
 
 /// Which option-bar slider a pointer drag or key press drives.
@@ -73,14 +75,17 @@ pub enum PickerArea {
     Hue,
 }
 
-/// One open colour-picker session. `hsv` is the live state the surface paints
-/// from, `original` is what Cancel restores, and `hex` is the field buffer -
-/// typing only reaches the paint colour when the buffer parses.
+/// One open picker session. `hsv` drives the surface, `original` is the resolved
+/// opening colour, and `hex` is committed when it parses. Crop Fill also stores
+/// its custom colour and source for cancellation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColorPickerSession {
     pub target: ColorTarget,
     pub hsv: crate::palette::Hsv,
     pub original: [u8; 4],
+    pub return_focus: Option<gpui_kit::FocusHandle>,
+    /// The original custom colour and source for Crop Fill cancellation.
+    pub crop_fill_original: Option<([u8; 4], bool)>,
     pub hex: String,
 }
 

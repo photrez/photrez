@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pixel half of `RasterizeLayer`, drained by `DocumentPixelStore` right
 //! after the command applies — the same seam `CropBakePlan` uses for the
 //! destructive crop. The engine owns no pixel buffer, so `apply_rasterize`

@@ -41,7 +41,8 @@ impl App {
         let layer = selected
             .as_deref()
             .and_then(|core_id| content.layers.iter().find(|layer| layer.id == core_id))
-            .ok_or_else(|| "the selected layer is missing from the document".to_string())?
+            .or_else(|| content.layers.first())
+            .ok_or_else(|| "the document has no layers".to_string())?
             .clone();
         Ok((doc_id, layer))
     }
@@ -126,21 +127,15 @@ impl App {
             self.state.update(cx, |state, _| {
                 if let Some(index) = state.selected_layers.iter().position(|id| *id == row_id) {
                     state.selected_layers.remove(index);
-                    if state.selected_layer == row_id
-                        && let Some(&last) = state.selected_layers.last()
-                    {
-                        state.selected_layer = last;
-                    }
                 } else {
                     state.selected_layers.push(row_id);
-                    state.selected_layer = row_id;
                 }
+                state.selected_layer = row_id;
             });
             cx.notify();
             return true;
         }
         if already_selected && already_active {
-            // The member drags as part of the selection; do not re-select.
             return false;
         }
         self.state.update(cx, |state, _| {
@@ -148,14 +143,9 @@ impl App {
             if !already_selected {
                 state.selected_layers = vec![row_id];
             }
-            // A member of the existing selection keeps the multi selection;
-            // reference moves the selection with it. Only a new member narrows.
         });
         cx.notify();
-        // The click was consumed only when it narrowed the selection to one
-        // layer; a member of the standing selection keeps it and starts the
-        // drag.
-        !already_selected
+        true
     }
 }
 

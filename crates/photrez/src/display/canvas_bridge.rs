@@ -417,6 +417,69 @@ fn canvas_element_inner(
             let (page_x, page_y) =
                 page_origin(bounds.origin.x.into(), bounds.origin.y.into(), x, y);
             let scale = window.scale_factor();
+            let fill_corners_screen = overlay
+                .crop
+                .map(|crop| {
+                    crate::app::transform_geometry::rotated_rect_corners(
+                        crop.0,
+                        crop.1,
+                        crop.2,
+                        crop.3,
+                        overlay.crop_rotation,
+                    )
+                    .iter()
+                    .filter_map(|corner| {
+                        doc_point_to_window(
+                            page_x,
+                            page_y,
+                            w,
+                            h,
+                            doc_w,
+                            doc_h,
+                            [corner.x, corner.y],
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                })
+                .or_else(|| {
+                    overlay
+                        .crop_create_preview
+                        .and_then(|(x, y, width, height)| {
+                            let [left, top, right, bottom] =
+                                [x, y, x + width, y + height].map(|coordinate| coordinate as f32);
+                            (width > 0.0
+                                && height > 0.0
+                                && [left, top, right, bottom]
+                                    .iter()
+                                    .all(|coordinate| coordinate.is_finite()))
+                            .then(|| {
+                                vec![
+                                    point(px(left), px(top)),
+                                    point(px(right), px(top)),
+                                    point(px(right), px(bottom)),
+                                    point(px(left), px(bottom)),
+                                ]
+                            })
+                        })
+                });
+            if let (Some(corners_screen), Some([red, green, blue, alpha])) =
+                (fill_corners_screen, overlay.crop_fill_color)
+                && corners_screen.len() == 4
+            {
+                let mut fill_path = PathBuilder::fill();
+                fill_path.add_polygon(&corners_screen, true);
+                if let Ok(path) = fill_path.build() {
+                    let fill_color = gpui_kit::rgb(
+                        (u32::from(red) << 16) | (u32::from(green) << 8) | u32::from(blue),
+                    )
+                    .alpha(f32::from(alpha) / 255.0);
+                    let mut fill_mask = window.content_mask();
+                    fill_mask.bounds = bounds;
+                    window.with_content_mask(Some(fill_mask), |window| {
+                        window.paint_layer(bounds, |window| window.paint_path(path, fill_color));
+                    });
+                }
+            }
             if let Some(checker) = &checker {
                 let page_bounds = Bounds {
                     origin: point(px(page_x), px(page_y)),

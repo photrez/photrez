@@ -130,7 +130,7 @@ pub(super) fn export_body(
                 .text_size(px(11.0))
                 .font_weight(FontWeight(700.0))
                 .text_color(color::TEXT_DIM)
-                .child(t("dialogs.export.format").to_uppercase()),
+                .child(t!("dialogs.export.format").to_uppercase()),
         )
         .child(trigger);
     if open {
@@ -194,9 +194,9 @@ pub(super) fn export_body(
         );
     }
     let description = match format {
-        ExportFormat::Png => t("dialogs.export.formats.pngDesc"),
-        ExportFormat::Jpeg => t("dialogs.export.formats.jpegDesc"),
-        ExportFormat::WebP => t("dialogs.export.formats.webpDesc"),
+        ExportFormat::Png => t!("dialogs.export.formats.pngDesc"),
+        ExportFormat::Jpeg => t!("dialogs.export.formats.jpegDesc"),
+        ExportFormat::WebP => t!("dialogs.export.formats.webpDesc"),
     };
     format_section = format_section.child(
         div()
@@ -248,9 +248,9 @@ pub(super) fn export_body(
             )
         };
         let quality_text = match quality {
-            90..=100 => t("dialogs.export.qualities.veryHigh"),
-            70..=89 => t("dialogs.export.qualities.high"),
-            _ => t("dialogs.export.qualities.medium"),
+            90..=100 => t!("dialogs.export.qualities.veryHigh"),
+            70..=89 => t!("dialogs.export.qualities.high"),
+            _ => t!("dialogs.export.qualities.medium"),
         };
         // The surface focuses this wrapper on a click; arrows step the quality
         // across the same 1..=100 range the pointer maps.
@@ -259,7 +259,7 @@ pub(super) fn export_body(
             .test_support()
             .w_full()
             .h(px(14.0))
-            .aria_label(t("dialogs.export.quality"));
+            .aria_label(t!("dialogs.export.quality"));
         quality_track = crate::views::option_bar::slider_surface::track_focus_and_keys(
             quality_track,
             &focus,
@@ -291,7 +291,7 @@ pub(super) fn export_body(
                                 .text_size(px(11.0))
                                 .font_weight(FontWeight(700.0))
                                 .text_color(color::TEXT_DIM)
-                                .child(t("dialogs.export.quality").to_uppercase()),
+                                .child(t!("dialogs.export.quality").to_uppercase()),
                         )
                         .child(
                             div()

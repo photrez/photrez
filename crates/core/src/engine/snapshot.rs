@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Rust-side atomic document snapshot DTO for undo/redo.
 //!
 //! A snapshot is a METADATA + bitmap-token transport, NOT a pixel store:

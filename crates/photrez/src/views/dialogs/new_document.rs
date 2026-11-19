@@ -44,7 +44,7 @@ fn new_doc_label(key: &str) -> Div {
         .text_size(px(12.0))
         .font_weight(FontWeight(500.))
         .text_color(color::TEXT_DIM)
-        .child(t(key).to_string())
+        .child(t!(key).to_string())
 }
 
 /// The orientation badge: L/P/SQ, the card's only icon-sized mark.
@@ -370,7 +370,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
                             .bg(color::ACCENT),
                     )
                 })
-                .child(t(category.label_key()).to_string()),
+                .child(t!(category.label_key()).to_string()),
         );
     }
 
@@ -426,7 +426,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Name))
             .id("new-doc-name")
             .test_support()
-            .aria_label(t("dialogs.newDocument.name").to_string())
+            .aria_label(t!("dialogs.newDocument.name").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
                 app.focus_new_doc_field(NewDocField::Name, window, cx);
@@ -439,7 +439,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Width))
             .id("new-doc-width")
             .test_support()
-            .aria_label(t("dialogs.newDocument.width").to_string())
+            .aria_label(t!("dialogs.newDocument.width").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
                 app.focus_new_doc_field(NewDocField::Width, window, cx);
@@ -452,7 +452,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         new_doc_field_box(session.field == Some(NewDocField::Height))
             .id("new-doc-height")
             .test_support()
-            .aria_label(t("dialogs.newDocument.height").to_string())
+            .aria_label(t!("dialogs.newDocument.height").to_string())
             .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, window, cx| {
                 cx.stop_propagation();
                 app.focus_new_doc_field(NewDocField::Height, window, cx);
@@ -485,17 +485,17 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
     let background_select = new_doc_select(
         state,
         "new-doc-background",
-        t(session.background.label_key()).to_string(),
+        t!(session.background.label_key()).to_string(),
         session.background_open,
         vec![
             (
                 "transparent",
-                t("dialogs.newDocument.transparent").to_string(),
+                t!("dialogs.newDocument.transparent").to_string(),
                 session.background == crate::state::NewDocBackground::Transparent,
             ),
             (
                 "white",
-                t("dialogs.newDocument.white").to_string(),
+                t!("dialogs.newDocument.white").to_string(),
                 session.background == crate::state::NewDocBackground::White,
             ),
         ],
@@ -570,7 +570,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
         .border_color(color::DIVIDER)
         .bg(color::PANEL)
         .child(
-            new_doc_button(&t("common.cancel"), false)
+            new_doc_button(&t!("common.cancel"), false)
                 .id("new-doc-cancel")
                 .test_support()
                 .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -579,7 +579,7 @@ fn new_document_body(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::app
                 })),
         )
         .child(
-            new_doc_button(&t("dialogs.newDocument.create"), true)
+            new_doc_button(&t!("dialogs.newDocument.create"), true)
                 .id("new-doc-create")
                 .test_support()
                 .on_click(cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -663,7 +663,7 @@ pub(super) fn new_document_shell(
         ])
         .on_click(stop)
         .child(chrome::titlebar_live(
-            &t("dialogs.newDocument.title"),
+            &t!("dialogs.newDocument.title"),
             Some((cx, dialog)),
             chrome::dialog_close_button(cx.listener(
                 |app, _: &gpui_kit::ClickEvent, _window, cx| {

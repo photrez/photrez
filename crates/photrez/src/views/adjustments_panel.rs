@@ -1,87 +1,14 @@
-//! The Adjustments panel: its appearance.
-//!
-//! # Geometry: 272 wide, x 833..1104, y 84..795
-//!
-//! `properties_panel` shares this InspectorDock slot. The panel occupies
-//! the leftmost 272px of `dock-adjustments.png` below its 38px tab bar
-//! (crop x 0..271, y 38..749). Values are read from the PNG, not class names.
-//!
-//! ```text
-//! tab bar bottom border  crop y=37        #333333, full width
-//! section 1              crop y=37..137   "Selected Layer"
-//!   SectionHeader        text crop y=51..63
-//!   thumb box            crop y=75..125, x 13..253   FIELD fill, #333333 border
-//!     thumb 34x34        crop x 22..55, y 83..117    checkerboard, #333333 border
-//!     name               crop y 87..98                 11.5px medium, TEXT
-//!     type + size        crop y 104..113               10.5px, TEXT_DIM
-//! section 1 divider      crop y=137
-//! section 2              crop y=137..384  "Basic"
-//!   SectionHeader        text crop y=151..163 ("Basic" x38..65)
-//!     reset icon         ink x243..247, y154..161      (disabled, 40% opacity)
-//!   slider rows          labels crop y185..196 / 221..230 / 257..266
-//!     tracks (4px)       crop y188..191 / 224..227 / 260..263
-//!     thumbs (12px)      centred at crop x=142, y=189.5 / 225.5 / 261.5
-//!     value boxes        crop x215..254, y179..200 / 216..235 / 252..271
-//!       "0"              ink x241..246 in each box
-//!   description          crop y291..300 + y306..313    (two wrapped lines)
-//!   StatusHint box       crop y326..372; icon ink x26..40, y338..349;
-//!                        text y338..347 + y353..362
-//! section 2 divider      crop y=384
-//! 5 collapsed sections   crop y=384..599, 42px + 1px border each:
-//!   icon box             crop x16..32 (icon 15px, ink x19..31)
-//!   label                12.5px TEXT from crop x~43
-//!   chevron              ink x240..246
-//! panel content ends     crop y=599 — the last 113px of the 712px
-//!                        column is empty PANEL; the scroll column
-//!                        growing to fill is all that is needed.
-//! ```
-//!
-//! # Captured state
-//!
-//! The dock selects this view unless the inspector tab is "presets";
-//! the capture has Adjustments active (underline at crop y35..36, x79..168).
-//!
-//! "Background" is selected: a 100×100 raster with no stored bitmap; thumb
-//! empty, no-pixels hint from the basic-adjustment status line, sliders at 0, reset
-//! disabled. Five closed collapsible sections render only 42px headers;
-//! the five not-yet-available sections' descriptions do not render.
-//!
-//! With no document open the panel mounts the Properties panel's no-image
-//! state instead of its sections.
-//!
-//! # Known gaps
-//!
-//! * `LayerThumb` alternates `rgba(255,255,255,0.05)` and
-//!   `rgba(255,255,255,0.1)` in 6px cells over FIELD (`#252525`), yielding
-//!   `#303030` / `#3b3b3b`. GPUI's one-colour `checkerboard()` uses their
-//!   50/50 mean (`#353535`, `CHECKER_MEAN`); this layer has no pixels.
-//! * At rest (no pending adjustment), reset is disabled and paints at 40%
-//!   opacity. Omitted interaction styles: hover fills (white at 4.5% and
-//!   white at 3%), text brightening to the editor text colour on hover,
-//!   icons scaling to 110% on hover, and colour transitions.
-//! * GPUI lacks tabular figures; Inter's default proportions replace the
-//!   fixed-width digits. Static views cannot reproduce icon `Tooltip` wrappers.
-//! * Standard gaps: no letter-spacing, clipping path, transform or stacking index;
-//!   two-stop gradients only (five-stop saturation uses
-//!   `ui::gradient_segments`); padding rounds to whole px; odd-height
-//!   centring can differ by ±1px (22px value boxes in 28px rows).
-//!
-//! # Border and gutter resolution
-//!
-//! * A global border colour outranks every per-element border the panel asks
-//!   for — the divider, field-border and accent borders included.
-//!   Borders paint `#333333` ([`color::BORDER`]);
-//!   all seven divider rows and every box border scan as `#333333`.
-//! * Every scrollable area reserves 6px for its scrollbar gutter,
-//!   with or without overflow; the scroll column's
-//!   `.pr(px(6.))` leaves content at crop x=254, not x=259.
-
+//! Adjustments panel: same 272px inspector slot as Properties, crop y=38..749.
+//! Captured state: "Background" selected, sliders at 0, reset disabled, five sections collapsed.
+//! Borders resolve to BORDER (#333333); scroll columns reserve a 6px gutter.
+//! The thumbnail uses the two-tone checkerboard mean; this layer has no pixels.
+//! Hover fills, icon scaling, transitions and tabular figures are not reproduced.
 use crate::components::ui;
-use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
 use crate::views::properties_panel;
 use gpui_kit::component::scroll::ScrollableElement;
+use rust_i18n::t;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -298,7 +225,7 @@ pub fn render(
                         "adj-tone-curve",
                         icons::with_stroke(icons::SPLINE, 1.75),
                         color::TEXT_DIM,
-                        &t("adjustments.toneCurve"),
+                        &t!("adjustments.toneCurve"),
                         is_open("adj-tone-curve"),
                         cx,
                     ))
@@ -306,7 +233,7 @@ pub fn render(
                         "adj-hsl-color",
                         icons::with_stroke(icons::PALETTE, 1.75),
                         SKY_400,
-                        &t("adjustments.hslColor"),
+                        &t!("adjustments.hslColor"),
                         is_open("adj-hsl-color"),
                         cx,
                     ))
@@ -314,7 +241,7 @@ pub fn render(
                         "adj-color-grading",
                         icons::with_stroke(icons::SWATCH, 1.75),
                         AMBER_400,
-                        &t("adjustments.colorGrading"),
+                        &t!("adjustments.colorGrading"),
                         is_open("adj-color-grading"),
                         cx,
                     ))
@@ -322,7 +249,7 @@ pub fn render(
                         "adj-detail",
                         icons::with_stroke(icons::SPARKLES, 1.75),
                         SKY_300,
-                        &t("adjustments.detail"),
+                        &t!("adjustments.detail"),
                         is_open("adj-detail"),
                         cx,
                     ))
@@ -330,7 +257,7 @@ pub fn render(
                         "adj-lens-corrections",
                         icons::with_stroke(icons::APERTURE, 1.75),
                         EMERALD_400,
-                        &t("adjustments.lensCorrections"),
+                        &t!("adjustments.lensCorrections"),
                         is_open("adj-lens-corrections"),
                         cx,
                     )),

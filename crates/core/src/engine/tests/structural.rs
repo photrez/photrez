@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Structural-command-arm tests: Duplicate / MergeDown / MergeSelected /
 // Flatten / RasterizeLayer. These pin the layer-operation contract
 // and the document graph (document.rs). Each arm is a native undoable graph transition
