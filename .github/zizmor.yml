@@ -13,7 +13,7 @@ rules:
   overly-broad-permissions:
     ignore:
       # Publishing artifacts needs write access at the workflow level.
-      - release.yml
+      - .github/workflows/release.yml
   template-injection:
     ignore:
       # The generated release expressions come from tag names and dist inputs.
