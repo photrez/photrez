@@ -6,11 +6,9 @@ Photrez has one catalog file per locale under `crates/photrez/locales`. The file
 
 One file per locale. The file name is the locale code. The keys are flat and dotted. A key is the same string that the code asks for:
 
-```json
-{
-  "adjustments.basic": "Basic",
-  "dialogs.about.tagline": "Native desktop image studio. Lean. Offline. Under 80 MB."
-}
+```yaml
+"adjustments.basic": "Basic"
+"dialogs.about.tagline": "Native desktop image studio. Lean. Offline. Under 80 MB."
 ```
 
 ## Edit a translation
@@ -22,13 +20,13 @@ One file per locale. The file name is the locale code. The keys are flat and dot
 
 ## Add or change a key
 
-1. Add the key to `crates/photrez/locales/en.json` with the English text.
+1. Add the key to `crates/photrez/locales/en.yml` with the English text.
 2. Add the same key with a translated value to every other locale file. The key-set and empty-value tests reject a missing or empty translation.
 3. Run `cargo test -p photrez --lib i18n::tests`.
 
 ## Add a language
 
-1. Copy an existing catalog to `crates/photrez/locales/<code>.json`. Use the locale code as the file name.
+1. Copy an existing catalog to `crates/photrez/locales/<code>.yml`. Use the locale code as the file name.
 2. Add the locale code to `available-locales` in `crates/photrez/Cargo.toml`. This list is metadata; the Settings list discovers locales from the embedded catalogs.
 3. Translate `locale.name` and every other value. No Rust locale registration is needed.
 4. Run `cargo test -p photrez --lib i18n::tests`.
@@ -56,10 +54,8 @@ otherwise. They do not implement locale-specific plural categories.
 
 `gpui-kit` ships its own strings under the `gpui_component` namespace. The app catalog can override them:
 
-```json
-{
-  "gpui_component.Calendar.month.February": "Februari"
-}
+```yaml
+"gpui_component.Calendar.month.February": "Februari"
 ```
 
 The key name must match the toolkit catalog exactly. Copy it from the toolkit source at `crates/component/locales/ui.yml`.
