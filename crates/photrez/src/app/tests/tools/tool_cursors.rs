@@ -1,9 +1,11 @@
-//! The native tool cursors: Eyedropper, Paint Bucket and Crop switch the
-//! pointer only over the canvas, and the other tools keep their policy cursor.
+//! The native tool cursors: Eyedropper, Paint Bucket, Crop, Selection,
+//! Gradient, Shape and Text switch the pointer over the canvas (custom glyphs
+//! or the reference's crosshair/I-beam), while Move keeps its policy cursor.
 
 use super::*;
 use crate::app::cursor::{
-    TOOL_BUCKET, TOOL_CROP, TOOL_EYEDROPPER, take_tool_cursor_request_for_test,
+    CURSOR_CROSSHAIR, CURSOR_IBEAM, TOOL_BUCKET, TOOL_CROP, TOOL_EYEDROPPER,
+    take_tool_cursor_request_for_test,
 };
 
 fn hover_doc(
@@ -51,7 +53,12 @@ fn tool_cursors_follow_eyedropper_bucket_and_crop(cx: &mut gpui_kit::TestAppCont
         check(ToolId::Eyedropper, Some(TOOL_EYEDROPPER), 100.0, 50.0);
         check(ToolId::PaintBucket, Some(TOOL_BUCKET), 100.0, 50.0);
         check(ToolId::Crop, Some(TOOL_CROP), 200.0, 100.0);
-        check(ToolId::Selection, None, 100.0, 50.0);
+        // Selection/Gradient/Shape resolve to a crosshair and Text to an
+        // I-beam in the reference, served through the same SetCursor path.
+        check(ToolId::Selection, Some(CURSOR_CROSSHAIR), 100.0, 50.0);
+        check(ToolId::Gradient, Some(CURSOR_CROSSHAIR), 100.0, 50.0);
+        check(ToolId::Shape, Some(CURSOR_CROSSHAIR), 100.0, 50.0);
+        check(ToolId::Text, Some(CURSOR_IBEAM), 100.0, 50.0);
         check(ToolId::Move, None, 100.0, 50.0);
     })
     .expect("test window remains open");

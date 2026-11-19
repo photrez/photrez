@@ -62,7 +62,7 @@ pub(super) fn text_stroke_pill(
                         .child(if active {
                             format!("{width:.0}px")
                         } else {
-                            t!("common.off").into_owned()
+                            t("common.off")
                         }),
                 ),
         ))
@@ -150,7 +150,7 @@ fn text_stroke_popover(
         .items_center()
         .justify_between()
         .gap(px(GAP))
-        .child(dim_span(&t!("common.width")))
+        .child(dim_span(&t("common.width")))
         .child(
             h_flex()
                 .items_center()
@@ -164,7 +164,7 @@ fn text_stroke_popover(
         .flex()
         .flex_col()
         .gap(px(GAP))
-        .child(dim_span(&t!("properties.position")))
+        .child(dim_span(&t("properties.position")))
         .child(
             h_flex()
                 .gap(px(2.0))
@@ -176,21 +176,21 @@ fn text_stroke_popover(
                 .shadow(vec![crate::components::ui::inset_well()])
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-outside",
-                    t!("tools.options.strokeOutside").into_owned(),
+                    t("tools.options.strokeOutside"),
                     photrez_core::document::layer_params::TextStrokeAlign::Outside,
                     align == photrez_core::document::layer_params::TextStrokeAlign::Outside,
                     cx,
                 ))
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-center",
-                    t!("tools.options.strokeCenter").into_owned(),
+                    t("tools.options.strokeCenter"),
                     photrez_core::document::layer_params::TextStrokeAlign::Center,
                     align == photrez_core::document::layer_params::TextStrokeAlign::Center,
                     cx,
                 ))
                 .child(text_stroke_position_segment(
                     "opt-text-stroke-inside",
-                    t!("tools.options.strokeInside").into_owned(),
+                    t("tools.options.strokeInside"),
                     photrez_core::document::layer_params::TextStrokeAlign::Inside,
                     align == photrez_core::document::layer_params::TextStrokeAlign::Inside,
                     cx,
@@ -213,13 +213,6 @@ fn text_stroke_popover(
         .bg(color::BAR_POPOVER)
         .p(px(PILL_PX))
         .occlude()
-        .on_key_down(
-            cx.listener(|app, event: &gpui_kit::KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" {
-                    app.dismiss_text_stroke_popover(window, cx);
-                }
-            }),
-        )
         .shadow(vec![
             BoxShadow::new(px(0.), px(6.), SHADOW_XS).blur_radius(px(18.)),
         ])
@@ -237,7 +230,7 @@ fn text_stroke_popover(
                         .text_size(px(TEXT_SM))
                         .font_weight(FontWeight(600.))
                         .text_color(color::WHITE)
-                        .child(t!("tools.options.strokeOutline")),
+                        .child(t("tools.options.strokeOutline")),
                 )
                 .child(switch),
         )
@@ -401,7 +394,7 @@ fn text_stroke_color_row(color_value: [u8; 4], cx: &Context<crate::app::App>) ->
         .items_center()
         .justify_between()
         .gap(px(GAP))
-        .child(dim_span(&t!("common.color")))
+        .child(dim_span(&t("common.color")))
         .child(
             div()
                 .id("opt-text-stroke-color")

@@ -1,15 +1,102 @@
-//! Layers panel: 260x527 dock slot, rows 254px after the 6px scrollbar gutter.
-//! Header ends at 183; the list holds one 50px row per layer, with a 38px actions footer below.
-//! The column is flex_1; the list absorbs height changes on taller or shorter windows.
-//! Selection drives the active fill and accent ring; reorder goes through core history.
-//! Thumbnail pixels, the native blend popup and hover/transition states are not reproduced.
+//! The Layers panel and its rows: their appearance.
+//!
+//! # Geometry: 260 wide, x 1106..1366, y 84..610 (527 tall)
+//!
+//! `manifest.json` anchors `shell-navigator` at 260x185 at (1106,611) and
+//! `hover-layer-item` at 254x50 at (1106,165). The 260px LayerDock column's
+//! fixed 185px Navigator leaves 527, not 712: 611 - 84 = 527.
+//!
+//! * A layer row is **50px** tall.
+//! * A row is **254px**, not 260 — the 6px is the scroll gutter reserving room
+//!   for a scrollbar that never appears
+//!   over the scrollable list. GPUI has no
+//!   scrollbars so nothing reserves it; transcribed as `.pr(px(6.))`.
+//!
+//! Header: 84 (panel top) + 12 (top padding) + 26 (select height) + 12
+//!   (vertical padding)
+//!   plus 16 (lock buttons) + 12 = 182; the list's top and bottom borders make
+//!   183. The
+//!   baseline row starts at **165 + 46 - 46 = 165**, 81px below top 84.
+//!
+//! # What fills the space below the row: nothing — and a 38px footer
+//!
+//! The scrollable list, bordered top and bottom, holds one row per layer.
+//! One captured layer
+//! ends after 50px; y 215..571 is **357px** of `#1e1e1e`, with no content before
+//! the footer.
+//!
+//! ```text
+//!   y 572        #333333   the list's own bottom border
+//!   y 573        #333333   the Layer Actions footer's top border
+//!   y 574..610   (37px)    the footer, five 17px icons on #1e1e1e
+//!   y 611        #333333   the Navigator's top border (right_dock.rs)
+//! ```
+//!
+//! The dividers are a touching 1px pair. Footer:
+//! 10px + 17px + 10px = 37px; icons at
+//! x 1122, 1159, 1196, 1233 (16px inset, 20px gap, so 17 + 20 apart); Delete at
+//! 1333..1349 (`1366 - 16 - 17`, pushed to the trailing edge).
+//! Peak ink `#868686` is the icon colour.
+//! Every border here resolves to `#333333`, not the `#2e2e2e` divider value
+//! (`tokens::color::BORDER`).
+//!
+//! The drag ghost, context menu, and opacity popover only mount while active;
+//! the footer
+//! is the only content below the list in the resting capture.
+//!
+//! # The column stretches
+//!
+//! The dock gives this column a flexible minimum-height cell; the column is
+//! `flex_1().min_h(0())`, not a pinned height. Pinning left a bare band below
+//! the Navigator on taller windows; the list absorbs the difference.
+//!
+//! # The list reads live state
+//!
+//! One row per [`AppState::layers`] entry; the baseline's single row leaves
+//! resting geometry unchanged. The row whose `id` equals
+//! [`AppState::selected_layer`] gets the active-row fill and a 40%-alpha accent
+//! ring drawn as a 1px inset border.
+//!
+//! # Interactions
+//!
+//! `.on_click` selects; `.on_drag` starts a reorder with `rows::LayerDragGhost`
+//! visible only during drag; `.on_drop::<u64>` moves the row to the target index
+//! and selects it. Drops and the row's up/down chevrons both go through
+//! `App::reorder_layer_rows`, which records the move in core history.
+//!
+//! The reorder chevrons are hidden at rest and revealed by hovering the row —
+//! invisible but occupying their row slots,
+//! carrying the `layers.moveLayerUp/Down`
+//! tooltips and dimmed to 20% at the two ends of the stack.
+//!
+//! With no document open the blend row, the lock row and the actions footer
+//! paint at 50% and lose their clicks; the list shows the empty state.
+//!
+//! # Gaps
+//!
+//! * The layer thumbnail is canvas-drawn;
+//!   pixels are unreproducible, but its 34x34 frame, border, and checkerboard
+//!   are. `properties_panel.rs` uses the same flat-colour `checkerboard()`.
+//! * Native blend-mode dropdown: resting chrome drawn, popup not captured open.
+//! * The header's four lock toggles carry their tooltips, accent tint
+//!   and disabled states; only the colour transition and the hover
+//!   text tint are left out. The row eye toggle carries its Hide/Show Layer
+//!   tooltip; the row lock exposes an accessible name instead of a
+//!   tooltip, and there is no row rename button at all (renaming starts
+//!   from the name), so the native pen is an addition.
+//! * The 50% / 30% / 35% disabled opacities are indistinguishable
+//!   from enabled resting pixels.
+//! * The adjustments indicator draws from
+//!   `PtzLayer::has_adjustments`; the projection reads the serialized flag and
+//!   does not derive it from adjustment values itself.
+
 use crate::app::{BLEND_MODES, blend_label};
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::state::{AppState, LayerRow};
 use crate::tokens::color;
 use crate::views::option_bar::controls::{floating_options_panel, tooltip};
-use rust_i18n::t;
 
 use photrez_core::protocol::LockKind;
 
@@ -160,7 +247,7 @@ pub fn render(
     let active = layers
         .iter()
         .zip(flags.iter())
-        .find(|(row, _)| row.id == selected)
+        .find(|(row, _)| row.id == selected && selected_layers.contains(&row.id))
         .and_then(|(row, flags)| row.core_id.clone().map(|id| (id, *flags)));
     v_flex()
         .w_full()
@@ -199,7 +286,11 @@ pub(crate) fn disabled_row_opacity() -> f32 {
 fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
     let (blend, opacity, active_document) = {
         let s = state.read(cx);
-        (s.layer_blend.clone(), s.layer_opacity, !s.layers.is_empty())
+        (
+            s.layer_blend.clone(),
+            s.layer_opacity,
+            !s.layers.is_empty() && !s.selected_layers.is_empty(),
+        )
     };
     let mut row = h_flex()
         .w_full()
@@ -219,7 +310,7 @@ fn blend_header(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div 
                         .text_size(px(TEXT_12))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT_DIM)
-                        .child(t!("tools.options.opacity")),
+                        .child(t("tools.options.opacity")),
                 )
                 .child(opacity_button(
                     "layer-opacity-dec",
@@ -401,11 +492,11 @@ fn lock_toggles(flags: Option<crate::state::LayerFlags>) -> Vec<LockToggle> {
             disabled: flags.is_none() || background || blocked,
             dimmed: dimmed && (flags.is_none() || background || blocked),
             text: if background {
-                t!("layers.renameToUnlock").into_owned()
+                t("layers.renameToUnlock")
             } else if locked {
-                t!(locked_key).into_owned()
+                t(locked_key)
             } else {
-                t!(unlocked_key).into_owned()
+                t(unlocked_key)
             },
         }
     };
@@ -493,7 +584,7 @@ fn lock_header(
                 .text_size(px(TEXT_12))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child(t!("layers.lock")),
+                .child(t("layers.lock")),
         )
         .child(
             h_flex()
@@ -572,11 +663,18 @@ fn lock_button(
 ///
 /// [`footer_button_states`] holds the per-button rules.
 fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Div {
-    let (layers, selected, flags) = {
+    let (layers, selected, selected_layers, flags) = {
         let s = state.read(cx);
-        (s.layers.clone(), s.selected_layer, s.layer_flags.clone())
+        (
+            s.layers.clone(),
+            s.selected_layer,
+            s.selected_layers.clone(),
+            s.layer_flags.clone(),
+        )
     };
-    let position = layers.iter().position(|row| row.id == selected);
+    let position = layers
+        .iter()
+        .position(|row| row.id == selected && selected_layers.contains(&row.id));
     let background = position
         .and_then(|index| flags.get(index).copied())
         .is_some_and(|flags| flags.is_background);
@@ -591,14 +689,14 @@ fn actions_footer(state: &Entity<AppState>, cx: &Context<crate::app::App>) -> Di
         background,
     );
     let texts = [
-        t!("layers.newLayer"),
-        t!("layers.duplicateLayer"),
-        t!("layers.mergeDown"),
-        t!("layers.flattenAll"),
+        t("layers.newLayer"),
+        t("layers.duplicateLayer"),
+        t("layers.mergeDown"),
+        t("layers.flattenAll"),
         if background {
-            t!("layers.cannotDeleteBackground")
+            t("layers.cannotDeleteBackground")
         } else {
-            t!("layers.deleteLayer")
+            t("layers.deleteLayer")
         },
     ];
 
@@ -795,6 +893,7 @@ mod tests {
             lock_position: false,
             lock_rotation: false,
             is_background: false,
+            is_text: false,
         }
     }
 
@@ -815,10 +914,10 @@ mod tests {
         assert_eq!(ids, vec!["base", "transparency", "position", "rotation"]);
         assert!(toggles.iter().all(|toggle| !toggle.disabled));
         assert!(toggles.iter().all(|toggle| !toggle.locked));
-        assert_eq!(toggles[0].text, t!("layers.lockLayer"));
-        assert_eq!(toggles[1].text, t!("layers.lockTransparency"));
-        assert_eq!(toggles[2].text, t!("layers.lockPosition"));
-        assert_eq!(toggles[3].text, t!("layers.lockRotation"));
+        assert_eq!(toggles[0].text, t("layers.lockLayer"));
+        assert_eq!(toggles[1].text, t("layers.lockTransparency"));
+        assert_eq!(toggles[2].text, t("layers.lockPosition"));
+        assert_eq!(toggles[3].text, t("layers.lockRotation"));
     }
 
     #[test]
@@ -827,7 +926,7 @@ mod tests {
             lock_transparency: true,
             ..flags()
         }));
-        assert_eq!(unlocked[1].text, t!("layers.unlockTransparency"));
+        assert_eq!(unlocked[1].text, t("layers.unlockTransparency"));
         assert!(unlocked[1].locked);
         assert!(!unlocked[1].disabled);
 
@@ -836,7 +935,7 @@ mod tests {
             ..flags()
         }));
         assert_eq!(locked[0].svg, icons::LOCK);
-        assert_eq!(locked[0].text, t!("layers.unlockLayer"));
+        assert_eq!(locked[0].text, t("layers.unlockLayer"));
         for toggle in &locked[1..] {
             assert!(toggle.disabled, "a base lock disables the partial toggles");
             assert!(toggle.dimmed, "the partial toggles dim while disabled");
@@ -850,12 +949,12 @@ mod tests {
         assert!(
             background
                 .iter()
-                .all(|toggle| toggle.text == t!("layers.renameToUnlock"))
+                .all(|toggle| toggle.text == t("layers.renameToUnlock"))
         );
 
         let absent = lock_toggles(None);
         assert!(absent.iter().all(|toggle| toggle.disabled));
-        assert_eq!(absent[0].text, t!("layers.lockLayer"));
+        assert_eq!(absent[0].text, t("layers.lockLayer"));
     }
 
     /// RED proof by mutation: return 1.0 from [`disabled_row_opacity`] and
@@ -914,3 +1013,4 @@ mod tests {
 
 mod rows;
 use rows::layer_list;
+pub(crate) use rows::layer_thumb;

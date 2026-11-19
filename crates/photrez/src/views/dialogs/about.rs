@@ -4,9 +4,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{Div, FontWeight, Hsla, Stateful, TestSupportExt, div, hsla, px, relative};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use super::title_bar;
 use super::{GAP_2, R4, R6};
@@ -187,7 +187,7 @@ fn about_hero() -> Div {
                         .font_family(ui::FONT_UI)
                         .line_height(relative(1.35))
                         .text_color(color::TEXT_DIM)
-                        .child(t!("dialogs.about.tagline")),
+                        .child(t("dialogs.about.tagline")),
                 )),
         )
 }
@@ -252,7 +252,7 @@ fn about_spec_cell(i: usize) -> Div {
                 .font_family(ui::FONT_UI)
                 .line_height(px(18.0))
                 .text_color(color::TEXT_DIM)
-                .child(format!("{}:", t!(ABOUT_SPEC_LABELS[i]))),
+                .child(format!("{}:", t(ABOUT_SPEC_LABELS[i]))),
         ))
         .child(
             div()

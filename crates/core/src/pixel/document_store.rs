@@ -31,14 +31,6 @@ pub struct DocumentPixelStore {
     pub state_nodes: HashMap<String, LayerState>,
 }
 
-struct PreparedCropLayer {
-    layer_id: String,
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
-    create_background: bool,
-}
-
 impl DocumentPixelStore {
     #[cfg(any(feature = "legacy-host", test))]
     #[cfg_attr(not(feature = "legacy-host"), allow(dead_code))]
@@ -198,16 +190,12 @@ impl DocumentPixelStore {
         &mut self,
         envelope: crate::wire::command::CommandEnvelope,
     ) -> Result<crate::wire::command::CommandResult, crate::protocol::ProtocolError> {
-        let prepared = self
-            .history
-            .prepare_crop_bake(&envelope)
-            .map(|plan| self.prepare_crop_bake_pixels(&plan))
-            .transpose()?;
         let mut result = self.history.apply(envelope)?;
-        if let Some(plan) = self.history.pending_crop_bake.take()
-            && let Some(prepared) = prepared
-        {
-            self.apply_crop_bake(plan, prepared);
+        if let Some(plan) = self.history.pending_crop_bake.take() {
+            self.apply_crop_bake(plan);
+        }
+        if let Some(plan) = self.history.pending_adjustment_bake.take() {
+            self.apply_adjustment_bake(plan);
         }
         if let Some(plan) = self.history.pending_rasterize.take() {
             self.apply_rasterize_pixels(plan);
@@ -246,190 +234,154 @@ impl DocumentPixelStore {
         self.init_layer(&plan.layer_id, plan.width, plan.height, plan.rgba);
     }
 
-    fn prepare_crop_bake_pixels(
-        &self,
-        plan: &crate::engine::crop_bake::CropBakePlan,
-    ) -> Result<Vec<PreparedCropLayer>, crate::protocol::ProtocolError> {
-        let doc_width = plan.doc_width as u32;
-        let doc_height = plan.doc_height as u32;
-        if doc_width == 0 || doc_height == 0 {
-            return Err(crop_bake_input_error("output"));
+    /// Apply the adjustment bake's pixel half: write the baked bytes into
+    /// the canonical buffer and fold the before/after `StateNode` pair into
+    /// the metadata entry's `pixel_deltas`, so undoing the bake restores the
+    /// pixels too.
+    fn apply_adjustment_bake(&mut self, plan: crate::engine::adjustment_bake::ApplyAdjustmentPlan) {
+        let Some((w, h, epoch)) = self
+            .layers
+            .get(&plan.layer_id)
+            .map(|px| (px.width, px.height, px.epoch()))
+        else {
+            return;
+        };
+        if w == 0
+            || h == 0
+            || w != plan.width
+            || h != plan.height
+            || plan.rgba.len() != w as usize * h as usize * 4
+        {
+            // The baked buffer must match the canonical raster one-to-one;
+            // refuse inconsistent bakes rather than corrupt the canon.
+            return;
         }
-        let mut prepared = Vec::with_capacity(plan.layers.len() + usize::from(plan.fill.is_some()));
+        let patch = TilePatch {
+            x: 0,
+            y: 0,
+            w: w as usize,
+            h: h as usize,
+            data: plan.rgba,
+        };
+        let Some((before, after)) =
+            self.cow_tiles(&plan.layer_id, std::slice::from_ref(&patch), epoch)
+        else {
+            return;
+        };
+        if let Some(px) = self.layers.get_mut(&plan.layer_id) {
+            px.write_tile(&patch);
+            px.bump_epoch();
+        }
+        self.history.attach_pixel_deltas(
+            plan.entry_index,
+            vec![PixelDelta {
+                layer_id: plan.layer_id.clone(),
+                before,
+                after,
+            }],
+        );
+    }
+
+    /// Execute the pixel half of a destructive crop: discard every pixel that
+    /// fell outside the new document, then fold the resulting before/after
+    /// states into the crop's metadata entry. One command, one history step.
+    fn apply_crop_bake(&mut self, plan: crate::engine::crop_bake::CropBakePlan) {
+        let mut deltas = Vec::new();
         if let Some(fill) = &plan.fill {
-            let pixels = if fill.create_background {
-                crate::engine::crop_bake::composite_layer_over_fill(
-                    Vec::new(),
-                    doc_width,
-                    doc_height,
+            // Bake the colour UNDER the Background and replace its bitmap with
+            // the document-sized result of "fill the canvas, then draw the
+            // cropped Background over it", baked into the Background layer.
+            let doc_w = plan.doc_width.max(0.0) as u32;
+            let doc_h = plan.doc_height.max(0.0) as u32;
+            if fill.create_background {
+                let bytes = crate::engine::crop_bake::composite_layer_over_fill(
+                    &[],
+                    fill.width,
+                    fill.height,
+                    &fill.placement,
+                    doc_w,
+                    doc_h,
                     fill.color,
-                    fill.visible,
-                    fill.opacity,
-                    fill.blend_mode.as_ref(),
-                )
+                );
+                self.init_layer(&fill.layer_id, doc_w, doc_h, bytes);
             } else {
-                let Some(layer) = self.layers.get(&fill.layer_id) else {
-                    return Err(crop_bake_input_error(&fill.layer_id));
-                };
-                let metadata = self
-                    .history
-                    .layers
-                    .iter()
-                    .find(|metadata| metadata.id == fill.layer_id);
-                if !valid_crop_source(layer.width, layer.height, &layer.pixels)
-                    || layer.width != fill.width
-                    || layer.height != fill.height
-                    || metadata.is_none_or(|metadata| {
-                        metadata.layer_type.as_ref()
-                            != Some(&crate::document::content::LayerType::Raster)
-                            || metadata.width != Some(f64::from(layer.width))
-                            || metadata.height != Some(f64::from(layer.height))
-                    })
-                {
-                    return Err(crop_bake_input_error(&fill.layer_id));
+                let before = self
+                    .layer_state(&fill.layer_id)
+                    .map(|ls| ls.current_state().clone());
+                let source = self.layers.get(&fill.layer_id).map(|px| px.pixels.clone());
+                if let (Some(before), Some(source)) = (before, source) {
+                    let bytes = crate::engine::crop_bake::composite_layer_over_fill(
+                        &source,
+                        fill.width,
+                        fill.height,
+                        &fill.placement,
+                        doc_w,
+                        doc_h,
+                        fill.color,
+                    );
+                    self.state_nodes.remove(&fill.layer_id);
+                    if let Some(layer) = self.layers.get_mut(&fill.layer_id) {
+                        layer.width = doc_w;
+                        layer.height = doc_h;
+                        layer.pixels = bytes;
+                        layer.bump_epoch();
+                    }
+                    if let Some(ls) = self.layer_state(&fill.layer_id) {
+                        let after = ls.current_state().clone();
+                        deltas.push(PixelDelta {
+                            layer_id: fill.layer_id.clone(),
+                            before,
+                            after,
+                        });
+                    }
                 }
-                let transform = crate::document::content::Transform2D {
-                    x: fill.placement.x,
-                    y: fill.placement.y,
-                    scale_x: fill.placement.scale_x,
-                    scale_y: fill.placement.scale_y,
-                    rotation: fill.placement.rotation,
-                    flip_h: fill.placement.flip_h,
-                    flip_v: fill.placement.flip_v,
-                };
-                let baked = crate::render::compositor::rasterize_transformed_layer(
-                    &fill.layer_id,
-                    &layer.pixels,
-                    (layer.width, layer.height),
-                    &transform,
-                    fill.adjustment.as_ref(),
-                    (doc_width, doc_height),
-                )
-                .map_err(|error| crate::protocol::ProtocolError {
-                    code: "E_INVALID".to_owned(),
-                    message: format!(
-                        "crop background {} could not be baked: {error}",
-                        fill.layer_id
-                    ),
-                })?;
-                crate::engine::crop_bake::composite_layer_over_fill(
-                    baked.pixels,
-                    doc_width,
-                    doc_height,
-                    fill.color,
-                    fill.visible,
-                    fill.opacity,
-                    fill.blend_mode.as_ref(),
-                )
-            };
-            prepared.push(PreparedCropLayer {
-                layer_id: fill.layer_id.clone(),
-                width: doc_width,
-                height: doc_height,
-                pixels,
-                create_background: fill.create_background,
-            });
+            }
         }
         for layer in &plan.layers {
-            let Some(source) = self.layers.get(&layer.layer_id) else {
-                return Err(crop_bake_input_error(&layer.layer_id));
+            let Some(px) = self.layers.get(&layer.layer_id) else {
+                continue;
             };
-            let metadata = self
-                .history
-                .layers
-                .iter()
-                .find(|metadata| metadata.id == layer.layer_id);
-            if !valid_crop_source(source.width, source.height, &source.pixels)
-                || metadata.is_none_or(|metadata| {
-                    metadata.layer_type.as_ref()
-                        != Some(&crate::document::content::LayerType::Raster)
-                        || metadata.width != Some(f64::from(source.width))
-                        || metadata.height != Some(f64::from(source.height))
-                })
-            {
-                return Err(crop_bake_input_error(&layer.layer_id));
+            let (w, h, epoch) = (px.width, px.height, px.epoch());
+            if w == 0 || h == 0 {
+                continue;
             }
-            let transform = crate::document::content::Transform2D {
-                x: layer.placement.x,
-                y: layer.placement.y,
-                scale_x: layer.placement.scale_x,
-                scale_y: layer.placement.scale_y,
-                rotation: layer.placement.rotation,
-                flip_h: layer.placement.flip_h,
-                flip_v: layer.placement.flip_v,
+            let mut bytes = px.pixels.clone();
+            let discarded = crate::engine::crop_bake::discard_outside_document(
+                &mut bytes,
+                w,
+                h,
+                &layer.placement,
+                plan.doc_width,
+                plan.doc_height,
+            );
+            if discarded == 0 {
+                continue;
+            }
+            let patch = TilePatch {
+                x: 0,
+                y: 0,
+                w: w as usize,
+                h: h as usize,
+                data: bytes,
             };
-            let baked = crate::render::compositor::rasterize_transformed_layer(
-                &layer.layer_id,
-                &source.pixels,
-                (source.width, source.height),
-                &transform,
-                layer.adjustment.as_ref(),
-                (doc_width, doc_height),
-            )
-            .map_err(|error| crate::protocol::ProtocolError {
-                code: "E_INVALID".to_owned(),
-                message: format!("crop raster {} could not be baked: {error}", layer.layer_id),
-            })?;
-            prepared.push(PreparedCropLayer {
+            let Some((before, after)) =
+                self.cow_tiles(&layer.layer_id, std::slice::from_ref(&patch), epoch)
+            else {
+                continue;
+            };
+            if let Some(px) = self.layers.get_mut(&layer.layer_id) {
+                px.write_tile(&patch);
+                px.bump_epoch();
+            }
+            deltas.push(PixelDelta {
                 layer_id: layer.layer_id.clone(),
-                width: doc_width,
-                height: doc_height,
-                pixels: baked.pixels,
-                create_background: false,
+                before,
+                after,
             });
         }
-        Ok(prepared)
-    }
-
-    fn apply_crop_bake(
-        &mut self,
-        plan: crate::engine::crop_bake::CropBakePlan,
-        prepared: Vec<PreparedCropLayer>,
-    ) {
-        let mut deltas = Vec::new();
-        for layer in prepared {
-            if layer.create_background {
-                self.init_layer(&layer.layer_id, layer.width, layer.height, layer.pixels);
-            } else if let Some(delta) =
-                self.replace_layer_pixels(&layer.layer_id, layer.width, layer.height, layer.pixels)
-            {
-                deltas.push(delta);
-            }
-        }
         if !deltas.is_empty() {
-            self.history.attach_pixel_deltas(plan.entry_seq, deltas);
+            self.history.attach_pixel_deltas(plan.entry_index, deltas);
         }
-    }
-
-    fn replace_layer_pixels(
-        &mut self,
-        layer_id: &str,
-        width: u32,
-        height: u32,
-        pixels: Vec<u8>,
-    ) -> Option<PixelDelta> {
-        if self.layers.get(layer_id).is_some_and(|layer| {
-            layer.width == width && layer.height == height && layer.pixels == pixels
-        }) {
-            return None;
-        }
-        let before = self
-            .layer_state(layer_id)
-            .map(|state| state.current_state().clone())?;
-        self.state_nodes.remove(layer_id);
-        let layer = self.layers.get_mut(layer_id)?;
-        layer.width = width;
-        layer.height = height;
-        layer.pixels = pixels;
-        layer.bump_epoch();
-        let after = self
-            .layer_state(layer_id)
-            .map(|state| state.current_state().clone())?;
-        Some(PixelDelta {
-            layer_id: layer_id.to_owned(),
-            before,
-            after,
-        })
     }
 
     fn write_restored_tiles(
@@ -473,18 +425,4 @@ impl DocumentPixelStore {
             None => 0,
         }
     }
-}
-
-fn crop_bake_input_error(layer_id: &str) -> crate::protocol::ProtocolError {
-    crate::protocol::ProtocolError {
-        code: "E_INVALID".to_owned(),
-        message: format!("crop layer {layer_id} cannot be baked without valid raster pixels"),
-    }
-}
-
-fn valid_crop_source(width: u32, height: u32, pixels: &[u8]) -> bool {
-    let expected_len = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|length| length.checked_mul(4));
-    width > 0 && height > 0 && expected_len == Some(pixels.len())
 }

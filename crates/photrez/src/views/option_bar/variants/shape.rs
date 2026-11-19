@@ -43,6 +43,7 @@ pub(super) fn shape_items(
     state: &gpui_kit::Entity<AppState>,
     row: Div,
     cx: &Context<crate::app::App>,
+    _more: &mut Option<Div>,
 ) -> Div {
     use photrez_core::document::layer_params::ShapeFillKind;
 
@@ -111,7 +112,7 @@ pub(super) fn shape_items(
             Some(icons::RECTANGLE),
             None,
             if kind == ShapeTool::Rect {
-                t!("tools.options.shapes.rect").into_owned()
+                t("tools.options.shapes.rect")
             } else {
                 shape_label(kind).to_string()
             },
@@ -137,7 +138,7 @@ pub(super) fn shape_items(
                 el.child(tooltip(
                     state,
                     "opt-fill-color",
-                    t!("tools.options.fillColor"),
+                    t("tools.options.fillColor"),
                     None,
                     cx,
                     fill_swatch(fill_color, cx),
@@ -148,7 +149,7 @@ pub(super) fn shape_items(
     .child(tooltip(
         state,
         "opt-shape-stroke",
-        t!("tools.options.strokeOptions"),
+        t("tools.options.strokeOptions"),
         None,
         cx,
         stroke_control(

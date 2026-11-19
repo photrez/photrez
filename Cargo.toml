@@ -1,7 +1,6 @@
-# The fork's `App::set_pointer_hidden` gives the Linux and FreeBSD backends a
-# persistent hidden pointer. macOS uses NSCursor in the app and Windows its
-# native hidden mode. Patched crates live on photrez/gpui-fast branch
-# release/0.1.13-photrez-pointer until crates.io publishes the API.
+# `App::set_pointer_hidden` (gpui-fast 0.1.13) keeps the brush ring as the only
+# pointer on macOS, X11, and Wayland. Patched crates live on photrez/gpui-fast
+# branch release/0.1.13-photrez-pointer until crates.io publishes the API.
 [patch.crates-io]
 gpui-fast = { git = "https://github.com/photrez/gpui-fast", rev = "d5af71f0cfdbcf7fa1878d85cbf09569f8574c81" }
 gpui-fast-linux = { git = "https://github.com/photrez/gpui-fast", rev = "d5af71f0cfdbcf7fa1878d85cbf09569f8574c81", package = "gpui-fast-linux" }

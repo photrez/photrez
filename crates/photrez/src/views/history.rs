@@ -1,13 +1,110 @@
-//! History panel: the same 260x527 slot as the Layers tab, 6px scrollbar gutter included.
-//! Geometry and the single "Open" row come from the reference capture; no document fallback is in the shot.
-//! The label→icon map is complete even though only "open" is reachable in this state.
-//! Hover, keyboard focus, transitions and real scrolling are omitted.
-//! LCD subpixel fringes and a half-pixel vertical tie remain the known fidelity gaps.
+//! The History panel: its appearance.
+//!
+//! # Where it sits: 260x527 at (1106, 84)
+//!
+//! Exactly `layers_panel`'s slot — the *other* tab of the same LayerDock pane,
+//! so only one of the two is ever on screen and they
+//! share bounds. The height, 527, is `611 - 84`: the panel column stretches
+//! between the dock's 38px tab bar (y 46..83, its bottom border painted at 83)
+//! the Navigator (`shell-navigator` manifest box, y=611, drawn by whoever
+//! owns the dock chrome — not here). See `layers_panel.rs` for how those
+//! anchors were derived from `manifest.json`. The panel root is `flex_1` (its
+//! parent is the definite flex column in `right_dock::layer_body`), so 527 is
+//! what the column resolves to at the baseline window and the list absorbs any
+//! difference when the window is taller or shorter.
+//!
+//! The baseline is **`dock-history.png`** (533x750 @ 833,46), the whole right
+//! dock with this tab selected; in crop coordinates this panel occupies
+//! x 273..533, y 38..564.
+//!
+//! # Measured from the baseline
+//!
+//! Scan passes over the baseline crop (column at x=500, row at y=57,
+//! ink profiling per band) give, crop-relative:
+//!
+//! ```text
+//! row box     y 38..75 (38px), x 273..526 (254px — not 260, see below)
+//! row fill    #393939 = white at 12% over the #1e1e1e panel  (0.12*255+0.88*30 = 57)
+//! icon ink    x 290..303, y 50..63, peak colour #f28e42 = color::ACCENT
+//! label ink   x 315..344 ("Open"), peak colour #cacaca = color::TEXT
+//! hint ink    x 290..373, y 88..97, peak colour #4e4e4e
+//! y 98..564   nothing but #1e1e1e
+//! ```
+//!
+//! Every coordinate falls out of the row arithmetic: 16px horizontal padding
+//! puts the
+//! 16px icon box at x=289, a 10px gap puts the label at x=315, and the
+//! 38px row centres its content, putting both glyph runs exactly where the ink
+//! lands (icon box y 49..64 with 1px AA inset; 12px Inter line box 14.5px
+//! centred → cap top at 52.6, descender to 64.3 — measured 52..63). The hint's
+//! brightest pixel (78) sits just under the 80 that dim text at 55%
+//! composites to, as expected for antialiased 11px text.
+//!
+//! # The 260-wide column's rows are 254 wide: the scrollbar gutter
+//!
+//! The row stops at x=526, six pixels short of the panel's right edge, even
+//! though the list is given no padding. The cause is global:
+//! every scrollable area reserves a 6px scrollbar gutter
+//! (overriding the wider 10px default). The capture therefore shows a 6px
+//! strip on the right of the scroll container whether or not it overflows; the
+//! track is transparent so the panel background shows through. It is
+//! transcribed as `.pr(px(SCROLLBAR_GUTTER))` on the scroll column, which
+//! makes every full-width child 260 - 6 = 254 wide — matching the scan to the
+//! pixel. (GPUI has no scrollbars to reserve space, so the reservation is
+//! spelled out rather than emergent.)
+//!
+//! # What the captured state contains
+//!
+//! Exactly one history item and the hint line. Both facts come from the
+//! engine rather than being invented: the panel reads the document's
+//! history stack, every stack starts with an
+//! `Open` entry,
+//! and the captured document has no edits on top of it, so the list holds one
+//! item; the panel shows "Edits appear here" when
+//! the stack holds exactly one entry. The single item is the *current* step
+//! (index 0 === the active history index), which is why it carries the
+//! 12%-white fill, the accent icon and the full-strength label.
+//!
+//! The per-label icon map (`action_icon`) is transcribed in full even
+//! though only its first arm (`"open"` → `image`) is reachable here: it is
+//! pure presentation, and the other arms decide which glyph later states
+//! show.
+//!
+//! # Complete vs. omitted
+//!
+//! * **Complete:** the panel shell, the row's three visual states (current /
+//!   future-italic-dim / past-dim — only "current" is on screen in the
+//!   baseline, but the branches are presentational and cheap), the label→icon
+//!   map, and the hint line.
+//! * **Omitted — state the capture never shows:** the no-document fallback
+//!   (an 88px dashed box with a `history` glyph and "No image open"); it is
+//!   keyed on `activeDocumentId`, which is not a thing a static render has.
+//! * **Omitted — interaction only:** the click handler and the current-step
+//!   marker, the keyboard-focus fill (white at 7.5%), the hover fill (white at
+//!   2%) and the matching text-colour shifts, colour transitions,
+//!   text-selection suppression, and real scrolling (the content is 67px tall
+//!   in a 527px column).
+//! * Label clipping *is* transcribed (clipped to its box, ellipsis, kept on
+//!   one line), but it can never fire in this state: "Open" is
+//!   30px of the 196px the label gets.
+//!
+//! # Known fidelity gaps
+//!
+//! * The reference measurement shows LCD subpixel-AA fringes on the glyphs (paired
+//!   #c4793f / #398aae pixels around the accent icon and the label); GPUI
+//!   rasterises greyscale, so glyph edges will differ in colour though not in
+//!   position or mass.
+//! * Vertical centering: the 12px label's 14.5px line box in the 38px row
+//!   leaves a half-pixel tie (11.75) that GPUI rounds down (the project-wide
+//!   known gap), so the label may sit 1px above the measured cap-top row.
+//! * Icon tint is static (decided at tree-build time), matching the resting
+//!   state; the hover tint is left out with the rest of the hover state.
+
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::state::AppState;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -106,7 +203,7 @@ const TEXT_30: Hsla = Hsla {
 
 // ── Copy ────────────────────────────────────────────────────────────────────
 
-/// The catalog key for the single-item hint: `t!("history.editsAppearHere")`
+/// The catalog key for the single-item hint: `t("history.editsAppearHere")`
 /// renders `"Edits appear here"` in `en` (`locales/en.json`).
 /// The panel asks for that key through [`t`]; the const holds the key, and
 /// every call site wraps it with [`t`].
@@ -237,7 +334,7 @@ fn hint() -> Div {
         // Source asks for dim text at 55%; 55% composites to ~2.1:1
         // over the panel, so the hint paints at the full dim strength.
         .text_color(color::TEXT_DIM)
-        .child(t!(HINT_TEXT_KEY))
+        .child(t(HINT_TEXT_KEY))
 }
 
 /// Picks a row's icon: keyword match on the lowercased
@@ -330,7 +427,7 @@ mod tests {
     /// "Open" row.
     #[test]
     fn hint_text_is_the_single_row_copy() {
-        assert_eq!(t!(HINT_TEXT_KEY), "Edits appear here");
+        assert_eq!(t(HINT_TEXT_KEY), "Edits appear here");
     }
 
     /// `Step` is `PartialEq + Eq` — the `Current` branch is the one the

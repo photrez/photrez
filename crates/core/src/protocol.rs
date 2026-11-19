@@ -19,7 +19,7 @@ pub use crate::document::layer::{LayerChange, LayerMeta, Rect};
 pub use crate::engine::DocumentCore;
 pub use crate::wire::command::{
     BrushSettings, CONTRACT_VERSION, Command, CommandEnvelope, CommandResult, DocumentVersion,
-    LockKind, PixelPatchHandoff, RasterizePixels, StrokePoint, TransformPatch,
+    LockKind, PixelPatchHandoff, RasterizePixels, StrokePoint, TransformLayerEntry, TransformPatch,
 };
 pub use crate::wire::history::{
     HistoryEntryView, HistoryQuery, Origin, PayloadKind, PendingExternalView,

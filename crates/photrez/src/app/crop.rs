@@ -564,9 +564,11 @@ impl App {
             let state = self.state.read(cx);
             (
                 state.crop_delete_pixels,
-                state
-                    .crop_fill_background
-                    .then_some(state.resolved_crop_fill_color()),
+                if state.crop_fill_background {
+                    Some(state.bg_color)
+                } else {
+                    None
+                },
             )
         };
         let request = crate::crop_geometry::CropRequest {

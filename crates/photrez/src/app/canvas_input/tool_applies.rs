@@ -33,19 +33,68 @@ impl App {
         end: (f64, f64),
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let (id, x, y, scale_x, scale_y, rotation, flip_h, flip_v) =
-            self.active_layer_transform(cx)?;
-        let transform = TransformPatch {
-            x: x + end.0 - start.0,
-            y: y + end.1 - start.1,
-            scale_x,
-            scale_y,
-            rotation,
-            flip_h: Some(flip_h),
-            flip_v: Some(flip_v),
-        };
+        let ids = self.selected_core_ids(cx);
+        if ids.is_empty() {
+            return Err("no layer is selected".to_string());
+        }
+        let content = self
+            .active_document
+            .as_ref()
+            .and_then(|document| self.sessions.get(&document.doc_id))
+            .and_then(|session| session.loaded_document().content_snapshot())
+            .ok_or_else(|| "loaded content is missing".to_string())?;
         let doc_id = self.active_doc_id()?;
-        self.apply_core_command(&doc_id, Command::TransformLayer { id, transform }, true, cx)
+        if ids.len() == 1 {
+            let id = ids
+                .into_iter()
+                .next()
+                .ok_or_else(|| "the selected layer is missing from the document".to_string())?;
+            let layer = content
+                .layers
+                .iter()
+                .find(|layer| layer.id == id)
+                .ok_or_else(|| "the selected layer is missing from the document".to_string())?;
+            let transform = TransformPatch {
+                x: layer.transform.x + end.0 - start.0,
+                y: layer.transform.y + end.1 - start.1,
+                scale_x: layer.transform.scale_x,
+                scale_y: layer.transform.scale_y,
+                rotation: layer.transform.rotation,
+                flip_h: Some(layer.transform.flip_h),
+                flip_v: Some(layer.transform.flip_v),
+            };
+            return self.apply_core_command(
+                &doc_id,
+                Command::TransformLayer { id, transform },
+                true,
+                cx,
+            );
+        }
+        let patches: Vec<photrez_core::protocol::TransformLayerEntry> = ids
+            .into_iter()
+            .filter_map(|id| {
+                content
+                    .layers
+                    .iter()
+                    .find(|layer| layer.id == id)
+                    .map(|layer| {
+                        let transform = TransformPatch {
+                            x: layer.transform.x + end.0 - start.0,
+                            y: layer.transform.y + end.1 - start.1,
+                            scale_x: layer.transform.scale_x,
+                            scale_y: layer.transform.scale_y,
+                            rotation: layer.transform.rotation,
+                            flip_h: Some(layer.transform.flip_h),
+                            flip_v: Some(layer.transform.flip_v),
+                        };
+                        photrez_core::protocol::TransformLayerEntry {
+                            id: id.clone(),
+                            transform,
+                        }
+                    })
+            })
+            .collect();
+        self.apply_core_command(&doc_id, Command::GroupTransformLayers { patches }, true, cx)
     }
 
     pub(super) fn apply_shape(

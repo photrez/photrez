@@ -47,6 +47,15 @@ pub enum LayerTab {
     History,
 }
 
+/// The right dock's arrangement: two columns side by side, or one column
+/// with the inspector above the Layers/History dock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RightDockLayout {
+    #[default]
+    SideBySide,
+    Stacked,
+}
+
 /// The open-document loading overlay: an indeterminate wait or real progress.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadingState {
@@ -170,6 +179,9 @@ pub struct LayerFlags {
     /// Background layers cannot be locked; the header disables its toggles and
     /// their tooltips say to rename instead.
     pub is_background: bool,
+    /// The core layer is a text layer; its row thumbnail carries the small
+    /// accent "T" badge the reference paints for text layers.
+    pub is_text: bool,
 }
 
 /// What the transform rows show for the selected layer: position, rotation, its
@@ -277,6 +289,8 @@ pub struct AppState {
     pub inspector_tab: InspectorTab,
     pub layer_tab: LayerTab,
     pub dock_open: bool,
+    /// The right dock's arrangement: side-by-side (default) or stacked.
+    pub right_dock_layout: RightDockLayout,
     pub has_document: bool,
     /// Layer rows shown in the Layers panel, top of the stack first.
     pub layers: Vec<LayerRow>,
@@ -315,6 +329,9 @@ pub struct AppState {
     pub open_menu: Option<MenuId>,
     /// The canvas context menu's window position, if open.
     pub context_menu: Option<(f32, f32)>,
+    /// The Layers row context menu: window position and the core id of the
+    /// clicked row. The menu resolves its items from live state at render.
+    pub layer_context_menu: Option<(f32, f32, String)>,
     /// The mounted shell dialog, if any.
     pub active_dialog: Option<DialogId>,
     /// The open-document loading overlay; `None` at rest.
@@ -380,10 +397,8 @@ pub struct AppState {
     pub bg_color: [u8; 4],
     /// Crop bar `Delete`: discard pixels outside the crop (on by default).
     pub crop_delete_pixels: bool,
-    /// Crop bar `Fill BG`: fill empty crop areas on Apply.
+    /// Crop bar `Fill BG`: bake the background colour under the crop.
     pub crop_fill_background: bool,
-    pub crop_fill_color: [u8; 4],
-    pub crop_fill_use_background: bool,
     /// Test seam: the crop flags actually sent to core on the last Apply.
     #[cfg(test)]
     pub last_crop_flags: Option<(bool, Option<[u8; 4]>)>,
@@ -566,10 +581,6 @@ pub struct AppState {
     pub move_snap_focus: Option<gpui_kit::FocusHandle>,
     pub move_auto_select_focus: Option<gpui_kit::FocusHandle>,
     pub move_transform_focus: Option<gpui_kit::FocusHandle>,
-    /// Focus targets for the Crop Delete and Fill controls.
-    pub crop_delete_focus: Option<gpui_kit::FocusHandle>,
-    pub crop_fill_focus: Option<gpui_kit::FocusHandle>,
-    pub crop_fill_color_focus: Option<gpui_kit::FocusHandle>,
     /// One tabbable focus handle per New Document text field, indexed by
     /// `new_document_field_index` and installed at App construction.
     pub new_document_field_foci: Vec<gpui_kit::FocusHandle>,
@@ -604,6 +615,16 @@ pub struct AppState {
     /// The option bar's overflow (`MoreDropdown`) panel, independent of
     /// `open_select` so a preset list can open inside it.
     pub more_open: bool,
+    /// A layer drag is in flight (a cross-document move). Set on drag start,
+    /// cleared on drop anywhere the payload can land and on Escape; used by
+    /// the tab hover-to-switch timer, which only makes sense mid-drag.
+    pub layer_drag_active: bool,
+    /// The core id of the row a cross-document layer drag started from, so
+    /// its own row can take the dimmed "being dragged" look.
+    pub layer_drag_source: Option<String>,
+    /// The tab currently under the pointer during a cross-document layer
+    /// drag, used to highlight the drop target and dim the other tabs.
+    pub layer_drag_hover_tab: Option<String>,
     pub select_cursor: usize,
     pub select_count: usize,
     /// Laid-out bounds of the shape bar's stroke popover (click-away).
@@ -653,15 +674,6 @@ impl AppState {
         self.print_unit_open = false;
         self.print_printer_open = false;
     }
-
-    pub(crate) const fn resolved_crop_fill_color(&self) -> [u8; 4] {
-        if self.crop_fill_use_background {
-            self.bg_color
-        } else {
-            self.crop_fill_color
-        }
-    }
-
     /// An overlay owns the pointer, so the canvas must not keep a hover cursor
     /// after the pointer stops moving.
     pub fn overlay_owns_canvas(&self) -> bool {

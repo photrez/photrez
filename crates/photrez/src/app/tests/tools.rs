@@ -27,6 +27,80 @@ pub(super) fn set_state(
     });
 }
 
+/// The footer's sentence follows paint-block state instead of showing the
+/// tool hint while the action is impossible.
+#[gpui_kit::test]
+fn status_tip_reports_paint_block_reasons(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        set_tool(&content, cx, ToolId::Brush, 1.0);
+        let tip = |cx: &mut gpui_kit::App| content.read(cx).status_tip(cx);
+        assert_eq!(tip(cx), crate::i18n::t("status.toolTips.brush"));
+
+        let core_id = content
+            .read(cx)
+            .selected_layer_for_cursor(cx)
+            .expect("a selected layer")
+            .1
+            .id;
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id.clone(), cx));
+        assert_eq!(tip(cx), crate::i18n::t("status.toolTips.layerLocked"));
+        content.update(cx, |app, cx| app.toggle_layer_locked(core_id, cx));
+
+        set_state(&content, cx, |s| s.layer_flags[0].visible = false);
+        assert_eq!(tip(cx), crate::i18n::t("status.toolTips.layerHidden"));
+        set_state(&content, cx, |s| s.layer_flags[0].visible = true);
+
+        set_tool(&content, cx, ToolId::Eraser, 1.0);
+        set_state(&content, cx, |s| s.layer_flags[0].lock_transparency = true);
+        assert_eq!(
+            tip(cx),
+            crate::i18n::t("status.toolTips.transparencyProtected")
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// A live gradient drag replaces the tool hint with the distance/angle
+/// readout, using the same decimal precision as the reference.
+#[gpui_kit::test]
+fn status_tip_reports_the_gradient_vector(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        set_tool(&content, cx, ToolId::Gradient, 1.0);
+        content.update(cx, |app, _| {
+            app.pending_gesture = Some(crate::input_policy::PendingGesture {
+                tool: ToolId::Gradient,
+                start: (10.0, 20.0),
+                last: (40.0, 60.0),
+                start_screen: (0.0, 0.0),
+                last_screen: (0.0, 0.0),
+                crop_start: None,
+                crop_pasteboard: false,
+                crop_replacement_started: false,
+                crop_modern_create: false,
+                crop_modern_drag_started: false,
+                crop_modern_preview: None,
+                crop_snap_targets: None,
+                shift: false,
+                alt: false,
+            });
+        });
+        assert_eq!(
+            content.read(cx).status_tip(cx),
+            crate::i18n::t_args(
+                "status.gradientVector",
+                &[("distance", "50"), ("angle", "53.1")]
+            )
+        );
+    })
+    .expect("test window remains open");
+}
+
 #[gpui_kit::test]
 fn brush_cursor_ring_follows_size_hardness_and_tool(cx: &mut gpui_kit::TestAppContext) {
     use photrez_core::raster::brush::tip::get_brush_cursor_radius_scale;

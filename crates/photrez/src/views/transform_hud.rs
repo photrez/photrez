@@ -1,7 +1,24 @@
-//! Transform HUD: dark readout near the pointer during Move/resize/rotate or brush adjust.
-//! Placement is `max(12, x+16)` / `max(50, y-4)` translated up by its own height.
-//! Raw neutral colours, not editor tokens; the SNAP badge uses its own green ramp.
-//! Row layout changes per mode; the scale reads at the W row's right.
+//! The transform HUD: a small dark readout floating up-right of the
+//! pointer during a Move/resize/rotate drag, or during the Alt+Right brush
+//! size/hardness adjustment.
+//!
+//! Geometry: `left = max(12, x + 16)`, `top = max(50, y - 4)` with the box
+//! translated up by its own height, a grey border at 80% opacity, fill
+//! `#18181B`, radius 6, padding 10x6, a 2 px row gap between the stacked
+//! rows, 11px text.
+//!
+//! Row layout is per mode:
+//!
+//! ```text
+//! move    X +12 px        (no badge)
+//!         Y -34 px  SNAP
+//! resize  W 640 px   100%       <- the scale reads at the W row's right
+//!         H 480 px   SNAP
+//! brush   Size 24 px      (28 px label column)
+//!         Hard 100 %
+//! rotate  R 45.0deg  SNAP       (single row, badge inline)
+//! ```
+
 use crate::components::ui;
 use crate::state::{HudInfo, HudMode};
 

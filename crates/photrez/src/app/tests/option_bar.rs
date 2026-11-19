@@ -803,6 +803,100 @@ fn selection_overflow_panel_reaches_the_clipboard_actions(cx: &mut gpui_kit::Tes
     .expect("test window remains open");
 }
 
+/// A deferred overflow panel paints after the normal tree, so an open modal
+/// must hide it; otherwise it covers the dialog (captured in shots-native/173).
+#[gpui_kit::test]
+fn a_modal_hides_the_open_overflow_panel(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        window.click("opt-more", cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_some(),
+            "the overflow panel is open before the dialog"
+        );
+
+        content.update(cx, |app, cx| app.open_new_document(cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_none(),
+            "the modal must not be covered by the deferred overflow panel"
+        );
+
+        content.update(cx, |app, cx| app.close_new_document(cx));
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-more-panel").is_some(),
+            "closing the modal restores the still-open overflow panel"
+        );
+    })
+    .expect("test window remains open");
+}
+
+/// Opening the overflow panel commits a live numeric edit and closes it, so
+/// a subsequent menu command cannot leave a stale typed buffer on screen.
+#[gpui_kit::test]
+fn opening_the_overflow_commits_a_live_numeric_field(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app(cx, &directory);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+
+        window.click("num-x", cx);
+        window.press("1", cx);
+        window.press("2", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_some(),
+            "the field is mid-edit before the menu opens"
+        );
+
+        window.click("opt-more", cx);
+        window.render_frame(cx);
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_none(),
+            "the menu click commits and closes the field"
+        );
+        assert_eq!(
+            move_bar_readout(&content, cx).x,
+            12.0,
+            "the typed value reached the layer"
+        );
+
+        window.click("opt-move-reset", cx);
+        window.render_frame(cx);
+        assert_eq!(
+            move_bar_readout(&content, cx).x,
+            0.0,
+            "the menu's reset reaches the same layer the field edits"
+        );
+        assert!(
+            content
+                .read(cx)
+                .state_for_test()
+                .read(cx)
+                .num_field
+                .is_none(),
+            "no stale edit buffer survives the command"
+        );
+    })
+    .expect("test window remains open");
+}
+
 /// What the Move bar's transform cells are showing: the app's own readout for
 /// the layer on screen.
 fn move_bar_readout(
@@ -908,4 +1002,103 @@ fn a_locked_layer_keeps_the_move_bar_transform_fields_inert(cx: &mut gpui_kit::T
         );
     })
     .expect("test window remains open");
+}
+
+/// A window resize flips the Move bar between the inline group and the
+/// overflow trigger in the same live view, not just in fresh mounts: the
+/// option bar reads `window.viewport_size()` every render, so the branch must
+/// follow the window. Pins both the narrow trip and the return trip.
+#[gpui_kit::test]
+fn window_resize_flips_the_move_bar_branches(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1500.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-reset").is_some(),
+            "1500 px mount renders the inline group"
+        );
+        assert!(
+            window.try_find("opt-more").is_none(),
+            "1500 px mount has no overflow trigger"
+        );
+    })
+    .expect("test window remains open");
+
+    // Bar = 1100 - 52 (rail) - 533 (dock) = 515; content 491 < 880: overflow.
+    cx.simulate_window_resize(
+        window.into(),
+        gpui_kit::size(gpui_kit::px(1100.), gpui_kit::px(820.)),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.find("opt-more").visible(),
+            "the narrow resize renders the overflow trigger"
+        );
+        assert!(
+            window.try_find("opt-reset").is_none(),
+            "the inline >= 880 px group stays folded at a 515 px bar"
+        );
+    })
+    .expect("resized window remains open");
+
+    // The return trip: the inline layout comes back.
+    cx.simulate_window_resize(
+        window.into(),
+        gpui_kit::size(gpui_kit::px(1500.), gpui_kit::px(820.)),
+    );
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find("opt-reset").is_some(),
+            "the re-widened resize renders the inline group"
+        );
+        assert!(
+            window.try_find("opt-more").is_none(),
+            "the re-widened resize drops the overflow trigger"
+        );
+    })
+    .expect("re-widened window remains open");
+}
+
+/// A 1920x1080 physical display at 125% scaling lays out in 1536x864 logical
+/// px, the width this app uses for its wide-dock breakpoint. Pins the logical
+/// measurement the 125% discussion needs: the harness reports the scale
+/// factor and a logical viewport, and at exactly 1536 both dock and bar
+/// follow logical pixels (dock 598, content 862 < 880 -> overflow).
+#[gpui_kit::test]
+fn scale_factor_change_keeps_the_bar_in_logical_pixels(cx: &mut gpui_kit::TestAppContext) {
+    let directory = TestDirectory::new();
+    let (window, content, _source) = mount_fixture_app_sized(cx, &directory, 1536.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        set_tool(&content, cx, ToolId::Move, 1.0);
+        window.render_frame(cx);
+        assert!(
+            window.find("opt-more").visible(),
+            "1536 logical px (1080p at 125%) is the overflow branch"
+        );
+        assert!(window.viewport_size().width == gpui_kit::px(1536.0));
+    })
+    .expect("1536 px mount remains open");
+
+    cx.simulate_window_scale_factor_change(window.into(), 1.25);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            (window.scale_factor() - 1.25).abs() < f32::EPSILON,
+            "the harness reports the changed scale factor"
+        );
+        assert_eq!(
+            window.viewport_size().width,
+            gpui_kit::px(1536.0),
+            "the viewport stays logical px when the scale factor changes"
+        );
+        assert!(
+            window.find("opt-more").visible(),
+            "the overflow branch survives a scale-factor change at the same logical width"
+        );
+    })
+    .expect("scaled window remains open");
 }

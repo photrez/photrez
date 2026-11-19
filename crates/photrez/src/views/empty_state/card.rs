@@ -4,9 +4,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{BoxShadow, Div, FontWeight, Hsla, TestSupportExt, div, hsla, px};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use super::preset_icon;
 use super::{
@@ -109,7 +109,7 @@ fn header() -> Div {
                         .flex_1()
                         .min_w(px(0.0))
                         .child(text_line(
-                            &t!("welcome.title"),
+                            &t("welcome.title"),
                             TITLE_TEXT,
                             TITLE_LINE_H,
                             FontWeight(600.),
@@ -117,7 +117,7 @@ fn header() -> Div {
                         ))
                         .child(
                             text_line(
-                                &t!("welcome.description"),
+                                &t("welcome.description"),
                                 DESC_TEXT,
                                 DESC_LINE_H,
                                 FontWeight(400.),
@@ -143,14 +143,14 @@ fn actions() -> Div {
         .gap(px(ACTIONS_GAP))
         .child(action_button(
             icons::FOLDER_PLUS,
-            &t!("welcome.openImage"),
+            &t("welcome.openImage"),
             color::ACCENT,
             color::WHITE,
             false,
         ))
         .child(action_button(
             icons::PLUS,
-            &t!("welcome.newDocument"),
+            &t("welcome.newDocument"),
             color::FIELD,
             color::TEXT,
             true,
@@ -173,7 +173,7 @@ fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
         .child(
             action_button(
                 icons::FOLDER_PLUS,
-                &t!("welcome.openImage"),
+                &t("welcome.openImage"),
                 color::ACCENT,
                 color::WHITE,
                 false,
@@ -192,7 +192,7 @@ fn actions_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
         .child(
             action_button(
                 icons::PLUS,
-                &t!("welcome.newDocument"),
+                &t("welcome.newDocument"),
                 color::FIELD,
                 color::TEXT,
                 true,
@@ -276,7 +276,7 @@ fn presets() -> Div {
         .border_color(color::BORDER)
         .child(
             text_line(
-                &t!("welcome.quickPresets"),
+                &t("welcome.quickPresets"),
                 HEADING_TEXT,
                 HEADING_LINE_H,
                 FontWeight(600.),
@@ -306,7 +306,7 @@ fn presets_live(cx: &gpui_kit::Context<crate::app::App>) -> Div {
         .border_color(color::BORDER)
         .child(
             text_line(
-                &t!("welcome.quickPresets"),
+                &t("welcome.quickPresets"),
                 HEADING_TEXT,
                 HEADING_LINE_H,
                 FontWeight(600.),
@@ -451,7 +451,7 @@ fn footer() -> Div {
                 .text_size(px(PROMPT_TEXT))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child(t!("welcome.dropPromptDefault")),
+                .child(t("welcome.dropPromptDefault")),
         ))
         .child(ui::pin(kbd()))
 }

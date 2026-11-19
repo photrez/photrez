@@ -1,7 +1,30 @@
-//! Left tool rail: active state comes from `active_tool`, not a fixed resting shot.
-//! Buttons are keyed by typed `ToolId`; only Selection has a variant indicator.
-//! Tooltips, fly-out, disabled mode and transitions are interaction, not pixels.
-//! The divider's auto top margin pins the swatch stack to the bottom.
+//! The left tool rail.
+//!
+//! The rail draws the per-tool active state from a per-tool `active_tool`
+//! input rather than a hardcoded resting state, so the per-tool `option-*`
+//! shots highlight the correct button.
+//!
+//! # Omitted (interaction only - cannot affect a static screenshot)
+//!
+//! * Tooltips (`placement="right"`, `shortcut`)
+//! * the selection-variant fly-out popover (right-click)
+//! * the disabled mode - half opacity, no pointer response, desaturated
+//! * the 100ms and 150ms transitions - GPUI has no declarative
+//!   per-element transition
+//!
+//! # Transcription notes
+//!
+//! * The recorded stack levels 10 and 20 need no equivalent: GPUI paints
+//!   siblings in tree order, and the element order already lists bg-swatch ->
+//!   fg-swatch -> swap button, so the stacking comes out identical.
+//! * The divider's auto top margin pins the swatch stack to the bottom.
+//!
+//! # `ToolId -> icon/active` mapping
+//!
+//! The button-to-icon/active mapping keys every button by the typed `ToolId`
+//! on the `Tool` struct and compares it against the `active_tool` argument,
+//! so the correct button is lit per shot.
+
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
@@ -327,13 +350,13 @@ pub fn render_flyout(
             SelectionShape::Rect,
             "variant-rect",
             icons::SQUARE_DASHED,
-            rust_i18n::t!("tools.rectSelect"),
+            crate::i18n::t("tools.rectSelect"),
         ),
         (
             SelectionShape::Ellipse,
             "variant-ellipse",
             icons::CIRCLE_DASHED,
-            rust_i18n::t!("tools.ellipseSelect"),
+            crate::i18n::t("tools.ellipseSelect"),
         ),
     ];
     let mut popover = v_flex()

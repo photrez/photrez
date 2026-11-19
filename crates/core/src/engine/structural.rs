@@ -399,6 +399,89 @@ impl DocumentCore {
     /// `DocumentPixelStore` through `pending_rasterize`. Without it the flip is
     /// metadata-only (the historical behaviour that left the layer
     /// un-compositable — the documented rasterize defect).
+    pub(crate) fn apply_adjustment(
+        &mut self,
+        id: &str,
+        pixels: Option<&crate::wire::command::RasterizePixels>,
+    ) -> Result<Vec<LayerChange>, ProtocolError> {
+        let pos = match self.layers.position_by_id(id) {
+            Some(p) => p,
+            None => return Ok(Vec::new()),
+        };
+        let layer = self.layers.get(pos).expect("layer present").clone();
+        let Some(adjustment) = layer.basic_adjustment.clone() else {
+            return Ok(Vec::new());
+        };
+        let all_zero = adjustment.brightness == 0.0
+            && adjustment.contrast == 0.0
+            && adjustment.saturation == 0.0;
+        let material = if all_zero {
+            None
+        } else {
+            let Some(pixels) = pixels else {
+                return Err(e_invalid(
+                    "applyBasicAdjustment with a non-zero adjustment requires the baked pixel buffer",
+                ));
+            };
+            let width = pixels.width.max(0.0) as u32;
+            let height = pixels.height.max(0.0) as u32;
+            let expected = (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|len| len.checked_mul(4))
+                .ok_or_else(|| e_invalid("applyBasicAdjustment pixel buffer overflows"))?;
+            if width == 0 || height == 0 || !pixels.width.is_finite() || !pixels.height.is_finite()
+            {
+                return Err(e_invalid(
+                    "applyBasicAdjustment pixel buffer must be positive and finite",
+                ));
+            }
+            if pixels.rgba.len() != expected {
+                return Err(e_invalid(&format!(
+                    "applyBasicAdjustment pixel buffer is {} bytes, expected {expected}",
+                    pixels.rgba.len()
+                )));
+            }
+            Some((width, height, pixels.rgba.clone()))
+        };
+        let entry = self.begin_forward("Apply Adjustment", &[id.to_string()]);
+        let mut nl = layer;
+        nl.basic_adjustment = None;
+        nl.has_adjustments = Some(false);
+        if let Some((width, height, rgba)) = &material {
+            nl.width = Some(f64::from(*width));
+            nl.height = Some(f64::from(*height));
+            self.pending_adjustment_bake =
+                Some(crate::engine::adjustment_bake::ApplyAdjustmentPlan {
+                    entry_index: entry,
+                    layer_id: id.to_string(),
+                    width: *width,
+                    height: *height,
+                    rgba: rgba.clone(),
+                });
+        }
+        nl.dirty_rect = Some(Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        });
+        self.layers = self.layers.replaced(pos, nl.clone());
+        self.finish_forward(entry);
+        Ok(vec![LayerChange::Upsert { layer: nl }])
+    }
+
+    /// Rasterize a parametric (shape/text) layer to a plain raster layer: drop the
+    /// shape/text params, keep bitmap/dims/transform/adjustments. A non-parametric
+    /// layer is a silent no-op.
+    ///
+    /// `pixels` carries the host-rendered bitmap that materializes the layer's
+    /// canonical buffer (parametric layers are metadata-only — "typed add;
+    /// rasterization stays host-side"). With it, the layer's dimensions become
+    /// the bitmap's, matching the rule that a text layer always carries its
+    /// bitmap at bitmap-sized dims; the buffer itself is drained by
+    /// `DocumentPixelStore` through `pending_rasterize`. Without it the flip is
+    /// metadata-only (the historical behaviour that left the layer
+    /// un-compositable — the documented rasterize defect).
     pub(crate) fn apply_rasterize(
         &mut self,
         id: &str,

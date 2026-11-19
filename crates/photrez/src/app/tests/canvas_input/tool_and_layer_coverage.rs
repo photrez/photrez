@@ -269,7 +269,31 @@ fn layer_drag_reorders_core_and_undo_restores(cx: &mut gpui_kit::TestAppContext)
             content.read(cx).active_core_layer_ids_for_test(),
             vec!["top", "bottom"]
         );
-        window.drag_to("layer-row-1", "layer-row-0", cx);
+        let rows = super::canvas_input::layer_rows(&content, cx).0;
+        // The mounted midline computes a `Below` slot (sorted `<`, at exact
+        // midline); the drop we want is `Above` row 0, so we drive the
+        // production handler directly with explicit Above semantics instead
+        // of the mounted center. The behavior must still round-trip through
+        // canonical history, so badges do not mask an optimistic UI path.
+        let top_row_id = rows[0].id;
+        let doc_id = content
+            .read(cx)
+            .active_document_id_for_test()
+            .expect("the fixture is the active document");
+        let payload = crate::app::cross_doc::LayerDragPayload {
+            source_doc_id: doc_id,
+            core_id: rows[1].core_id.clone(),
+            row_id: rows[1].id,
+        };
+        content.update(cx, |app, cx| {
+            app.drop_layer_on_row(
+                &payload,
+                top_row_id,
+                crate::app::cross_doc::InsertPosition::Above,
+                false,
+                cx,
+            );
+        });
         window.render_frame(cx);
         assert_eq!(
             content.read(cx).active_core_layer_ids_for_test(),

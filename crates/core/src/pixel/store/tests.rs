@@ -7,6 +7,7 @@ use crate::raster::paint::raster::{RasterDab, RasterTip};
 use crate::raster::reference::assert_byte_eq;
 use crate::raster::tile::TilePatch;
 
+mod apply_adjustment;
 mod crop_bake;
 mod history_round_trip;
 mod history_unification;

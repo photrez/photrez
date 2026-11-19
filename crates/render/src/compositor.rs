@@ -11,7 +11,6 @@
 use super::{shape, text};
 use crate::input::RenderInput;
 use photrez_document::content::{BlendMode, LayerType, PtzDocumentContent, PtzLayer, Transform2D};
-use photrez_document::layer_params::BasicAdjustment;
 use photrez_raster::kernel::apply_basic_adjustment;
 use std::borrow::Cow;
 use std::fmt;
@@ -129,105 +128,6 @@ pub fn composite_layers(
     pixels: &dyn RenderInput,
 ) -> Result<CompositedRgba, CompositeError> {
     composite_layers_with_font_data(content, pixels, None)
-}
-
-/// Bake one raster's transform and adjustment into output-sized pixels.
-///
-/// Visibility, opacity, and blend mode stay as layer metadata and are not
-/// applied here.
-pub fn rasterize_transformed_layer(
-    layer_id: &str,
-    source: &[u8],
-    source_size: (u32, u32),
-    transform: &Transform2D,
-    adjustment: Option<&BasicAdjustment>,
-    output_size: (u32, u32),
-) -> Result<CompositedRgba, CompositeError> {
-    let (layer_width, layer_height) = source_size;
-    let (output_width, output_height) = output_size;
-    if (layer_width == 0) != (layer_height == 0) {
-        return Err(CompositeError::UnsupportedLayerDimension {
-            layer_id: layer_id.to_owned(),
-        });
-    }
-    if !transform_is_finite(transform) {
-        return Err(CompositeError::UnsupportedTransform {
-            layer_id: layer_id.to_owned(),
-        });
-    }
-    let source_len = (layer_width as usize)
-        .checked_mul(layer_height as usize)
-        .and_then(|length| length.checked_mul(4))
-        .ok_or(CompositeError::DocumentSizeOverflow)?;
-    if source.len() != source_len {
-        return Err(CompositeError::PixelDimensionMismatch {
-            layer_id: layer_id.to_owned(),
-        });
-    }
-    let output_len = (output_width as usize)
-        .checked_mul(output_height as usize)
-        .and_then(|length| length.checked_mul(4))
-        .ok_or(CompositeError::DocumentSizeOverflow)?;
-    let mut pixels = vec![0; output_len];
-    if layer_width == 0 || output_width == 0 || output_height == 0 {
-        return Ok(CompositedRgba {
-            width: output_width,
-            height: output_height,
-            pixels,
-        });
-    }
-
-    let adjusted = adjustment.map(|value| {
-        apply_basic_adjustment(source, value.brightness, value.contrast, value.saturation)
-    });
-    let source = adjusted.as_deref().unwrap_or(source);
-    let region = CompositeRegion {
-        x: 0,
-        y: 0,
-        width: output_width,
-        height: output_height,
-    };
-    if transform.scale_x == 0.0 || transform.scale_y == 0.0 {
-        return Ok(CompositedRgba {
-            width: output_width,
-            height: output_height,
-            pixels,
-        });
-    }
-    let exact_offsets = if is_exact_axis_aligned(transform) {
-        match (integer_offset(transform.x), integer_offset(transform.y)) {
-            (Some(x), Some(y)) => Some((x, y)),
-            _ => None,
-        }
-    } else {
-        None
-    };
-    if let Some((offset_x, offset_y)) = exact_offsets {
-        rasterize_exact(
-            &mut pixels,
-            region,
-            source,
-            layer_width as usize,
-            layer_height as usize,
-            transform,
-            offset_x,
-            offset_y,
-        );
-    } else {
-        rasterize_transformed(
-            &mut pixels,
-            region,
-            source,
-            layer_width as usize,
-            layer_height as usize,
-            transform,
-        );
-    }
-    Ok(CompositedRgba {
-        width: output_width,
-        height: output_height,
-        pixels,
-    })
 }
 
 /// Composite the layer stack into a clipped document-space region; the returned region and
@@ -629,108 +529,6 @@ fn composite_exact(out: &mut [u8], region: CompositeRegion, composite: &Composit
     }
 }
 
-#[allow(clippy::too_many_arguments)] // one region, source, layer size, transform and both offsets
-fn rasterize_exact(
-    out: &mut [u8],
-    region: CompositeRegion,
-    source: &[u8],
-    layer_width: usize,
-    layer_height: usize,
-    transform: &Transform2D,
-    offset_x: i64,
-    offset_y: i64,
-) {
-    let Some(layer_right) = offset_x.checked_add(layer_width as i64) else {
-        return;
-    };
-    let Some(layer_bottom) = offset_y.checked_add(layer_height as i64) else {
-        return;
-    };
-    let left = offset_x.max(region.x as i64).max(0);
-    let top = offset_y.max(region.y as i64).max(0);
-    let right = layer_right.min(region.x.saturating_add(region.width) as i64);
-    let bottom = layer_bottom.min(region.y.saturating_add(region.height) as i64);
-    if right <= left || bottom <= top {
-        return;
-    }
-
-    for y in top..bottom {
-        let layer_y = (y - offset_y) as usize;
-        let source_y = if transform.flip_v {
-            layer_height - 1 - layer_y
-        } else {
-            layer_y
-        };
-        for x in left..right {
-            let layer_x = (x - offset_x) as usize;
-            let source_x = if transform.flip_h {
-                layer_width - 1 - layer_x
-            } else {
-                layer_x
-            };
-            let source_at = (source_y * layer_width + source_x) * 4;
-            let output_at = (((y - region.y as i64) as usize * region.width as usize)
-                + (x - region.x as i64) as usize)
-                * 4;
-            out[output_at..output_at + 4].copy_from_slice(&source[source_at..source_at + 4]);
-        }
-    }
-}
-
-fn rasterize_transformed(
-    out: &mut [u8],
-    region: CompositeRegion,
-    source: &[u8],
-    layer_width: usize,
-    layer_height: usize,
-    transform: &Transform2D,
-) {
-    let width = layer_width as f64;
-    let height = layer_height as f64;
-    let sx = transform.scale_x * if transform.flip_h { -1.0 } else { 1.0 };
-    let sy = transform.scale_y * if transform.flip_v { -1.0 } else { 1.0 };
-    let cx = transform.x + (width * transform.scale_x.abs()) / 2.0;
-    let cy = transform.y + (height * transform.scale_y.abs()) / 2.0;
-    let theta = transform.rotation.to_radians();
-    let cos = theta.cos();
-    let sin = theta.sin();
-    let Some((min_x, min_y, max_x, max_y)) =
-        transformed_bounds(layer_width, layer_height, transform)
-    else {
-        return;
-    };
-    let region_right = region.x.saturating_add(region.width) as f64;
-    let region_bottom = region.y.saturating_add(region.height) as f64;
-    let x0 = (min_x.floor() - 1.0).max(region.x as f64).max(0.0) as usize;
-    let y0 = (min_y.floor() - 1.0).max(region.y as f64).max(0.0) as usize;
-    let x1 = (max_x.ceil() + 1.0).min(region_right) as usize;
-    let y1 = (max_y.ceil() + 1.0).min(region_bottom) as usize;
-
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let rx = x as f64 + 0.5 - cx;
-            let ry = y as f64 + 0.5 - cy;
-            let local_x = rx * cos + ry * sin;
-            let local_y = -rx * sin + ry * cos;
-            let u = local_x / sx + width / 2.0;
-            let v = local_y / sy + height / 2.0;
-            let covered = coverage(x, y, width, height, cx, cy, cos, sin, sx, sy);
-            if covered <= 0.0 {
-                continue;
-            }
-            let mut src_pixel = sample_bilinear(source, layer_width, layer_height, u, v);
-            let alpha = (src_pixel[3] as f64 * covered).round().clamp(0.0, 255.0) as u8;
-            if alpha == 0 {
-                continue;
-            }
-            src_pixel[3] = alpha;
-            let output_at =
-                (((y - region.y as usize) * region.width as usize) + (x - region.x as usize)) * 4;
-            out[output_at..output_at + 4].copy_from_slice(&src_pixel);
-        }
-    }
-}
-
 fn composite_transformed(
     out: &mut [u8],
     region: CompositeRegion,
@@ -875,18 +673,6 @@ fn coverage(
 
 fn opacity_alpha(opacity: f64) -> u32 {
     ((opacity.clamp(0.0, 1.0) * 255.0).round() as u32).min(255)
-}
-
-/// Composite one straight-alpha source pixel over a destination pixel.
-pub fn composite_rgba_over(
-    destination: [u8; 4],
-    source: [u8; 4],
-    opacity: f64,
-    blend_mode: &BlendMode,
-) -> [u8; 4] {
-    let mut output = destination;
-    source_over(&mut output, source, opacity_alpha(opacity), blend_mode);
-    output
 }
 
 /// Straight-alpha source-over with a premultiplied 8-bit rounding at each step.

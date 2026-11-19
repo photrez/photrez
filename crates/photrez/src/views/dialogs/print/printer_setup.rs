@@ -18,8 +18,8 @@ pub(super) fn printer_setup(
     cx: &Context<crate::app::App>,
 ) -> Div {
     inspector = inspector.child(header_row(
-        &t!("dialogs.print.printerSetup"),
-        &t!("dialogs.print.systemSpooler"),
+        &t("dialogs.print.printerSetup"),
+        &t("dialogs.print.systemSpooler"),
     ));
 
     let printer_name = printers.get(printer).cloned().unwrap_or_default();
@@ -42,7 +42,7 @@ pub(super) fn printer_setup(
             .items_center()
             .gap(px(8.0))
             .py(px(6.0))
-            .child(label(&t!("dialogs.print.printer")))
+            .child(label(&t("dialogs.print.printer")))
             .child(div().flex_1().child(trigger))
             .child(
                 div()
@@ -136,7 +136,7 @@ pub(super) fn printer_setup(
         );
     }
 
-    let copies_label = t!("dialogs.print.copies");
+    let copies_label = t("dialogs.print.copies");
     inspector = inspector.child(
         h_flex()
             .w_full()
@@ -180,7 +180,7 @@ pub(super) fn printer_setup(
                             cx,
                         );
                     }))
-                    .child(t!("dialogs.print.printerProps")),
+                    .child(t("dialogs.print.printerProps")),
             ),
     );
 
@@ -192,10 +192,10 @@ pub(super) fn printer_setup(
             .items_center()
             .gap(px(8.0))
             .py(px(6.0))
-            .child(label(&t!("dialogs.print.layout")))
+            .child(label(&t("dialogs.print.layout")))
             .child(toggle(
                 "print-orientation",
-                &t!("dialogs.print.portrait"),
+                &t("dialogs.print.portrait"),
                 !landscape,
                 Some(page_glyph("print-portrait-glyph", false, !landscape)),
                 cx,
@@ -207,7 +207,7 @@ pub(super) fn printer_setup(
             ))
             .child(toggle(
                 "print-orientation-landscape",
-                &t!("dialogs.print.landscape"),
+                &t("dialogs.print.landscape"),
                 landscape,
                 Some(page_glyph("print-landscape-glyph", true, landscape)),
                 cx,

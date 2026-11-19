@@ -357,10 +357,10 @@ pub(super) fn paper_label(index: usize, sizes: &PaperSizes) -> String {
 
 pub(super) fn unit_label(unit: &str) -> String {
     match unit {
-        "cm" => t!("dialogs.print.centimeters").into_owned(),
-        "in" => t!("dialogs.print.inches").into_owned(),
-        "px" => t!("dialogs.print.pixels").into_owned(),
-        _ => t!("dialogs.print.millimeters").into_owned(),
+        "cm" => t("dialogs.print.centimeters"),
+        "in" => t("dialogs.print.inches"),
+        "px" => t("dialogs.print.pixels"),
+        _ => t("dialogs.print.millimeters"),
     }
 }
 

@@ -121,8 +121,8 @@ pub(super) fn render(
 
     let color_state = state.clone();
     let color_header = header_row(
-        &t!("dialogs.print.colorManagement"),
-        &t!("dialogs.print.systemManaged"),
+        &t("dialogs.print.colorManagement"),
+        &t("dialogs.print.systemManaged"),
     )
     .id("print-color-header")
     .test_support()
@@ -139,16 +139,16 @@ pub(super) fn render(
     if color_open {
         for (name, value) in [
             (
-                t!("dialogs.print.docProfile").into_owned(),
+                t("dialogs.print.docProfile"),
                 "sRGB IEC61966-2.1".to_string(),
             ),
             (
-                t!("dialogs.print.colorHandling").into_owned(),
-                t!("dialogs.print.printerManagesColors").into_owned(),
+                t("dialogs.print.colorHandling"),
+                t("dialogs.print.printerManagesColors"),
             ),
             (
-                t!("dialogs.print.renderingIntent").into_owned(),
-                t!("dialogs.print.perceptual").into_owned(),
+                t("dialogs.print.renderingIntent"),
+                t("dialogs.print.perceptual"),
             ),
         ] {
             inspector = inspector.child(
@@ -188,7 +188,7 @@ pub(super) fn render(
     );
 
     let cancel = dialog_action_button(
-        &t!("common.cancel"),
+        &t("common.cancel"),
         false,
         "print-cancel",
         cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -199,7 +199,7 @@ pub(super) fn render(
     )
     .into_any_element();
     let confirm = dialog_action_button(
-        &t!("dialogs.print.printBtn"),
+        &t("dialogs.print.printBtn"),
         true,
         "print-confirm",
         cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -240,7 +240,7 @@ pub(super) fn render(
                 .child(confirm),
         );
 
-    let title = t!("dialogs.print.title");
+    let title = t("dialogs.print.title");
     let close_state = state.clone();
     let close = chrome::dialog_close_button(cx.listener(
         move |_app, _: &gpui_kit::ClickEvent, _window, cx| {

@@ -23,10 +23,10 @@ use gpui_kit::{
     Window, div, px,
 };
 
+use crate::i18n::t;
 use crate::palette::{Hsv, hsla, hsv_to_rgb};
 use crate::state::{AppState, ColorPickerSession, PickerArea};
 use crate::tokens::color;
-use rust_i18n::t;
 
 const PANEL_W: f32 = 470.0;
 const PANEL_LEFT: f32 = 448.0;
@@ -81,14 +81,13 @@ fn panel(
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let title = match session.target {
-        crate::state::ColorTarget::Foreground => t!("tools.foregroundColor").into_owned(),
-        crate::state::ColorTarget::Background => t!("tools.backgroundColor").into_owned(),
-        crate::state::ColorTarget::Text => t!("tools.options.textColor").into_owned(),
+        crate::state::ColorTarget::Foreground => t("tools.foregroundColor"),
+        crate::state::ColorTarget::Background => t("tools.backgroundColor"),
+        crate::state::ColorTarget::Text => t("tools.options.textColor"),
         // This dialog title is a literal, not a catalogue key.
         crate::state::ColorTarget::ShapeStroke => "Shape Stroke Color".to_string(), // i18n-exempt: literal dialog title
         crate::state::ColorTarget::ShapeFill => "Shape Fill Color".to_string(), // i18n-exempt: literal dialog title
         crate::state::ColorTarget::TextStroke => "Stroke Color".to_string(), // i18n-exempt: literal dialog title
-        crate::state::ColorTarget::CropFill => t!("tools.options.cropFillColor").into_owned(),
     };
     let content = v_flex()
         .w(px(PANEL_W))
@@ -294,7 +293,7 @@ fn column(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl I
                     v_flex()
                         .w(px(86.0))
                         .items_center()
-                        .child(label(t!("common.newColor").into_owned()))
+                        .child(label(t("common.newColor")))
                         .child(
                             v_flex()
                                 .w(px(SWATCH_BOX))
@@ -313,7 +312,7 @@ fn column(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl I
                                 )
                                 .child(div().flex_1().w_full().bg(hsla(session.original))),
                         )
-                        .child(label(t!("common.currentColor").into_owned())),
+                        .child(label(t("common.currentColor"))),
                 )
                 .child(
                     v_flex()
@@ -322,14 +321,14 @@ fn column(session: &ColorPickerSession, cx: &Context<crate::app::App>) -> impl I
                         .gap(px(6.0))
                         .child(action_button(
                             "color-picker-ok",
-                            t!("common.ok").into_owned(),
+                            t("common.ok"),
                             true,
                             cx,
                             ColorAction::Commit,
                         ))
                         .child(action_button(
                             "color-picker-cancel",
-                            t!("common.cancel").into_owned(),
+                            t("common.cancel"),
                             false,
                             cx,
                             ColorAction::Cancel,

@@ -32,7 +32,7 @@ fn dialogs_table_entries_are_well_formed() {
         // itself. The two exempt literals are skipped.
         if title.chars().all(|c| c.is_ascii_lowercase() || c == '.') {
             assert_ne!(
-                t!(*title),
+                t(title),
                 *title,
                 "{id}: title key `{title}` is not in the catalog"
             );
@@ -159,7 +159,7 @@ fn dialog_resize_geometry_is_pinned() {
     let entry = &DIALOGS[0];
     assert_eq!(entry.0, "dialog-resize");
     assert_eq!(entry.1, "dialogs.resizeCanvas.title");
-    assert_eq!(t!(entry.1), "Resize Canvas");
+    assert_eq!(t(entry.1), "Resize Canvas");
     assert_eq!(entry.2, 503.0);
     assert_eq!(entry.3, 278.0);
     assert_eq!(entry.4, 360.0);
@@ -177,8 +177,8 @@ fn about_strings_are_ascii_and_the_version_is_the_crates() {
     assert_eq!(about_version(), concat!("v", env!("CARGO_PKG_VERSION")));
 
     for key in ABOUT_SPEC_LABELS {
-        assert_ne!(t!(key), key, "label `{key}` is not in the catalog");
-        assert!(t!(key).is_ascii(), "label `{key}` left the Latin subset");
+        assert_ne!(t(key), key, "label `{key}` is not in the catalog");
+        assert!(t(key).is_ascii(), "label `{key}` left the Latin subset");
     }
     for value in ABOUT_SPEC_VALUES {
         assert!(!value.is_empty());
@@ -265,7 +265,7 @@ fn printer_notice_reports_the_failure_not_an_empty_library() {
     );
     assert_eq!(
         print::printer_notice(None, 0).as_deref(),
-        Some(t!("dialogs.print.noPrinters").into_owned().as_str()),
+        Some(t("dialogs.print.noPrinters").as_str()),
         "an empty list says there is nothing to print to"
     );
 }

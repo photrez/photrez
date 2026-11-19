@@ -4,9 +4,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{Div, FontWeight, div, px, relative};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use super::about_body;
 use super::chrome::dialog_button;
@@ -62,10 +62,10 @@ fn resize_body() -> Div {
                 .font_family(ui::FONT_UI)
                 .line_height(relative(1.35))
                 .text_color(color::TEXT_DIM)
-                .child(t!("dialogs.resizeCanvas.description")),
+                .child(t("dialogs.resizeCanvas.description")),
         ))
-        .child(resize_row(&t!("dialogs.resizeCanvas.width"), "800"))
-        .child(resize_row(&t!("dialogs.resizeCanvas.height"), "600"))
+        .child(resize_row(&t("dialogs.resizeCanvas.width"), "800"))
+        .child(resize_row(&t("dialogs.resizeCanvas.height"), "600"))
         .child(
             // 24px tall, centred on one row, 52px left padding - indented to line up with the
             // inputs, not the labels.
@@ -96,7 +96,7 @@ fn resize_body() -> Div {
                                 .text_size(px(11.0))
                                 .font_family(ui::FONT_UI)
                                 .text_color(color::TEXT)
-                                .child(t!("dialogs.resizeCanvas.lockAspect")),
+                                .child(t("dialogs.resizeCanvas.lockAspect")),
                         ),
                 ),
         )
@@ -230,9 +230,9 @@ fn settings_body() -> Div {
                         .text_size(px(BODY_TEXT))
                         .font_family(ui::FONT_UI)
                         .text_color(color::TEXT)
-                        .child(t!("settings.theme")),
+                        .child(t("settings.theme")),
                 )
-                .child(dialog_button(&t!("settings.themeSystem"), false)),
+                .child(dialog_button(&t("settings.themeSystem"), false)),
         )
         .child(
             div()

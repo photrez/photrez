@@ -13,10 +13,10 @@ use gpui_kit::{Div, Entity, FontWeight, TestSupportExt, div, px, relative};
 
 use crate::app::tool_settings::BRUSH_PRESETS;
 use crate::components::ui::{self, SliderKind};
+use crate::i18n::t;
 use crate::state::{AppState, SliderTarget, ToolId};
 use crate::tokens::color;
 use crate::views::option_bar::slider_surface::BarSliderSurface;
-use rust_i18n::t;
 
 const MENU_W: f32 = 200.0;
 const MENU_H: f32 = 260.0;
@@ -211,7 +211,7 @@ pub(crate) fn render(
             cx.stop_propagation();
             app.brush_menu_reset(cx);
         }))
-        .child(t!("common.reset").to_string());
+        .child(t("common.reset").to_string());
 
     let panel = v_flex()
         .id("brush-menu")
@@ -239,7 +239,7 @@ pub(crate) fn render(
         .on_click(stop)
         .child(slider_row(
             "brush-menu-size",
-            format!("{}: {:.0}px", t!("tools.options.size"), size),
+            format!("{}: {:.0}px", t("tools.options.size"), size),
             ui::slider(size_percent, None, SliderKind::BrushSize, true),
             SliderTarget::BrushMenuSize,
             size_bounds,
@@ -248,7 +248,7 @@ pub(crate) fn render(
             "brush-menu-hardness",
             format!(
                 "{}: {}%",
-                t!("tools.options.hardness"),
+                t("tools.options.hardness"),
                 hardness_percent as i32
             ),
             ui::slider(hardness_percent, None, SliderKind::BrushHardness, true),
@@ -259,7 +259,7 @@ pub(crate) fn render(
             "brush-menu-strength",
             format!(
                 "{}: {}%",
-                t!("tools.options.strength"),
+                t("tools.options.strength"),
                 strength_percent as i32
             ),
             ui::slider(strength_percent, None, SliderKind::Alpha, true),

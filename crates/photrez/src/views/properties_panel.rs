@@ -1,12 +1,79 @@
-//! Inspector panel: 272px wide, crop y=38..749.
-//! Geometry is transcribed from the reference capture, not derived from styling.
-//! The thumbnail bitmap and the two-tone checkerboard are not reproduced; only their boxes and mean fill are.
-//! Scroll columns reserve a 6px gutter even without overflow.
+//! The Properties (inspector) panel: its appearance, for the largest panel in
+//! the app.
+//!
+//! # Geometry: 272 wide, x 833..1104, y 84..795
+//!
+//! The InspectorDock column is 272px wide, and the
+//! dock itself is 533x750 at (833,46) in `manifest.json`, so this panel is the
+//! leftmost 272px of `dock-properties.png` below its 38px tab bar — i.e. crop
+//! x 0..271, crop y 38..749.
+//!
+//! Every number below was read back out of that PNG rather than derived from
+//! the styling that produced it, because the two disagree in places:
+//!
+//! ```text
+//! tab bar bottom border  crop y=37   (viewport y=83)     #333333 full width
+//! section 1             crop y=38..137                   "Selected Layer"
+//!   SectionHeader       text crop y=151..163             <- wait, see below
+//!   LayerThumb box      crop y=75..126, x 12..259        #1B1B1B border, FIELD fill
+//!     thumb 34x34       crop x 20..54, crop y 83..117     checkerboard, own 1px border
+//!     name              crop y 87..98                    11.5px medium, TEXT
+//!     type + size       crop y 104..113                  10.5px, TEXT_DIM
+//! section 1 divider     crop y=137       (viewport 183)
+//! section 2             crop y=138..470                   "Transform"
+//!   SectionHeader       text crop y=151..163
+//!   field boxes         24px tall, ~92px each            <-- see note
+//! section 2 divider     crop y=470       (viewport 516)
+//! panel ends            crop y=470, i.e. content is 433 of 712px
+//! ```
+//!
+//! Two things in that list are worth stating again, because both contradict the
+//! obvious reading of the recorded frame:
+//!
+//! * **The section 1 header text and the section 2 header text are both at crop
+//!   y=151..163.** That is not a copy-paste error — it is what the scan found,
+//!   and it is the first clue that this capture is *not* the
+//!   "single layer selected" branch the recorded default implies. See
+//!   "What state the baseline caught" below.
+//! * **The panel's content stops at crop y=470 of a 712px column.** This view
+//!   therefore does not need to fill the height, and a stretch-to-fill scroll
+//!   column is enough; there is nothing to scroll.
+//!
+//! # What state the baseline caught
+//!
+//! `PropertiesPanel` has four branches (`activeDocumentId`, multi-select,
+//! `safeLayer`, then `CanvasProperties` as the fallback). Both section headers
+//! measuring at the same crop rows says the visible pair is
+//! "Selected Layer" + "Transform" — the single-selected-layer branch — and
+//! that the two headers happen to land 13px apart in *viewport* terms because
+//! section 1 is 99px tall and puts its own header first. The literal values
+//! (name, type, transform numbers) are the ones the recorded capture shows for
+//! whatever layer the capture had selected; they are reproduced here as
+//! constants and are the first thing to correct if a capture disagrees.
+//!
+//! # Known gaps, specific to this panel
+//!
+//! * The layer thumbnail is canvas-drawn, so the
+//!   *pixels* of the layer preview are not reproducible from a static view.
+//!   Its box, border, size and checkerboard are; the image inside it is not.
+//! * The checkerboard itself alternates `rgba(255,255,255,0.05)` and
+//!   `rgba(255,255,255,0.1)` in 6px cells. GPUI's
+//!   `checkerboard()` takes one colour, so this view paints the 7.5% mean rather
+//!   than the two-tone original. Measured base is FIELD (`#252525`): the two
+//!   cell values compute to 41 and 52.5 over it, and the scan reads ~48/59,
+//!   close enough that the base is right and the difference is the canvas's own
+//!   compositing.
+//! * Tooltips, the disabled state (35% opacity), hover borders and the
+//!   status-hint row are all interaction states, so none is rendered here.
+//! * The scroll column reserves 6px for a scrollbar gutter on every
+//!   scrollable area, whether or not the content overflows. This panel's
+//!   rows are 6px narrower than its 272px column would suggest. Transcribed as
+//!   `.pr(px(6.))`.
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::Icon;
@@ -66,11 +133,11 @@ const HDR_ICON: f32 = 15.0;
 /// 12.5px, medium weight — `SectionHeader`'s label.
 const HDR_TEXT: f32 = 12.5;
 
-// --- Static "Selected Layer" literals (single-selected-layer branch) ---
-// ASCII-only escapes: \u{b7} = ·, \u{d7} = ×. These pin the exact resting
-// text; change them only with a new measurement.
-pub const LAYER_NAME: &str = "Background"; // i18n-exempt: new-document layer name
-pub const LAYER_SUBTITLE: &str = "Image layer \u{b7} 800 \u{d7} 600 px"; // i18n-exempt: demo content
+// --- Selected Layer card: live values ---
+/// The card's live subtitle, pinned by a test in this module's `tests`.
+pub(crate) fn selected_layer_subtitle(kind: &str, width: u32, height: u32) -> String {
+    format!("{kind} layer \u{b7} {width} \u{d7} {height} px")
+}
 
 /// The wired Actions row: (test id, handler) paired with the [ACTIONS] table
 /// order. The handlers are the ones the deleted additive strip used.
@@ -82,20 +149,42 @@ const ACTION_HANDLERS: &[(&str, ActionHandler)] = &[
 ];
 
 // --- Action + quick-row icon tables (static, asserted in tests) ---
-// Action button labels are catalog keys; rendered at the call site via `t!()`.
+// Action button labels are catalog keys; rendered at the call site via `t()`.
 pub const ACTIONS: &[(&[u8], &str)] = &[
     (icons::FLIP_H, "properties.flipH"),
     (icons::FLIP_V, "properties.flipV"),
     (icons::ROTATE_CCW, "common.reset"),
 ];
 
-pub const QUICK_ICONS: &[&[u8]] = &[icons::ALIGN_H, icons::ALIGN_V, icons::SWAP, icons::BOX];
+// The wired Quick row: (test id, icon, tooltip key) in reference order:
+// center horizontally, center vertically, fit to canvas, rotate 90\u{b0} CCW,
+// rotate 90\u{b0} CW. The tooltip keys mirror the reference's labels.
+pub const QUICK_ACTIONS: &[(&str, &[u8], &str)] = &[
+    ("prop-quick-center-h", icons::ALIGN_H, "properties.centerH"),
+    ("prop-quick-center-v", icons::ALIGN_V, "properties.centerV"),
+    (
+        "prop-quick-fit-canvas",
+        icons::MAXIMIZE,
+        "properties.fitCanvas",
+    ),
+    (
+        "prop-quick-rotate-ccw",
+        icons::ROTATE_CCW,
+        "properties.rotateCCW",
+    ),
+    (
+        "prop-quick-rotate-cw",
+        icons::ROTATE_CW,
+        "properties.rotateCW",
+    ),
+];
 
 pub fn render(
     state: &gpui_kit::Entity<crate::state::AppState>,
     document_size: Option<(u32, u32)>,
     zoom_percent: Option<u32>,
     transform_readout: Option<crate::state::LayerTransformReadout>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
     let (has_document, has_layers, multi, no_selection) = {
@@ -119,7 +208,7 @@ pub fn render(
     } else {
         let text_selected = state.read(cx).selected_layer_type.as_deref() == Some("text");
         v_flex()
-            .child(selected_layer_section())
+            .child(selected_layer_section(state, layer_thumbs, cx))
             .when(text_selected, |el| el.child(typography_section(state, cx)))
             .child(transform::section(state, transform_readout, cx))
     };
@@ -161,14 +250,14 @@ pub(crate) fn no_image_open(id: &'static str) -> impl IntoElement {
                 .font_family(ui::FONT_UI)
                 .font_weight(FontWeight(500.))
                 .text_color(color::TEXT)
-                .child(t!("properties.noImageOpen")),
+                .child(t("properties.noImageOpen")),
         )
         .child(
             div()
                 .text_size(px(12.0))
                 .font_family(ui::FONT_UI)
                 .text_color(color::TEXT_DIM)
-                .child(t!("properties.noImageOpenDesc")),
+                .child(t("properties.noImageOpenDesc")),
         )
 }
 
@@ -191,7 +280,7 @@ fn canvas_properties(
             section_block()
                 .child(section_header(
                     icons::IMAGE,
-                    &t!("canvasProps.selectedDocument"),
+                    &t("canvasProps.selectedDocument"),
                 ))
                 .child(
                     h_flex()
@@ -242,7 +331,7 @@ fn canvas_properties(
                                         .text_color(color::TEXT_DIM)
                                         .child(format!(
                                             "{} \u{b7} {width} \u{d7} {height} px",
-                                            t!("status.canvas")
+                                            t("status.canvas")
                                         )),
                                 ),
                         ),
@@ -250,14 +339,14 @@ fn canvas_properties(
         )
         .child(
             section_block()
-                .child(section_header(icons::IMAGE, &t!("status.canvas")))
+                .child(section_header(icons::IMAGE, &t("status.canvas")))
                 .child(
                     v_flex()
                         .mt(px(12.0))
                         .gap(px(8.0))
                         .w_full()
                         .child(ui::prop_row(
-                            &t!("tools.options.size"),
+                            &t("tools.options.size"),
                             canvas_property_button(
                                 "canvas-size",
                                 &format!("{width} \u{d7} {height} px"),
@@ -267,15 +356,15 @@ fn canvas_properties(
                             ),
                         ))
                         .child(ui::prop_row(
-                            &t!("canvasProps.mode"),
+                            &t("canvasProps.mode"),
                             ui::num_field(None, None, "RGB / 8", None),
                         ))
                         .child(ui::prop_row(
-                            &t!("canvasProps.profile"),
+                            &t("canvasProps.profile"),
                             ui::num_field(None, None, "sRGB IEC61966-2.1", None),
                         ))
                         .child(ui::prop_row(
-                            &t!("status.zoom"),
+                            &t("status.zoom"),
                             canvas_property_button(
                                 "canvas-fit",
                                 &format!("{zoom} %"),
@@ -293,7 +382,7 @@ fn canvas_properties(
             section_block()
                 .child(section_header(
                     icons::MAXIMIZE,
-                    &t!("canvasProps.quickActions"),
+                    &t("canvasProps.quickActions"),
                 ))
                 .child(
                     v_flex()
@@ -303,7 +392,7 @@ fn canvas_properties(
                         .child(canvas_action_button(
                             "canvas-action-fit",
                             icons::MAXIMIZE,
-                            &t!("canvasProps.fitToScreen"),
+                            &t("canvasProps.fitToScreen"),
                             ActionTone::Field,
                             cx,
                             |app, _window, cx| {
@@ -314,7 +403,7 @@ fn canvas_properties(
                         .child(canvas_action_button(
                             "canvas-action-resize",
                             icons::CROP,
-                            &t!("menus.items.resizeCanvas"),
+                            &t("menus.items.resizeCanvas"),
                             ActionTone::Field,
                             cx,
                             |app, window, cx| app.begin_resize_canvas(window, cx),
@@ -501,23 +590,33 @@ pub(super) fn section_header(icon: &'static [u8], label: &str) -> Div {
     )
 }
 
-/// The layer thumbnail's frame: 34x34, 1px divider border, 3px corners, checker
-/// inside. The seeded Background layer is this view's only single-layer branch
-/// and its image is the white 800x600 document, so the frame paints that
-/// swatch; checkerboard stays the fallback for a layer without pixels.
-fn layer_thumb() -> Div {
-    div()
-        .w(px(THUMB))
-        .h(px(THUMB))
-        .rounded(px(R3))
-        .border(px(1.0))
-        .border_color(color::DIVIDER)
-        .bg(color::WHITE)
-        .flex_shrink_0()
-}
-
-/// The "Selected Layer" section: header, then the bordered thumb+text box.
-fn selected_layer_section() -> Div {
+/// The "Selected Layer" section: header, then the bordered thumb+text box,
+/// fed from the app's live selection projection.
+fn selected_layer_section(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    layer_thumbs: &[Option<std::sync::Arc<gpui_kit::RenderImage>>],
+    cx: &Context<crate::app::App>,
+) -> Div {
+    let (name, type_label, width, height, thumb) = {
+        let s = state.read(cx);
+        let index = s
+            .layers
+            .iter()
+            .position(|row| row.id == s.selected_layer)
+            .unwrap_or(0);
+        let type_label = match s.selected_layer_type.as_deref() {
+            Some("shape") => "Shape",
+            Some("text") => "Text",
+            _ => "Image",
+        };
+        (
+            s.active_layer_name.clone(),
+            type_label,
+            s.active_layer_width,
+            s.active_layer_height,
+            layer_thumbs.get(index).and_then(|thumb| thumb.as_ref()),
+        )
+    };
     v_flex()
         .w_full()
         .flex_shrink_0()
@@ -527,7 +626,7 @@ fn selected_layer_section() -> Div {
         .border_color(color::DIVIDER)
         .child(section_header(
             icons::LAYERS,
-            &t!("properties.selectedLayer"),
+            &t("properties.selectedLayer"),
         ))
         .child(
             div()
@@ -540,7 +639,7 @@ fn selected_layer_section() -> Div {
                 .border_color(color::DIVIDER)
                 .bg(color::FIELD)
                 .p(px(BOX_PAD))
-                .child(layer_thumb())
+                .child(crate::views::layers::layer_thumb(thumb, false))
                 .child(
                     v_flex()
                         .flex_1()
@@ -553,7 +652,7 @@ fn selected_layer_section() -> Div {
                                 .font_weight(FontWeight(500.))
                                 .line_height(relative(1.1))
                                 .text_color(color::TEXT)
-                                .child(LAYER_NAME.to_string()),
+                                .child(name),
                         )
                         .child(
                             div()
@@ -561,7 +660,7 @@ fn selected_layer_section() -> Div {
                                 .font_family(ui::FONT_UI)
                                 .line_height(relative(1.15))
                                 .text_color(color::TEXT_DIM)
-                                .child(LAYER_SUBTITLE.to_string()),
+                                .child(selected_layer_subtitle(type_label, width, height)),
                         ),
                 ),
         )
@@ -652,9 +751,31 @@ fn wired_action_button(
         )
 }
 
-/// Same chrome, icon only — a 14px glyph, no label.
-fn icon_button(icon: &'static [u8]) -> Div {
-    div()
+/// The Quick-row button: a 14px glyph, icon only. Hover publishes the
+/// tooltip key through the shared live-tooltip state; a disabled button has
+/// the dimmed look and no click affordance, like the option bar's locked
+/// controls.
+#[allow(clippy::too_many_arguments)]
+fn quick_action_button(
+    state: &gpui_kit::Entity<crate::state::AppState>,
+    id: &'static str,
+    icon: &'static [u8],
+    tooltip: String,
+    enabled: bool,
+    cx: &Context<crate::app::App>,
+    action: ActionHandler,
+) -> impl IntoElement {
+    let shown = {
+        let s = state.read(cx);
+        s.tooltip.as_deref() == Some(id)
+            && s.tooltip_since.is_some_and(|since| {
+                cx.background_executor().now().duration_since(since) >= crate::app::TOOLTIP_DELAY
+            })
+    };
+    let hover_id = id.to_string();
+    let mut button = div()
+        .id(id)
+        .test_support()
         .flex_1()
         .min_w(px(0.0))
         .overflow_hidden()
@@ -667,12 +788,54 @@ fn icon_button(icon: &'static [u8]) -> Div {
         .border_color(color::FIELD_BORDER)
         .bg(color::FIELD)
         .px(px(8.0))
+        .aria_label(tooltip.clone())
+        .on_hover(cx.listener(move |app, hovered: &bool, _window, cx| {
+            app.set_tooltip(
+                if *hovered {
+                    Some(hover_id.clone())
+                } else {
+                    None
+                },
+                cx,
+            );
+        }))
         .child(
             Icon::default()
                 .data(icon)
                 .size(px(14.0))
                 .text_color(color::TEXT_DIM),
-        )
+        );
+    if enabled {
+        button = button.on_click(
+            cx.listener(
+                move |app, _: &gpui_kit::ClickEvent, _window, cx| match action(app, cx) {
+                    Ok(()) => app.set_status_error(None, cx),
+                    Err(error) => app.set_status_error(Some(format!("Properties: {error}")), cx),
+                },
+            ),
+        );
+    } else {
+        button = button.opacity(0.3);
+    }
+    let tip = tooltip;
+    let mut wrapper = h_flex()
+        .id(format!("{id}-hover"))
+        .relative()
+        .flex_1()
+        .min_w(px(0.0))
+        .items_center()
+        .child(button);
+    if shown {
+        wrapper = wrapper.child(
+            crate::views::tooltips::tooltip(&tip, None)
+                .id(format!("{id}-tooltip"))
+                .test_support()
+                .absolute()
+                .bottom(px(BTN + 6.0))
+                .left(px(0.0)),
+        );
+    }
+    wrapper
 }
 
 use multi_layer::*;

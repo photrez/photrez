@@ -448,7 +448,7 @@ fn a_second_press_on_a_preset_creates_the_document(cx: &mut gpui_kit::TestAppCon
         assert_eq!(
             content.read(cx).active_document_dims_for_test(),
             Some((2480, 3508)),
-            "the second press uses the A4 preset"
+            "the double press uses the A4 preset"
         );
     })
     .expect("test window remains open");

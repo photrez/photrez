@@ -1,9 +1,85 @@
-//! Dialogs share one chrome inside a transparent absolute frame appended late; GPUI has no z-index.
-//! No scrim: the shell behind a dialog stays at full brightness.
-//! The frame uses a 10px radius, 36px titlebar and 45px action row.
-//! Bodies vary: Settings and About are real, the other five have stubbed controls.
-//! `empty-new-document` delegates here; its only delta is the 154x144 preview swatch.
-//! Focus trap and Escape are live; a backdrop click does not dismiss a modal.
+//! The dialogs, rendered through the shared dialog chrome.
+//!
+//! # The frame convention, and what it is replacing
+//!
+//! `context_menus.rs`, `empty_state.rs`, `toasts.rs` and `tooltips.rs` all
+//! return a **transparent absolute 1366x820 frame** with the component pinned
+//! at its capture origin. This module does the same, and for the same reason:
+//! GPUI has no `z_index`, so paint order is tree order, and the only way to
+//! draw over the shell is to cover the viewport and be appended late.
+//! `workspace.rs` gates this on `shot::starts_with("dialog-")`.
+//!
+//! The design centres a dialog at the viewport midpoint. GPUI has no element
+//! offset, so the centring is not recomputed here: the manifest already
+//! records the *result* of that centring, and each dialog is pinned at its
+//! measured origin. That
+//! also sidesteps the whole class of error where this view re-derives a centre
+//! from a size and lands half a pixel off.
+//!
+//! # There is no scrim
+//!
+//! This is the most surprising measurement in the module, and it contradicts
+//! what a dialog is assumed to have: the backdrop is
+//! The design makes the backdrop a full-viewport transparent layer. The shell
+//! behind a dialog is drawn at full brightness. So this view does not dim
+//! anything, and `dialog-resize-full.png` \u{2014} the same dialog with the shell
+//! behind it \u{2014} is the baseline that proves it.
+//!
+//! # The chrome, measured in `dialog-about.png` (400x296)
+//!
+//! ```text
+//!   shell     10px radius, 1px FIELD_BORDER edge, PANEL fill,
+//!             shadow 0 12px 32px rgba(0,0,0,0.45)
+//!   titlebar  36px   TOPBAR fill, 1px bottom DIVIDER border, 12px side inset
+//!             brand svg 18px + 12px medium title + 20px close button
+//!   body      PANEL, 16px padding, 12px text, 18px line height
+//!   actions   45px   (44px min-height + 1px top border)  TOPBAR at 65%,
+//!             12px side inset
+//!             buttons 28px tall, 64px min-width, 6px radius, 12px side
+//!             inset, 11px medium text
+//! ```
+//!
+//! Reading the colours down a column at x=200 gives 20 (TOPBAR) for the
+//! titlebar, 30 (PANEL) for the body, and 23 for the footer \u{2014} and 23 is
+//! TOPBAR at 65% composited over PANEL, not a token of its own. That
+//! is why the footer is a translucent TOPBAR rather than a constant someone
+//! picked to look right.
+//!
+//! # What is a placeholder here
+//!
+//! The *chrome* is real for all seven dialogs: frame, shell, titlebar, title,
+//! close button, footer and both button variants. What varies per dialog is
+//! the body: `dialog-settings` is transcribed in full, `dialog-about` is
+//! rebuilt for the native shell (see `about_body`), and the other five bodies
+//! are the correct size with their controls stubbed, so a diff reports "how
+//! much of this body is missing" rather than "nothing is here". Stubbing the
+//! chrome too would have made all seven score identically and told nobody
+//! anything.
+//!
+//! # Gaps
+//!
+//! * `empty-new-document` is this module's job, not `empty_state.rs`'s. The two
+//!   are the *same* dialog with one difference measured: a 154x144 block at
+//!   crop x 190..343, y 102..244 is `#191919` in `dialog-new-document`
+//!   (`needsDoc: true`) and `#272727` in `empty-new-document`. 20 949 pixels,
+//!   and only 19 pixels in the whole image exceed delta 60 \u{2014} so it is one
+//!   swatch, not a second layout. `empty_state.rs` delegates this shot back
+//!   here for exactly that reason.
+//! * The dialog buttons' keyboard-focus outline, their 75 ms colour
+//!   transition and the dialog fade-in animation are still unwired. The
+//!   Rename, Resize Canvas and New Document text fields are tab stops with the
+//!   shared focus band, so `Tab` moves real focus and the keystrokes follow it.
+//!   The modal focus trap keeps `Tab` and `Shift+Tab` inside the panel. The
+//!   titlebar close, Escape for Settings/About, and the About link row are live:
+//!   `chrome::dialog_close_button` runs each dialog's own dismissal, and
+//!   `dismiss_chrome_dialog` owns the managed-focus Escape. A click on the
+//!   backdrop does not dismiss the dialog.
+//! * A non-modal dialog (the colour picker) makes the backdrop click-through so
+//!   the canvas behind stays live. A static view cannot express "this overlay
+//!   does not block the thing under it", because it has no pointer routing.
+//! * Icon edges carry LCD subpixel colour GPUI cannot reproduce: it tints an
+//!   alpha mask, and the font-smoothing hint covers type only, not SVG.
+
 use gpui_kit::base::{FocusTrapElement, h_flex, v_flex};
 use gpui_kit::component::Icon;
 use gpui_kit::prelude::*;
@@ -14,13 +90,12 @@ use gpui_kit::{
 use super::title_bar;
 #[allow(unused_imports)]
 use crate::components::ui;
-use crate::i18n::t_args;
+use crate::i18n::{t, t_args};
 use crate::icons;
 use crate::shot;
 use crate::state::{AppState, DialogId};
 use crate::tokens::color;
 use crate::units::DimensionUnit;
-use rust_i18n::t;
 
 /// The transparent frame every dialog lives in.
 const FRAME_W: f32 = 1366.0;
@@ -232,7 +307,7 @@ pub fn render() -> impl IntoElement {
             positioned(
                 *x,
                 *y,
-                dialog_shell(&t!(*title), *w, *h, dialog_body(owned, *w, *h), None),
+                dialog_shell(&t(title), *w, *h, dialog_body(owned, *w, *h), None),
             )
         })
         // Unlisted ids (including `dialog-resize-full`, the full-viewport
@@ -289,7 +364,7 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
                 .child(
                     div()
                         .text_color(color::TEXT_DIM)
-                        .child(format!("{}:", t!("settings.language"))),
+                        .child(format!("{}:", t("settings.language"))),
                 )
                 .child(div().font_weight(FontWeight(600.)).child(current_label)),
         )
@@ -325,7 +400,7 @@ fn settings_body_live(state: &Entity<AppState>, cx: &gpui_kit::Context<crate::ap
                 .text_size(px(11.0))
                 .font_weight(FontWeight(700.))
                 .text_color(color::TEXT_DIM)
-                .child(t!("settings.interface").to_uppercase()),
+                .child(t("settings.interface").to_uppercase()),
         )
         .child(h_flex().pl(px(8.0)).child(wrapper))
 }
@@ -371,7 +446,7 @@ pub fn render_dialog(
                     resize_canvas_body(state, cx),
                     vec![
                         dialog_action_button(
-                            &t!("common.cancel"),
+                            &t("common.cancel"),
                             false,
                             "resize-cancel",
                             cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -381,7 +456,7 @@ pub fn render_dialog(
                         )
                         .into_any_element(),
                         dialog_action_button(
-                            &t!("dialogs.resizeCanvas.resize"),
+                            &t("dialogs.resizeCanvas.resize"),
                             true,
                             "resize-confirm",
                             cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -419,7 +494,7 @@ pub fn render_dialog(
         DialogId::Print => print::render(state, document_size, cx),
         DialogId::Export => {
             let cancel = dialog_action_button(
-                &t!("common.cancel"),
+                &t("common.cancel"),
                 false,
                 "export-cancel",
                 cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -429,7 +504,7 @@ pub fn render_dialog(
             )
             .into_any_element();
             let confirm = dialog_action_button(
-                &t!("dialogs.export.exportBtn"),
+                &t("dialogs.export.exportBtn"),
                 true,
                 "export-confirm",
                 cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -448,7 +523,7 @@ pub fn render_dialog(
                 .id("dialog-export")
                 .test_support()
                 .child(chrome::dialog_shell_auto_actions(
-                    &t!("dialogs.export.title"),
+                    &t("dialogs.export.title"),
                     360.0,
                     export_body(state, document_size, cx),
                     vec![cancel, confirm],
@@ -468,7 +543,7 @@ pub fn render_dialog(
                 .id("dialog-recovery")
                 .test_support()
                 .child(chrome::dialog_shell_auto_actions(
-                    &t!("dialogs.recovery.title"),
+                    &t("dialogs.recovery.title"),
                     380.0,
                     recovery_body(state, cx),
                     recovery_actions(cx),
@@ -485,7 +560,7 @@ pub fn render_dialog(
             };
             let _ = w;
             let ok = dialog_action_button(
-                &t!("common.ok"),
+                &t("common.ok"),
                 true,
                 "settings-ok",
                 cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -504,7 +579,7 @@ pub fn render_dialog(
                 .id("dialog-settings")
                 .test_support()
                 .child(chrome::dialog_shell_auto_actions(
-                    &t!(*title),
+                    &t(title),
                     420.0,
                     settings_body_live(state, cx),
                     vec![ok],
@@ -515,7 +590,7 @@ pub fn render_dialog(
         }
         DialogId::About => {
             let close = dialog_action_button(
-                &t!("common.close"),
+                &t("common.close"),
                 true,
                 "about-close",
                 cx.listener(|app, _: &gpui_kit::ClickEvent, _window, cx| {
@@ -535,7 +610,7 @@ pub fn render_dialog(
                 .id("dialog-about")
                 .test_support()
                 .child(chrome::dialog_shell_auto_actions(
-                    &t!("dialogs.about.title"),
+                    &t("dialogs.about.title"),
                     400.0,
                     dialog_body("dialog-about", 400.0, 0.0),
                     vec![close],
@@ -682,21 +757,21 @@ fn dirty_close_shell(
             .child(message),
     );
     let discard = dialog_action_button(
-        &t!("common.discard"),
+        &t("common.discard"),
         false,
         "dirty-close-discard",
         cx.listener(|app, _, _, cx| app.dirty_close_discard(cx)),
     )
     .into_any_element();
     let cancel = dialog_action_button(
-        &t!("common.cancel"),
+        &t("common.cancel"),
         false,
         "dirty-close-cancel",
         cx.listener(|app, _, _, cx| app.dirty_close_cancel(cx)),
     )
     .into_any_element();
     let save = dialog_action_button(
-        &t!("menus.items.save"),
+        &t("menus.items.save"),
         true,
         "dirty-close-save",
         cx.listener(|app, _, _, cx| app.dirty_close_save(cx)),
@@ -710,7 +785,7 @@ fn dirty_close_shell(
         .id("dialog-dirty-close")
         .test_support()
         .child(dialog_shell_with_actions_live(
-            &t!("dialogs.unsavedChanges.title"),
+            &t("dialogs.unsavedChanges.title"),
             420.0,
             171.0,
             body,

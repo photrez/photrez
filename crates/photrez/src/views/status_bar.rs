@@ -1,8 +1,63 @@
 //! Native status bar (the window footer).
 //!
-//! The bar is 24px tall at y=796 in the 1366x820 client area.
-//! Frame timings vary per run, so that segment is not a geometry check.
-//! Every rule uses BORDER (#333333), not DIVIDER (a fill token).
+//! Geometry: at the default 1366x820 client area the bar is 1366x24 at
+//! (0,796) — the full client width, below the content area, and the last 24px
+//! that take the window from 796 to 820.
+//!
+//! # Scope: the resting state
+//!
+//! The real footer is a live readout of engine state — document size, zoom,
+//! active tool, the tool hint, the selected layer — plus five conditional
+//! indicators that only mount while something is happening:
+//!
+//! * the tiling-progress hairline, shown while a loading message is set,
+//! * the heavy-op spinner and its cancel button, on the same condition,
+//! * the dev-mode frame timings, which mount whenever `frames > 0`,
+//! * the autosave dot, shown whenever the autosave status is not idle,
+//! * the manual-save progress row, shown whenever the save phase is not idle.
+//!
+//! Of those five, only the dev-mode Frame cell is present in the resting
+//! layout: it is gated only on dev frame stats being on with `frames > 0`, and
+//! the dev scheduler ticks, so `frames` is always > 0. Its metrics segment
+//! (x 764-912, y 801-815 in viewport coords, affecting both `shell-status-bar`
+//! and `dock-closed`) varies run to run, so a pixel comparison of that segment
+//! is not a geometry check.
+//!
+//! The other four indicators are absent from the resting layout: their backing
+//! signals are idle, so no cell exists for them.
+//!
+//! The six resting cells are rendered as the literals they show; each
+//! `const` below names the state it stands in for, because this view has no
+//! engine to read from.
+//!
+//! Labels are the `en` locale strings (`tests/fixtures/i18n/en/translation.json`,
+//! `status.*`).
+//!
+//! # Layout notes
+//!
+//! * Every border in the bar paints [`color::BORDER`] (#333333) — the top
+//!   rule and the four cell separators included, even where the divider token
+//!   names #2e2e2e. The top rule measures #333333 at all 1366 pixels.
+//!   [`color::DIVIDER`] stays out of it; it is a fill token.
+//! * **Line height.** The line box is 1.5 x the footer's 10.5px, i.e. 15.75px.
+//!   Measured, each cell separator
+//!   paints exactly 15 rows (y=5..19 of the 24px bar) — a 15px box centred in
+//!   the border-box content area `y=1..24` lands on precisely those rows, with
+//!   no dependence on how a text layout snaps a fractional edge. GPUI's own
+//!   default line box (phi x font-size) is neither number, so `LINE_H` pins
+//!   it to 15px. The glyph baseline does not move as a result: centring a line
+//!   box inside a centred flex item cancels the box's height out of the
+//!   baseline calculation, so 15 and 15.75 put every glyph in the same place.
+//! * **Mixed weight on one line.** `Canvas: ` (dim, 400) and `800 x 600 px`
+//!   (text, 700, the emphasised run, which renders bolder) are inline
+//!   siblings. GPUI stacks plain text children, so each cell is one
+//!   [`StyledText`] carrying two [`TextRun`]s: one shaped line, one line box,
+//!   and no invented inter-word gap. Runs spell out `Inter` themselves because
+//!   an ambient `.font_family` reaches the element, not the run.
+//! * At the default width the five cell rules land at x=125, 204, 314, 608 and
+//!   ~760. Those are pure functions of the cell widths (padding 12 + gap 12 +
+//!   1px rule), so they hold as long as Inter shapes the strings the same way
+//!   it does in `title_bar`, which measures to 0.005%.
 
 use gpui_kit::base::h_flex;
 use gpui_kit::component::Icon;
@@ -10,9 +65,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{Hsla, StyledText, TestSupportExt, TextRun, div, font, px};
 
 use crate::components::ui;
+use crate::i18n::t;
 use crate::icons;
 use crate::tokens::color;
-use rust_i18n::t;
 
 use gpui_kit::Div;
 
@@ -28,7 +83,8 @@ const BAR_PX: f32 = 12.0;
 /// 10.5px footer font size.
 const TEXT_SIZE: f32 = 10.5;
 
-/// 15px line box: measured separators paint 15 rows, so GPUI's default is not used.
+/// Line box height for every run in the bar; see the module docs for why it is
+/// 15 rather than 15.75, or GPUI's default.
 const LINE_H: f32 = 15.0;
 
 /// 0.75rem (12px) between the cells of the left group.
@@ -185,6 +241,7 @@ pub fn render(
     layer_name: Option<&str>,
     autosave: crate::state::AutosaveStatus,
     frame: FrameMetrics,
+    status_tip: String,
     state: &gpui_kit::Entity<crate::state::AppState>,
     cx: &Context<crate::app::App>,
 ) -> impl IntoElement {
@@ -212,7 +269,15 @@ pub fn render(
         // with a single child would park the History hint on the left, and
         // the resting layout keeps it on the right.
         .child(if doc_size.is_some() {
-            ui::clip(left_group(zoom_percent, doc_size, tool, layer_name, frame)).into_any_element()
+            ui::clip(left_group(
+                zoom_percent,
+                doc_size,
+                tool,
+                layer_name,
+                frame,
+                &status_tip,
+            ))
+            .into_any_element()
         } else {
             div().into_any_element()
         })
@@ -236,6 +301,7 @@ fn left_group(
     tool: crate::state::ToolId,
     layer_name: Option<&str>,
     frame: FrameMetrics,
+    status_tip: &str,
 ) -> Div {
     let zoom = zoom_percent
         .map(|percent| format!("{percent}%"))
@@ -243,22 +309,22 @@ fn left_group(
     let doc = doc_size
         .map(|(width, height)| format!("{width} \u{d7} {height} px"))
         .unwrap_or_else(|| DOC_SIZE.to_string());
-    let tool_label = t!(tool_key(tool));
+    let tool_label = t(tool_key(tool));
     let layer = layer_name
         .map(str::to_string)
-        .unwrap_or_else(|| t!("status.noActiveLayer").into_owned());
+        .unwrap_or_else(|| t("status.noActiveLayer"));
     h_flex()
         .gap(px(GROUP_GAP))
         // The first cell is the only one without the left rule and its padding.
-        .child(field(&format!("{}: ", t!("status.canvas")), &doc))
-        .child(divided_field(&format!("{}: ", t!("status.zoom")), &zoom))
+        .child(field(&format!("{}: ", t("status.canvas")), &doc))
+        .child(divided_field(&format!("{}: ", t("status.zoom")), &zoom))
         .child(divided_field(
-            &format!("{}: ", t!("status.active")),
+            &format!("{}: ", t("status.active")),
             &tool_label,
         ))
-        .child(divided_tip(tool))
+        .child(divided_tip(status_tip))
         .child(divided_field(
-            &format!("{}: ", t!("status.selectedLayer")),
+            &format!("{}: ", t("status.selectedLayer")),
             &layer,
         ))
         .child(divided_frame(frame))
@@ -379,24 +445,8 @@ fn frame_text(metrics: &FrameMetrics, status_color: Hsla) -> StyledText {
 /// The inner layer carries the colour and the outer the rule; nesting them
 /// rather than colouring the ruled div keeps the two layers apart, which
 /// matters if either ever grows a second child.
-fn divided_tip(tool: crate::state::ToolId) -> impl IntoElement {
-    ruled(div().text_color(STATUS_COLOR).child(t!(tip_key(tool))))
-}
-
-fn tip_key(tool: crate::state::ToolId) -> &'static str {
-    use crate::state::ToolId;
-    match tool {
-        ToolId::Move => "status.toolTips.move",
-        ToolId::Selection => "status.toolTips.selection",
-        ToolId::Crop => "status.toolTips.crop",
-        ToolId::Eyedropper => "status.toolTips.eyedropper",
-        ToolId::Brush => "status.toolTips.brush",
-        ToolId::Eraser => "status.toolTips.eraser",
-        ToolId::PaintBucket => "status.toolTips.paintBucket",
-        ToolId::Gradient => "status.toolTips.gradient",
-        ToolId::Shape => "status.toolTips.shape",
-        ToolId::Text => "status.toolTips.text",
-    }
+fn divided_tip(tip: &str) -> impl IntoElement {
+    ruled(div().text_color(STATUS_COLOR).child(tip.to_string()))
 }
 
 /// The left-rule wrapper, applied to every cell
@@ -440,9 +490,9 @@ fn labeled(label: &str, value: &str) -> StyledText {
 fn autosave_cell(autosave: crate::state::AutosaveStatus) -> Option<gpui_kit::AnyElement> {
     use crate::state::AutosaveStatus;
     let (label, dot, text) = match autosave {
-        AutosaveStatus::Saving => (t!("common.saving"), color::YELLOW_400, color::TEXT_DIM),
-        AutosaveStatus::Saved => (t!("common.saved"), color::GREEN_400, color::TEXT_DIM),
-        AutosaveStatus::Error => (t!("common.saveFailed"), color::RED_400, color::RED_400),
+        AutosaveStatus::Saving => (t("common.saving"), color::YELLOW_400, color::TEXT_DIM),
+        AutosaveStatus::Saved => (t("common.saved"), color::GREEN_400, color::TEXT_DIM),
+        AutosaveStatus::Error => (t("common.saveFailed"), color::RED_400, color::RED_400),
         AutosaveStatus::Idle => return None,
     };
     Some(
@@ -528,7 +578,7 @@ fn history_button(open: bool, cx: &Context<crate::app::App>) -> impl IntoElement
                 .size(px(HISTORY_ICON))
                 .text_color(ink),
         )
-        .child(t!("panels.history"))
+        .child(t("panels.history"))
 }
 
 #[cfg(test)]
@@ -613,7 +663,7 @@ mod tests {
         for tool in tools {
             let key = tool_key(tool);
             assert_ne!(
-                rust_i18n::t!(key),
+                crate::i18n::t(key),
                 key,
                 "the Active cell renders {key} verbatim: no catalog entry answers it"
             );

@@ -6,7 +6,8 @@
 //! becomes `TextEdit` while the editor is open so tool letter shortcuts do not
 //! fire.
 
-use gpui_kit::{Context, KeyDownEvent};
+use gpui_kit::{Context, KeyDownEvent, Window};
+use photrez_core::document::content::LayerType;
 use photrez_core::document::layer_params::TextData;
 use photrez_core::protocol::Command;
 
@@ -29,6 +30,41 @@ impl App {
             self.set_status_error(Some(format!("Text: {error}")), cx);
         }
         self.start_text_edit(layer_id, doc_x, doc_y, data, true, cx);
+    }
+
+    /// Open a layer row's double-click target: text layers open their in-place
+    /// editor (the way the reference starts a text edit from the row), every
+    /// other layer opens the rename prompt. A locked layer keeps rename.
+    pub(crate) fn open_layer_row_double_click(
+        &mut self,
+        core_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text_layer = self.active_doc_id().ok().and_then(|doc_id| {
+            self.sessions
+                .get(&doc_id)
+                .and_then(|session| session.loaded_document().content_snapshot())
+                .and_then(|content| content.layers.iter().find(|layer| layer.id == core_id))
+                .and_then(|layer| {
+                    if !matches!(layer.layer_type, LayerType::Text)
+                        || layer.locked
+                        || layer.is_background == Some(true)
+                    {
+                        return None;
+                    }
+                    layer
+                        .text_data
+                        .clone()
+                        .map(|data| (layer.id.clone(), layer.transform.x, layer.transform.y, data))
+                })
+        });
+        if let Some((id, x, y, data)) = text_layer {
+            self.select_canvas_tool(ToolId::Text, cx);
+            self.begin_text_edit_existing(id, x, y, data, cx);
+        } else {
+            self.begin_rename_layer(core_id, window, cx);
+        }
     }
 
     /// Open an edit session on a layer that already exists. Cancel drops the
