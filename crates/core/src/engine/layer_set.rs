@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Document-owned layer state: the structural-sharing `LayerSet` over the
 // document-owned `LayerMeta` value. The set is the undo/redo substrate:
 // unchanged layers SHARE their `Arc` pointer across a before/after

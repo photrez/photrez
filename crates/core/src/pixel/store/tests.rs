@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Tests for `pixel::store`, split across sibling modules. Uses `use super::*` for the production items it
 //! exercises.
 

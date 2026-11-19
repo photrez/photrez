@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Wire-contract pins for the command envelope + layer delta (single-layer arms).
 use super::*;
 

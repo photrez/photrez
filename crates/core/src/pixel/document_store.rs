@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Per-document pixel store: the canonical per-layer buffers, the per-layer
 //! `StateNode` canon, and the document's authoritative history stream.
 

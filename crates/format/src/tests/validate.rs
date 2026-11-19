@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Seed-payload validation tests: the parse contract every canonical push must
 // meet.
 use crate::validate::validate_payload;

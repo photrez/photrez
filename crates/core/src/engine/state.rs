@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // DocumentCore state: the fields, construction, and the read/seed accessors. The
 // behavior half (forward/backward history helpers, layer restore) lives in the
 // parent `engine` module; both are sibling `impl DocumentCore` blocks.

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Multi-layer command arms: one gesture commits ONE forward history entry,
 // validation is all-or-nothing, and an all-no-op batch creates no entry.
 // Each arm asserts the single-entry rule explicitly so a partial regression

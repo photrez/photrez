@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Render projection types (RenderSnapshot / RenderDelta) + the pixel-history
 // delta helpers that translate Arc<StateNode> states to the host-facing TilePatch
 // form, and the error DTO. The history view DTOs live in `wire::history`.

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Single-sample companion for the paired `write_region` benchmark.
 //!
 //! The driver times one read rectangle in-process, then spawns THIS binary to

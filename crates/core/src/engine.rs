@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The runtime document engine: the authoritative `DocumentCore` state and its
 // history stream, the command families that change it, the structural-sharing layer
 // set, the document snapshot DTO, the duplicate-name planner, and the projection

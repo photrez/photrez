@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Text rasterizer: `TextData` -> RGBA bitmap.
 //!
 //! This path covers point mode with every alignment, letter spacing, and

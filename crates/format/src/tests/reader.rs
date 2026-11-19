@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 use crate::fixtures::REAL_DUMPED_MODEL;
 use photrez_document::content::*;
 

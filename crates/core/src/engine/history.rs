@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // History-cursor methods of DocumentCore: record/undo/redo for pixel, snapshot,
 // and external-handoff entries, plus the host cursor commit. The payload types
 // live in `history/payload.rs`.

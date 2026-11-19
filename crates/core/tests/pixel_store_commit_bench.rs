@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Baseline wall time of one full-layer canonical region commit
 //! (`PixelStoreRegistry::write_region`) at 512/2048/4096 px square layers,
 //! 5 timed runs per size, no warmup (the cold first run shows up in min/max).

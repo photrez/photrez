@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Map-backed [`RenderInput`] for the compositing tests.
 //!
 //! The compositor reads pixels through the trait, so a test of blend modes or

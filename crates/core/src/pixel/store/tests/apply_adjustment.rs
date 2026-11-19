@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! `applyBasicAdjustment` end to end: the metadata arm and the baked pixel
 //! land in ONE history entry, so a single undo restores both.
 

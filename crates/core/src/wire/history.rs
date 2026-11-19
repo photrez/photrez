@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // History wire types: the entry origin, the typed payload discriminant, and
 // the history view DTOs the host reads. They live in `wire` so the wire layer
 // stays independent of the document engine (no `wire -> document` edge).

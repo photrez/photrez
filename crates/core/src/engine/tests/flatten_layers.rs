@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Flatten arms of the structural contract: the whole stack collapses into one background
 // node in engine order with a fresh resource id, a single layer is a no-op, and an id that
 // is empty or already taken is rejected. The helpers are shared with `structural.rs`, which

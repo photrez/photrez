@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Colour conversions for the paint-colour picker.
 //!
 //! The picker edits HSV and paints through gpui's `Hsla`, while the document

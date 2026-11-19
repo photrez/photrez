@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Permanent benchmark, marked `#[ignore]`: the packed-store result must stay
 //! reproducible from the repo. Run on demand:
 //!   `cargo test -p photrez-core bench_packed_tile_store --release -- --ignored --nocapture`

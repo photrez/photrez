@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pixel half of a destructive crop (`delete_cropped_pixels`).
 //!
 //! The crop arm's metadata math lives in `canvas.rs` and stays there. This

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // History stream payload types: the per-entry payload and the entry record.
 // The origin and the payload-kind discriminant live in `wire::history` (they
 // are wire types, and the wire layer must not import the document engine).

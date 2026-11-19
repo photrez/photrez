@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Canvas-size command-arm tests: CropCanvas / ApplyCrop / ResizeCanvas. These pin
 // the native-authority contract for the three document-size arms so a regression
 // (silent no-op semantics, locked-layer skip, selection clear, shadow dim sync,

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // The `.ptz` surface this crate exposes. The envelope, its writer and reader, the
 // seed-payload validation, and the shared test fixtures are owned by
 // `photrez-format` and re-exported here, so callers keep one entry point.

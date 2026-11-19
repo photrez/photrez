@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Write-side tests for the v4 `.ptz` `document.json` shape.
 
 use photrez_document::content::*;

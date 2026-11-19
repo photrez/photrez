@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! CPU compositor for the document layer stack.
 //!
 //! Covers raster, shape, and text layers, content order (first = top),

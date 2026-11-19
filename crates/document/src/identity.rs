@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Model-owned identity types.
 
 /// Token handle to a layer's pixel resource in the store registry. The engine

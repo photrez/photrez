@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The composite-destination seed's THIRD step, on the real engine and the real
 //! shared per-document cursor.
 //!

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Pixel half of a basic-adjustment bake (`applyBasicAdjustment`).
 //!
 //! The metadata half lives in `apply_adjustment` and stays there. This

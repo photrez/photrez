@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Tests for the runtime engine: the `DocumentCore` command families exercised end
 // to end, plus the state and accessor half that belongs to the engine's own state
 // file. They need the whole engine surface, so the shared import block lives in the

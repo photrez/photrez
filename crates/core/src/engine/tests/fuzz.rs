@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Engine-level fuzz for DocumentCore: random commands drawn from the full
 // routed set plus undo/redo interleaves. This drives the REAL Rust engine (the
 // exact code the desktop app runs), not a stand-in emulator, so a green run is

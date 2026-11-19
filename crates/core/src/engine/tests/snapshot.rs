@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Snapshot DTO + registry integration pins (record/undo/redo atomicity).
 
 use super::*;

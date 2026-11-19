@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Multi-layer command arms: every mutation a single user gesture asks for is
 // committed inside one begin_forward/finish_forward pair, so one undo step
 // restores or discards the whole gesture.

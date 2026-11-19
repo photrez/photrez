@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The tile patch DTO: one absolute tile region of RGBA pixels (the changed
 //! region only). Leaf type - it depends on serde alone.
 

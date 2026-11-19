@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Test-only independent reference copy.
 //!
 //! This is the REFERENCE TRUTH model: plain row-major `Vec<u8>`, no structural

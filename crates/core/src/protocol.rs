@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Public typed protocol and wire surface. The former process-global protocol
 //! registry is callerless and has been removed.
 //!

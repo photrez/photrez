@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // apply() command-arm dispatch for DocumentCore. Kept separate from the engine
 // so both stay under the size cap; this is a sibling impl DocumentCore block
 // (method visibility is per-impl, not per module).

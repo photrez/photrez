@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Destructive crop (`delete_cropped_pixels`) end to end: the metadata arm and
 //! the pixel bake land in ONE history entry, so a single undo restores both.
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
 // Canvas-size command-arm bodies (Crop Canvas / Apply Crop / Resize Canvas).
 // Canvas command family, kept separate from the apply dispatcher so both stay
 // under the size cap; this is a sibling `impl DocumentCore` block (method visibility is
