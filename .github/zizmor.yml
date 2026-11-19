@@ -10,3 +10,15 @@ rules:
       # The release build keeps its own cache prefix, so a pull request run
       # cannot write the cache that the publishing job restores.
       - release.yml
+  # cargo-dist owns release.yml. Its generated actions and container images are
+  # version-pinned by the tool, and the release workflow needs write access to
+  # publish artifacts.
+  unpinned-uses:
+    ignore:
+      - release.yml
+  overly-broad-permissions:
+    ignore:
+      - release.yml
+  template-injection:
+    ignore:
+      - release.yml
