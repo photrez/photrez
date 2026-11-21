@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >
+  Use short, direct sentences. One instruction per comment. Avoid em dashes.
+  Ask for context instead of declaring a violation. A contributor may have a
+  reason that the diff does not show.
+early_access: false
+inheritance: false
+reviews:
+  profile: chill
+  path_filters:
+    - "!crates/render/tests/goldens/**"
+    - "!crates/photrez/tests/fixtures/**"
+    - "!crates/format/tests/fixtures/**"
+    - "!media/**"
+  path_instructions:
+    - path: "crates/core/**/*.rs"
+      instructions: |
+        Core owns document state, pixel data and history. Look for a second
+        store, a mirrored history cursor or a host-side layer vector, and ask
+        what keeps core authoritative. Check that GPU output stays derived
+        from core.
+    - path: "crates/photrez/src/**/*.rs"
+      instructions: |
+        UI and GPU state stay transient here. Point out a new document store,
+        a history mirror or a GPU-only correctness path. When a default
+        changes, ask whether the owner approved it.
+    - path: "**/Cargo.toml"
+      instructions: |
+        Note a new dependency and ask what it replaces and whether the owner
+        approved it.
+    - path: "docs/**/*.md"
+      instructions: |
+        Use product terms. Point out plan names, milestone codes and phase
+        labels. Write one idea per sentence. Keep user-facing text free of
+        em dashes.
+chat:
+  auto_reply: true
